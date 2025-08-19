@@ -1,18 +1,23 @@
 "use client";
 import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
+import { Trajectory } from "@/lib/models";
+import FlightDetailsPopup from "@/components/FlightDetailsPopup";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const { t, tick, setRange, showFlightLineLabels, showCallsigns } = useSimStore();
+  
+  const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
 
   // init map
   useEffect(() => {
@@ -265,6 +270,52 @@ export default function MapCanvas() {
       // Save trajectories on map for the animation step
       (map as any).__trajectories = tracks;
 
+      // Add click handlers for flight lines
+      map.on('click', 'flight-lines', (e) => {
+        if (e.features && e.features.length > 0) {
+          const feature = e.features[0];
+          const flightId = feature.properties?.flightId;
+          const clickedFlight = tracks.find((t: any) => t.flightId === flightId);
+          
+          if (clickedFlight) {
+            setSelectedFlight(clickedFlight);
+            setPopupPosition({ x: e.point.x, y: e.point.y });
+          }
+        }
+      });
+
+      // Add click handlers for plane icons
+      map.on('click', 'plane-icons', (e) => {
+        if (e.features && e.features.length > 0) {
+          const feature = e.features[0];
+          const flightId = feature.properties?.flightId;
+          const clickedFlight = tracks.find((t: any) => t.flightId === flightId);
+          
+          if (clickedFlight) {
+            setSelectedFlight(clickedFlight);
+            setPopupPosition({ x: e.point.x, y: e.point.y });
+          }
+        }
+      });
+
+      // Change cursor to pointer when hovering over flight lines
+      map.on('mouseenter', 'flight-lines', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      
+      map.on('mouseleave', 'flight-lines', () => {
+        map.getCanvas().style.cursor = '';
+      });
+
+      // Change cursor to pointer when hovering over plane icons
+      map.on('mouseenter', 'plane-icons', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      
+      map.on('mouseleave', 'plane-icons', () => {
+        map.getCanvas().style.cursor = '';
+      });
+
       // Fit to data (optional)
       const b = new maplibregl.LngLatBounds();
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
@@ -309,7 +360,19 @@ export default function MapCanvas() {
     }
   }, [showCallsigns]);
 
-  return <div id="map" className="absolute inset-0" />;
+  return (
+    <>
+      <div id="map" className="absolute inset-0" />
+      <FlightDetailsPopup 
+        flight={selectedFlight}
+        position={popupPosition}
+        onClose={() => {
+          setSelectedFlight(null);
+          setPopupPosition(null);
+        }}
+      />
+    </>
+  );
 }
 
 function emptyFC(): GeoJSON.FeatureCollection { return { type: "FeatureCollection", features: [] }; }

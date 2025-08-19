@@ -40,6 +40,8 @@ export async function loadTrajectories(csvUrl: string): Promise<Trajectory[]> {
     trajectories.push({
       flightId,
       callSign: segs[0]?.call_sign,
+      origin: segs[0]?.origin_aerodrome,
+      destination: segs[0]?.destination_aerodrome,
       coords,
       t0: times[0] ?? 0,
       t1: times.at(-1) ?? 0,

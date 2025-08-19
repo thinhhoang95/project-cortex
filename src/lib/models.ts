@@ -22,6 +22,8 @@ export interface FlightSegment {
 export interface Trajectory {
   flightId: string;
   callSign?: string;
+  origin?: string;
+  destination?: string;
   // coordinates sorted by time
   coords: [number, number, number?][]; // [lon, lat, alt_ft]
   t0: number; // seconds since midnight
