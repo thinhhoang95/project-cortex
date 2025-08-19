@@ -1,0 +1,43 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "traffic_volume_id": "NYC_TRACON",
+        "name": "New York TRACON",
+        "min_fl": 0,
+        "max_fl": 180
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-74.5, 40.0],
+          [-73.0, 40.0],
+          [-73.0, 41.5],
+          [-74.5, 41.5],
+          [-74.5, 40.0]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "traffic_volume_id": "PHL_TRACON",
+        "name": "Philadelphia TRACON", 
+        "min_fl": 0,
+        "max_fl": 180
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-76.0, 39.5],
+          [-74.5, 39.5],
+          [-74.5, 40.5],
+          [-76.0, 40.5],
+          [-76.0, 39.5]
+        ]]
+      }
+    }
+  ]
+}

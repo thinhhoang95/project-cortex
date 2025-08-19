@@ -1,0 +1,4 @@
+segment_identifier,flight_identifier,call_sign,origin_aerodrome,destination_aerodrome,date_begin_segment,date_end_segment,time_begin_segment,time_end_segment,latitude_begin,longitude_begin,latitude_end,longitude_end,flight_level_begin,flight_level_end,sequence
+S001,F001,UAL123,KJFK,KLAX,240801,240801,80000,81500,40.6413,-73.7781,40.7589,-73.9851,350,350,1
+S002,F001,UAL123,KJFK,KLAX,240801,240801,81500,90000,40.7589,-73.9851,41.2033,-72.8431,350,370,2
+S003,F001,UAL123,KJFK,KLAX,240801,240801,90000,100000,41.2033,-72.8431,39.7817,-75.2436,370,380,3
