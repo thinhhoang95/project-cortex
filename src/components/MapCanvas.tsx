@@ -112,7 +112,7 @@ export default function MapCanvas() {
         id: "sector-outline",
         type: "line",
         source: "sectors",
-        paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.8 }
+        paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.05 }
       });
       // center labels via centroid points
       const centroids = {
@@ -474,10 +474,10 @@ export default function MapCanvas() {
         : ["==", ["get", "traffic_volume_id"], ""];
 
       if (mapRef.current.getLayer("sector-highlight")) {
-        mapRef.current.setFilter("sector-highlight", highlightFilter);
+        mapRef.current.setFilter("sector-highlight", highlightFilter as any);
       }
       if (mapRef.current.getLayer("sector-highlight-outline")) {
-        mapRef.current.setFilter("sector-highlight-outline", highlightFilter);
+        mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
       }
     }
   }, [highlightedTrafficVolume]);
@@ -490,10 +490,10 @@ export default function MapCanvas() {
         : ["==", ["get", "traffic_volume_id"], ""];
 
       if (mapRef.current.getLayer("sector-hover")) {
-        mapRef.current.setFilter("sector-hover", hoverFilter);
+        mapRef.current.setFilter("sector-hover", hoverFilter as any);
       }
       if (mapRef.current.getLayer("sector-hover-outline")) {
-        mapRef.current.setFilter("sector-hover-outline", hoverFilter);
+        mapRef.current.setFilter("sector-hover-outline", hoverFilter as any);
       }
     }
   }, [hoveredTrafficVolume]);
@@ -584,19 +584,26 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   const src = map.getSource("planes") as maplibregl.GeoJSONSource | undefined;
   if (src) src.setData(planesFC);
 
-  // Filter flight line + label layers to only active flights at current time
+  // Filter flight line + label layers
+  // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
+  const lineIdsToShow: string[] = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+
   const filterExpr: any = [
     "match",
-    ["get", "flightId"],
-    activeFlightIds,
+    ["to-string", ["get", "flightId"]],
+    lineIdsToShow,
     true,
     false
   ];
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
+    map.setPaintProperty("flight-lines", "line-opacity", sim.focusMode ? 0.8 : 0.1);
   }
   if (map.getLayer("flight-line-labels")) {
     map.setFilter("flight-line-labels", filterExpr as any);
+  }
+  if (map.getLayer("plane-icons")) {
+    map.setFilter("plane-icons", filterExpr as any);
   }
 }

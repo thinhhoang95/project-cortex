@@ -13,6 +13,8 @@ type State = {
   flLowerBound: number;
   flUpperBound: number;
   flights: Trajectory[];
+  focusMode: boolean;
+  focusFlightIds: Set<string>;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
@@ -23,6 +25,8 @@ type State = {
   setFlUpperBound: (fl: number) => void;
   setFlRange: (lower: number, upper: number) => void;
   setFlights: (flights: Trajectory[]) => void;
+  setFocusMode: (enabled: boolean) => void;
+  setFocusFlightIds: (flightIds: Set<string>) => void;
   tick: (dtMs: number) => void;
 };
 
@@ -37,6 +41,8 @@ export const useSimStore = create<State>((set, get) => ({
   flLowerBound: 0,
   flUpperBound: 500,
   flights: [],
+  focusMode: false,
+  focusFlightIds: new Set<string>(),
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -47,6 +53,8 @@ export const useSimStore = create<State>((set, get) => ({
   setFlUpperBound: (fl) => set({ flUpperBound: fl }),
   setFlRange: (lower, upper) => set({ flLowerBound: lower, flUpperBound: upper }),
   setFlights: (flights) => set({ flights }),
+  setFocusMode: (enabled) => set({ focusMode: enabled }),
+  setFocusFlightIds: (flightIds) => set({ focusFlightIds: flightIds }),
   tick: (dtMs) => {
     const { playing, speed, t, range } = get();
     if (!playing) return;

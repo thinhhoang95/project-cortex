@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 
@@ -26,13 +26,14 @@ interface FlightIdentifiersData {
 }
 
 export default function AirspaceInfo() {
-  const { selectedTrafficVolume, t, flights } = useSimStore();
+  const { selectedTrafficVolume, t, flights, focusMode, setFocusMode, setFocusFlightIds } = useSimStore();
   const [occupancyData, setOccupancyData] = useState<OccupancyData | null>(null);
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
   const [loading, setLoading] = useState(false);
   const [flightListLoading, setFlightListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flightListError, setFlightListError] = useState<string | null>(null);
+  const [interestWindowLength, setInterestWindowLength] = useState<string>('1h');
 
   // Fetch data when traffic volume selection changes
   useEffect(() => {
@@ -111,16 +112,6 @@ export default function AirspaceInfo() {
   // Convert current simulation time (seconds) to hours for the reference line
   const currentTimeHours = t / 3600;
 
-  // Find the matching x-axis category for the current time so ReferenceLine aligns with categorical XAxis
-  const currentXAxisCategory = chartData.length
-    ? (chartData.find(d => currentTimeHours <= d.hour) ?? chartData[chartData.length - 1]).time
-    : undefined;
-
-  // Find the current count at the current time bin
-  const currentCount = chartData.length
-    ? (chartData.find(d => currentTimeHours <= d.hour) ?? chartData[chartData.length - 1]).count
-    : 0;
-
   // Format flight data for table display
   const formatFlightData = () => {
     if (!flightIdentifiersData || flights.length === 0) return [];
@@ -150,6 +141,102 @@ export default function AirspaceInfo() {
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
   }
+
+  // Helper function to convert interest window length to seconds
+  function getInterestWindowSeconds(windowLength: string): number {
+    const numValue = parseInt(windowLength);
+    if (windowLength.includes('h')) {
+      return numValue * 3600;
+    }
+    return numValue * 60; // minutes
+  }
+
+  // Helper to compare Set equality by contents
+  function areSetsEqual(a: Set<string>, b: Set<string>): boolean {
+    if (a === b) return true;
+    if (a.size !== b.size) return false;
+    for (const value of a) {
+      if (!b.has(value)) return false;
+    }
+    return true;
+  }
+
+  // Filter data based on focus mode using useMemo to prevent infinite re-renders
+  const { chartData: displayChartData, flightTableData: displayFlightTableData, filteredFlightIds } = useMemo(() => {
+    if (!focusMode || !occupancyData) {
+      return { 
+        chartData, 
+        flightTableData, 
+        filteredFlightIds: new Set<string>() 
+      };
+    }
+
+    const windowSeconds = getInterestWindowSeconds(interestWindowLength);
+    const windowEndTime = t + windowSeconds;
+
+    // Filter chart data to only show time bins within the interest window
+    const filteredChartData = chartData.filter(dataPoint => {
+      const pointTimeSeconds = dataPoint.hour * 3600;
+      return pointTimeSeconds >= t && pointTimeSeconds <= windowEndTime;
+    });
+
+    // Filter flight data to only show flights within the interest window
+    if (!flightIdentifiersData) {
+      return { 
+        chartData: filteredChartData, 
+        flightTableData: [], 
+        filteredFlightIds: new Set<string>() 
+      };
+    }
+
+    const filteredFlightIds = new Set<string>();
+    Object.entries(flightIdentifiersData).forEach(([timeWindow, flightIds]) => {
+      const [startTime] = timeWindow.split('-');
+      const [hours, minutes] = startTime.split(':').map(Number);
+      const timeWindowSeconds = hours * 3600 + minutes * 60;
+      
+      if (timeWindowSeconds >= t && timeWindowSeconds <= windowEndTime) {
+        flightIds.forEach(id => filteredFlightIds.add(id));
+      }
+    });
+
+    const filteredFlightTableData = Array.from(filteredFlightIds).map(flightId => {
+      const flight = flights.find(f => String(f.flightId) === String(flightId));
+      return {
+        flightId,
+        callsign: flight?.callSign || 'N/A',
+        origin: flight?.origin || 'N/A',
+        destination: flight?.destination || 'N/A',
+        takeoffTime: flight ? formatTime(flight.t0) : 'N/A'
+      };
+    }).slice(0, 50);
+
+    return { 
+      chartData: filteredChartData, 
+      flightTableData: filteredFlightTableData, 
+      filteredFlightIds 
+    };
+  }, [focusMode, occupancyData, chartData, flightTableData, interestWindowLength, t, flightIdentifiersData, flights]);
+
+  // Update focus flight IDs in store when they change
+  useEffect(() => {
+    // Avoid unnecessary updates and infinite loops
+    if (!focusMode) return;
+    const current = useSimStore.getState().focusFlightIds;
+    if (!areSetsEqual(current, filteredFlightIds)) {
+      setFocusFlightIds(filteredFlightIds);
+    }
+  }, [filteredFlightIds, setFocusFlightIds, focusMode]);
+
+  // Find the matching x-axis category for the current time so ReferenceLine aligns with categorical XAxis
+  const currentXAxisCategory = displayChartData.length
+    ? (displayChartData.find(d => currentTimeHours <= d.hour) ?? displayChartData[displayChartData.length - 1]).time
+    : undefined;
+
+  // Find the current count at the current time bin
+  const currentCount = displayChartData.length
+    ? (displayChartData.find(d => currentTimeHours <= d.hour) ?? displayChartData[displayChartData.length - 1]).count
+    : 0;
 
   // Custom tick formatter for x-axis - show every 3 hours
   const formatXAxisTick = (tickItem: string, index: number) => {
@@ -184,9 +271,51 @@ export default function AirspaceInfo() {
       ) : (
         <>
           <div className="border-b border-white/20 pb-3">
-            <h3 className="font-medium text-sm opacity-90">Selected Traffic Volume</h3>
-            <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="font-medium text-sm opacity-90">Selected Traffic Volume</h3>
+                <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
+              </div>
+              <button
+                onClick={() => {
+                  const newFocusMode = !focusMode;
+                  setFocusMode(newFocusMode);
+                  if (!newFocusMode) {
+                    setFocusFlightIds(new Set());
+                  }
+                }}
+                className={`flex flex-col items-center px-3 py-2 rounded-lg backdrop-blur-sm border transition-all duration-200 min-w-[70px] ${
+                  focusMode
+                    ? 'bg-blue-500/30 border-blue-400/50 text-blue-200'
+                    : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15 hover:border-white/30'
+                }`}
+              >
+                <div className="text-lg mb-1">🎯</div>
+                <span className="text-xs font-medium">Focus</span>
+              </button>
+            </div>
           </div>
+
+          {focusMode && (
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-3">
+              <h4 className="font-medium text-sm opacity-90">Interest Window Length</h4>
+              <div className="grid grid-cols-4 gap-2">
+                {['15', '30', '45', '1h', '2h', '4h', '6h'].map((duration) => (
+                  <button
+                    key={duration}
+                    onClick={() => setInterestWindowLength(duration)}
+                    className={`px-3 py-2 text-xs font-medium rounded-md backdrop-blur-sm border transition-all duration-200 ${
+                      interestWindowLength === duration
+                        ? 'bg-blue-500/30 border-blue-400/50 text-blue-200'
+                        : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15 hover:border-white/30'
+                    }`}
+                  >
+                    {duration}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {loading && (
             <div className="flex items-center justify-center py-8">
@@ -220,7 +349,7 @@ export default function AirspaceInfo() {
                 <h4 className="font-medium text-sm mb-3 opacity-90">Hourly Traffic Distribution</h4>
                 <div style={{ width: '100%', height: 200 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+                    <BarChart data={displayChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                       <XAxis 
                         dataKey="time" 
@@ -264,7 +393,14 @@ export default function AirspaceInfo() {
 
           {/* Flight List */}
           <div className="bg-white/5 rounded-lg p-4">
-            <h4 className="font-medium text-sm mb-3 opacity-90">Flight List</h4>
+            <div className="flex justify-between items-center mb-3">
+              <h4 className="font-medium text-sm opacity-90">Flight List</h4>
+              {focusMode && (
+                <span className="text-xs bg-blue-500/20 text-blue-200 px-2 py-1 rounded border border-blue-400/30">
+                  Focus Mode: {interestWindowLength}
+                </span>
+              )}
+            </div>
             
             {flightListLoading && (
               <div className="flex items-center justify-center py-4">
@@ -279,7 +415,7 @@ export default function AirspaceInfo() {
               </div>
             )}
 
-            {flightTableData.length > 0 && !flightListLoading && (
+            {displayFlightTableData.length > 0 && !flightListLoading && (
               <div className="max-h-60 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20">
                 <table className="w-full text-xs">
                   <thead className="sticky top-0">
@@ -291,7 +427,7 @@ export default function AirspaceInfo() {
                     </tr>
                   </thead>
                   <tbody>
-                    {flightTableData.map((flight, index) => (
+                    {displayFlightTableData.map((flight, index) => (
                       <tr key={flight.flightId} className={`border-b border-white/10 hover:bg-white/5 ${index % 2 === 0 ? 'bg-white/2' : ''}`}>
                         <td className="p-2 font-mono">{flight.callsign}</td>
                         <td className="p-2">{flight.origin}</td>
@@ -301,13 +437,13 @@ export default function AirspaceInfo() {
                     ))}
                   </tbody>
                 </table>
-                {flightTableData.length === 50 && (
+                {displayFlightTableData.length === 50 && (
                   <p className="text-xs opacity-70 text-center mt-2">Showing first 50 flights</p>
                 )}
               </div>
             )}
 
-            {flightTableData.length === 0 && !flightListLoading && !flightListError && (
+            {displayFlightTableData.length === 0 && !flightListLoading && !flightListError && (
               <p className="text-xs opacity-70 text-center py-4">No flights found for this traffic volume</p>
             )}
           </div>
