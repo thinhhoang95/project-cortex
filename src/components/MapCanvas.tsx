@@ -575,6 +575,50 @@ export default function MapCanvas() {
     };
   }, []);
 
+  // Listen for traffic volume search selection events
+  useEffect(() => {
+    const handleTrafficVolumeSearchSelect = (event: any) => {
+      const { trafficVolume } = event.detail;
+      const map = mapRef.current;
+      if (!map || !trafficVolume) return;
+
+      const trafficVolumeId = trafficVolume.properties.traffic_volume_id;
+      
+      // Highlight the traffic volume (same as clicking on it)
+      setHighlightedTrafficVolume(trafficVolumeId);
+
+      // Get the traffic volume geometry center
+      const geometry = trafficVolume.geometry;
+      if (geometry && geometry.type === 'Polygon') {
+        // Calculate centroid of the polygon
+        const coords = geometry.coordinates[0]; // First ring of the polygon
+        let centerLon = 0, centerLat = 0;
+        
+        for (const coord of coords) {
+          centerLon += coord[0];
+          centerLat += coord[1];
+        }
+        
+        const center: [number, number] = [
+          centerLon / coords.length,
+          centerLat / coords.length
+        ];
+        
+        // Pan to traffic volume location
+        map.flyTo({
+          center: center,
+          zoom: Math.max(map.getZoom(), 7),
+          duration: 1500
+        });
+      }
+    };
+
+    window.addEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect);
+    return () => {
+      window.removeEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect);
+    };
+  }, []);
+
   return (
     <>
       <div id="map" className="absolute inset-0" />

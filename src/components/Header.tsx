@@ -1,16 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
+import { loadSectors } from '@/lib/airspace';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<Array<{id: string, type: 'flight', flight: any}>>([]);
+  const [searchResults, setSearchResults] = useState<Array<{id: string, type: 'flight' | 'traffic_volume', flight?: any, trafficVolume?: any}>>([]);
+  const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
   
-  const { flights, setFocusMode, setFocusFlightIds, setT, t } = useSimStore();
+  const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume } = useSimStore();
+
+  // Load traffic volumes data on component mount
+  useEffect(() => {
+    const loadTrafficVolumes = async () => {
+      try {
+        const sectors = await loadSectors("/data/airspace.geojson");
+        setTrafficVolumes(sectors.features);
+      } catch (error) {
+        console.error("Failed to load traffic volumes:", error);
+      }
+    };
+    loadTrafficVolumes();
+  }, []);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -24,11 +39,23 @@ export default function Header() {
       (flight.callSign && String(flight.callSign).toLowerCase().includes(searchQuery.toLowerCase()))
     );
     
-    const results = matchingFlights.map(flight => ({
-      id: flight.flightId,
-      type: 'flight' as const,
-      flight
-    }));
+    // Search for traffic volumes by ID (exact match, case insensitive)
+    const matchingTrafficVolumes = trafficVolumes.filter(volume => 
+      volume.properties?.traffic_volume_id?.toLowerCase() === searchQuery.toLowerCase()
+    );
+    
+    const results = [
+      ...matchingFlights.map(flight => ({
+        id: flight.flightId,
+        type: 'flight' as const,
+        flight
+      })),
+      ...matchingTrafficVolumes.map(volume => ({
+        id: volume.properties.traffic_volume_id,
+        type: 'traffic_volume' as const,
+        trafficVolume: volume
+      }))
+    ];
     
     // Simulate search delay
     setTimeout(() => {
@@ -68,6 +95,23 @@ export default function Header() {
     window.dispatchEvent(event);
   };
 
+  const handleTrafficVolumeSelect = (trafficVolume: any) => {
+    const trafficVolumeId = trafficVolume.properties.traffic_volume_id;
+    
+    // Set selected traffic volume (this opens the AirspaceInfo panel)
+    setSelectedTrafficVolume(trafficVolumeId);
+    
+    // Close search results
+    setShowSearchResults(false);
+    setSearchQuery('');
+    
+    // Trigger map panning to traffic volume
+    const event = new CustomEvent('traffic-volume-search-select', { 
+      detail: { trafficVolume } 
+    });
+    window.dispatchEvent(event);
+  };
+
   const handleSearchBlur = () => {
     // Delay hiding to allow clicking on results
     setTimeout(() => {
@@ -98,7 +142,7 @@ export default function Header() {
           <div className="relative">
             <input
               type="text"
-              placeholder="Search flights..."
+              placeholder="Search flights or traffic volumes..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyPress={handleSearchKeyPress}
@@ -127,24 +171,42 @@ export default function Header() {
                     {searchResults.map((result) => (
                       <button
                         key={result.id}
-                        onClick={() => handleFlightSelect(result.flight)}
+                        onClick={() => result.type === 'flight' ? handleFlightSelect(result.flight) : handleTrafficVolumeSelect(result.trafficVolume)}
                         className="w-full px-4 py-3 text-left hover:bg-white/20 transition-colors border-b border-white/10 last:border-b-0"
                       >
-                        <div className="text-sm font-medium text-slate-900">
-                          {result.flight.flightId}
-                        </div>
-                        <div className="text-xs text-slate-600">
-                          {result.flight.callSign && `Callsign: ${result.flight.callSign}`}
-                          {result.flight.origin && result.flight.destination && 
-                            ` • ${result.flight.origin} → ${result.flight.destination}`
-                          }
-                        </div>
+                        {result.type === 'flight' ? (
+                          <>
+                            <div className="text-sm font-medium text-slate-900">
+                              <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                              {result.flight.flightId}
+                            </div>
+                            <div className="text-xs text-slate-600">
+                              {result.flight.callSign && `Callsign: ${result.flight.callSign}`}
+                              {result.flight.origin && result.flight.destination && 
+                                ` • ${result.flight.origin} → ${result.flight.destination}`
+                              }
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-sm font-medium text-slate-900">
+                              <span className="inline-block w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
+                              {result.trafficVolume.properties.traffic_volume_id}
+                            </div>
+                            <div className="text-xs text-slate-600">
+                              Traffic Volume • FL {result.trafficVolume.properties.min_fl}-{result.trafficVolume.properties.max_fl}
+                              {result.trafficVolume.properties.airspace_id && 
+                                ` • ${result.trafficVolume.properties.airspace_id}`
+                              }
+                            </div>
+                          </>
+                        )}
                       </button>
                     ))}
                   </div>
                 ) : (
                   <div className="py-4 px-4 text-sm text-slate-600">
-                    No flights found matching "{searchQuery}"
+                    No flights or traffic volumes found matching "{searchQuery}"
                   </div>
                 )}
               </div>
