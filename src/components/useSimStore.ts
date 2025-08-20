@@ -9,6 +9,7 @@ type State = {
   playing: boolean;
   showFlightLineLabels: boolean;
   showCallsigns: boolean;
+  showFlightLines: boolean;
   selectedTrafficVolume: string | null;
   flLowerBound: number;
   flUpperBound: number;
@@ -20,6 +21,7 @@ type State = {
   setSpeed: (v: number) => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
+  setShowFlightLines: (show: boolean) => void;
   setSelectedTrafficVolume: (tv: string | null) => void;
   setFlLowerBound: (fl: number) => void;
   setFlUpperBound: (fl: number) => void;
@@ -38,6 +40,7 @@ export const useSimStore = create<State>((set, get) => ({
   speed: 1,
   showFlightLineLabels: true,
   showCallsigns: true,
+  showFlightLines: true,
   selectedTrafficVolume: null,
   flLowerBound: 0,
   flUpperBound: 500,
@@ -49,6 +52,7 @@ export const useSimStore = create<State>((set, get) => ({
   setSpeed: (v) => set({ speed: v }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
+  setShowFlightLines: (show) => set({ showFlightLines: show }),
   setSelectedTrafficVolume: (tv) => set({ selectedTrafficVolume: tv }),
   setFlLowerBound: (fl) => set({ flLowerBound: fl }),
   setFlUpperBound: (fl) => set({ flUpperBound: fl }),

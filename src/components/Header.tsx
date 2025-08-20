@@ -223,7 +223,7 @@ export default function Header() {
               </div>
               <div className="text-left">
                 <div className="text-xs text-white/60">Signed in as</div>
-                <div className="text-sm text-white font-medium">Jensen Hoang</div>
+                <div className="text-sm text-white font-medium">Thinh Hoang</div>
               </div>
             </button>
             

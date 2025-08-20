@@ -2,7 +2,7 @@
 import { useSimStore } from "@/components/useSimStore";
 
 export default function LeftControl1() {
-  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound } = useSimStore();
+  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, showFlightLines, setShowFlightLines, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound } = useSimStore();
   return (
     <div className="absolute top-20 left-4 z-50 min-w-[280px] max-w-[360px]
                     rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
@@ -69,6 +69,20 @@ export default function LeftControl1() {
             }`}
           >
             {showCallsigns ? "On" : "Off"}
+          </button>
+        </div>
+        
+        <div className="flex items-center justify-between mt-3">
+          <label className="text-sm">Flight Lines</label>
+          <button
+            onClick={() => setShowFlightLines(!showFlightLines)}
+            className={`px-3 py-1.5 rounded-xl border border-white/30 text-sm transition-colors ${
+              showFlightLines 
+                ? "bg-white/40 hover:bg-white/50" 
+                : "bg-white/20 hover:bg-white/30"
+            }`}
+          >
+            {showFlightLines ? "On" : "Off"}
           </button>
         </div>
       </div>

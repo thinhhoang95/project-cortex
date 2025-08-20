@@ -710,7 +710,9 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    map.setPaintProperty("flight-lines", "line-opacity", sim.focusMode ? 0.8 : 0.1);
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume;
+    const lineOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0;
+    map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
   }
   if (map.getLayer("flight-line-labels")) {
     map.setFilter("flight-line-labels", filterExpr as any);
