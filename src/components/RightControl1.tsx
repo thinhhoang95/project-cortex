@@ -3,10 +3,13 @@ import AirspaceInfo from "@/components/AirspaceInfo";
 import { useSimStore } from "@/components/useSimStore";
 
 export default function RightControl1() {
-  const { selectedTrafficVolume, setSelectedTrafficVolume } = useSimStore();
+  const { selectedTrafficVolume, setSelectedTrafficVolume, setFocusMode, setFocusFlightIds } = useSimStore();
 
   const handleClose = () => {
     setSelectedTrafficVolume(null);
+    // Turn off focus mode and show all trajectories
+    setFocusMode(false);
+    setFocusFlightIds(new Set());
     // Also clear any highlighting in the MapCanvas by dispatching a custom event
     window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
   };
