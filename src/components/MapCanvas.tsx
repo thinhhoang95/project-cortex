@@ -633,6 +633,31 @@ export default function MapCanvas() {
           setFocusFlightIds(new Set());
         }}
       />
+      <div className="absolute bottom-4 left-4 bg-white-600/30 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-xs text-gray-400 pointer-events-none">
+        Flow's Kitchen is part of Thinh's Kitchen. If you like this, connect with me.
+        <br />
+        Experimental work. Beware of LLM's hallucinations.
+      </div>
+      
+      <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">
+        <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg flex items-center space-x-3">
+          <input
+            type="text"
+            placeholder="Message Flow Assistant..."
+            className="flex-1 bg-transparent text-white placeholder-gray-300 text-sm focus:outline-none"
+          />
+          <select className="bg-transparent text-white text-xs focus:outline-none border-l border-white/20 pl-3">
+            <option value="openai-o4-mini" className="bg-slate-800 text-white">o4-mini</option>
+            <option value="gpt-5-mini" className="bg-slate-800 text-white">GPT-5 mini</option>
+            <option value="claude-4-sonnet" className="bg-slate-800 text-white">Claude 4 Sonnet</option>
+          </select>
+          <button className="text-gray-300 hover:text-white transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </>
   );
 }

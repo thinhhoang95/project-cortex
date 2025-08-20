@@ -19,7 +19,9 @@ export default function LeftControl1() {
           </button>
         </div>
 
-        <div className="text-sm mb-2 opacity-80">T = {fmt(t)} (speed {speed}×)</div>
+        <div className="text-2xl font-bold mb-3 text-center bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent drop-shadow-lg">
+          T = {fmt(t)}
+        </div>
 
         <input
           type="range"
