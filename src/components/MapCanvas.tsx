@@ -14,7 +14,7 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showCallsigns, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, showCallsigns, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds } = useSimStore();
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -331,6 +331,9 @@ export default function MapCanvas() {
           if (clickedFlight) {
             setSelectedFlight(clickedFlight);
             setPopupPosition({ x: e.point.x, y: e.point.y });
+            // Focus on this flight only
+            setFocusMode(true);
+            setFocusFlightIds(new Set([clickedFlight.flightId]));
           }
         }
       });
@@ -345,6 +348,9 @@ export default function MapCanvas() {
           if (clickedFlight) {
             setSelectedFlight(clickedFlight);
             setPopupPosition({ x: e.point.x, y: e.point.y });
+            // Focus on this flight only
+            setFocusMode(true);
+            setFocusFlightIds(new Set([clickedFlight.flightId]));
           }
         }
       });
@@ -578,6 +584,9 @@ export default function MapCanvas() {
         onClose={() => {
           setSelectedFlight(null);
           setPopupPosition(null);
+          // Restore default view - show all trajectories
+          setFocusMode(false);
+          setFocusFlightIds(new Set());
         }}
       />
     </>
