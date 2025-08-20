@@ -14,10 +14,12 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showCallsigns } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, showCallsigns, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound } = useSimStore();
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
+  const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
+  const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
 
   // init map
   useEffect(() => {
@@ -87,11 +89,12 @@ export default function MapCanvas() {
     map.on("load", async () => {
       // Data
       const [sectors, tracks] = await Promise.all([
-        loadSectors("/data/airspace.json"),
+        loadSectors("/data/airspace.geojson"),
         loadTrajectories("/data/flights_20230801.csv")
       ]);
 
-      // Compute global time range
+      // Store flights in global store and compute global time range
+      setFlights(tracks);
       const minT = Math.min(...tracks.map((track: any) => track.t0));
       const maxT = Math.max(...tracks.map((track: any) => track.t1));
       setRange([minT, maxT], minT);
@@ -103,7 +106,7 @@ export default function MapCanvas() {
         id: "sector-fill",
         type: "fill",
         source: "sectors",
-        paint: { "fill-color": "#3b82f6", "fill-opacity": 0.1 }
+        paint: { "fill-color": "#3b82f6", "fill-opacity": 0.01 }
       });
       map.addLayer({
         id: "sector-outline",
@@ -131,6 +134,54 @@ export default function MapCanvas() {
           "text-font": ["Noto Sans Regular"]
         },
         paint: { "text-color": "#60a5fa", "text-halo-color": "#0f172a", "text-halo-width": 2 }
+      });
+
+      // Add highlight layer for selected traffic volume
+      map.addLayer({
+        id: "sector-highlight",
+        type: "fill",
+        source: "sectors",
+        paint: {
+          "fill-color": "#fbbf24",
+          "fill-opacity": 0.3
+        },
+        filter: ["==", ["get", "traffic_volume_id"], ""]
+      });
+      
+      map.addLayer({
+        id: "sector-highlight-outline",
+        type: "line",
+        source: "sectors",
+        paint: {
+          "line-color": "#fbbf24",
+          "line-width": 3,
+          "line-opacity": 0.8
+        },
+        filter: ["==", ["get", "traffic_volume_id"], ""]
+      });
+
+      // Add hover layer for traffic volumes
+      map.addLayer({
+        id: "sector-hover",
+        type: "fill",
+        source: "sectors",
+        paint: {
+          "fill-color": "#06b6d4",
+          "fill-opacity": 0.2
+        },
+        filter: ["==", ["get", "traffic_volume_id"], ""]
+      });
+      
+      map.addLayer({
+        id: "sector-hover-outline",
+        type: "line",
+        source: "sectors",
+        paint: {
+          "line-color": "#06b6d4",
+          "line-width": 2,
+          "line-opacity": 0.6
+        },
+        filter: ["==", ["get", "traffic_volume_id"], ""]
       });
 
       // --- Flight lines (static geometry) ---
@@ -256,7 +307,7 @@ export default function MapCanvas() {
           "icon-rotate": ["get", "bearing"],
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
-          "text-field": ["get", "callSign"],
+          "text-field": ["get", "labelText"],
           "text-offset": [0, 1],
           "text-size": 11
         },
@@ -316,6 +367,38 @@ export default function MapCanvas() {
         map.getCanvas().style.cursor = '';
       });
 
+      // Add click handlers for sector labels (traffic volumes)
+      map.on('click', 'sector-labels', (e) => {
+        if (e.features && e.features.length > 0) {
+          const feature = e.features[0];
+          const trafficVolumeId = feature.properties?.label;
+          if (trafficVolumeId) {
+            setSelectedTrafficVolume(trafficVolumeId);
+            // Toggle highlighting - if already highlighted, turn off; otherwise turn on
+            setHighlightedTrafficVolume(prev => 
+              prev === trafficVolumeId ? null : trafficVolumeId
+            );
+          }
+        }
+      });
+
+      // Change cursor to pointer when hovering over sector labels
+      map.on('mouseenter', 'sector-labels', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        if (e.features && e.features.length > 0) {
+          const feature = e.features[0];
+          const trafficVolumeId = feature.properties?.label;
+          if (trafficVolumeId) {
+            setHoveredTrafficVolume(trafficVolumeId);
+          }
+        }
+      });
+      
+      map.on('mouseleave', 'sector-labels', () => {
+        map.getCanvas().style.cursor = '';
+        setHoveredTrafficVolume(null);
+      });
+
       // Fit to data (optional)
       const b = new maplibregl.LngLatBounds();
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
@@ -359,6 +442,73 @@ export default function MapCanvas() {
       mapRef.current.setPaintProperty("plane-icons", "text-halo-width", showCallsigns ? 2 : 0);
     }
   }, [showCallsigns]);
+
+  // on FL range change, filter traffic volumes based on vertical intersection
+  useEffect(() => {
+    if (mapRef.current && mapRef.current.getSource("sectors")) {
+      // Create filter expression to show only sectors that intersect with FL range
+      // A sector intersects if: max_fl >= flLowerBound AND min_fl <= flUpperBound
+      const filterExpression: any = [
+        "all",
+        [">=", ["get", "max_fl"], flLowerBound],
+        ["<=", ["get", "min_fl"], flUpperBound]
+      ];
+
+      if (mapRef.current.getLayer("sector-fill")) {
+        mapRef.current.setFilter("sector-fill", filterExpression);
+      }
+      if (mapRef.current.getLayer("sector-outline")) {
+        mapRef.current.setFilter("sector-outline", filterExpression);
+      }
+      if (mapRef.current.getLayer("sector-labels")) {
+        mapRef.current.setFilter("sector-labels", filterExpression);
+      }
+    }
+  }, [flLowerBound, flUpperBound]);
+
+  // Update highlight layer when highlighted traffic volume changes
+  useEffect(() => {
+    if (mapRef.current) {
+      const highlightFilter = highlightedTrafficVolume 
+        ? ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume]
+        : ["==", ["get", "traffic_volume_id"], ""];
+
+      if (mapRef.current.getLayer("sector-highlight")) {
+        mapRef.current.setFilter("sector-highlight", highlightFilter);
+      }
+      if (mapRef.current.getLayer("sector-highlight-outline")) {
+        mapRef.current.setFilter("sector-highlight-outline", highlightFilter);
+      }
+    }
+  }, [highlightedTrafficVolume]);
+
+  // Update hover layer when hovered traffic volume changes
+  useEffect(() => {
+    if (mapRef.current) {
+      const hoverFilter = hoveredTrafficVolume 
+        ? ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume]
+        : ["==", ["get", "traffic_volume_id"], ""];
+
+      if (mapRef.current.getLayer("sector-hover")) {
+        mapRef.current.setFilter("sector-hover", hoverFilter);
+      }
+      if (mapRef.current.getLayer("sector-hover-outline")) {
+        mapRef.current.setFilter("sector-hover-outline", hoverFilter);
+      }
+    }
+  }, [hoveredTrafficVolume]);
+
+  // Listen for dialog close events to clear highlighting
+  useEffect(() => {
+    const handleClearHighlight = () => {
+      setHighlightedTrafficVolume(null);
+    };
+
+    window.addEventListener('clearTrafficVolumeHighlight', handleClearHighlight);
+    return () => {
+      window.removeEventListener('clearTrafficVolumeHighlight', handleClearHighlight);
+    };
+  }, []);
 
   return (
     <>
@@ -407,14 +557,25 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
     const lon = p0[0] + (p1[0]-p0[0]) * u;
     const lat = p0[1] + (p1[1]-p0[1]) * u;
+    const alt = p0[2] !== undefined && p1[2] !== undefined ? p0[2] + (p1[2] - p0[2]) * u : 0;
 
     // bearing for icon rotation
     const bearing = turf.bearing([p0[0], p0[1]], [p1[0], p1[1]]);
 
+    // Format altitude as flight level (divide by 100 and prefix with FL)
+    const flightLevel = Math.round(alt / 100);
+    const altitudeLabel = `FL${flightLevel.toString().padStart(3, '0')}`;
+
     planesFC.features.push({
       type: "Feature",
       geometry: { type: "Point", coordinates: [lon, lat] },
-      properties: { flightId: tr.flightId, callSign: tr.callSign ?? tr.flightId, bearing }
+      properties: { 
+        flightId: tr.flightId, 
+        callSign: tr.callSign ?? tr.flightId, 
+        bearing,
+        altitude: altitudeLabel,
+        labelText: `${tr.callSign ?? tr.flightId} · ${altitudeLabel}`
+      }
     });
 
     activeFlightIds.push(tr.flightId);

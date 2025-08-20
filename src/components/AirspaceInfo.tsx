@@ -131,7 +131,7 @@ export default function AirspaceInfo() {
     });
     
     return Array.from(allFlightIds).map(flightId => {
-      const flight = flights.find(f => f.flightId === flightId);
+      const flight = flights.find(f => String(f.flightId) === String(flightId));
       return {
         flightId,
         callsign: flight?.callSign || 'N/A',

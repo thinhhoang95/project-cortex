@@ -336,7 +336,7 @@ export default function MapCanvas() {
     map.on("load", async () => {
       // Data
       const [sectors, tracks] = await Promise.all([
-        loadSectors("/data/airspace.json"),
+        loadSectors("/data/airspace.geojson"),
         loadTrajectories("/data/flights.csv")
       ]);
 

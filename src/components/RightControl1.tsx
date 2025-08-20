@@ -3,11 +3,17 @@ import AirspaceInfo from "@/components/AirspaceInfo";
 import { useSimStore } from "@/components/useSimStore";
 
 export default function RightControl1() {
-  const { setSelectedTrafficVolume } = useSimStore();
+  const { selectedTrafficVolume, setSelectedTrafficVolume } = useSimStore();
 
   const handleClose = () => {
     setSelectedTrafficVolume(null);
+    // Also clear any highlighting in the MapCanvas by dispatching a custom event
+    window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
   };
+
+  if (!selectedTrafficVolume) {
+    return null;
+  }
 
   return (
     <div className="absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)]

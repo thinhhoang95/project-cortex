@@ -1,5 +1,6 @@
 "use client";
 import { create } from "zustand";
+import { Trajectory } from "@/lib/models";
 
 type State = {
   t: number;               // current sim time (s)
@@ -8,11 +9,20 @@ type State = {
   playing: boolean;
   showFlightLineLabels: boolean;
   showCallsigns: boolean;
+  selectedTrafficVolume: string | null;
+  flLowerBound: number;
+  flUpperBound: number;
+  flights: Trajectory[];
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
+  setSelectedTrafficVolume: (tv: string | null) => void;
+  setFlLowerBound: (fl: number) => void;
+  setFlUpperBound: (fl: number) => void;
+  setFlRange: (lower: number, upper: number) => void;
+  setFlights: (flights: Trajectory[]) => void;
   tick: (dtMs: number) => void;
 };
 
@@ -23,11 +33,20 @@ export const useSimStore = create<State>((set, get) => ({
   speed: 1,
   showFlightLineLabels: true,
   showCallsigns: true,
+  selectedTrafficVolume: null,
+  flLowerBound: 0,
+  flUpperBound: 500,
+  flights: [],
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
+  setSelectedTrafficVolume: (tv) => set({ selectedTrafficVolume: tv }),
+  setFlLowerBound: (fl) => set({ flLowerBound: fl }),
+  setFlUpperBound: (fl) => set({ flUpperBound: fl }),
+  setFlRange: (lower, upper) => set({ flLowerBound: lower, flUpperBound: upper }),
+  setFlights: (flights) => set({ flights }),
   tick: (dtMs) => {
     const { playing, speed, t, range } = get();
     if (!playing) return;

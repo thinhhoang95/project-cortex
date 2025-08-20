@@ -1,5 +1,6 @@
 import MapCanvas from "@/components/MapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
+import RightControl1 from "@/components/RightControl1";
 import Header from "@/components/Header";
 
 export default function Page() {
@@ -8,6 +9,7 @@ export default function Page() {
       <Header />
       <MapCanvas />
       <LeftControl1 />
+      <RightControl1 />
     </main>
   );
 }

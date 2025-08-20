@@ -2,7 +2,7 @@
 import { useSimStore } from "@/components/useSimStore";
 
 export default function LeftControl1() {
-  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns } = useSimStore();
+  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound } = useSimStore();
   return (
     <div className="absolute top-20 left-4 z-50 min-w-[280px] max-w-[360px]
                     rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
@@ -67,6 +67,44 @@ export default function LeftControl1() {
           >
             {showCallsigns ? "On" : "Off"}
           </button>
+        </div>
+      </div>
+
+      <div className="mt-6 pt-4 border-t border-white/20">
+        <h2 className="font-semibold mb-3">Airspace</h2>
+        
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm">Lower FL</label>
+              <span className="text-sm opacity-80">{flLowerBound}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={500}
+              step={10}
+              value={flLowerBound}
+              onChange={(e) => setFlLowerBound(Number(e.currentTarget.value))}
+              className="w-full"
+            />
+          </div>
+          
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm">Upper FL</label>
+              <span className="text-sm opacity-80">{flUpperBound}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={500}
+              step={10}
+              value={flUpperBound}
+              onChange={(e) => setFlUpperBound(Number(e.currentTarget.value))}
+              className="w-full"
+            />
+          </div>
         </div>
       </div>
     </div>
