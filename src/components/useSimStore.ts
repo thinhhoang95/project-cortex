@@ -27,6 +27,7 @@ type State = {
   setFlights: (flights: Trajectory[]) => void;
   setFocusMode: (enabled: boolean) => void;
   setFocusFlightIds: (flightIds: Set<string>) => void;
+  setT: (t: number) => void;
   tick: (dtMs: number) => void;
 };
 
@@ -55,6 +56,7 @@ export const useSimStore = create<State>((set, get) => ({
   setFlights: (flights) => set({ flights }),
   setFocusMode: (enabled) => set({ focusMode: enabled }),
   setFocusFlightIds: (flightIds) => set({ focusFlightIds: flightIds }),
+  setT: (t) => set({ t }),
   tick: (dtMs) => {
     const { playing, speed, t, range } = get();
     if (!playing) return;

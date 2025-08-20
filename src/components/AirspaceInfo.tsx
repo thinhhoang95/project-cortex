@@ -26,7 +26,7 @@ interface FlightIdentifiersData {
 }
 
 export default function AirspaceInfo() {
-  const { selectedTrafficVolume, t, flights, focusMode, setFocusMode, setFocusFlightIds } = useSimStore();
+  const { selectedTrafficVolume, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT } = useSimStore();
   const [occupancyData, setOccupancyData] = useState<OccupancyData | null>(null);
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -374,6 +374,13 @@ export default function AirspaceInfo() {
                         dataKey="count" 
                         fill="#06b6d4"
                         radius={[2, 2, 0, 0]}
+                        onClick={(data) => {
+                          if (data && data.hour !== undefined) {
+                            const newTime = data.hour * 3600;
+                            setT(newTime);
+                          }
+                        }}
+                        style={{ cursor: 'pointer' }}
                       />
                       {currentXAxisCategory && (
                         <ReferenceLine

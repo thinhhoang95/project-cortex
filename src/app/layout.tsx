@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import '../styles/globals.css'
 
 export const metadata: Metadata = {
-  title: 'Flight Map',
+  title: 'Flow\'s Kitchen',
   description: 'Real-time flight trajectory visualization',
 }
 
