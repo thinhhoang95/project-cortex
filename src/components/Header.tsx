@@ -148,7 +148,7 @@ export default function Header() {
               onKeyPress={handleSearchKeyPress}
               onBlur={handleSearchBlur}
               onFocus={() => searchQuery && setShowSearchResults(true)}
-              className="w-64 px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
+              className="w-80 px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
             />
             <svg 
               className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/60" 
@@ -222,8 +222,8 @@ export default function Header() {
                 <span className="text-white font-medium text-sm">TH</span>
               </div>
               <div className="text-left">
-                <div className="text-xs text-white/60">Signed in as</div>
-                <div className="text-sm text-white font-medium">Thinh Hoang</div>
+                <div className="text-xs text-white/60">Welcome back, Chef!</div>
+                <div className="text-sm text-white font-medium">Thinh Hoang (ENAC)</div>
               </div>
             </button>
             

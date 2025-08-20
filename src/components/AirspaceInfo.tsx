@@ -25,17 +25,31 @@ interface FlightIdentifiersData {
   [timeWindow: string]: string[];
 }
 
+interface OrderedFlightsData {
+  traffic_volume_id: string;
+  ref_time_str: string;
+  ordered_flights: string[];
+  details: {
+    flight_id: string;
+    arrival_time: string;
+    arrival_seconds: number;
+    delta_seconds: number;
+    time_window: string;
+  }[];
+}
+
 export default function AirspaceInfo() {
   const { selectedTrafficVolume, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT } = useSimStore();
   const [occupancyData, setOccupancyData] = useState<OccupancyData | null>(null);
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
+  const [orderedFlightsData, setOrderedFlightsData] = useState<OrderedFlightsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [flightListLoading, setFlightListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flightListError, setFlightListError] = useState<string | null>(null);
   const [interestWindowLength, setInterestWindowLength] = useState<string>('1h');
 
-  // Fetch data when traffic volume selection changes
+  // Fetch data when traffic volume selection changes or time changes
   useEffect(() => {
     if (selectedTrafficVolume) {
       fetchOccupancyData(selectedTrafficVolume);
@@ -43,10 +57,11 @@ export default function AirspaceInfo() {
     } else {
       setOccupancyData(null);
       setFlightIdentifiersData(null);
+      setOrderedFlightsData(null);
       setError(null);
       setFlightListError(null);
     }
-  }, [selectedTrafficVolume]);
+  }, [selectedTrafficVolume, t]);
 
   const fetchOccupancyData = async (trafficVolumeId: string) => {
     setLoading(true);
@@ -75,18 +90,29 @@ export default function AirspaceInfo() {
     setFlightListError(null);
     
     try {
-      const response = await fetch(`/api/tv_flights?traffic_volume_id=${trafficVolumeId}`);
+      // Format current time as HHMMSS for the new API
+      const currentTimeStr = formatTimeForAPI(t);
+      const response = await fetch(`/api/tv_flights?traffic_volume_id=${trafficVolumeId}&ref_time_str=${currentTimeStr}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(errorData.error || `Failed to fetch flight data: ${response.statusText}`);
       }
       
-      const data: FlightIdentifiersData = await response.json();
-      setFlightIdentifiersData(data);
+      const data = await response.json();
+      
+      // Check if we got the new ordered format or legacy format
+      if (data.ordered_flights && data.details) {
+        setOrderedFlightsData(data as OrderedFlightsData);
+        setFlightIdentifiersData(null);
+      } else {
+        setFlightIdentifiersData(data as FlightIdentifiersData);
+        setOrderedFlightsData(null);
+      }
     } catch (err) {
       setFlightListError(err instanceof Error ? err.message : 'Failed to fetch flight identifiers');
       setFlightIdentifiersData(null);
+      setOrderedFlightsData(null);
     } finally {
       setFlightListLoading(false);
     }
@@ -114,7 +140,27 @@ export default function AirspaceInfo() {
 
   // Format flight data for table display
   const formatFlightData = () => {
-    if (!flightIdentifiersData || flights.length === 0) return [];
+    if (flights.length === 0) return [];
+    
+    // Use ordered flights data if available (new API), otherwise fall back to legacy format
+    if (orderedFlightsData) {
+      return orderedFlightsData.ordered_flights.map(flightId => {
+        const flight = flights.find(f => String(f.flightId) === String(flightId));
+        const detail = orderedFlightsData.details.find(d => d.flight_id === flightId);
+        return {
+          flightId,
+          callsign: flight?.callSign || 'N/A',
+          origin: flight?.origin || 'N/A',
+          destination: flight?.destination || 'N/A',
+          takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
+          arrivalTime: detail?.arrival_time || 'N/A',
+          deltaSeconds: detail?.delta_seconds || 0
+        };
+      }).slice(0, 50); // Limit to 50 flights for performance
+    }
+    
+    // Legacy format fallback
+    if (!flightIdentifiersData) return [];
     
     const allFlightIds = new Set<string>();
     Object.values(flightIdentifiersData).forEach(timeWindowFlights => {
@@ -128,18 +174,28 @@ export default function AirspaceInfo() {
         callsign: flight?.callSign || 'N/A',
         origin: flight?.origin || 'N/A',
         destination: flight?.destination || 'N/A',
-        takeoffTime: flight ? formatTime(flight.t0) : 'N/A'
+        takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
+        arrivalTime: 'N/A',
+        deltaSeconds: 0
       };
     }).slice(0, 50); // Limit to 50 flights for performance
   };
 
   const flightTableData = formatFlightData();
 
-  // Helper function to format seconds to HH:MM format
+  // Helper function to format seconds to HH:MM format for display
   function formatTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  }
+
+  // Helper function to format seconds to HHMMSS format for API
+  function formatTimeForAPI(seconds: number): string {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${hours.toString().padStart(2, '0')}${minutes.toString().padStart(2, '0')}${secs.toString().padStart(2, '0')}`;
   }
 
   // Helper function to convert interest window length to seconds
@@ -180,43 +236,68 @@ export default function AirspaceInfo() {
       return pointTimeSeconds >= t && pointTimeSeconds <= windowEndTime;
     });
 
-    // Filter flight data to only show flights within the interest window
-    if (!flightIdentifiersData) {
-      return { 
-        chartData: filteredChartData, 
-        flightTableData: [], 
-        filteredFlightIds: new Set<string>() 
-      };
+    const filteredFlightIds = new Set<string>();
+
+    // Handle new ordered format
+    if (orderedFlightsData) {
+      orderedFlightsData.details.forEach(detail => {
+        if (detail.arrival_seconds >= t && detail.arrival_seconds <= windowEndTime) {
+          filteredFlightIds.add(detail.flight_id);
+        }
+      });
+    } 
+    // Handle legacy format
+    else if (flightIdentifiersData) {
+      Object.entries(flightIdentifiersData).forEach(([timeWindow, flightIds]) => {
+        const [startTime] = timeWindow.split('-');
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const timeWindowSeconds = hours * 3600 + minutes * 60;
+        
+        if (timeWindowSeconds >= t && timeWindowSeconds <= windowEndTime) {
+          flightIds.forEach(id => filteredFlightIds.add(id));
+        }
+      });
     }
 
-    const filteredFlightIds = new Set<string>();
-    Object.entries(flightIdentifiersData).forEach(([timeWindow, flightIds]) => {
-      const [startTime] = timeWindow.split('-');
-      const [hours, minutes] = startTime.split(':').map(Number);
-      const timeWindowSeconds = hours * 3600 + minutes * 60;
-      
-      if (timeWindowSeconds >= t && timeWindowSeconds <= windowEndTime) {
-        flightIds.forEach(id => filteredFlightIds.add(id));
-      }
-    });
-
-    const filteredFlightTableData = Array.from(filteredFlightIds).map(flightId => {
-      const flight = flights.find(f => String(f.flightId) === String(flightId));
-      return {
-        flightId,
-        callsign: flight?.callSign || 'N/A',
-        origin: flight?.origin || 'N/A',
-        destination: flight?.destination || 'N/A',
-        takeoffTime: flight ? formatTime(flight.t0) : 'N/A'
-      };
-    }).slice(0, 50);
+    // Create filtered flight table data maintaining order from the API
+    let filteredFlightTableData;
+    if (orderedFlightsData) {
+      filteredFlightTableData = orderedFlightsData.ordered_flights
+        .filter(flightId => filteredFlightIds.has(flightId))
+        .map(flightId => {
+          const flight = flights.find(f => String(f.flightId) === String(flightId));
+          const detail = orderedFlightsData.details.find(d => d.flight_id === flightId);
+          return {
+            flightId,
+            callsign: flight?.callSign || 'N/A',
+            origin: flight?.origin || 'N/A',
+            destination: flight?.destination || 'N/A',
+            takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
+            arrivalTime: detail?.arrival_time || 'N/A',
+            deltaSeconds: detail?.delta_seconds || 0
+          };
+        }).slice(0, 50);
+    } else {
+      filteredFlightTableData = Array.from(filteredFlightIds).map(flightId => {
+        const flight = flights.find(f => String(f.flightId) === String(flightId));
+        return {
+          flightId,
+          callsign: flight?.callSign || 'N/A',
+          origin: flight?.origin || 'N/A',
+          destination: flight?.destination || 'N/A',
+          takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
+          arrivalTime: 'N/A',
+          deltaSeconds: 0
+        };
+      }).slice(0, 50);
+    }
 
     return { 
       chartData: filteredChartData, 
       flightTableData: filteredFlightTableData, 
       filteredFlightIds 
     };
-  }, [focusMode, occupancyData, chartData, flightTableData, interestWindowLength, t, flightIdentifiersData, flights]);
+  }, [focusMode, occupancyData, chartData, flightTableData, interestWindowLength, t, flightIdentifiersData, orderedFlightsData, flights]);
 
   // Update focus flight IDs in store when they change
   useEffect(() => {
@@ -431,6 +512,7 @@ export default function AirspaceInfo() {
                       <th className="text-left p-2 font-semibold">Origin</th>
                       <th className="text-left p-2 font-semibold">Destination</th>
                       <th className="text-left p-2 font-semibold">Takeoff</th>
+                      {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arrival</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -440,12 +522,18 @@ export default function AirspaceInfo() {
                         <td className="p-2">{flight.origin}</td>
                         <td className="p-2">{flight.destination}</td>
                         <td className="p-2 font-mono">{flight.takeoffTime}</td>
+                        {orderedFlightsData && <td className="p-2 font-mono">{flight.arrivalTime}</td>}
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 {displayFlightTableData.length === 50 && (
                   <p className="text-xs opacity-70 text-center mt-2">Showing first 50 flights</p>
+                )}
+                {orderedFlightsData && (
+                  <p className="text-xs opacity-70 text-center mt-2">
+                    Flights ordered by proximity to current time ({formatTime(t)})
+                  </p>
                 )}
               </div>
             )}
