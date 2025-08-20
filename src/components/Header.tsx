@@ -1,9 +1,79 @@
 'use client';
 
 import { useState } from 'react';
+import { useSimStore } from '@/components/useSimStore';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Array<{id: string, type: 'flight', flight: any}>>([]);
+  
+  const { flights, setFocusMode, setFocusFlightIds, setT, t } = useSimStore();
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
+    setIsSearching(true);
+    setShowSearchResults(true);
+    
+    // Search for flights by identifier or callsign
+    const matchingFlights = flights.filter(flight => 
+      String(flight.flightId).toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (flight.callSign && String(flight.callSign).toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+    
+    const results = matchingFlights.map(flight => ({
+      id: flight.flightId,
+      type: 'flight' as const,
+      flight
+    }));
+    
+    // Simulate search delay
+    setTimeout(() => {
+      setSearchResults(results);
+      setIsSearching(false);
+    }, 500);
+  };
+
+  const handleSearchKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  const handleFlightSelect = (flight: any) => {
+    // Find the earliest time this flight appears
+    const earliestTime = flight.t0;
+    
+    // If current time is before the flight's start time, jump to start time
+    if (t < earliestTime) {
+      setT(earliestTime);
+    }
+    
+    // Focus on this flight
+    setFocusMode(true);
+    setFocusFlightIds(new Set([flight.flightId]));
+    
+    // Close search results
+    setShowSearchResults(false);
+    setSearchQuery('');
+    
+    // Trigger map panning and popup (will need to communicate with MapCanvas)
+    // We'll emit a custom event that MapCanvas can listen to
+    const event = new CustomEvent('flight-search-select', { 
+      detail: { flight } 
+    });
+    window.dispatchEvent(event);
+  };
+
+  const handleSearchBlur = () => {
+    // Delay hiding to allow clicking on results
+    setTimeout(() => {
+      setShowSearchResults(false);
+    }, 200);
+  };
 
   return (
     <header className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black to-transparent">
@@ -24,6 +94,62 @@ export default function Header() {
               Reroutes
             </a>
           </nav>
+          
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search flights..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyPress={handleSearchKeyPress}
+              onBlur={handleSearchBlur}
+              onFocus={() => searchQuery && setShowSearchResults(true)}
+              className="w-64 px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
+            />
+            <svg 
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/60" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            
+            {showSearchResults && (
+              <div className="absolute top-full mt-2 w-full bg-white/80 backdrop-blur-sm border border-white/20 rounded-lg shadow-xl max-h-64 overflow-y-auto z-50">
+                {isSearching ? (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-slate-700"></div>
+                    <span className="ml-2 text-slate-700 text-sm">Searching...</span>
+                  </div>
+                ) : searchResults.length > 0 ? (
+                  <div className="py-2">
+                    {searchResults.map((result) => (
+                      <button
+                        key={result.id}
+                        onClick={() => handleFlightSelect(result.flight)}
+                        className="w-full px-4 py-3 text-left hover:bg-white/20 transition-colors border-b border-white/10 last:border-b-0"
+                      >
+                        <div className="text-sm font-medium text-slate-900">
+                          {result.flight.flightId}
+                        </div>
+                        <div className="text-xs text-slate-600">
+                          {result.flight.callSign && `Callsign: ${result.flight.callSign}`}
+                          {result.flight.origin && result.flight.destination && 
+                            ` • ${result.flight.origin} → ${result.flight.destination}`
+                          }
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-4 px-4 text-sm text-slate-600">
+                    No flights found matching "{searchQuery}"
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           
           <div className="relative">
             <button

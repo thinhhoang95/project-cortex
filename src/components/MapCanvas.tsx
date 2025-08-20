@@ -510,6 +510,65 @@ export default function MapCanvas() {
     };
   }, []);
 
+  // Listen for flight search selection events
+  useEffect(() => {
+    const handleFlightSearchSelect = (event: any) => {
+      const { flight } = event.detail;
+      const map = mapRef.current;
+      if (!map || !flight) return;
+
+      // Get current flight position at time t
+      const { t } = useSimStore.getState();
+      const currentTime = Math.max(t, flight.t0); // Use flight start time if current time is before it
+      
+      // Find the flight position at current time
+      let position: [number, number] | null = null;
+      for (let i = 0; i < flight.times.length - 1; i++) {
+        if (currentTime >= flight.times[i] && currentTime <= flight.times[i + 1]) {
+          // Interpolate between the two points
+          const t1 = flight.times[i];
+          const t2 = flight.times[i + 1];
+          const ratio = (currentTime - t1) / (t2 - t1);
+          
+          const [lon1, lat1] = flight.coords[i];
+          const [lon2, lat2] = flight.coords[i + 1];
+          
+          position = [
+            lon1 + (lon2 - lon1) * ratio,
+            lat1 + (lat2 - lat1) * ratio
+          ];
+          break;
+        }
+      }
+      
+      // If no position found (flight not active at this time), use the start position
+      if (!position && flight.coords.length > 0) {
+        position = [flight.coords[0][0], flight.coords[0][1]];
+      }
+      
+      if (position) {
+        // Pan to flight location
+        map.flyTo({
+          center: position,
+          zoom: Math.max(map.getZoom(), 8),
+          duration: 1500
+        });
+        
+        // Show flight details popup at map center
+        setTimeout(() => {
+          const centerPoint = map.project(position!);
+          setSelectedFlight(flight);
+          setPopupPosition({ x: centerPoint.x, y: centerPoint.y });
+        }, 1500); // Wait for pan to complete
+      }
+    };
+
+    window.addEventListener('flight-search-select', handleFlightSearchSelect);
+    return () => {
+      window.removeEventListener('flight-search-select', handleFlightSearchSelect);
+    };
+  }, []);
+
   return (
     <>
       <div id="map" className="absolute inset-0" />
