@@ -14,7 +14,7 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showCallsigns, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, showCallsigns, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots } = useSimStore();
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -180,6 +180,30 @@ export default function MapCanvas() {
           "line-color": "#06b6d4",
           "line-width": 2,
           "line-opacity": 0.6
+        },
+        filter: ["==", ["get", "traffic_volume_id"], ""]
+      });
+
+      // Add hotspot layers for traffic volumes
+      map.addLayer({
+        id: "sector-hotspot",
+        type: "fill",
+        source: "sectors",
+        paint: {
+          "fill-color": "#ef4444",
+          "fill-opacity": 0.4
+        },
+        filter: ["==", ["get", "traffic_volume_id"], ""]
+      });
+      
+      map.addLayer({
+        id: "sector-hotspot-outline",
+        type: "line",
+        source: "sectors",
+        paint: {
+          "line-color": "#ef4444",
+          "line-width": 3,
+          "line-opacity": 0.9
         },
         filter: ["==", ["get", "traffic_volume_id"], ""]
       });
@@ -379,7 +403,14 @@ export default function MapCanvas() {
           const feature = e.features[0];
           const trafficVolumeId = feature.properties?.label;
           if (trafficVolumeId) {
-            setSelectedTrafficVolume(trafficVolumeId);
+            // Query the full sector feature to get flight level data
+            const sectorFeatures = map.querySourceFeatures('sectors', {
+              filter: ['==', 'traffic_volume_id', trafficVolumeId]
+            });
+            const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
+            // Store only the typed properties for the selected TV data
+            const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
+            setSelectedTrafficVolume(trafficVolumeId, tvData);
             // Toggle highlighting - if already highlighted, turn off; otherwise turn on
             setHighlightedTrafficVolume(prev => 
               prev === trafficVolumeId ? null : trafficVolumeId
@@ -504,6 +535,31 @@ export default function MapCanvas() {
     }
   }, [hoveredTrafficVolume]);
 
+  // Update hotspot layers when hotspots change, FL range changes, or time changes
+  useEffect(() => {
+    if (mapRef.current) {
+      // Get only the active hotspots for the current time
+      const activeHotspots = getActiveHotspots();
+      const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
+      
+      const hotspotFilter = hotspotTrafficVolumeIds.length > 0 
+        ? [
+            "all",
+            ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]],
+            [">=", ["get", "max_fl"], flLowerBound],
+            ["<=", ["get", "min_fl"], flUpperBound]
+          ]
+        : ["==", ["get", "traffic_volume_id"], ""];
+
+      if (mapRef.current.getLayer("sector-hotspot")) {
+        mapRef.current.setFilter("sector-hotspot", hotspotFilter as any);
+      }
+      if (mapRef.current.getLayer("sector-hotspot-outline")) {
+        mapRef.current.setFilter("sector-hotspot-outline", hotspotFilter as any);
+      }
+    }
+  }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
+
   // Listen for dialog close events to clear highlighting
   useEffect(() => {
     const handleClearHighlight = () => {
@@ -559,13 +615,6 @@ export default function MapCanvas() {
           zoom: Math.max(map.getZoom(), 8),
           duration: 1500
         });
-        
-        // Show flight details popup at map center
-        setTimeout(() => {
-          const centerPoint = map.project(position!);
-          setSelectedFlight(flight);
-          setPopupPosition({ x: centerPoint.x, y: centerPoint.y });
-        }, 1500); // Wait for pan to complete
       }
     };
 
@@ -578,38 +627,40 @@ export default function MapCanvas() {
   // Listen for traffic volume search selection events
   useEffect(() => {
     const handleTrafficVolumeSearchSelect = (event: any) => {
-      const { trafficVolume } = event.detail;
+      const { trafficVolume, trafficVolumeId } = event.detail || {};
       const map = mapRef.current;
-      if (!map || !trafficVolume) return;
+      if (!map) return;
 
-      const trafficVolumeId = trafficVolume.properties.traffic_volume_id;
-      
-      // Highlight the traffic volume (same as clicking on it)
-      setHighlightedTrafficVolume(trafficVolumeId);
+      // If we only received an ID, try to retrieve the feature from the map source
+      let tvId: string | null = null;
+      let tvGeometry: any = null;
 
-      // Get the traffic volume geometry center
-      const geometry = trafficVolume.geometry;
-      if (geometry && geometry.type === 'Polygon') {
-        // Calculate centroid of the polygon
-        const coords = geometry.coordinates[0]; // First ring of the polygon
-        let centerLon = 0, centerLat = 0;
-        
-        for (const coord of coords) {
-          centerLon += coord[0];
-          centerLat += coord[1];
-        }
-        
-        const center: [number, number] = [
-          centerLon / coords.length,
-          centerLat / coords.length
-        ];
-        
-        // Pan to traffic volume location
-        map.flyTo({
-          center: center,
-          zoom: Math.max(map.getZoom(), 7),
-          duration: 1500
+      if (trafficVolume && trafficVolume.properties?.traffic_volume_id) {
+        tvId = trafficVolume.properties.traffic_volume_id;
+        tvGeometry = trafficVolume.geometry;
+      } else if (trafficVolumeId) {
+        tvId = trafficVolumeId;
+        // Query the sector feature by id
+        const sectorFeatures = map.querySourceFeatures('sectors', {
+          filter: ['==', 'traffic_volume_id', trafficVolumeId]
         });
+        if (sectorFeatures.length > 0) {
+          tvGeometry = sectorFeatures[0].geometry;
+        }
+      }
+
+      if (!tvId) return;
+
+      // Highlight the traffic volume (same as clicking on it)
+      setHighlightedTrafficVolume(tvId);
+
+      // If we have geometry, pan to its centroid
+      if (tvGeometry && tvGeometry.type === 'Polygon') {
+        const coords = (tvGeometry as any).coordinates[0];
+        let centerLon = 0, centerLat = 0;
+        for (const coord of coords) { centerLon += coord[0]; centerLat += coord[1]; }
+        const center: [number, number] = [centerLon / coords.length, centerLat / coords.length];
+        map.flyTo({ center, zoom: Math.max(map.getZoom(), 7), duration: 1500 });
       }
     };
 
@@ -634,7 +685,7 @@ export default function MapCanvas() {
         }}
       />
       <div className="absolute bottom-4 left-4 bg-white-600/30 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-xs text-gray-400 pointer-events-none">
-        Flow's Kitchen is part of Thinh's Kitchen. If you like this, connect with me.
+        Flow's Kitchen is part of Thinh's Kitchen. If you like this, cook with me.
         <br />
         Experimental work. Beware of LLM's hallucinations.
       </div>

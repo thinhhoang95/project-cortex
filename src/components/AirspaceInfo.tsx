@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line, LineChart } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 
 // Use Next.js API route to avoid CORS issues
@@ -8,6 +8,7 @@ import { useSimStore } from "@/components/useSimStore";
 interface OccupancyData {
   traffic_volume_id: string;
   occupancy_counts: Record<string, number>;
+  hourly_capacity: Record<string, number>;
   metadata: {
     time_bin_minutes: number;
     total_time_windows: number;
@@ -19,6 +20,7 @@ interface ChartDataPoint {
   time: string;
   count: number;
   hour: number;
+  capacity?: number;
 }
 
 interface FlightIdentifiersData {
@@ -39,7 +41,7 @@ interface OrderedFlightsData {
 }
 
 export default function AirspaceInfo() {
-  const { selectedTrafficVolume, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT } = useSimStore();
+  const { selectedTrafficVolume, selectedTrafficVolumeData, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT } = useSimStore();
   const [occupancyData, setOccupancyData] = useState<OccupancyData | null>(null);
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
   const [orderedFlightsData, setOrderedFlightsData] = useState<OrderedFlightsData | null>(null);
@@ -68,7 +70,7 @@ export default function AirspaceInfo() {
     setError(null);
     
     try {
-      const response = await fetch(`/api/tv_count?traffic_volume_id=${trafficVolumeId}`);
+      const response = await fetch(`/api/tv_count_with_capacity?traffic_volume_id=${trafficVolumeId}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -118,22 +120,61 @@ export default function AirspaceInfo() {
     }
   };
 
-  // Transform occupancy data for chart
-  const chartData: ChartDataPoint[] = occupancyData ? 
+  // Transform occupancy data for chart (rolling 60-minute sum)
+  // 1) Build base bins sorted by time
+  const baseChartData: ChartDataPoint[] = occupancyData ?
     Object.entries(occupancyData.occupancy_counts)
       .map(([timeRange, count]) => {
         const [startTime] = timeRange.split('-');
         const [hours, minutes] = startTime.split(':').map(Number);
         const hour = hours + minutes / 60;
-        
+
+        // Find the capacity for this time bin from hourly_capacity
+        // hourly_capacity uses format "HH:00-HH+1:00" so we need to match the hour
+        const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
+        const capacity = occupancyData.hourly_capacity[hourKey];
+
         return {
           time: timeRange,
           count,
-          hour
+          hour,
+          capacity
         };
       })
       .sort((a, b) => a.hour - b.hour)
     : [];
+
+  // 2) Deduce bin length (minutes) from metadata when available, otherwise parse from first bin label
+  const timeBinMinutes: number = (() => {
+    if (!occupancyData || baseChartData.length === 0) return 60;
+    const metaBin = occupancyData.metadata?.time_bin_minutes;
+    if (typeof metaBin === 'number' && metaBin > 0) return metaBin;
+    try {
+      const firstRange = baseChartData[0].time; // e.g., "06:00-06:15"
+      const [start, end] = firstRange.split('-');
+      const [sh, sm] = start.split(':').map(Number);
+      const [eh, em] = end.split(':').map(Number);
+      const startMinutes = sh * 60 + sm;
+      const endMinutes = eh * 60 + em;
+      const diff = endMinutes - startMinutes;
+      return diff > 0 ? diff : 60;
+    } catch (e) {
+      return 60;
+    }
+  })();
+
+  // 3) Compute rolling sum window size (# of bins in 60 minutes)
+  const binsPerHour = Math.max(1, Math.round(60 / timeBinMinutes));
+
+  // 4) Produce rolling-sum chart data where count = sum of this bin and the next (binsPerHour-1) bins
+  const chartData: ChartDataPoint[] = baseChartData.map((_, idx) => {
+    let rollingSum = 0;
+    const endIdx = Math.min(idx + binsPerHour, baseChartData.length);
+    for (let j = idx; j < endIdx; j++) {
+      rollingSum += baseChartData[j].count;
+    }
+    return { ...baseChartData[idx], count: rollingSum };
+  });
 
   // Convert current simulation time (seconds) to hours for the reference line
   const currentTimeHours = t / 3600;
@@ -314,6 +355,14 @@ export default function AirspaceInfo() {
     ? (displayChartData.find(d => currentTimeHours <= d.hour) ?? displayChartData[displayChartData.length - 1]).time
     : undefined;
 
+  // Generate capacity reference lines - group by hour and create horizontal lines
+  const capacityLines = occupancyData ? 
+    Object.entries(occupancyData.hourly_capacity).map(([hourRange, capacity]) => {
+      const [startHour] = hourRange.split('-')[0].split(':');
+      const hourNum = parseInt(startHour);
+      return { hour: hourNum, capacity };
+    }) : [];
+
   // Find the current count at the current time bin
   const currentCount = displayChartData.length
     ? (displayChartData.find(d => currentTimeHours <= d.hour) ?? displayChartData[displayChartData.length - 1]).count
@@ -329,14 +378,20 @@ export default function AirspaceInfo() {
     return '';
   };
 
-  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) => {
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number, payload?: ChartDataPoint }>; label?: string }) => {
     if (active && payload && payload.length) {
+      const data = payload[0].payload;
       return (
         <div className="bg-slate-800/90 backdrop-blur-sm border border-white/20 rounded-lg p-2 text-white text-sm">
           <p className="font-medium">{label}</p>
           <p className="text-blue-300">
             Flights: <span className="font-medium">{payload[0].value}</span>
           </p>
+          {data?.capacity !== undefined && (
+            <p className="text-yellow-300">
+              Capacity: <span className="font-medium">{data.capacity}</span>
+            </p>
+          )}
         </div>
       );
     }
@@ -356,6 +411,11 @@ export default function AirspaceInfo() {
               <div>
                 <h3 className="font-medium text-sm opacity-90">Selected Traffic Volume</h3>
                 <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
+                {selectedTrafficVolumeData?.properties && (
+                  <p className="text-xs opacity-70 mt-1">
+                    FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3, '0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3, '0')}
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => {
@@ -427,10 +487,10 @@ export default function AirspaceInfo() {
 
               {/* Histogram */}
               <div className="bg-white/5 rounded-lg p-4">
-                <h4 className="font-medium text-sm mb-3 opacity-90">Hourly Traffic Distribution</h4>
+                <h4 className="font-medium text-sm mb-3 opacity-90">Rolling Hour Entrances & Capacity</h4>
                 <div style={{ width: '100%', height: 200 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={displayChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+                    <ComposedChart data={displayChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                       <XAxis 
                         dataKey="time" 
@@ -455,14 +515,26 @@ export default function AirspaceInfo() {
                         dataKey="count" 
                         fill="#06b6d4"
                         radius={[2, 2, 0, 0]}
-                        onClick={(data) => {
-                          if (data && data.hour !== undefined) {
-                            const newTime = data.hour * 3600;
+                        onClick={(_, index) => {
+                          const point = displayChartData[index];
+                          if (point && point.hour !== undefined) {
+                            const newTime = point.hour * 3600;
                             setT(newTime);
                           }
                         }}
                         style={{ cursor: 'pointer' }}
                       />
+                      <Line 
+                        type="stepAfter"
+                        dataKey="capacity" 
+                        stroke="#fbbf24"
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls={false}
+                        name="Capacity"
+                        isAnimationActive={false}
+                      />
+                      
                       {currentXAxisCategory && (
                         <ReferenceLine
                           x={currentXAxisCategory}
@@ -472,8 +544,18 @@ export default function AirspaceInfo() {
                           label={{ value: "Current Time", position: "top", fill: "#ef4444", fontSize: 10 }}
                         />
                       )}
-                    </BarChart>
+                    </ComposedChart>
                   </ResponsiveContainer>
+                </div>
+                <div className="flex items-center justify-center space-x-4 mt-2 text-xs opacity-70">
+                  <div className="flex items-center">
+                    <div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div>
+                    <span>Entrances</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-3 h-0.5 bg-yellow-400 mr-1"></div>
+                    <span>Hourly Capacity</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -504,7 +586,7 @@ export default function AirspaceInfo() {
             )}
 
             {displayFlightTableData.length > 0 && !flightListLoading && (
-              <div className="max-h-60 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20">
+              <div className="max-h-60 overflow-y-auto no-scrollbar">
                 <table className="w-full text-xs">
                   <thead className="sticky top-0">
                     <tr className="bg-blue-900 text-white">
@@ -517,7 +599,20 @@ export default function AirspaceInfo() {
                   </thead>
                   <tbody>
                     {displayFlightTableData.map((flight, index) => (
-                      <tr key={flight.flightId} className={`border-b border-white/10 hover:bg-white/5 ${index % 2 === 0 ? 'bg-white/2' : ''}`}>
+                      <tr 
+                        key={flight.flightId} 
+                        className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${index % 2 === 0 ? 'bg-white/2' : ''}`}
+                        onClick={() => {
+                          // Find the full flight data from the flights array
+                          const fullFlight = flights.find(f => String(f.flightId) === String(flight.flightId));
+                          if (fullFlight) {
+                            // Dispatch custom event for map to handle flight panning
+                            window.dispatchEvent(new CustomEvent('flight-search-select', {
+                              detail: { flight: fullFlight }
+                            }));
+                          }
+                        }}
+                      >
                         <td className="p-2 font-mono">{flight.callsign}</td>
                         <td className="p-2">{flight.origin}</td>
                         <td className="p-2">{flight.destination}</td>

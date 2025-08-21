@@ -99,7 +99,7 @@ export default function Header() {
     const trafficVolumeId = trafficVolume.properties.traffic_volume_id;
     
     // Set selected traffic volume (this opens the AirspaceInfo panel)
-    setSelectedTrafficVolume(trafficVolumeId);
+    setSelectedTrafficVolume(trafficVolumeId, trafficVolume);
     
     // Close search results
     setShowSearchResults(false);

@@ -33,7 +33,7 @@ export default function RightControl1() {
         </button>
       </div>
       
-      <div className="overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20 p-4 flex-1">
+      <div className="overflow-y-auto no-scrollbar p-4 flex-1">
         <AirspaceInfo />
       </div>
     </div>

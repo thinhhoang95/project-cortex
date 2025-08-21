@@ -1,6 +1,47 @@
 "use client";
 import { create } from "zustand";
-import { Trajectory } from "@/lib/models";
+import { Trajectory, SectorFeatureProps } from "@/lib/models";
+
+interface Hotspot {
+  traffic_volume_id: string;
+  time_bin: string;
+  z_max: number;
+  z_sum: number;
+  hourly_occupancy: number;
+  hourly_capacity: number;
+  is_overloaded: boolean;
+}
+
+interface HotspotResponse {
+  hotspots: Hotspot[];
+  count: number;
+  metadata: {
+    threshold: number;
+    time_bin_minutes: number;
+    analysis_type: string;
+  };
+  error?: string;
+}
+
+// Utility function to parse time string (HH:MM) to seconds
+function parseTimeToSeconds(timeStr: string): number {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 3600 + minutes * 60;
+}
+
+// Utility function to check if simulation time t falls within a time bin
+function isTimeInBin(t: number, timeBin: string): boolean {
+  const [startTime, endTime] = timeBin.split('-');
+  const startSeconds = parseTimeToSeconds(startTime);
+  const endSeconds = parseTimeToSeconds(endTime);
+  
+  // Handle case where time bin crosses midnight (e.g., "23:00-01:00")
+  if (endSeconds < startSeconds) {
+    return t >= startSeconds || t <= endSeconds;
+  }
+  
+  return t >= startSeconds && t < endSeconds;
+}
 
 type State = {
   t: number;               // current sim time (s)
@@ -11,18 +52,22 @@ type State = {
   showCallsigns: boolean;
   showFlightLines: boolean;
   selectedTrafficVolume: string | null;
+  selectedTrafficVolumeData: { properties: SectorFeatureProps } | null;
   flLowerBound: number;
   flUpperBound: number;
   flights: Trajectory[];
   focusMode: boolean;
   focusFlightIds: Set<string>;
+  showHotspots: boolean;
+  hotspots: Hotspot[];
+  hotspotsLoading: boolean;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
   setShowFlightLines: (show: boolean) => void;
-  setSelectedTrafficVolume: (tv: string | null) => void;
+  setSelectedTrafficVolume: (tv: string | null, tvData?: { properties: SectorFeatureProps } | null) => void;
   setFlLowerBound: (fl: number) => void;
   setFlUpperBound: (fl: number) => void;
   setFlRange: (lower: number, upper: number) => void;
@@ -31,6 +76,11 @@ type State = {
   setFocusFlightIds: (flightIds: Set<string>) => void;
   setT: (t: number) => void;
   tick: (dtMs: number) => void;
+  setShowHotspots: (show: boolean) => void;
+  setHotspots: (hotspots: Hotspot[]) => void;
+  setHotspotsLoading: (loading: boolean) => void;
+  fetchHotspots: (threshold?: number) => Promise<void>;
+  getActiveHotspots: () => Hotspot[];
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -42,18 +92,22 @@ export const useSimStore = create<State>((set, get) => ({
   showCallsigns: true,
   showFlightLines: true,
   selectedTrafficVolume: null,
+  selectedTrafficVolumeData: null,
   flLowerBound: 0,
   flUpperBound: 500,
   flights: [],
   focusMode: false,
   focusFlightIds: new Set<string>(),
+  showHotspots: false,
+  hotspots: [],
+  hotspotsLoading: false,
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
   setShowFlightLines: (show) => set({ showFlightLines: show }),
-  setSelectedTrafficVolume: (tv) => set({ selectedTrafficVolume: tv }),
+  setSelectedTrafficVolume: (tv, tvData = null) => set({ selectedTrafficVolume: tv, selectedTrafficVolumeData: tvData }),
   setFlLowerBound: (fl) => set({ flLowerBound: fl }),
   setFlUpperBound: (fl) => set({ flUpperBound: fl }),
   setFlRange: (lower, upper) => set({ flLowerBound: lower, flUpperBound: upper }),
@@ -67,5 +121,36 @@ export const useSimStore = create<State>((set, get) => ({
     const dt = (dtMs/1000) * speed;
     const next = t + dt;
     set({ t: next > range[1] ? range[0] : next });
+  },
+  setShowHotspots: (show) => set({ showHotspots: show }),
+  setHotspots: (hotspots) => set({ hotspots }),
+  setHotspotsLoading: (loading) => set({ hotspotsLoading: loading }),
+  fetchHotspots: async (threshold: number = 0.0) => {
+    set({ hotspotsLoading: true });
+    try {
+      const response = await fetch(`/api/hotspot?threshold=${threshold}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch hotspots: ${response.statusText}`);
+      }
+      const data: HotspotResponse = await response.json();
+      
+      // Log warning if using fallback data
+      if (data.error) {
+        console.warn('Hotspot API warning:', data.error);
+      }
+      
+      // Hotspots are already sorted by z_max in the API
+      set({ hotspots: data.hotspots || [] });
+    } catch (error) {
+      console.error('Error fetching hotspots:', error);
+      set({ hotspots: [] });
+    } finally {
+      set({ hotspotsLoading: false });
+    }
+  },
+  getActiveHotspots: () => {
+    const { t, hotspots, showHotspots } = get();
+    if (!showHotspots) return [];
+    return hotspots.filter(hotspot => isTimeInBin(t, hotspot.time_bin));
   }
 }));

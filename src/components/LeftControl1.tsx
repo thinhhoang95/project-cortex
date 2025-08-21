@@ -1,12 +1,46 @@
 "use client";
 import { useSimStore } from "@/components/useSimStore";
+import { useEffect } from "react";
 
 export default function LeftControl1() {
-  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, showFlightLines, setShowFlightLines, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound } = useSimStore();
+  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, showFlightLines, setShowFlightLines, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound, showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
+  
+  // Fetch hotspots when show hotspots is turned on
+  useEffect(() => {
+    if (showHotspots) {
+      fetchHotspots();
+    }
+  }, [showHotspots, fetchHotspots]);
+
+  // Utility function to parse time string (HH:MM) to seconds
+  const parseTimeToSeconds = (timeStr: string): number => {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 3600 + minutes * 60;
+  };
+
+  // Handle clicking on hotspot row
+  const handleHotspotRowClick = (hotspot: any) => {
+    // Set simulation time to the beginning of the time bin
+    const [startTime] = hotspot.time_bin.split('-');
+    const startSeconds = parseTimeToSeconds(startTime);
+    setT(startSeconds);
+
+    // Open the AirspaceInfo panel for this traffic volume
+    setSelectedTrafficVolume(hotspot.traffic_volume_id, null);
+
+    // Dispatch event to pan to the traffic volume (similar to traffic volume search)
+    const event = new CustomEvent('traffic-volume-search-select', {
+      detail: { trafficVolumeId: hotspot.traffic_volume_id }
+    });
+    window.dispatchEvent(event);
+  };
+  
   return (
-    <div className="absolute top-20 left-4 z-50 min-w-[280px] max-w-[360px]
+    <div className="absolute top-20 left-4 z-50 min-w-[280px] max-w-[360px] max-h-[calc(100vh-6rem)]
                     rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-                    shadow-xl text-slate-900 text-white p-4 space-y-4">
+                    shadow-xl text-slate-900 text-white flex flex-col overflow-hidden">
+      
+      <div className="overflow-y-auto no-scrollbar p-4 space-y-4 flex-1">
       
       <div className="bg-white/5 rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
@@ -32,7 +66,12 @@ export default function LeftControl1() {
         />
 
         <div className="mt-3 flex items-center gap-2">
-          <label className="text-sm">Speed</label>
+          <div className="flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <label className="text-sm">Speed</label>
+          </div>
           <select
             className="rounded-lg bg-white/50 px-2 py-1 text-sm"
             value={speed}
@@ -40,6 +79,7 @@ export default function LeftControl1() {
           >
             {[0.5,1,2,5,10].map(x => <option key={x} value={x}>{x}×</option>)}
           </select>
+          <span className="text-xs text-gray-400 ml-auto">Time in UTC</span>
         </div>
       </div>
 
@@ -47,7 +87,12 @@ export default function LeftControl1() {
         <h2 className="font-semibold mb-3">View Options</h2>
         
         <div className="flex items-center justify-between">
-          <label className="text-sm">Flight Line Labels</label>
+          <div className="flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+            <label className="text-sm">Flight Line Labels</label>
+          </div>
           <button
             onClick={() => setShowFlightLineLabels(!showFlightLineLabels)}
             className={`px-3 py-1.5 rounded-xl border border-white/30 text-sm transition-colors ${
@@ -61,7 +106,12 @@ export default function LeftControl1() {
         </div>
         
         <div className="flex items-center justify-between mt-3">
-          <label className="text-sm">Callsign</label>
+          <div className="flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <label className="text-sm">Callsign</label>
+          </div>
           <button
             onClick={() => setShowCallsigns(!showCallsigns)}
             className={`px-3 py-1.5 rounded-xl border border-white/30 text-sm transition-colors ${
@@ -75,7 +125,12 @@ export default function LeftControl1() {
         </div>
         
         <div className="flex items-center justify-between mt-3">
-          <label className="text-sm">Flight Lines</label>
+          <div className="flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+            </svg>
+            <label className="text-sm">Flight Lines</label>
+          </div>
           <button
             onClick={() => setShowFlightLines(!showFlightLines)}
             className={`px-3 py-1.5 rounded-xl border border-white/30 text-sm transition-colors ${
@@ -95,7 +150,12 @@ export default function LeftControl1() {
         <div className="space-y-4">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm">Lower FL</label>
+              <div className="flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                </svg>
+                <label className="text-sm">Lower FL</label>
+              </div>
               <span className="text-sm opacity-80">{flLowerBound}</span>
             </div>
             <input
@@ -111,7 +171,12 @@ export default function LeftControl1() {
           
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm">Upper FL</label>
+              <div className="flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                </svg>
+                <label className="text-sm">Upper FL</label>
+              </div>
               <span className="text-sm opacity-80">{flUpperBound}</span>
             </div>
             <input
@@ -125,6 +190,90 @@ export default function LeftControl1() {
             />
           </div>
         </div>
+      </div>
+
+      <div className="bg-white/5 rounded-lg p-4">
+        <h2 className="font-semibold mb-3">Dynamic Capacity Balancing</h2>
+        
+        <div className="flex items-center gap-2 mb-4">
+          <button
+            onClick={() => fetchHotspots()}
+            disabled={hotspotsLoading}
+            className={`p-1.5 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-opacity ${
+              hotspotsLoading ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+            title="Refresh Hotspots"
+          >
+            <svg className={`w-4 h-4 ${hotspotsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+          
+          <div className="flex items-center justify-between flex-1">
+            <label className="text-sm">Show Hotspots</label>
+            <button
+              onClick={() => setShowHotspots(!showHotspots)}
+              className={`px-3 py-1.5 rounded-xl border border-white/30 text-sm transition-colors ${
+                showHotspots 
+                  ? "bg-white/40 hover:bg-white/50" 
+                  : "bg-white/20 hover:bg-white/30"
+              }`}
+            >
+              {showHotspots ? "On" : "Off"}
+            </button>
+          </div>
+        </div>
+
+        {/* Hotspot Table */}
+        {showHotspots && (
+          <div>
+            <div className="flex justify-between items-center mb-3">
+              <h4 className="font-medium text-sm opacity-90">Hotspots</h4>
+              {hotspotsLoading && (
+                <div className="flex items-center">
+                  <div className="animate-spin rounded-full h-3 w-3 border border-white/20 border-t-white"></div>
+                  <span className="ml-1 text-xs opacity-70">Loading...</span>
+                </div>
+              )}
+            </div>
+            
+            {hotspots.length > 0 && !hotspotsLoading ? (
+              <div className="max-h-32 overflow-y-auto no-scrollbar">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0">
+                    <tr className="bg-red-900 text-white">
+                      <th className="text-left p-2 font-semibold">TV ID</th>
+                      <th className="text-left p-2 font-semibold">Time Bin</th>
+                      <th className="text-left p-2 font-semibold">Z Max</th>
+                      <th className="text-left p-2 font-semibold">Occupancy</th>
+                      <th className="text-left p-2 font-semibold">Capacity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hotspots.map((hotspot, index) => (
+                      <tr 
+                        key={`${hotspot.traffic_volume_id}-${hotspot.time_bin}`} 
+                        className={`border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white/2' : ''}`}
+                        onClick={() => handleHotspotRowClick(hotspot)}
+                        title="Click to set time and pan to traffic volume"
+                      >
+                        <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
+                        <td className="p-2 font-mono text-xs">{hotspot.time_bin}</td>
+                        <td className="p-2 font-mono">{hotspot.z_max.toFixed(1)}</td>
+                        <td className="p-2 font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
+                        <td className="p-2 font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : !hotspotsLoading ? (
+              <p className="text-xs opacity-70 text-center py-4">No hotspots found</p>
+            ) : null}
+          </div>
+        )}
+      </div>
+
       </div>
     </div>
   );
