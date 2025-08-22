@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 import { loadSectors } from '@/lib/airspace';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -13,6 +15,7 @@ export default function Header() {
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
   
   const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume } = useSimStore();
+  const pathname = usePathname();
 
   // Load traffic volumes data on component mount
   useEffect(() => {
@@ -128,15 +131,15 @@ export default function Header() {
         
         <div className="flex items-center space-x-8">
           <nav className="flex items-center space-x-6">
-            <a href="#" className="text-white/80 hover:text-white transition-colors">
-              Regulations
-            </a>
-            <a href="#" className="text-white/80 hover:text-white transition-colors">
+            <Link href="/" className={`${pathname === '/' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
               Predictions
-            </a>
-            <a href="#" className="text-white/80 hover:text-white transition-colors">
+            </Link>
+            <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
+              Regulations
+            </Link>
+            <Link href="#" className="text-white/80 hover:text-white transition-colors">
               Reroutes
-            </a>
+            </Link>
           </nav>
           
           <div className="relative">

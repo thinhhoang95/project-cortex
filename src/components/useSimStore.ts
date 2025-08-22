@@ -61,6 +61,10 @@ type State = {
   showHotspots: boolean;
   hotspots: Hotspot[];
   hotspotsLoading: boolean;
+  // Regulation Design state
+  regulationTargetFlightIds: Set<string>;
+  regulationTimeWindow: [number, number];
+  regulationRate: number;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
@@ -81,6 +85,13 @@ type State = {
   setHotspotsLoading: (loading: boolean) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
+  // Regulation Design actions
+  setRegulationTargetFlightIds: (ids: Set<string>) => void;
+  addRegulationTargetFlight: (flightId: string) => void;
+  removeRegulationTargetFlight: (flightId: string) => void;
+  clearRegulationTargetFlights: () => void;
+  setRegulationTimeWindow: (from: number, to: number) => void;
+  setRegulationRate: (rate: number) => void;
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -101,6 +112,9 @@ export const useSimStore = create<State>((set, get) => ({
   showHotspots: false,
   hotspots: [],
   hotspotsLoading: false,
+  regulationTargetFlightIds: new Set<string>(),
+  regulationTimeWindow: [0, 0],
+  regulationRate: 0,
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -152,5 +166,19 @@ export const useSimStore = create<State>((set, get) => ({
     const { t, hotspots, showHotspots } = get();
     if (!showHotspots) return [];
     return hotspots.filter(hotspot => isTimeInBin(t, hotspot.time_bin));
-  }
+  },
+  setRegulationTargetFlightIds: (ids) => set({ regulationTargetFlightIds: ids }),
+  addRegulationTargetFlight: (flightId) => {
+    const current = new Set(get().regulationTargetFlightIds);
+    current.add(String(flightId));
+    set({ regulationTargetFlightIds: current });
+  },
+  removeRegulationTargetFlight: (flightId) => {
+    const current = new Set(get().regulationTargetFlightIds);
+    current.delete(String(flightId));
+    set({ regulationTargetFlightIds: current });
+  },
+  clearRegulationTargetFlights: () => set({ regulationTargetFlightIds: new Set<string>() }),
+  setRegulationTimeWindow: (from, to) => set({ regulationTimeWindow: [from, to] }),
+  setRegulationRate: (rate) => set({ regulationRate: rate })
 }));

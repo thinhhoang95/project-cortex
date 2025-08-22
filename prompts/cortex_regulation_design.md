@@ -5,7 +5,7 @@ For simplicity, we clone the code in MapCanvas.tsx to a new file called Regulati
 # Basic Changes (with regard to the new page RegulationCanvas.tsx)
 - When clicking on the Nav link "Regulations" on the Header, we activate the Regulation Design mode. In this mode, the Regulations link is highlighted in bright blue. The webpage navigates to the RegulationCanvas page.
 
-- All the behaviors (interactions, events, displays) rest the same, except that: you don't show the planes anymore.
+- All the behaviors (interactions, events, displays) rest the same, except that: you don't show the planes anymore, and you don't show the waypoints as well (they are not relevant to the regulation design task).
 
 - You clone LeftControl1.tsx to LeftControl1Regulation.tsx. The left panel is basically the same, but with only one subtle but important difference: when clicking in the hotspot, it pans to the hotspot and highlight it (like current behavior), but we open the Regulation Design panel (described below) instead of AirspaceInfo component.
 
@@ -30,3 +30,5 @@ For simplicity, we clone the code in MapCanvas.tsx to a new file called Regulati
 - Any flight selected by the flight list will have the flight line on the map turns "Bright Red".
 
 - Then below the flight list you have the rate option, which is default set to the hourly capacity value.
+
+- Then finally below all you have colored glassy button with icons: Preview Regulation.

@@ -211,18 +211,47 @@ export default function MapCanvas() {
       // --- Flight lines (static geometry) ---
       const lineFC: GeoJSON.FeatureCollection = {
         type: "FeatureCollection",
-        features: tracks.map((tr: any) => ({
-          type: "Feature",
-          geometry: { type: "LineString", coordinates: tr.coords.map((c: any)=>[c[0], c[1]]) },
-          properties: { flightId: tr.flightId, callSign: tr.callSign ?? tr.flightId }
-        }))
+        features: tracks.map((tr: any) => {
+          // Determine dominant direction based on first and last coordinates
+          const firstCoord = tr.coords[0];
+          const lastCoord = tr.coords[tr.coords.length - 1];
+          const deltaLon = lastCoord[0] - firstCoord[0];
+          const deltaLat = lastCoord[1] - firstCoord[1];
+          
+          // Determine which direction is dominant by comparing absolute changes
+          const absLonChange = Math.abs(deltaLon);
+          const absLatChange = Math.abs(deltaLat);
+          
+          let color = "#10b981"; // default green
+          if (absLonChange > absLatChange) {
+            // Longitude change is dominant
+            color = deltaLon < 0 ? "#ec4899" : "#10b981"; // West: pink, East: green
+          } else {
+            // Latitude change is dominant
+            color = deltaLat > 0 ? "#ec4899" : "#10b981"; // North: pink, South: green
+          }
+          
+          return {
+            type: "Feature",
+            geometry: { type: "LineString", coordinates: tr.coords.map((c: any)=>[c[0], c[1]]) },
+            properties: { 
+              flightId: tr.flightId, 
+              callSign: tr.callSign ?? tr.flightId,
+              lineColor: color
+            }
+          };
+        })
       };
       map.addSource("flight-lines", { type: "geojson", data: lineFC });
       map.addLayer({
         id: "flight-lines",
         type: "line",
         source: "flight-lines",
-        paint: { "line-color": "#10b981", "line-width": 1.0, "line-opacity": 0.1 }
+        paint: { 
+          "line-color": ["get", "lineColor"], 
+          "line-width": 1.0, 
+          "line-opacity": 0.1 
+        }
       });
       // labels along the routes
       map.addLayer({
@@ -698,7 +727,7 @@ export default function MapCanvas() {
             className="flex-1 bg-transparent text-white placeholder-gray-300 text-sm focus:outline-none"
           />
           <select className="bg-transparent text-white text-xs focus:outline-none border-l border-white/20 pl-3">
-            <option value="openai-o4-mini" className="bg-slate-800 text-white">o4-mini</option>
+            <option value="openai-o4-mini" className="bg-slate-800 text-white">ramen-0821</option>
             <option value="gpt-5-mini" className="bg-slate-800 text-white">GPT-5 mini</option>
             <option value="claude-4-sonnet" className="bg-slate-800 text-white">Claude 4 Sonnet</option>
           </select>
