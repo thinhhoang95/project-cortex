@@ -315,20 +315,35 @@ export default function RegulationCanvas() {
       if (mapRef.current.getLayer("sector-outline")) mapRef.current.setFilter("sector-outline", filterExpression);
       if (mapRef.current.getLayer("sector-labels")) mapRef.current.setFilter("sector-labels", filterExpression);
       if (mapRef.current.getLayer("sector-slack")) mapRef.current.setFilter("sector-slack", filterExpression);
+      // Ensure highlight and hover layers are also absolutely filtered by FL range
+      const hlFilter: any = highlightedTrafficVolume
+        ? ["all", ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+        : ["==", ["get", "traffic_volume_id"], ""];
+      const hvFilter: any = hoveredTrafficVolume
+        ? ["all", ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+        : ["==", ["get", "traffic_volume_id"], ""];
+      if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", hlFilter as any);
+      if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", hlFilter as any);
+      if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hvFilter as any);
+      if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hvFilter as any);
     }
   }, [flLowerBound, flUpperBound]);
 
   // Update highlight/hover layers when state changes
   useEffect(() => {
     if (!mapRef.current) return;
-    const highlightFilter = highlightedTrafficVolume ? ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume] : ["==", ["get", "traffic_volume_id"], ""];
+    const highlightFilter = highlightedTrafficVolume
+      ? ["all", ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+      : ["==", ["get", "traffic_volume_id"], ""];
     if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", highlightFilter as any);
     if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
   }, [highlightedTrafficVolume]);
 
   useEffect(() => {
     if (!mapRef.current) return;
-    const hoverFilter = hoveredTrafficVolume ? ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume] : ["==", ["get", "traffic_volume_id"], ""];
+    const hoverFilter = hoveredTrafficVolume
+      ? ["all", ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+      : ["==", ["get", "traffic_volume_id"], ""];
     if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hoverFilter as any);
     if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hoverFilter as any);
   }, [hoveredTrafficVolume]);
