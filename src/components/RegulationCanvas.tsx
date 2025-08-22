@@ -228,31 +228,29 @@ export default function RegulationCanvas() {
         fetchAndApplySlack(map, trafficVolumeId, refStr, sign, setIsFetchingSlack, showNow);
       };
 
-      // Click handlers: labels, fills, and slack overlay all select a TV
+      // Click handler: only labels select a TV (disallow fills/overlays)
       map.on('click', 'sector-labels', (e) => {
+        // If a flight line (including highlighted) is under the cursor, let that take precedence
+        const lineHits = map.queryRenderedFeatures(e.point, { layers: ['reg-target-lines', 'flight-lines'] });
+        if (lineHits && lineHits.length > 0) return;
         if (e.features && e.features.length > 0) {
-          const feature = e.features[0];
-          const trafficVolumeId = feature.properties?.label;
-          if (trafficVolumeId) selectTrafficVolume(trafficVolumeId);
-        }
-      });
-      map.on('click', 'sector-fill', (e) => {
-        // If a label is under the cursor, let the label handler take precedence
-        const labelHits = map.queryRenderedFeatures(e.point, { layers: ['sector-labels'] });
-        if (labelHits && labelHits.length > 0) return;
-        if (e.features && e.features.length > 0) {
-          const feature = e.features[0];
-          const trafficVolumeId = feature.properties?.traffic_volume_id;
-          if (trafficVolumeId) selectTrafficVolume(String(trafficVolumeId));
-        }
-      });
-      map.on('click', 'sector-slack', (e) => {
-        // If a label is under the cursor, let the label handler take precedence
-        const labelHits = map.queryRenderedFeatures(e.point, { layers: ['sector-labels'] });
-        if (labelHits && labelHits.length > 0) return;
-        if (e.features && e.features.length > 0) {
-          const feature = e.features[0];
-          const trafficVolumeId = feature.properties?.traffic_volume_id;
+          // Choose the closest label feature to the click point to avoid wrong selection when labels overlap
+          const candidates = e.features as any[];
+          let chosen = candidates[0];
+          if (candidates.length > 1) {
+            let minDist2 = Infinity;
+            for (const f of candidates) {
+              const geom: any = f.geometry;
+              if (geom && geom.type === 'Point' && Array.isArray(geom.coordinates)) {
+                const p = map.project({ lng: geom.coordinates[0], lat: geom.coordinates[1] } as any);
+                const dx = p.x - e.point.x;
+                const dy = p.y - e.point.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < minDist2) { minDist2 = d2; chosen = f; }
+              }
+            }
+          }
+          const trafficVolumeId = (chosen as any)?.properties?.label;
           if (trafficVolumeId) selectTrafficVolume(String(trafficVolumeId));
         }
       });
@@ -267,10 +265,7 @@ export default function RegulationCanvas() {
         }
       });
       map.on('mouseleave', 'sector-labels', () => { map.getCanvas().style.cursor = ''; setHoveredTrafficVolume(null); });
-      map.on('mouseenter', 'sector-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'sector-fill', () => { map.getCanvas().style.cursor = ''; });
-      map.on('mouseenter', 'sector-slack', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'sector-slack', () => { map.getCanvas().style.cursor = ''; });
+      // Fills and slack overlay are not clickable; keep default cursor
 
       // Fit to data
       const b = new maplibregl.LngLatBounds();
