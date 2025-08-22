@@ -21,7 +21,9 @@ export default function RegulationPanel() {
     setRegulationTimeWindow,
     regulationRate,
     setRegulationRate,
-    setSelectedTrafficVolume
+    setSelectedTrafficVolume,
+    addRegulation,
+    setIsRegulationPanelOpen
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -144,9 +146,10 @@ export default function RegulationPanel() {
     const windowDuration = to - from;
     const currentTime = t;
     
-    // Create symmetric range around current time for display
-    const displayFrom = currentTime - windowDuration / 2;
-    const displayTo = currentTime + windowDuration / 2;
+    // Create symmetric range around current time for display,
+    // using the full regulation window on each side of t
+    const displayFrom = currentTime - windowDuration;
+    const displayTo = currentTime + windowDuration;
     
     return chartData.filter(d => {
       const sec = d.hour * 3600;
@@ -230,6 +233,23 @@ export default function RegulationPanel() {
     window.addEventListener('regulation-add-flight', handler as any);
     return () => window.removeEventListener('regulation-add-flight', handler as any);
   }, [addRegulationTargetFlight]);
+
+  function handlePreviewRegulation() {
+    if (!selectedTrafficVolume || selectedFlights.length === 0) return;
+    
+    const flightCallsigns = selectedFlights.map(f => f.callSign || String(f.flightId));
+    
+    addRegulation({
+      trafficVolume: selectedTrafficVolume,
+      activeTimeWindowFrom: regulationTimeWindow[0],
+      activeTimeWindowTo: regulationTimeWindow[1],
+      flightCallsigns,
+      rate: regulationRate
+    });
+
+    setIsRegulationPanelOpen(true);
+    clearRegulationTargetFlights();
+  }
 
   if (!selectedTrafficVolume) return null;
 
@@ -396,7 +416,11 @@ export default function RegulationPanel() {
 
         {/* Preview Button */}
         <div className="flex justify-end">
-          <button className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium shadow hover:opacity-90 flex items-center gap-2">
+          <button 
+            onClick={handlePreviewRegulation}
+            disabled={!selectedTrafficVolume || selectedFlights.length === 0}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium shadow hover:opacity-90 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/></svg>
             Preview Regulation
           </button>

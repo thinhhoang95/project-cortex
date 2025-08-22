@@ -43,6 +43,16 @@ function isTimeInBin(t: number, timeBin: string): boolean {
   return t >= startSeconds && t < endSeconds;
 }
 
+interface Regulation {
+  id: string;
+  trafficVolume: string;
+  activeTimeWindowFrom: number;
+  activeTimeWindowTo: number;
+  flightCallsigns: string[];
+  rate: number;
+  createdAt: number;
+}
+
 type State = {
   t: number;               // current sim time (s)
   range: [number, number]; // global window
@@ -65,6 +75,8 @@ type State = {
   regulationTargetFlightIds: Set<string>;
   regulationTimeWindow: [number, number];
   regulationRate: number;
+  regulations: Regulation[];
+  isRegulationPanelOpen: boolean;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
@@ -92,6 +104,9 @@ type State = {
   clearRegulationTargetFlights: () => void;
   setRegulationTimeWindow: (from: number, to: number) => void;
   setRegulationRate: (rate: number) => void;
+  addRegulation: (regulation: Omit<Regulation, 'id' | 'createdAt'>) => void;
+  removeRegulation: (id: string) => void;
+  setIsRegulationPanelOpen: (open: boolean) => void;
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -115,6 +130,8 @@ export const useSimStore = create<State>((set, get) => ({
   regulationTargetFlightIds: new Set<string>(),
   regulationTimeWindow: [0, 0],
   regulationRate: 0,
+  regulations: [],
+  isRegulationPanelOpen: false,
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -180,5 +197,17 @@ export const useSimStore = create<State>((set, get) => ({
   },
   clearRegulationTargetFlights: () => set({ regulationTargetFlightIds: new Set<string>() }),
   setRegulationTimeWindow: (from, to) => set({ regulationTimeWindow: [from, to] }),
-  setRegulationRate: (rate) => set({ regulationRate: rate })
+  setRegulationRate: (rate) => set({ regulationRate: rate }),
+  addRegulation: (regulation) => {
+    const newRegulation: Regulation = {
+      ...regulation,
+      id: `REG${Date.now()}`,
+      createdAt: Date.now()
+    };
+    set(state => ({ regulations: [...state.regulations, newRegulation] }));
+  },
+  removeRegulation: (id) => {
+    set(state => ({ regulations: state.regulations.filter(r => r.id !== id) }));
+  },
+  setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open })
 }));
