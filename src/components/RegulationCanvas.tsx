@@ -7,6 +7,7 @@ import { loadSectors } from "@/lib/airspace";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
+import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -440,6 +441,8 @@ export default function RegulationCanvas() {
   return (
     <>
       <div id="map" className="absolute inset-0" />
+      {/* Regulation Plan Panel */}
+      <RegulationPlanPanel isRegulationPanelOpen={!!selectedTrafficVolume} />
       {/* Slack mode toggle: Off / Minus / Plus */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md">
         <span className="px-2 text-gray-300">Slack View</span>
