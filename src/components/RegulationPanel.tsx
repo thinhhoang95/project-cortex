@@ -141,11 +141,18 @@ export default function RegulationPanel() {
   const displayChartData = useMemo(() => {
     if (!chartData.length) return [] as typeof chartData;
     const [from, to] = regulationTimeWindow;
+    const windowDuration = to - from;
+    const currentTime = t;
+    
+    // Create symmetric range around current time for display
+    const displayFrom = currentTime - windowDuration / 2;
+    const displayTo = currentTime + windowDuration / 2;
+    
     return chartData.filter(d => {
       const sec = d.hour * 3600;
-      return sec >= from && sec <= to;
+      return sec >= displayFrom && sec <= displayTo;
     });
-  }, [chartData, regulationTimeWindow]);
+  }, [chartData, regulationTimeWindow, t]);
 
   // Compute filtered flights for active time window, and apply focus filter on the map
   const filteredFlightIds = useMemo(() => {
