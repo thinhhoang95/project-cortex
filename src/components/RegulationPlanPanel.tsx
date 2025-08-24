@@ -23,7 +23,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
       className={`absolute top-20 z-40 w-[340px] max-h-[calc(100vh-6rem)]
                   rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
                   shadow-xl text-white flex flex-col transition-all duration-300 ${
-                    isRegulationPanelOpen ? 'right-[400px]' : 'right-4'
+                    isRegulationPanelOpen ? 'right-[416px]' : 'right-4'
                   }`}
     >
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">

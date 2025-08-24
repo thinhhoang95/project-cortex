@@ -254,7 +254,7 @@ export default function RegulationPanel() {
   if (!selectedTrafficVolume) return null;
 
   return (
-    <div className="absolute top-20 right-4 z-50 min-w-[340px] max-w-[420px] max-h-[calc(100vh-6rem)]
+    <div className="absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)]
                     rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
                     shadow-xl text-slate-900 text-white flex flex-col">
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
