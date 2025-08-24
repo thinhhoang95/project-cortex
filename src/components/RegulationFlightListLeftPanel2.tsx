@@ -6,6 +6,9 @@ interface RankedFlightComponentScores {
 	multiplicity?: number;
 	similarity?: number;
 	slack?: number;
+	
+	// New: NSH component score from ranking API
+	nsh?: number;
 }
 
 interface RankedFlight {
@@ -228,6 +231,7 @@ export default function RegulationFlightListLeftPanel2() {
 										<th className="text-left p-2 font-semibold">Mult</th>
 										<th className="text-left p-2 font-semibold">Sim</th>
 										<th className="text-left p-2 font-semibold">Slack</th>
+										<th className="text-left p-2 font-semibold">NSH</th>
 									</>
 								)}
 							</tr>
@@ -251,6 +255,7 @@ export default function RegulationFlightListLeftPanel2() {
 											<td className="p-2 font-mono">{formatScore(row.components?.multiplicity)}</td>
 											<td className="p-2 font-mono">{formatScore(row.components?.similarity)}</td>
 											<td className="p-2 font-mono">{formatScore(row.components?.slack)}</td>
+											<td className="p-2 font-mono">{formatScore(row.components?.nsh)}</td>
 										</>
 									)}
 								</tr>
