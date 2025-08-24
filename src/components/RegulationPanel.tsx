@@ -447,24 +447,53 @@ function capacityForTime(hourlyCapacity: Record<string, number>, t: number): num
 
 function currentCountForTime(occupancyData: any, t: number): number | undefined {
   if (!occupancyData) return undefined;
-  // occupancy_counts keys like "06:00-06:15"; find the bin covering current minute
-  const minutes = Math.floor((t % 3600) / 60);
-  const h = Math.floor(t / 3600);
-  // find the first bin with start hh:mm where start <= current minute < end
   const entries = Object.entries(occupancyData.occupancy_counts || {});
-  for (const [range, count] of entries) {
+  if (entries.length === 0) return undefined;
+
+  // Build sorted base bins with start/end (in minutes) and counts
+  const base = entries.map(([range, count]) => {
     const [startStr, endStr] = range.split('-');
     const [sh, sm] = startStr.split(':').map(Number);
     const [eh, em] = endStr.split(':').map(Number);
-    const startTotal = sh * 60 + sm;
-    const endTotal = eh * 60 + em + (eh < sh ? 24*60 : 0);
-    const curTotal = h * 60 + minutes;
-    const curTotalMod = curTotal % (24*60);
-    if (curTotalMod >= (startTotal % (24*60)) && curTotalMod < (endTotal % (24*60))) {
-      return count as number;
-    }
+    const startMin = sh * 60 + sm;
+    const endMinRaw = eh * 60 + em;
+    // normalize end >= start by rolling over midnight if needed
+    const endMin = endMinRaw < startMin ? endMinRaw + 24 * 60 : endMinRaw;
+    return { startStr, endStr, startMin, endMin, count: Number(count) };
+  }).sort((a, b) => a.startMin - b.startMin);
+
+  // Deduce bin size in minutes (prefer metadata if present)
+  const timeBinMinutes = (() => {
+    const meta = occupancyData?.metadata?.time_bin_minutes;
+    if (typeof meta === 'number' && meta > 0) return meta;
+    try {
+      const [sh, sm] = base[0].startStr.split(':').map(Number);
+      const [eh, em] = base[0].endStr.split(':').map(Number);
+      const s = sh * 60 + sm;
+      let e = eh * 60 + em;
+      if (e < s) e += 24 * 60;
+      return Math.max(1, e - s);
+    } catch { return 60; }
+  })();
+  const binsPerHour = Math.max(1, Math.round(60 / timeBinMinutes));
+
+  // Find index of bin that covers current time t
+  const curMinOfDay = Math.floor(t / 60) % (24 * 60);
+  let idx = -1;
+  for (let i = 0; i < base.length; i++) {
+    const b = base[i];
+    let cur = curMinOfDay;
+    // align current minute to same day window as bin if needed
+    if (cur < b.startMin) cur += 24 * 60;
+    if (cur >= b.startMin && cur < b.endMin) { idx = i; break; }
   }
-  return undefined;
+  if (idx === -1) return undefined;
+
+  // Compute rolling-hour sum starting at this bin
+  let sum = 0;
+  const endIdx = Math.min(idx + binsPerHour, base.length);
+  for (let j = idx; j < endIdx; j++) sum += base[j].count;
+  return sum;
 }
 
 function nearestCategoryForTime(data: Array<{ time: string; hour: number }>, t: number) {
