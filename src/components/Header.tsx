@@ -226,7 +226,7 @@ export default function Header() {
               </div>
               <div className="text-left">
                 <div className="text-xs text-white/60">Welcome back, Chef!</div>
-                <div className="text-sm text-white font-medium">Thinh Hoang Dinh</div>
+                <div className="text-sm text-white font-medium">Thinh Hoang</div>
               </div>
             </button>
             

@@ -61,6 +61,7 @@ type State = {
   showFlightLineLabels: boolean;
   showCallsigns: boolean;
   showFlightLines: boolean;
+  showWaypoints: boolean;
   selectedTrafficVolume: string | null;
   selectedTrafficVolumeData: { properties: SectorFeatureProps } | null;
   flLowerBound: number;
@@ -83,6 +84,7 @@ type State = {
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
   setShowFlightLines: (show: boolean) => void;
+  setShowWaypoints: (show: boolean) => void;
   setSelectedTrafficVolume: (tv: string | null, tvData?: { properties: SectorFeatureProps } | null) => void;
   setFlLowerBound: (fl: number) => void;
   setFlUpperBound: (fl: number) => void;
@@ -117,6 +119,7 @@ export const useSimStore = create<State>((set, get) => ({
   showFlightLineLabels: true,
   showCallsigns: true,
   showFlightLines: true,
+  showWaypoints: true,
   selectedTrafficVolume: null,
   selectedTrafficVolumeData: null,
   flLowerBound: 0,
@@ -138,6 +141,7 @@ export const useSimStore = create<State>((set, get) => ({
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
   setShowFlightLines: (show) => set({ showFlightLines: show }),
+  setShowWaypoints: (show) => set({ showWaypoints: show }),
   setSelectedTrafficVolume: (tv, tvData = null) => set({ selectedTrafficVolume: tv, selectedTrafficVolumeData: tvData }),
   setFlLowerBound: (fl) => set({ flLowerBound: fl }),
   setFlUpperBound: (fl) => set({ flUpperBound: fl }),

@@ -14,7 +14,7 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showCallsigns, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots } = useSimStore();
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -509,6 +509,33 @@ export default function MapCanvas() {
     }
   }, [showCallsigns]);
 
+  // on showWaypoints change, toggle waypoint visibility via paint properties
+  useEffect(() => {
+    if (mapRef.current) {
+      if (mapRef.current.getLayer("wp-points")) {
+        mapRef.current.setPaintProperty("wp-points", "circle-opacity", showWaypoints ? [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4, 0.6,
+          8, 0.8,
+          12, 0.9
+        ] : 0);
+      }
+      if (mapRef.current.getLayer("wp-labels")) {
+        mapRef.current.setPaintProperty("wp-labels", "text-opacity", showWaypoints ? [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          6, 0.7,
+          10, 0.9,
+          14, 1
+        ] : 0);
+        mapRef.current.setPaintProperty("wp-labels", "text-halo-width", showWaypoints ? 2 : 0);
+      }
+    }
+  }, [showWaypoints]);
+
   // on FL range change, filter traffic volumes based on vertical intersection
   useEffect(() => {
     if (mapRef.current && mapRef.current.getSource("sectors")) {
@@ -713,13 +740,13 @@ export default function MapCanvas() {
           setFocusFlightIds(new Set());
         }}
       />
-      <div className="absolute bottom-4 left-4 bg-white-600/30 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-xs text-gray-400 pointer-events-none">
-        Flow's Kitchen is part of Thinh's Kitchen. If you like this, cook with me.
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white-600/30 backdrop-blur-sm text-xs text-gray-400 pointer-events-none text-center px-4 py-2 rounded-lg z-50">
+        Experimental work.If you like this, find me on <a href="https://www.linkedin.com/in/thinh-hoang-571252b7/" className="text-white">LinkedIn</a>.
         <br />
-        Experimental work. Beware of LLM's hallucinations.
+        Data provided by <a href="https://opensky-network.org/" className="text-white">OpenSky Network</a> and EUROCONTROL as part of the SESAR DeepFlow project.
       </div>
       
-      <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">
+      {/* <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">
         <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg flex items-center space-x-3">
           <input
             type="text"
@@ -737,7 +764,7 @@ export default function MapCanvas() {
             </svg>
           </button>
         </div>
-      </div>
+      </div> */}
     </>
   );
 }
