@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const trafficVolumeId = searchParams.get('traffic_volume_id');
   const refTimeStr = searchParams.get('ref_time_str');
   const signParam = (searchParams.get('sign') || 'minus').toLowerCase();
+  const deltaMinParam = searchParams.get('delta_min');
 
   if (!trafficVolumeId) {
     return NextResponse.json(
@@ -22,12 +23,16 @@ export async function GET(request: NextRequest) {
   }
 
   const sign = signParam === 'plus' ? 'plus' : 'minus';
+  const deltaMin = deltaMinParam !== null ? Number(deltaMinParam) : undefined;
 
   try {
     const url = new URL(`${API_BASE_URL}/slack_distribution`);
     url.searchParams.set('traffic_volume_id', trafficVolumeId);
     url.searchParams.set('ref_time_str', refTimeStr);
     url.searchParams.set('sign', sign);
+    if (typeof deltaMin === 'number' && !Number.isNaN(deltaMin)) {
+      url.searchParams.set('delta_min', String(deltaMin));
+    }
 
     const response = await fetch(url.toString(), {
       headers: {
