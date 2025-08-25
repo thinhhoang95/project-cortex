@@ -1,9 +1,12 @@
 "use client";
 import { useSimStore } from "@/components/useSimStore";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function LeftControl1Regulation() {
   const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showFlightLines, setShowFlightLines, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound, showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
+  // Local draft time to avoid spamming global state (and API calls) while dragging
+  const [isDraggingTime, setIsDraggingTime] = useState(false);
+  const [draftT, setDraftT] = useState<number | null>(null);
   
   // Fetch hotspots when show hotspots is turned on
   useEffect(() => {
@@ -32,6 +35,20 @@ export default function LeftControl1Regulation() {
     window.dispatchEvent(event);
   };
   
+  // Commit draft time on pointer/mouse/touch release anywhere
+  useEffect(() => {
+    if (!isDraggingTime) return;
+    const handleUp = () => {
+      if (draftT !== null) setT(draftT);
+      setIsDraggingTime(false);
+      setDraftT(null);
+    };
+    window.addEventListener('pointerup', handleUp);
+    return () => {
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, [isDraggingTime, draftT, setT]);
+  
   return (
     <div className="w-full flex-1 min-h-0
                     rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
@@ -51,14 +68,18 @@ export default function LeftControl1Regulation() {
         </div>
 
         <div className="text-2xl font-bold mb-3 text-center bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent drop-shadow-lg">
-          T = {fmt(t)}
+          T = {fmt(isDraggingTime && draftT !== null ? draftT : t)}
         </div>
 
         <input
           type="range"
           min={range[0]} max={range[1]} step={1}
-          value={t}
-          onChange={(e) => setRange([range[0], range[1]], Number(e.currentTarget.value))}
+          value={isDraggingTime && draftT !== null ? draftT : t}
+          onPointerDown={() => { setIsDraggingTime(true); setDraftT(t); }}
+          onChange={(e) => {
+            const next = Number(e.currentTarget.value);
+            setDraftT(next);
+          }}
           className="w-full"
         />
 
