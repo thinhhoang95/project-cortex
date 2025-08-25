@@ -10,6 +10,7 @@ import {
   CartesianGrid
 } from "recharts";
 import { RegulationPlanSimulationResponse } from "@/lib/models";
+import { useSimStore } from "@/components/useSimStore";
 
 interface RegulationResultsProps {
   open: boolean;
@@ -26,14 +27,29 @@ function formatSecondsToHMM(totalSeconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
+function formatMinutesToHHMM(totalMinutes: number): string {
+  const minutesInDay = 24 * 60;
+  const m = ((Math.floor(totalMinutes) % minutesInDay) + minutesInDay) % minutesInDay;
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function binIndexToRangeLabel(binIdx: number, minutesPerBin: number): string {
+  const startMin = binIdx * minutesPerBin;
+  const endMin = startMin + minutesPerBin;
+  return `${formatMinutesToHHMM(startMin)} - ${formatMinutesToHHMM(endMin)}`;
+}
+
 export default function RegulationResults({ open, result, onClose }: RegulationResultsProps) {
+  const flights = useSimStore(s => s.flights);
   const items = useMemo(() => {
     const tvs = result?.rolling_top_tvs ?? [];
     return tvs.slice(0, 25).map((tv) => {
       const pre = tv.pre_rolling_counts || [];
       const post = tv.post_rolling_counts || [];
       const n = Math.min(pre.length, post.length);
-      const data: Array<{ idx: number; base: number; inc: number; dec: number; pre: number; post: number; cap?: number }>
+      const fullData: Array<{ idx: number; base: number; inc: number; dec: number; pre: number; post: number; cap?: number }>
         = new Array(n).fill(0).map((_, i) => {
           const p0 = Number(pre[i] ?? 0);
           const p1 = Number(post[i] ?? 0);
@@ -43,9 +59,38 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
           const cap = Number((tv.capacity_per_bin || [])[i] ?? undefined);
           return { idx: i, base, inc, dec, pre: p0, post: p1, cap: Number.isFinite(cap) ? cap : undefined };
         });
-      return { tvId: tv.traffic_volume_id, data };
+      // Determine minimal contiguous range [startIdx, endIdx] containing all changes (inc or dec)
+      let startIdx = -1;
+      for (let i = 0; i < fullData.length; i++) {
+        const d = fullData[i];
+        if ((d.inc ?? 0) > 0 || (d.dec ?? 0) > 0) { startIdx = i; break; }
+      }
+      let endIdx = -1;
+      for (let i = fullData.length - 1; i >= 0; i--) {
+        const d = fullData[i];
+        if ((d.inc ?? 0) > 0 || (d.dec ?? 0) > 0) { endIdx = i; break; }
+      }
+      const hasChanges = startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx;
+      if (!hasChanges) {
+        startIdx = 0;
+        endIdx = Math.max(0, fullData.length - 1);
+      }
+      const data = hasChanges ? fullData.slice(startIdx, endIdx + 1) : fullData;
+      return { tvId: tv.traffic_volume_id, data, startIdx, endIdx };
     });
   }, [result]);
+
+  const delayRows = useMemo(() => {
+    const byFlight = result?.delays_by_flight || {};
+    const rows = Object.entries(byFlight).map(([flightId, delaySecondsRaw]) => {
+      const delaySeconds = Number(delaySecondsRaw) || 0;
+      const f = flights.find(ff => String(ff.flightId) === String(flightId));
+      const callsign = f?.callSign ? String(f?.callSign) : String(flightId);
+      return { flightId: String(flightId), callsign, delaySeconds };
+    });
+    rows.sort((a, b) => b.delaySeconds - a.delaySeconds);
+    return rows;
+  }, [result, flights]);
 
   if (!open || !result) return null;
 
@@ -81,7 +126,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
             <div>
               <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Rolling-hour Occupancy Diff (Post vs Pre)</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                {items.map(({ tvId, data }) => (
+                {items.map(({ tvId, data, startIdx, endIdx }) => (
                   <div key={tvId} className="bg-white/5 border border-white/10 rounded-xl p-3">
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-sm font-semibold">{tvId}</div>
@@ -109,7 +154,9 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                               const pre = p?.pre ?? 0;
                               const post = p?.post ?? 0;
                               const cap = p?.cap;
-                              return `Bin ${label}  |  pre: ${pre}  post: ${post}${Number.isFinite(cap) ? `  cap: ${cap}` : ''}`;
+                              const minutesPerBin = Number(result?.metadata?.time_bin_minutes ?? 15);
+                              const labelText = binIndexToRangeLabel(Number(label ?? 0), minutesPerBin);
+                              return `${labelText}  |  pre: ${pre}  post: ${post}${Number.isFinite(cap) ? `  cap: ${cap}` : ''}`;
                             }}
                           />
                           <Bar dataKey="base" stackId="a" fill="#60a5fa" name="base" />
@@ -118,10 +165,42 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
+                    
                   </div>
                 ))}
               </div>
             </div>
+
+
+            {/* Delay assignment table */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Delay Assignment</div>
+              {delayRows.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[520px] whitespace-nowrap">
+                    <thead>
+                      <tr className="text-left border-b border-white/10">
+                        <th className="p-2 font-semibold">Flight ID</th>
+                        <th className="p-2 font-semibold">Callsign</th>
+                        <th className="p-2 font-semibold">Delay (m)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {delayRows.map((r) => (
+                        <tr key={r.flightId} className="border-b border-white/10 hover:bg-white/5">
+                          <td className="p-2 font-mono">{r.flightId}</td>
+                          <td className="p-2 font-mono">{r.callsign}</td>
+                          <td className="p-2 font-mono">{Math.round(r.delaySeconds).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-300">No delay assignments.</div>
+              )}
+            </div>
+            
           </div>
         </div>
       </div>
