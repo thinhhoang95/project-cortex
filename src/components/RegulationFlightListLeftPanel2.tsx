@@ -70,7 +70,7 @@ export default function RegulationFlightListLeftPanel2() {
 		return Array.from(seeds);
 	}, [flights, regulationTargetFlightIds]);
 
-	// Fetch ranked flights for the selected TV using the regulation ranking endpoint
+	// Fetch ranked flights for the selected TV using only the regulation ranking endpoint
 	useEffect(() => {
 		let cancelled = false;
 		async function load() {
@@ -79,40 +79,25 @@ export default function RegulationFlightListLeftPanel2() {
 			setError(null);
 			try {
 				const ref = formatTimeForAPI(t);
-				if (seedFlightIds && seedFlightIds.length > 0) {
-					const topK = 50;
-					const [from, to] = regulationTimeWindow;
-					const durationSeconds = Math.max(0, (to ?? 0) - (from ?? 0));
-					const durationMin = Math.max(1, Math.round(durationSeconds / 60));
-					const params = new URLSearchParams({
-						traffic_volume_id: String(selectedTrafficVolume),
-						ref_time_str: String(ref),
-						seed_flight_ids: seedFlightIds.join(','),
-						duration_min: String(durationMin),
-						top_k: String(topK)
-					});
-					const res = await fetch(`/api/regulation_ranking_tv_flights_ordered?${params.toString()}`);
-					if (!res.ok) throw new Error('Failed to fetch ranked flights');
-					const data: RankedFlightsResponse = await res.json();
-					if (cancelled) return;
-					setRankingData(data);
-					setLegacyFlightIdentifiersData(null);
-					setLegacyOrderedFlightsData(null);
-				} else {
-					// Fallback to legacy list when no seeds selected
-					const res = await fetch(`/api/tv_flights?traffic_volume_id=${selectedTrafficVolume}&ref_time_str=${ref}`);
-					if (!res.ok) throw new Error('Failed to fetch flights');
-					const data = await res.json();
-					if (cancelled) return;
-					setRankingData(null);
-					if (data.ordered_flights && data.details) {
-						setLegacyOrderedFlightsData(data as LegacyOrderedFlightsData);
-						setLegacyFlightIdentifiersData(null);
-					} else {
-						setLegacyFlightIdentifiersData(data as Record<string, string[]>);
-						setLegacyOrderedFlightsData(null);
-					}
-				}
+				const topK = 50;
+				const [from, to] = regulationTimeWindow;
+				const durationSeconds = Math.max(0, (to ?? 0) - (from ?? 0));
+				const durationMin = Math.max(1, Math.round(durationSeconds / 60));
+				const params = new URLSearchParams({
+					traffic_volume_id: String(selectedTrafficVolume),
+					ref_time_str: String(ref),
+					// When no targeted flights, pass an empty value for seed_flight_ids
+					seed_flight_ids: seedFlightIds && seedFlightIds.length > 0 ? seedFlightIds.join(',') : '',
+					duration_min: String(durationMin),
+					top_k: String(topK)
+				});
+				const res = await fetch(`/api/regulation_ranking_tv_flights_ordered?${params.toString()}`);
+				if (!res.ok) throw new Error('Failed to fetch ranked flights');
+				const data: RankedFlightsResponse = await res.json();
+				if (cancelled) return;
+				setRankingData(data);
+				setLegacyFlightIdentifiersData(null);
+				setLegacyOrderedFlightsData(null);
 			} catch (e: any) {
 				if (!cancelled) setError(e?.message || 'Failed to fetch ranked flights');
 				setRankingData(null);
@@ -306,4 +291,3 @@ function formatScore(value?: number): string {
 	if (value === undefined || value === null || Number.isNaN(value)) return '-';
 	return value.toFixed(3);
 }
-

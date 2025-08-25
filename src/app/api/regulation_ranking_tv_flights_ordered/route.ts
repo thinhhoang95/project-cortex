@@ -22,9 +22,10 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
-  if (!seedFlightIds) {
+  // Accept empty seed list, but require the parameter to exist
+  if (seedFlightIds === null) {
     return NextResponse.json(
-      { error: 'seed_flight_ids parameter is required' },
+      { error: 'seed_flight_ids parameter is required (can be empty)' },
       { status: 400 }
     );
   }
