@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const trafficVolumeId = searchParams.get('traffic_volume_id');
   const refTimeStr = searchParams.get('ref_time_str');
   const seedFlightIds = searchParams.get('seed_flight_ids');
+  const durationMin = searchParams.get('duration_min');
   const topK = searchParams.get('top_k');
 
   if (!trafficVolumeId) {
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
     url.searchParams.set('traffic_volume_id', trafficVolumeId);
     url.searchParams.set('ref_time_str', refTimeStr);
     url.searchParams.set('seed_flight_ids', seedFlightIds);
+    if (durationMin) url.searchParams.set('duration_min', durationMin);
     if (topK) url.searchParams.set('top_k', topK);
 
     const response = await fetch(url.toString(), {

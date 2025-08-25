@@ -8,7 +8,7 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation } = useSimStore();
+  const { regulations, removeRegulation, setSelectedTrafficVolume, setRegulationEditPayload } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
 
@@ -67,18 +67,41 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                         <div className="font-mono text-sm font-semibold">{reg.id}</div>
                         <div className="text-xs opacity-80">{reg.trafficVolume}</div>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeRegulation(reg.id);
-                        }}
-                        className="text-red-300 hover:text-red-200 p-1"
-                        title="Delete regulation"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/>
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Hand off to regulation panel for editing
+                            setRegulationEditPayload({
+                              trafficVolume: reg.trafficVolume,
+                              activeTimeWindowFrom: reg.activeTimeWindowFrom,
+                              activeTimeWindowTo: reg.activeTimeWindowTo,
+                              flightCallsigns: reg.flightCallsigns,
+                              rate: reg.rate,
+                            });
+                            setSelectedTrafficVolume(reg.trafficVolume);
+                            removeRegulation(reg.id);
+                          }}
+                          className="text-blue-300 hover:text-blue-200 p-1"
+                          title="Edit regulation"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12.3 6.3l5.4 5.4M3 21l4.5-1.2L18.7 8.6a1.5 1.5 0 0 0 0-2.1L17.5 5.3a1.5 1.5 0 0 0-2.1 0L5.4 15.8 3 21z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeRegulation(reg.id);
+                          }}
+                          className="text-red-300 hover:text-red-200 p-1"
+                          title="Delete regulation"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/>
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-xs">

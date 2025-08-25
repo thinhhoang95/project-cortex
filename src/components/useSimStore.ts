@@ -78,6 +78,8 @@ type State = {
   regulationRate: number;
   regulations: Regulation[];
   isRegulationPanelOpen: boolean;
+  // Regulation edit handoff
+  regulationEditPayload: Omit<Regulation, 'id' | 'createdAt'> | null;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
@@ -109,6 +111,7 @@ type State = {
   addRegulation: (regulation: Omit<Regulation, 'id' | 'createdAt'>) => void;
   removeRegulation: (id: string) => void;
   setIsRegulationPanelOpen: (open: boolean) => void;
+  setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -135,6 +138,7 @@ export const useSimStore = create<State>((set, get) => ({
   regulationRate: 0,
   regulations: [],
   isRegulationPanelOpen: false,
+  regulationEditPayload: null,
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -213,5 +217,6 @@ export const useSimStore = create<State>((set, get) => ({
   removeRegulation: (id) => {
     set(state => ({ regulations: state.regulations.filter(r => r.id !== id) }));
   },
-  setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open })
+  setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open }),
+  setRegulationEditPayload: (p) => set({ regulationEditPayload: p })
 }));

@@ -17,13 +17,16 @@ export default function RegulationPanel() {
     addRegulationTargetFlight,
     removeRegulationTargetFlight,
     clearRegulationTargetFlights,
+    setRegulationTargetFlightIds,
     regulationTimeWindow,
     setRegulationTimeWindow,
     regulationRate,
     setRegulationRate,
     setSelectedTrafficVolume,
     addRegulation,
-    setIsRegulationPanelOpen
+    setIsRegulationPanelOpen,
+    regulationEditPayload,
+    setRegulationEditPayload
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -54,8 +57,10 @@ export default function RegulationPanel() {
         if (!cancelled) { setOccupancyData(null); setHourlyCapacity(0); }
       }
       clearRegulationTargetFlights();
-      // Set default active time window anchored at current t
-      applyPreset(activePreset);
+      // Default active time window anchored at current t unless editing payload provided
+      if (!useSimStore.getState().regulationEditPayload) {
+        applyPreset(activePreset);
+      }
     }
     load();
     return () => { cancelled = true; };
@@ -251,6 +256,32 @@ export default function RegulationPanel() {
     clearRegulationTargetFlights();
   }
 
+  // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
+  useEffect(() => {
+    const payload = regulationEditPayload;
+    if (!payload) return;
+    if (payload.trafficVolume !== selectedTrafficVolume) return; // wait until TV matches
+
+    // Apply time window and rate
+    setRegulationTimeWindow(payload.activeTimeWindowFrom, payload.activeTimeWindowTo);
+    setRegulationRate(payload.rate);
+
+    // Map provided callsigns/ids back to flight IDs present in store
+    const want = new Set(payload.flightCallsigns.map(String));
+    const idSet = new Set<string>();
+    for (const f of flights) {
+      const idStr = String(f.flightId);
+      const cs = f.callSign != null ? String(f.callSign) : undefined;
+      if (want.has(idStr) || (cs && want.has(cs))) {
+        idSet.add(idStr);
+      }
+    }
+    setRegulationTargetFlightIds(idSet);
+
+    // Clear payload so it doesn't apply repeatedly
+    setRegulationEditPayload(null);
+  }, [regulationEditPayload, selectedTrafficVolume, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
+
   if (!selectedTrafficVolume) return null;
 
   return (
@@ -414,15 +445,15 @@ export default function RegulationPanel() {
           )}
         </div>
 
-        {/* Preview Button */}
+        {/* Add Button */}
         <div className="flex justify-end">
           <button 
             onClick={handlePreviewRegulation}
             disabled={!selectedTrafficVolume || selectedFlights.length === 0}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium shadow hover:opacity-90 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/></svg>
-            Preview Regulation
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+            Add
           </button>
         </div>
       </div>

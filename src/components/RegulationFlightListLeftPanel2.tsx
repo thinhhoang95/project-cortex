@@ -29,6 +29,7 @@ interface RankedFlightsResponse {
 		num_candidates?: number;
 		num_ranked?: number;
 		time_bin_minutes?: number;
+		duration_min?: number;
 	};
 }
 
@@ -47,7 +48,7 @@ interface LegacyOrderedFlightsData {
 }
 
 export default function RegulationFlightListLeftPanel2() {
-	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds } = useSimStore();
+	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight } = useSimStore();
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
 	const [legacyFlightIdentifiersData, setLegacyFlightIdentifiersData] = useState<Record<string, string[]> | null>(null);
 	const [legacyOrderedFlightsData, setLegacyOrderedFlightsData] = useState<LegacyOrderedFlightsData | null>(null);
@@ -80,10 +81,14 @@ export default function RegulationFlightListLeftPanel2() {
 				const ref = formatTimeForAPI(t);
 				if (seedFlightIds && seedFlightIds.length > 0) {
 					const topK = 50;
+					const [from, to] = regulationTimeWindow;
+					const durationSeconds = Math.max(0, (to ?? 0) - (from ?? 0));
+					const durationMin = Math.max(1, Math.round(durationSeconds / 60));
 					const params = new URLSearchParams({
 						traffic_volume_id: String(selectedTrafficVolume),
 						ref_time_str: String(ref),
 						seed_flight_ids: seedFlightIds.join(','),
+						duration_min: String(durationMin),
 						top_k: String(topK)
 					});
 					const res = await fetch(`/api/regulation_ranking_tv_flights_ordered?${params.toString()}`);
@@ -119,7 +124,7 @@ export default function RegulationFlightListLeftPanel2() {
 		}
 		load();
 		return () => { cancelled = true; };
-	}, [selectedTrafficVolume, t, seedFlightIds]);
+	}, [selectedTrafficVolume, t, seedFlightIds, regulationTimeWindow]);
 
 	// Determine relevant ranked flights within the current regulation time window
 	const filteredRankedFlights = useMemo(() => {
@@ -204,7 +209,7 @@ export default function RegulationFlightListLeftPanel2() {
 						rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
 						shadow-xl text-slate-900 text-white flex flex-col overflow-hidden">
 			<div className="flex items-center justify-between p-3 border-b border-white/20 flex-shrink-0">
-				<h3 className="font-semibold text-sm">Flight List</h3>
+				<h3 className="font-semibold text-sm">Flight List ({rows.length})</h3>
 				<span className="text-xs opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
 			</div>
 			<div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto overflow-x-auto">
@@ -241,7 +246,12 @@ export default function RegulationFlightListLeftPanel2() {
 								<tr key={row.flightId} className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${idx % 2 === 0 ? 'bg-white/2' : ''}`}
 									onClick={() => {
 										const full = flights.find(f => String(f.flightId) === String(row.flightId));
-										if (full) window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: full } }));
+										if (full) {
+											// Pan/zoom to flight on the map (shared behavior with search)
+											window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: full } }));
+											// Also add to regulation target list
+											addRegulationTargetFlight(String(full.flightId));
+										}
 									}}>
 									<td className="p-2 font-mono">{row.callsign}</td>
 									<td className="p-2">{row.origin}</td>
@@ -296,5 +306,4 @@ function formatScore(value?: number): string {
 	if (value === undefined || value === null || Number.isNaN(value)) return '-';
 	return value.toFixed(3);
 }
-
 
