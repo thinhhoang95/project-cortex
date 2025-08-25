@@ -11,11 +11,24 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
   const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   function formatTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}`;
+  }
+
+  function computeTimeWindowBins(fromSeconds: number, toSeconds: number): number[] {
+    const binSize = 15 * 60; // 15 minutes
+    if (toSeconds <= fromSeconds) {
+      return [Math.floor(fromSeconds / binSize)];
+    }
+    const startBin = Math.floor(fromSeconds / binSize);
+    const endBinExclusive = Math.ceil(toSeconds / binSize);
+    const bins: number[] = [];
+    for (let b = startBin; b < endBinExclusive; b++) bins.push(b);
+    return bins;
   }
 
   return (
@@ -138,23 +151,86 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
         </div>
 
         {/* Action Buttons */}
-        <div className="flex justify-center">
+        <div className="flex items-center justify-center gap-2">
           {isSimulating ? (
             <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow flex items-center gap-2 text-sm">
               <ShimmeringText text="Computing New Plan" className="text-sm" />
             </div>
           ) : (
-            <button 
-              onClick={() => setIsSimulating(true)}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow hover:opacity-90 flex items-center gap-2 text-sm"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M8 5v14l11-7z" fill="currentColor"/>
-              </svg>
-              Simulate Plan
-            </button>
+            <>
+              <button
+                onClick={async () => {
+                  setErrorMessage(null);
+                  if (!regulations || regulations.length === 0) {
+                    setErrorMessage("No regulations available to simulate.");
+                    return;
+                  }
+                  setIsSimulating(true);
+                  try {
+                    const payload = {
+                      regulations: regulations.map((r) => ({
+                        location: r.trafficVolume,
+                        rate: r.rate,
+                        time_windows: computeTimeWindowBins(r.activeTimeWindowFrom, r.activeTimeWindowTo),
+                        target_flight_ids: r.flightCallsigns,
+                      })),
+                      weights: { alpha: 1.0, beta: 0.0, gamma: 0.0, delta: 0.0 },
+                      top_k: 25,
+                      include_excess_vector: false,
+                    };
+
+                    const res = await fetch("/api/regulation_plan_simulation", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(payload),
+                    });
+
+                    if (!res.ok) {
+                      const text = await res.text();
+                      throw new Error(`Simulation request failed: ${res.status} ${text}`);
+                    }
+
+                    // We intentionally do nothing with the response for now.
+                    const result = await res.json().catch(() => undefined);
+                    console.log(result);
+                  } catch (err) {
+                    console.error(err);
+                    setErrorMessage(err instanceof Error ? err.message : "Unknown error during simulation");
+                  } finally {
+                    setIsSimulating(false);
+                  }
+                }}
+                disabled={isSimulating || regulations.length === 0}
+                className={`px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow flex items-center gap-2 text-sm ${
+                  regulations.length === 0 ? "opacity-50 cursor-not-allowed" : "hover:opacity-90"
+                }`}
+                title={regulations.length === 0 ? "No regulations to simulate" : "Simulate plan"}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8 5v14l11-7z" fill="currentColor"/>
+                </svg>
+                Simulate Plan
+              </button>
+
+              {/* Small Auto button with a sparkles icon */}
+              <button
+                onClick={() => { /* no-op for now */ }}
+                className="px-2 py-2 rounded-lg bg-white/10 border border-white/20 text-white shadow hover:bg-white/15 flex items-center gap-1 text-xs"
+                title="Auto (coming soon)"
+              >
+                {/* Sparkles icon */}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2l1.5 3.5L17 7l-3.5 1.5L12 12l-1.5-3.5L7 7l3.5-1.5L12 2zM19 13l.9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13zM5 14l.7 1.6L7 16l-1.3.4L5 18l-.7-1.6L3 16l1.3-.4L5 14z" fill="currentColor"/>
+                </svg>
+                Auto
+              </button>
+            </>
           )}
         </div>
+
+        {errorMessage && (
+          <div className="text-red-200 text-xs text-center mt-2 opacity-90">{errorMessage}</div>
+        )}
       </div>
     </div>
   );

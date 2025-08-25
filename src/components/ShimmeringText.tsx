@@ -3,44 +3,42 @@
 interface ShimmeringTextProps {
   text: string;
   className?: string;
+  disabled?: boolean;
 }
 
-export default function ShimmeringText({ text, className = "" }: ShimmeringTextProps) {
+export default function ShimmeringText({ text, className = "", disabled = false }: ShimmeringTextProps) {
   return (
     <div className={`relative inline-block font-bold ${className}`}>
-      <span className="relative bg-gradient-to-r from-white/20 via-white/90 to-white/20 bg-clip-text text-transparent animate-shimmer bg-[length:200%_100%]">
+      <span className={`shiny-text ${disabled ? 'disabled' : ''}`}>
         {text}
       </span>
       <style jsx>{`
-        @keyframes shimmerMove {
+        .shiny-text {
+          color: #b5b5b5a4; /* Adjust this color to change intensity/style */
+          background: linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0) 40%,
+            rgba(255, 255, 255, 0.8) 50%,
+            rgba(255, 255, 255, 0) 60%
+          );
+          background-size: 200% 100%;
+          -webkit-background-clip: text;
+          background-clip: text;
+          display: inline-block;
+          animation: shine 1.8s linear infinite;
+        }
+
+        @keyframes shine {
           0% {
-            background-position: -200% 0;
+            background-position: 100%;
           }
           100% {
-            background-position: 200% 0;
+            background-position: -100%;
           }
         }
-        @keyframes shimmerOpacity {
-          0% {
-            opacity: 0.55;
-          }
-          40% {
-            opacity: 0.55;
-          }
-          65% {
-            opacity: 1;
-          }
-          85% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0.55;
-          }
-        }
-        .animate-shimmer {
-          will-change: background-position, opacity;
-          animation: shimmerMove 1.75s cubic-bezier(.4, 0, .2, 1) infinite,
-            shimmerOpacity 1.75s cubic-bezier(.4, 0, .2, 1) infinite;
+
+        .shiny-text.disabled {
+          animation: none;
         }
       `}</style>
     </div>
