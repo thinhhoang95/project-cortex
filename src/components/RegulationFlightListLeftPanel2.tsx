@@ -33,25 +33,9 @@ interface RankedFlightsResponse {
 	};
 }
 
-// Legacy data shape from /api/tv_flights and /tv_flights_ordered
-interface LegacyOrderedFlightsData {
-	traffic_volume_id: string;
-	ref_time_str: string;
-	ordered_flights: string[];
-	details: {
-		flight_id: string;
-		arrival_time: string;
-		arrival_seconds: number;
-		delta_seconds: number;
-		time_window: string;
-	}[];
-}
-
 export default function RegulationFlightListLeftPanel2() {
 	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight } = useSimStore();
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
-	const [legacyFlightIdentifiersData, setLegacyFlightIdentifiersData] = useState<Record<string, string[]> | null>(null);
-	const [legacyOrderedFlightsData, setLegacyOrderedFlightsData] = useState<LegacyOrderedFlightsData | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +58,7 @@ export default function RegulationFlightListLeftPanel2() {
 	useEffect(() => {
 		let cancelled = false;
 		async function load() {
-			if (!selectedTrafficVolume) { setRankingData(null); setLegacyFlightIdentifiersData(null); setLegacyOrderedFlightsData(null); return; }
+			if (!selectedTrafficVolume) { setRankingData(null); return; }
 			setLoading(true);
 			setError(null);
 			try {
@@ -96,13 +80,9 @@ export default function RegulationFlightListLeftPanel2() {
 				const data: RankedFlightsResponse = await res.json();
 				if (cancelled) return;
 				setRankingData(data);
-				setLegacyFlightIdentifiersData(null);
-				setLegacyOrderedFlightsData(null);
 			} catch (e: any) {
 				if (!cancelled) setError(e?.message || 'Failed to fetch ranked flights');
 				setRankingData(null);
-				setLegacyFlightIdentifiersData(null);
-				setLegacyOrderedFlightsData(null);
 			} finally {
 				if (!cancelled) setLoading(false);
 			}
@@ -121,25 +101,6 @@ export default function RegulationFlightListLeftPanel2() {
 		});
 	}, [rankingData, regulationTimeWindow]);
 
-	// Determine relevant legacy flights within the current regulation time window
-	const filteredLegacyFlightIds = useMemo(() => {
-		const [from, to] = regulationTimeWindow;
-		const set = new Set<string>();
-		if (legacyOrderedFlightsData?.details) {
-			legacyOrderedFlightsData.details.forEach((d) => {
-				if (d.arrival_seconds >= from && d.arrival_seconds <= to) set.add(String(d.flight_id));
-			});
-		} else if (legacyFlightIdentifiersData) {
-			Object.entries(legacyFlightIdentifiersData).forEach(([timeWindow, ids]) => {
-				const [startTime] = timeWindow.split('-');
-				const [hours, minutes] = startTime.split(':').map(Number);
-				const startSec = hours * 3600 + minutes * 60;
-				if (startSec >= from && startSec <= to) ids.forEach(id => set.add(String(id)));
-			});
-		}
-		return set;
-	}, [legacyOrderedFlightsData, legacyFlightIdentifiersData, regulationTimeWindow]);
-
 	// Build table rows preserving the ranked order from API
 	const rows = useMemo(() => {
 		if (!selectedTrafficVolume || flights.length === 0) return [] as Array<any>;
@@ -157,35 +118,8 @@ export default function RegulationFlightListLeftPanel2() {
 				};
 			});
 		}
-		if (legacyOrderedFlightsData?.ordered_flights && filteredLegacyFlightIds.size > 0) {
-			return legacyOrderedFlightsData.ordered_flights
-				.filter(fid => filteredLegacyFlightIds.has(String(fid)))
-				.map(fid => {
-					const f = flights.find(ff => String(ff.flightId) === String(fid));
-					const detail = legacyOrderedFlightsData.details.find(d => String(d.flight_id) === String(fid));
-					return {
-						flightId: String(fid),
-						callsign: f?.callSign || String(fid),
-						origin: f?.origin || 'N/A',
-						destination: f?.destination || 'N/A',
-						arrivalTime: detail?.arrival_time || 'N/A'
-					};
-				});
-		}
-		if (legacyFlightIdentifiersData && filteredLegacyFlightIds.size > 0) {
-			return Array.from(filteredLegacyFlightIds).map(fid => {
-				const f = flights.find(ff => String(ff.flightId) === String(fid));
-				return {
-					flightId: String(fid),
-					callsign: f?.callSign || String(fid),
-					origin: f?.origin || 'N/A',
-					destination: f?.destination || 'N/A',
-					arrivalTime: 'N/A'
-				};
-			});
-		}
 		return [] as Array<any>;
-	}, [selectedTrafficVolume, flights, filteredRankedFlights, legacyOrderedFlightsData, legacyFlightIdentifiersData, filteredLegacyFlightIds]);
+	}, [selectedTrafficVolume, flights, filteredRankedFlights]);
 
 	if (!selectedTrafficVolume) return null;
 
@@ -209,10 +143,11 @@ export default function RegulationFlightListLeftPanel2() {
 					<table className="w-full text-xs min-w-max whitespace-nowrap">
 						<thead className="sticky top-0 z-20 bg-blue-900">
 							<tr className="bg-blue-900 text-white">
+								<th className="text-center p-2 font-semibold w-6">✓</th>
 								<th className="text-left p-2 font-semibold">Callsign</th>
 								<th className="text-left p-2 font-semibold">Origin</th>
 								<th className="text-left p-2 font-semibold">Destination</th>
-								{(rankingData || legacyOrderedFlightsData) && (
+								{rankingData && (
 									<th className="text-left p-2 font-semibold">TV Arrival</th>
 								)}
 								{rankingData && (
@@ -227,34 +162,41 @@ export default function RegulationFlightListLeftPanel2() {
 							</tr>
 						</thead>
 						<tbody>
-							{rows.map((row, idx) => (
-								<tr key={row.flightId} className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${idx % 2 === 0 ? 'bg-white/2' : ''}`}
-									onClick={() => {
-										const full = flights.find(f => String(f.flightId) === String(row.flightId));
-										if (full) {
-											// Pan/zoom to flight on the map (shared behavior with search)
-											window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: full } }));
-											// Also add to regulation target list
-											addRegulationTargetFlight(String(full.flightId));
-										}
-									}}>
-									<td className="p-2 font-mono">{row.callsign}</td>
-									<td className="p-2">{row.origin}</td>
-									<td className="p-2">{row.destination}</td>
-									{(rankingData || legacyOrderedFlightsData) && (
-										<td className="p-2 font-mono">{row.arrivalTime}</td>
-									)}
-									{rankingData && (
-										<>
-											<td className="p-2 font-mono">{formatScore(row.score)}</td>
-											<td className="p-2 font-mono">{formatScore(row.components?.multiplicity)}</td>
-											<td className="p-2 font-mono">{formatScore(row.components?.similarity)}</td>
-											<td className="p-2 font-mono">{formatScore(row.components?.slack)}</td>
-											<td className="p-2 font-mono">{formatScore(row.components?.nsh)}</td>
-										</>
-									)}
-								</tr>
-							))}
+							{rows.map((row, idx) => {
+								const isTargeted = regulationTargetFlightIds.has(String(row.flightId));
+								return (
+									<tr
+										key={row.flightId}
+										className={`border-b border-white/10 cursor-pointer ${idx % 2 === 0 ? 'bg-white/2' : ''} ${isTargeted ? 'bg-emerald-500/10 hover:bg-emerald-500/15' : 'hover:bg-white/5'}`}
+										onClick={() => {
+											const full = flights.find(f => String(f.flightId) === String(row.flightId));
+											if (full) {
+												// Pan/zoom to flight on the map (shared behavior with search)
+												window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: full } }));
+												// Also add to regulation target list
+												addRegulationTargetFlight(String(full.flightId));
+											}
+										}}
+									>
+										<td className="p-2 text-center w-6">{isTargeted ? '✓' : ''}</td>
+										<td className="p-2 font-mono">{row.callsign}</td>
+										<td className="p-2">{row.origin}</td>
+										<td className="p-2">{row.destination}</td>
+										{rankingData && (
+											<td className="p-2 font-mono">{row.arrivalTime}</td>
+										)}
+										{rankingData && (
+											<>
+												<td className="p-2 font-mono">{formatScore(row.score)}</td>
+												<td className="p-2 font-mono">{formatScore(row.components?.multiplicity)}</td>
+												<td className="p-2 font-mono">{formatScore(row.components?.similarity)}</td>
+												<td className="p-2 font-mono">{formatScore(row.components?.slack)}</td>
+												<td className="p-2 font-mono">{formatScore(row.components?.nsh)}</td>
+											</>
+										)}
+									</tr>
+								);
+							})}
 						</tbody>
 					</table>
 				) : (
