@@ -8,7 +8,7 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen } = useSimStore();
+  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -190,9 +190,9 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                       throw new Error(`Simulation request failed: ${res.status} ${text}`);
                     }
 
-                    // We intentionally do nothing with the response for now.
-                    const result = await res.json().catch(() => undefined);
-                    // console.log(result);
+                    const result = await res.json();
+                    setRegulationSimulationResult(result);
+                    setIsResultsOpen(true);
                   } catch (err) {
                     console.error(err);
                     setErrorMessage(err instanceof Error ? err.message : "Unknown error during simulation");

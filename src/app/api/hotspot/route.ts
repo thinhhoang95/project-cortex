@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
     console.error('Error fetching hotspots:', error);
     
     // Return fallback mock data in case of error
+    const { searchParams } = new URL(request.url);
+    const thresholdStr = searchParams.get('threshold') || '0.0';
     const mockHotspots = [
       {
         traffic_volume_id: "MASB5KL",
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
       hotspots: mockHotspots,
       count: 2,
       metadata: {
-        threshold: parseFloat(threshold),
+        threshold: parseFloat(thresholdStr),
         time_bin_minutes: 15,
         analysis_type: "hourly_excess_capacity"
       },

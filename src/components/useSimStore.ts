@@ -1,6 +1,6 @@
 "use client";
 import { create } from "zustand";
-import { Trajectory, SectorFeatureProps } from "@/lib/models";
+import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse } from "@/lib/models";
 
 interface Hotspot {
   traffic_volume_id: string;
@@ -78,6 +78,9 @@ type State = {
   regulationRate: number;
   regulations: Regulation[];
   isRegulationPanelOpen: boolean;
+  // Simulation results modal
+  regulationSimulationResult: RegulationPlanSimulationResponse | null;
+  isResultsOpen: boolean;
   // Regulation edit handoff
   regulationEditPayload: Omit<Regulation, 'id' | 'createdAt'> | null;
   setRange: (r: [number, number], t?: number) => void;
@@ -112,6 +115,8 @@ type State = {
   removeRegulation: (id: string) => void;
   setIsRegulationPanelOpen: (open: boolean) => void;
   setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
+  setRegulationSimulationResult: (r: RegulationPlanSimulationResponse | null) => void;
+  setIsResultsOpen: (open: boolean) => void;
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -139,6 +144,8 @@ export const useSimStore = create<State>((set, get) => ({
   regulations: [],
   isRegulationPanelOpen: false,
   regulationEditPayload: null,
+  regulationSimulationResult: null,
+  isResultsOpen: false,
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -218,5 +225,7 @@ export const useSimStore = create<State>((set, get) => ({
     set(state => ({ regulations: state.regulations.filter(r => r.id !== id) }));
   },
   setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open }),
-  setRegulationEditPayload: (p) => set({ regulationEditPayload: p })
+  setRegulationEditPayload: (p) => set({ regulationEditPayload: p }),
+  setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
+  setIsResultsOpen: (open) => set({ isResultsOpen: open })
 }));
