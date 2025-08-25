@@ -63,7 +63,7 @@ export default function RegulationFlightListLeftPanel2() {
 			setError(null);
 			try {
 				const ref = formatTimeForAPI(t);
-				const topK = 50;
+				const topK = 500;
 				const [from, to] = regulationTimeWindow;
 				const durationSeconds = Math.max(0, (to ?? 0) - (from ?? 0));
 				const durationMin = Math.max(1, Math.round(durationSeconds / 60));

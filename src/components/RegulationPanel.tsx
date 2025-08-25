@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 
@@ -39,6 +39,10 @@ export default function RegulationPanel() {
   const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
   const [flightListLoading, setFlightListLoading] = useState(false);
   const [flightListError, setFlightListError] = useState<string | null>(null);
+  // When applying an edit payload, suppress auto preset updates on time changes
+  const suppressAutoPresetRef = useRef<boolean>(false);
+  // Suppress applying preset side-effect once when we programmatically set activePreset
+  const suppressNextPresetApplyRef = useRef<boolean>(false);
 
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
@@ -201,17 +205,41 @@ export default function RegulationPanel() {
   }, [flights, regulationTargetFlightIds]);
 
   // time window presets
-  const presets = ["15", "30", "45", "1h", "2h", "4h", "6h"];
+  const presets = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h", "2h30", "3h", "3h30", "4h"];
+  // Apply preset when the preset value changes (user action)
   useEffect(() => {
+    if (suppressNextPresetApplyRef.current) {
+      // Skip applying preset for this programmatic change
+      suppressNextPresetApplyRef.current = false;
+      return;
+    }
     applyPreset(activePreset);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePreset, t]);
+  }, [activePreset]);
+  // Auto-apply preset anchored at current t only if not editing from a payload
+  useEffect(() => {
+    if (suppressAutoPresetRef.current) return;
+    applyPreset(activePreset);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t]);
+
+  function parseDurationPresetToSeconds(preset: string): number {
+    const s = (preset || '').trim().toLowerCase();
+    const hIndex = s.indexOf('h');
+    if (hIndex !== -1) {
+      const hoursPart = s.slice(0, hIndex);
+      const minutesPart = s.slice(hIndex + 1);
+      const hours = Number.parseInt(hoursPart, 10) || 0;
+      const minutes = minutesPart ? (Number.parseInt(minutesPart, 10) || 0) : 0;
+      return ((hours * 60) + minutes) * 60;
+    }
+    const minutesOnly = Number.parseInt(s, 10) || 0;
+    return minutesOnly * 60;
+  }
 
   function applyPreset(preset: string) {
     const from = Math.floor(t);
-    let to = from;
-    const n = parseInt(preset);
-    if (preset.endsWith("h")) to = from + n * 3600; else to = from + n * 60;
+    const to = from + parseDurationPresetToSeconds(preset);
     setRegulationTimeWindow(from, to);
   }
 
@@ -279,8 +307,15 @@ export default function RegulationPanel() {
     if (payload.trafficVolume !== selectedTrafficVolume) return; // wait until TV matches
 
     // Apply time window and rate
+    // Prevent auto-presets (triggered by time changes) from overriding this edit
+    suppressAutoPresetRef.current = true;
     setRegulationTimeWindow(payload.activeTimeWindowFrom, payload.activeTimeWindowTo);
     setRegulationRate(payload.rate);
+
+    // Reflect the edited window in the highlighted preset without re-applying it
+    const newPreset = computePresetForWindow(payload.activeTimeWindowFrom, payload.activeTimeWindowTo);
+    suppressNextPresetApplyRef.current = true;
+    setActivePreset(newPreset);
 
     // Map provided callsigns/ids back to flight IDs present in store
     const want = new Set(payload.flightCallsigns.map(String));
@@ -566,6 +601,35 @@ function RegTooltip({ active, payload, label }: { active?: boolean; payload?: Ar
     );
   }
   return null;
+}
+
+function computePresetForWindow(fromSeconds: number, toSeconds: number): string {
+  const durationMinutes = Math.max(0, Math.round((toSeconds - fromSeconds) / 60));
+  const candidates: Array<{ minutes: number; label: string }> = [
+    { minutes: 15, label: "15" },
+    { minutes: 30, label: "30" },
+    { minutes: 45, label: "45" },
+    { minutes: 60, label: "1h" },
+    { minutes: 75, label: "1h15" },
+    { minutes: 90, label: "1h30" },
+    { minutes: 105, label: "1h45" },
+    { minutes: 120, label: "2h" },
+    { minutes: 150, label: "2h30" },
+    { minutes: 180, label: "3h" },
+    { minutes: 210, label: "3h30" },
+    { minutes: 240, label: "4h" }
+  ];
+  // Exact match first
+  const exact = candidates.find(c => c.minutes === durationMinutes);
+  if (exact) return exact.label;
+  // Otherwise pick the nearest preset for highlighting purposes
+  let best = candidates[0];
+  let bestDiff = Math.abs(durationMinutes - candidates[0].minutes);
+  for (let i = 1; i < candidates.length; i++) {
+    const diff = Math.abs(durationMinutes - candidates[i].minutes);
+    if (diff < bestDiff) { best = candidates[i]; bestDiff = diff; }
+  }
+  return best.label;
 }
 
 function formatTimeForAPI(seconds: number): string {
