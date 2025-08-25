@@ -8,7 +8,7 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen } = useSimStore();
+  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen, flights } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -167,12 +167,24 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                   }
                   setIsSimulating(true);
                   try {
+                    // Map stored callsigns/labels to flight identifiers expected by the API
+                    const toFlightId = (token: string): string => {
+                      const tokenStr = String(token);
+                      const byId = flights.find(f => String(f.flightId) === tokenStr);
+                      if (byId?.flightId) return String(byId.flightId);
+                      const byCs = flights.find(f => f.callSign && String(f.callSign) === tokenStr);
+                      if (byCs?.flightId) return String(byCs.flightId);
+                      // Fallback: pass through (already an id or unknown)
+                      return tokenStr;
+                    };
+
                     const payload = {
                       regulations: regulations.map((r) => ({
                         location: r.trafficVolume,
                         rate: r.rate,
                         time_windows: computeTimeWindowBins(r.activeTimeWindowFrom, r.activeTimeWindowTo),
-                        target_flight_ids: r.flightCallsigns,
+                        // API expects flight identifiers, not callsigns
+                        target_flight_ids: r.flightCallsigns.map(toFlightId),
                       })),
                       weights: { alpha: 1.0, beta: 0.0, gamma: 0.0, delta: 0.0 },
                       top_k: 25,

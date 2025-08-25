@@ -34,7 +34,7 @@ interface RankedFlightsResponse {
 }
 
 export default function RegulationFlightListLeftPanel2() {
-	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight } = useSimStore();
+	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds } = useSimStore();
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -120,6 +120,12 @@ export default function RegulationFlightListLeftPanel2() {
 		}
 		return [] as Array<any>;
 	}, [selectedTrafficVolume, flights, filteredRankedFlights]);
+
+	// Publish the currently visible flight IDs to the store for bulk actions (e.g., "all")
+	useEffect(() => {
+		const ids = rows.map(r => String(r.flightId));
+		setRegulationVisibleFlightIds(ids);
+	}, [rows, setRegulationVisibleFlightIds]);
 
 	if (!selectedTrafficVolume) return null;
 

@@ -74,6 +74,7 @@ type State = {
   hotspotsLoading: boolean;
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
+  regulationVisibleFlightIds: string[];
   regulationTimeWindow: [number, number];
   regulationRate: number;
   regulations: Regulation[];
@@ -83,6 +84,7 @@ type State = {
   isResultsOpen: boolean;
   // Regulation edit handoff
   regulationEditPayload: Omit<Regulation, 'id' | 'createdAt'> | null;
+  setRegulationVisibleFlightIds: (ids: string[]) => void;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
@@ -139,6 +141,7 @@ export const useSimStore = create<State>((set, get) => ({
   hotspots: [],
   hotspotsLoading: false,
   regulationTargetFlightIds: new Set<string>(),
+  regulationVisibleFlightIds: [],
   regulationTimeWindow: [0, 0],
   regulationRate: 0,
   regulations: [],
@@ -171,6 +174,7 @@ export const useSimStore = create<State>((set, get) => ({
   setShowHotspots: (show) => set({ showHotspots: show }),
   setHotspots: (hotspots) => set({ hotspots }),
   setHotspotsLoading: (loading) => set({ hotspotsLoading: loading }),
+  setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });
     try {

@@ -14,6 +14,7 @@ export default function RegulationPanel() {
     setFocusFlightIds,
     setT,
     regulationTargetFlightIds,
+    regulationVisibleFlightIds,
     addRegulationTargetFlight,
     removeRegulationTargetFlight,
     clearRegulationTargetFlights,
@@ -217,6 +218,18 @@ export default function RegulationPanel() {
   function handleEnter() {
     const q = inputValue.trim();
     if (!q) return;
+    // Special keyword: add all currently visible flights from the flight list in a single update
+    if (q.toLowerCase() === 'all') {
+      if (Array.isArray(regulationVisibleFlightIds) && regulationVisibleFlightIds.length > 0) {
+        const next = new Set<string>(regulationTargetFlightIds);
+        for (const id of regulationVisibleFlightIds) next.add(String(id));
+        if (!areSetsEqual(next, regulationTargetFlightIds)) {
+          setRegulationTargetFlightIds(next);
+        }
+      }
+      setInputValue("");
+      return;
+    }
     // For now, support callsign/flightId exact match
     const queryLower = q.toLowerCase();
     const flight = flights.find(f => {
