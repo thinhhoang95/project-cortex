@@ -8,7 +8,7 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation, setSelectedTrafficVolume, setRegulationEditPayload } = useSimStore();
+  const { regulations, removeRegulation, setRegulationEditPayload } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
 
@@ -70,16 +70,17 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => {
-                            e.stopPropagation();
-                            // Hand off to regulation panel for editing
-                            setRegulationEditPayload({
-                              trafficVolume: reg.trafficVolume,
-                              activeTimeWindowFrom: reg.activeTimeWindowFrom,
-                              activeTimeWindowTo: reg.activeTimeWindowTo,
-                              flightCallsigns: reg.flightCallsigns,
-                              rate: reg.rate,
-                            });
-                            setSelectedTrafficVolume(reg.trafficVolume);
+                          e.stopPropagation();
+                          // Hand off to regulation panel for editing
+                          setRegulationEditPayload({
+                            trafficVolume: reg.trafficVolume,
+                            activeTimeWindowFrom: reg.activeTimeWindowFrom,
+                            activeTimeWindowTo: reg.activeTimeWindowTo,
+                            flightCallsigns: reg.flightCallsigns,
+                            rate: reg.rate,
+                          });
+                            // Ask the map to select and highlight this traffic volume
+                            window.dispatchEvent(new CustomEvent('traffic-volume-search-select', { detail: { tvId: reg.trafficVolume } }));
                             removeRegulation(reg.id);
                           }}
                           className="text-blue-300 hover:text-blue-200 p-1"

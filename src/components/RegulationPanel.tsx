@@ -44,6 +44,10 @@ export default function RegulationPanel() {
     let cancelled = false;
     async function load() {
       if (!selectedTrafficVolume) { setOccupancyData(null); return; }
+      // If not editing, clear any previous target selection immediately to avoid race with async fetch
+      if (!useSimStore.getState().regulationEditPayload) {
+        clearRegulationTargetFlights();
+      }
       try {
         const res = await fetch(`/api/tv_count_with_capacity?traffic_volume_id=${selectedTrafficVolume}`);
         if (!res.ok) throw new Error('failed');
@@ -56,7 +60,6 @@ export default function RegulationPanel() {
       } catch {
         if (!cancelled) { setOccupancyData(null); setHourlyCapacity(0); }
       }
-      clearRegulationTargetFlights();
       // Default active time window anchored at current t unless editing payload provided
       if (!useSimStore.getState().regulationEditPayload) {
         applyPreset(activePreset);
