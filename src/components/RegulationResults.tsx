@@ -41,11 +41,33 @@ function binIndexToRangeLabel(binIdx: number, minutesPerBin: number): string {
   return `${formatMinutesToHHMM(startMin)} - ${formatMinutesToHHMM(endMin)}`;
 }
 
+function parseTimeToSeconds(t: string | null | undefined): number {
+  if (!t) return Number.POSITIVE_INFINITY;
+  const s = String(t).trim();
+  if (!s) return Number.POSITIVE_INFINITY;
+  // If formatted with colons: HH:MM or HH:MM:SS
+  if (s.includes(":")) {
+    const parts = s.split(":").map(p => Number(p));
+    if (parts.some(p => !Number.isFinite(p) || p < 0)) return Number.POSITIVE_INFINITY;
+    const [hh, mm = 0, ss = 0] = parts;
+    return (hh * 3600) + (mm * 60) + ss;
+  }
+  // Compact HMS format (e.g., "754" => 00:07:54, "50007" => 05:00:07)
+  if (!/^\d+$/.test(s)) return Number.POSITIVE_INFINITY;
+  const len = s.length;
+  if (len < 1) return Number.POSITIVE_INFINITY;
+  const ss = Number(s.slice(-2));
+  const mm = len > 2 ? Number(s.slice(-4, -2) || 0) : 0;
+  const hh = len > 4 ? Number(s.slice(0, -4) || 0) : (len === 3 ? 0 : 0);
+  if (![hh, mm, ss].every(v => Number.isFinite(v) && v >= 0)) return Number.POSITIVE_INFINITY;
+  return (hh * 3600) + (mm * 60) + ss;
+}
+
 export default function RegulationResults({ open, result, onClose }: RegulationResultsProps) {
   const flights = useSimStore(s => s.flights);
   const items = useMemo(() => {
     const tvs = result?.rolling_top_tvs ?? [];
-    return tvs.slice(0, 25).map((tv) => {
+    return tvs.slice(0, 50).map((tv) => {
       const pre = tv.pre_rolling_counts || [];
       const post = tv.post_rolling_counts || [];
       const n = Math.min(pre.length, post.length);
@@ -86,9 +108,18 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
       const delaySeconds = Number(delaySecondsRaw) || 0;
       const f = flights.find(ff => String(ff.flightId) === String(flightId));
       const callsign = f?.callSign ? String(f?.callSign) : String(flightId);
-      return { flightId: String(flightId), callsign, delaySeconds };
+      const ctx = result?.pre_flight_context?.[String(flightId)];
+      const takeoffTime = ctx?.takeoff_time || '-';
+      const tvArrivalTime = ctx?.tv_arrival_time || '-';
+      const tvArrivalSeconds = parseTimeToSeconds(ctx?.tv_arrival_time);
+      return { flightId: String(flightId), callsign, delaySeconds, takeoffTime, tvArrivalTime, tvArrivalSeconds };
     });
-    rows.sort((a, b) => b.delaySeconds - a.delaySeconds);
+    rows.sort((a, b) => {
+      const da = a.tvArrivalSeconds;
+      const db = b.tvArrivalSeconds;
+      if (da === db) return a.delaySeconds - b.delaySeconds;
+      return da - db; // earliest first; Infinity (unknown) pushed to end
+    });
     return rows;
   }, [result, flights]);
 
@@ -97,10 +128,10 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
   const ds = result.delay_stats;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[9999]">
       <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-[14px]" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-6">
-        <div className="w-[min(980px,95vw)] h-[min(860px,92vh)] rounded-2xl border border-white/20 bg-slate-800/70 backdrop-blur-2xl shadow-2xl text-white overflow-hidden relative">
+        <div className="w-[min(1080px,95vw)] h-[min(860px,92vh)] rounded-2xl border border-white/20 bg-slate-800/70 backdrop-blur-2xl shadow-2xl text-white overflow-hidden relative">
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-white/5">
             <div className="text-2xl font-semibold">Simulation Results</div>
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 border border-white/10">
@@ -122,7 +153,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
               </div>
             </div>
 
-            {/* 5x5 grid charts */}
+            {/* 10x5 grid charts */}
             <div>
               <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Rolling-hour Occupancy Diff (Post vs Pre)</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -177,11 +208,13 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
               <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Delay Assignment</div>
               {delayRows.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs min-w-[520px] whitespace-nowrap">
+                  <table className="w-full text-xs min-w-[720px] whitespace-nowrap">
                     <thead>
                       <tr className="text-left border-b border-white/10">
                         <th className="p-2 font-semibold">Flight ID</th>
                         <th className="p-2 font-semibold">Callsign</th>
+                        <th className="p-2 font-semibold">Takeoff</th>
+                        <th className="p-2 font-semibold">TV Arrival</th>
                         <th className="p-2 font-semibold">Delay (m)</th>
                       </tr>
                     </thead>
@@ -190,6 +223,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                         <tr key={r.flightId} className="border-b border-white/10 hover:bg-white/5">
                           <td className="p-2 font-mono">{r.flightId}</td>
                           <td className="p-2 font-mono">{r.callsign}</td>
+                          <td className="p-2 font-mono">{r.takeoffTime}</td>
+                          <td className="p-2 font-mono">{r.tvArrivalTime}</td>
                           <td className="p-2 font-mono">{Math.round(r.delaySeconds).toLocaleString()}</td>
                         </tr>
                       ))}

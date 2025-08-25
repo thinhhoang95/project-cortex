@@ -187,7 +187,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                         target_flight_ids: r.flightCallsigns.map(toFlightId),
                       })),
                       weights: { alpha: 1.0, beta: 0.0, gamma: 0.0, delta: 0.0 },
-                      top_k: 25,
+                      top_k: 50,
                       include_excess_vector: false,
                     };
 

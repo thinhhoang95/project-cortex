@@ -78,8 +78,14 @@ export interface RegulationPlanMetadata {
   ranking_metric: string;
 }
 
+export interface RegulationPlanPreFlightContextEntry {
+  takeoff_time: string;
+  tv_arrival_time: string | null;
+}
+
 export interface RegulationPlanSimulationResponse {
   delays_by_flight: Record<string, number>;
+  pre_flight_context?: Record<string, RegulationPlanPreFlightContextEntry>;
   delay_stats: RegulationPlanDelayStats;
   objective: number;
   objective_components: RegulationPlanObjectiveComponents;

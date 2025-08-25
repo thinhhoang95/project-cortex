@@ -21,7 +21,7 @@
     }
   ],
   "weights": {"alpha": 1.0, "beta": 0.0, "gamma": 0.0, "delta": 0.0},
-  "top_k": 25,
+  "top_k": 50,
   "include_excess_vector": false
 }
 ```
@@ -76,7 +76,7 @@ Client mapping from UI `Regulation`:
     "busy_post": 1.0
   }],
   "excess_vector_stats": {"sum": 10.0, "max": 3.0, "mean": 0.1, "count": 9600},
-  "metadata": {"top_k": 25, "time_bin_minutes": 15, "num_traffic_volumes": 1}
+  "metadata": {"top_k": 50, "time_bin_minutes": 15, "num_traffic_volumes": 1}
 }
 ```
 

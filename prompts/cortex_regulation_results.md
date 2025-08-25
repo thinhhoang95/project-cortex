@@ -5,7 +5,7 @@ Can you implement a RegulationResults window as a component that receives the AP
 
 2. Show a beautifully formatted delay_stats: total_delay_seconds, max_delay_seconds, delayed_flight_counts...
 
-3. Draw 5x5 charts comparing the rolling hour occupancy count using pre_rolling_counts and post_rolling_counts for each traffic volume. The chart is a bar chart, but bars can be placed on top of each other. We compare the pre against the post: if post is higher than pre, a red bar is shown, if post is lower than pre, a green bar is shown for the difference between the two.
+3. Draw 10x5 charts (50 items total) comparing the rolling hour occupancy count using pre_rolling_counts and post_rolling_counts for each traffic volume. The chart is a bar chart, but bars can be placed on top of each other. We compare the pre against the post: if post is higher than pre, a red bar is shown, if post is lower than pre, a green bar is shown for the difference between the two.
 
 The whole window should bear a glassy appearance with dark blue tint, blur cranked to max, with a functional close button, that pops up when computation in RegulationPlanPanel is completed.
 
@@ -31,7 +31,7 @@ You can provide regulations as raw strings in the `Regulation` DSL or as structu
     }
   ],
   "weights": {"alpha": 1.0, "beta": 0.0, "gamma": 0.0, "delta": 0.0},
-  "top_k": 25,
+  "top_k": 50,
   "include_excess_vector": false
 }
 ```
@@ -78,7 +78,7 @@ You can provide regulations as raw strings in the `Regulation` DSL or as structu
   ],
   "excess_vector_stats": {"sum": 10.0, "max": 3.0, "mean": 0.1, "count": 9600},
   "metadata": {
-    "top_k": 25,
+    "top_k": 50,
     "time_bin_minutes": 15,
     "bins_per_tv": 384,
     "bins_per_hour": 4,
