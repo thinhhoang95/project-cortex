@@ -306,6 +306,7 @@ export default function RegulationPanel() {
             setSelectedTrafficVolume(null);
             setFocusMode(false);
             setFocusFlightIds(new Set());
+            setIsRegulationPanelOpen(false);
             window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
           }}
           className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"

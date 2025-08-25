@@ -8,7 +8,7 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation, setRegulationEditPayload } = useSimStore();
+  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
 
@@ -79,8 +79,9 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                             flightCallsigns: reg.flightCallsigns,
                             rate: reg.rate,
                           });
-                            // Ask the map to select and highlight this traffic volume
-                            window.dispatchEvent(new CustomEvent('traffic-volume-search-select', { detail: { tvId: reg.trafficVolume } }));
+                            // Open the panel and ask the map to select & highlight this traffic volume
+                            setIsRegulationPanelOpen(true);
+                            window.dispatchEvent(new CustomEvent('traffic-volume-search-select', { detail: { trafficVolumeId: reg.trafficVolume } }));
                             removeRegulation(reg.id);
                           }}
                           className="text-blue-300 hover:text-blue-200 p-1"
