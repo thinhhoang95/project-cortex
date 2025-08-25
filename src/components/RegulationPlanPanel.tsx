@@ -192,7 +192,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
 
                     // We intentionally do nothing with the response for now.
                     const result = await res.json().catch(() => undefined);
-                    console.log(result);
+                    // console.log(result);
                   } catch (err) {
                     console.error(err);
                     setErrorMessage(err instanceof Error ? err.message : "Unknown error during simulation");
