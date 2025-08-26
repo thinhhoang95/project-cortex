@@ -8,7 +8,7 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen, flights } = useSimStore();
+  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen, flights, setT } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -92,6 +92,8 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                             flightCallsigns: reg.flightCallsigns,
                             rate: reg.rate,
                           });
+                            // Align sim time to the start of the active window
+                            setT(reg.activeTimeWindowFrom);
                             // Open the panel and ask the map to select & highlight this traffic volume
                             setIsRegulationPanelOpen(true);
                             window.dispatchEvent(new CustomEvent('traffic-volume-search-select', { detail: { trafficVolumeId: reg.trafficVolume } }));
@@ -154,7 +156,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
         <div className="flex items-center justify-center gap-2">
           {isSimulating ? (
             <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow flex items-center gap-2 text-sm">
-              <ShimmeringText text="Computing New Plan" className="text-sm" />
+              <ShimmeringText text="Thinking..." className="text-sm" />
             </div>
           ) : (
             <>
@@ -234,7 +236,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M12 2l1.5 3.5L17 7l-3.5 1.5L12 12l-1.5-3.5L7 7l3.5-1.5L12 2zM19 13l.9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13zM5 14l.7 1.6L7 16l-1.3.4L5 18l-.7-1.6L3 16l1.3-.4L5 14z" fill="currentColor"/>
                 </svg>
-                Auto
+                Auto (AI)
               </button>
             </>
           )}
