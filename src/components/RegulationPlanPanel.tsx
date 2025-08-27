@@ -12,6 +12,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isMinimized, setIsMinimized] = useState(false);
 
   function formatTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
@@ -32,24 +33,45 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
   }
 
   return (
-    <div 
-      className={`absolute top-20 z-40 w-[340px] max-h-[calc(100vh-6rem)]
-                  rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-                  shadow-xl text-white flex flex-col transition-all duration-300 ${
-                    isRegulationPanelOpen ? 'right-[416px]' : 'right-4'
-                  }`}
-    >
-      <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider opacity-70">Active Network</div>
-          <div className="text-lg font-semibold">Regulation Plan</div>
-          <div className="text-xs opacity-80">
-            {regulations.length} Regulation{regulations.length !== 1 ? 's' : ''}
+    <>
+      {isMinimized ? (
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="fixed z-[200] bottom-4 right-4 w-12 h-12 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg border border-white/20 flex items-center justify-center hover:opacity-90"
+          title={`Show Regulation Plan (${regulations.length})`}
+          aria-label="Show Regulation Plan"
+        >
+          <span className="text-sm font-semibold">{regulations.length}</span>
+        </button>
+      ) : (
+        <div 
+          className={`absolute top-20 z-40 w-[340px] max-h-[calc(100vh-6rem)]
+                      rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
+                      shadow-xl text-white flex flex-col transition-all duration-300 ${
+                        isRegulationPanelOpen ? 'right-[416px]' : 'right-4'
+                      }`}
+        >
+          <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Active Network</div>
+              <div className="text-lg font-semibold">Regulation Plan</div>
+              <div className="text-xs opacity-80">
+                {regulations.length} Regulation{regulations.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setIsMinimized(true)}
+                className="px-3 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+                title="Minimize panel"
+                aria-label="Minimize panel"
+              >
+                –
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div className="overflow-y-auto no-scrollbar p-4 flex-1 space-y-4">
+          <div className="overflow-y-auto no-scrollbar p-4 flex-1 space-y-4">
         {/* Regulations Table */}
         <div className="bg-white/5 border border-white/10 rounded-lg p-3">
           <div className="flex items-center justify-between mb-3">
@@ -242,10 +264,12 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
           )}
         </div>
 
-        {errorMessage && (
-          <div className="text-red-200 text-xs text-center mt-2 opacity-90">{errorMessage}</div>
-        )}
-      </div>
-    </div>
+            {errorMessage && (
+              <div className="text-red-200 text-xs text-center mt-2 opacity-90">{errorMessage}</div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

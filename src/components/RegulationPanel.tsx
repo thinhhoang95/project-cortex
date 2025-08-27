@@ -27,7 +27,19 @@ export default function RegulationPanel() {
     addRegulation,
     setIsRegulationPanelOpen,
     regulationEditPayload,
-    setRegulationEditPayload
+    setRegulationEditPayload,
+    // Flow view state/actions
+    flowViewEnabled,
+    flowThreshold,
+    flowResolution,
+    flowLoading,
+    flowError,
+    setFlowViewEnabled,
+    setFlowThreshold,
+    setFlowResolution,
+    setFlowCommunities,
+    setFlowLoading,
+    setFlowError
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -300,6 +312,49 @@ export default function RegulationPanel() {
     clearRegulationTargetFlights();
   }
 
+  // Flow Control: request community assignments for visible arrivals
+  async function requestFlowExtraction() {
+    if (!selectedTrafficVolume) return;
+    const ids = Array.isArray(regulationVisibleFlightIds) ? regulationVisibleFlightIds : [];
+    if (ids.length === 0) {
+      setFlowError('No flights visible in the list to extract flows.');
+      return;
+    }
+    setFlowLoading(true);
+    setFlowError(null);
+    try {
+      const ref = formatTimeForAPI(t);
+      const params = new URLSearchParams({
+        traffic_volume_id: String(selectedTrafficVolume),
+        ref_time_str: String(ref),
+        threshold: String(flowThreshold),
+        resolution: String(flowResolution),
+        flight_ids: ids.join(',')
+      });
+      const res = await fetch(`/api/flow_extraction?${params.toString()}`);
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      const data = await res.json();
+      // Expect data.communities: { flightId: communityId }, data.groups: { comId: [flightIds] }
+      if (data && data.communities) {
+        setFlowCommunities(data.communities, data.groups || null);
+        setFlowViewEnabled(true);
+      } else {
+        setFlowError('Flow extraction returned no communities.');
+      }
+    } catch (e: any) {
+      setFlowError(e?.message || 'Failed to extract flows');
+    } finally {
+      setFlowLoading(false);
+    }
+  }
+
+  // Re-run extraction when params change while enabled
+  useEffect(() => {
+    if (!flowViewEnabled) return;
+    requestFlowExtraction();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationVisibleFlightIds]);
+
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
   useEffect(() => {
     const payload = regulationEditPayload;
@@ -494,6 +549,62 @@ export default function RegulationPanel() {
           />
           {hourlyCapacity > 0 && (
             <div className="text-[10px] opacity-70 mt-1">Defaulted to hourly capacity: {hourlyCapacity}</div>
+          )}
+        </div>
+
+        {/* Flow Control */}
+        <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-medium text-sm opacity-90">Flow Control</div>
+            <button
+              onClick={async () => {
+                if (flowViewEnabled) {
+                  setFlowViewEnabled(false);
+                  setFlowCommunities(null, null);
+                  setFlowError(null);
+                } else {
+                  await requestFlowExtraction();
+                }
+              }}
+              className={`px-3 py-1 rounded-lg border text-xs ${flowViewEnabled ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+            >
+              {flowViewEnabled ? 'Disable Flow View' : 'Enable Flow View'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[11px] opacity-80 mb-1">Threshold</div>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.05}
+                value={flowThreshold}
+                onChange={(e) => setFlowThreshold(Number(e.currentTarget.value))}
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
+              />
+            </div>
+            <div>
+              <div className="text-[11px] opacity-80 mb-1">Resolution</div>
+              <input
+                type="number"
+                min={0.1}
+                max={10}
+                step={0.1}
+                value={flowResolution}
+                onChange={(e) => setFlowResolution(Number(e.currentTarget.value))}
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
+              />
+            </div>
+          </div>
+          {flowLoading && (
+            <div className="text-[10px] opacity-70 mt-2">Extracting flows…</div>
+          )}
+          {flowError && (
+            <div className="text-[10px] mt-2 text-red-200">{flowError}</div>
+          )}
+          {!flowLoading && flowViewEnabled && (
+            <div className="text-[10px] opacity-70 mt-2">Flow view active. Colors represent discovered flows; singletons/unassigned are gray.</div>
           )}
         </div>
 

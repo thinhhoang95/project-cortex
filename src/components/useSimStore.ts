@@ -72,6 +72,14 @@ type State = {
   showHotspots: boolean;
   hotspots: Hotspot[];
   hotspotsLoading: boolean;
+  // Flow view state
+  flowViewEnabled: boolean;
+  flowThreshold: number;
+  flowResolution: number;
+  flowCommunities: Record<string, number> | null; // flightId -> communityId
+  flowGroups: Record<string, string[]> | null;    // communityId -> flightIds
+  flowLoading: boolean;
+  flowError: string | null;
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationVisibleFlightIds: string[];
@@ -104,6 +112,13 @@ type State = {
   setShowHotspots: (show: boolean) => void;
   setHotspots: (hotspots: Hotspot[]) => void;
   setHotspotsLoading: (loading: boolean) => void;
+  // Flow view actions
+  setFlowViewEnabled: (enabled: boolean) => void;
+  setFlowThreshold: (threshold: number) => void;
+  setFlowResolution: (resolution: number) => void;
+  setFlowCommunities: (communities: Record<string, number> | null, groups?: Record<string, string[]> | null) => void;
+  setFlowLoading: (loading: boolean) => void;
+  setFlowError: (error: string | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
   // Regulation Design actions
@@ -140,6 +155,13 @@ export const useSimStore = create<State>((set, get) => ({
   showHotspots: false,
   hotspots: [],
   hotspotsLoading: false,
+  flowViewEnabled: false,
+  flowThreshold: 0.8,
+  flowResolution: 1.0,
+  flowCommunities: null,
+  flowGroups: null,
+  flowLoading: false,
+  flowError: null,
   regulationTargetFlightIds: new Set<string>(),
   regulationVisibleFlightIds: [],
   regulationTimeWindow: [0, 0],
@@ -174,6 +196,12 @@ export const useSimStore = create<State>((set, get) => ({
   setShowHotspots: (show) => set({ showHotspots: show }),
   setHotspots: (hotspots) => set({ hotspots }),
   setHotspotsLoading: (loading) => set({ hotspotsLoading: loading }),
+  setFlowViewEnabled: (enabled) => set({ flowViewEnabled: enabled }),
+  setFlowThreshold: (threshold) => set({ flowThreshold: threshold }),
+  setFlowResolution: (resolution) => set({ flowResolution: resolution }),
+  setFlowCommunities: (communities, groups = null) => set({ flowCommunities: communities, flowGroups: groups }),
+  setFlowLoading: (loading) => set({ flowLoading: loading }),
+  setFlowError: (error) => set({ flowError: error }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });

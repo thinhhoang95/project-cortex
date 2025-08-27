@@ -14,7 +14,7 @@ export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -300,6 +300,7 @@ export default function RegulationCanvas() {
       lastTs.current = now;
       tick(dt);
       updateFlightLineFilters(mapRef.current);
+      updateFlowRendering(mapRef.current);
       updateRegulationHighlight(mapRef.current);
       rafRef.current = requestAnimationFrame(loop);
     };
@@ -314,6 +315,9 @@ export default function RegulationCanvas() {
 
   // on t change from UI (drag), update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [t]);
+
+  // When flow view state changes, update rendering
+  useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
 
   // on showFlightLineLabels change, toggle visibility
   useEffect(() => {
@@ -575,7 +579,8 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
     const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume;
-    const lineOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
+    const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
+    const lineOpacity = sim.flowViewEnabled ? 0.8 : baseOpacity;
     map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
   }
   if (map.getLayer("flight-line-labels")) {
@@ -589,7 +594,85 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
   const ids = Array.from(sim.regulationTargetFlightIds).map(String);
   const filterExpr: any = ids.length > 0 ? ["in", ["to-string", ["get", "flightId"]], ["literal", ids]] : ["==", ["get", "flightId"], "__none__"];
   if (map.getLayer("reg-target-lines")) {
+    // In flow view, hide the bright red regulation overlay to let flow colors take precedence
+    const vis = sim.flowViewEnabled ? 'none' : 'visible';
+    map.setLayoutProperty("reg-target-lines", "visibility", vis);
     map.setFilter("reg-target-lines", filterExpr as any);
+  }
+}
+
+// Apply flow-based coloring to flight lines
+function updateFlowRendering(map: maplibregl.Map | null) {
+  if (!map || !map.isStyleLoaded()) return;
+  const sim = useSimStore.getState();
+  if (!map.getLayer('flight-lines')) return;
+
+  if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+    // Determine community sizes
+    const sizeByCommunity = new Map<string, number>();
+    if (sim.flowGroups && Object.keys(sim.flowGroups).length > 0) {
+      for (const [cid, ids] of Object.entries(sim.flowGroups)) {
+        sizeByCommunity.set(String(cid), Array.isArray(ids) ? ids.length : 0);
+      }
+    } else {
+      for (const cidAny of Object.values(sim.flowCommunities)) {
+        const cid = String(cidAny);
+        sizeByCommunity.set(cid, (sizeByCommunity.get(cid) || 0) + 1);
+      }
+    }
+
+    // Assign colors per community (non-singletons); singletons/unassigned are gray
+    const palette = [
+      '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
+      '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
+    ];
+    const commIds = Array.from(new Set(Object.values(sim.flowCommunities).map((v) => String(v))));
+    const colorByCommunity = new Map<string, string>();
+    let colorIdx = 0;
+    for (const cid of commIds) {
+      const size = sizeByCommunity.get(cid) || 0;
+      if (size <= 1) continue; // singletons will be gray
+      colorByCommunity.set(cid, palette[colorIdx % palette.length]);
+      colorIdx++;
+    }
+
+    // Group flight ids by assigned color
+    const gray = '#9ca3af';
+    const colorToIds: Record<string, string[]> = {};
+    for (const [fid, cidAny] of Object.entries(sim.flowCommunities)) {
+      const cid = String(cidAny);
+      const color = colorByCommunity.get(cid) || gray;
+      if (!colorToIds[color]) colorToIds[color] = [];
+      colorToIds[color].push(String(fid));
+    }
+
+    // Build a 'case' expression using 'in' checks to avoid validator issues with 'match' branch labels
+    const caseExpr: any[] = ['case'];
+    for (const [color, ids] of Object.entries(colorToIds)) {
+      if (!ids || ids.length === 0) continue;
+      caseExpr.push(
+        ['in', ['to-string', ['get', 'flightId']], ['literal', ids.map(String)]],
+        color
+      );
+    }
+    // Default color for flights not in mapping during flow view
+    caseExpr.push(gray);
+
+    try {
+      map.setPaintProperty('flight-lines', 'line-color', caseExpr as any);
+    } catch (err) {
+      // Diagnostic log to help track down invalid expression shapes
+      console.error('Failed to set flow line-color expression', { err, caseExpr, colorToIds });
+    }
+  } else {
+    // Restore base coloring
+    map.setPaintProperty('flight-lines', 'line-color', ['get', 'lineColor'] as any);
+  }
+
+  // Ensure regulation overlay visibility matches flow precedence
+  if (map.getLayer('reg-target-lines')) {
+    const vis = sim.flowViewEnabled ? 'none' : 'visible';
+    map.setLayoutProperty('reg-target-lines', 'visibility', vis);
   }
 }
 
