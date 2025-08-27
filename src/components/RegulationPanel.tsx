@@ -32,6 +32,7 @@ export default function RegulationPanel() {
     flowViewEnabled,
     flowCommunities,
     flowGroups,
+    flowColorByCommunity,
     flowThreshold,
     flowResolution,
     flowLoading,
@@ -412,6 +413,10 @@ export default function RegulationPanel() {
             setFocusMode(false);
             setFocusFlightIds(new Set());
             setIsRegulationPanelOpen(false);
+            // Ensure Flow View is deactivated when panel closes
+            setFlowViewEnabled(false);
+            setFlowCommunities(null, null);
+            setFlowError(null);
             window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
           }}
           className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
@@ -510,6 +515,7 @@ export default function RegulationPanel() {
           <FlowCommunitiesSection
             flowCommunities={flowCommunities}
             flowGroups={flowGroups}
+            flowColorByCommunity={flowColorByCommunity}
             flights={flights}
             orderedFlightsData={orderedFlightsData}
           />
@@ -637,7 +643,7 @@ export default function RegulationPanel() {
   );
 }
 
-function FlowCommunitiesSection({ flowCommunities, flowGroups, flights, orderedFlightsData }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flights: any[]; orderedFlightsData: any | null }) {
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null }) {
   // Derive community sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -664,20 +670,8 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flights, orderedF
       .slice(0, 10);
   }, [groupEntries]);
 
-  // Build a community color palette matching the canvas logic
-  const palette = useMemo(() => [
-    '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
-    '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
-  ], []);
-  const colorByCommunity = useMemo(() => {
-    const map = new Map<string, string>();
-    let idx = 0;
-    for (const g of topGroups) {
-      map.set(g.cid, palette[idx % palette.length]);
-      idx++;
-    }
-    return map;
-  }, [topGroups, palette]);
+  // Use centralized color mapping from the store; default gray for others
+  const colorMap = useMemo(() => new Map<string, string>(Object.entries(flowColorByCommunity || {})), [flowColorByCommunity]);
 
   // Helper: lookup flight details by id
   const flightById = useMemo(() => {
@@ -708,7 +702,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flights, orderedF
           <div key={g.cid} className="border border-white/10 rounded-md">
             <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">
               <div className="flex items-center gap-2 text-xs">
-                <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorByCommunity.get(g.cid) || '#9ca3af' }} />
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorMap.get(g.cid) || '#9ca3af' }} />
                 <span className="opacity-80">Community {g.cid}</span>
               </div>
               <div className="text-[10px] opacity-70">{g.size} flights</div>

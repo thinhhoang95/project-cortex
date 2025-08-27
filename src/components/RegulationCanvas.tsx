@@ -608,33 +608,10 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   if (!map.getLayer('flight-lines')) return;
 
   if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
-    // Determine community sizes
-    const sizeByCommunity = new Map<string, number>();
-    if (sim.flowGroups && Object.keys(sim.flowGroups).length > 0) {
-      for (const [cid, ids] of Object.entries(sim.flowGroups)) {
-        sizeByCommunity.set(String(cid), Array.isArray(ids) ? ids.length : 0);
-      }
-    } else {
-      for (const cidAny of Object.values(sim.flowCommunities)) {
-        const cid = String(cidAny);
-        sizeByCommunity.set(cid, (sizeByCommunity.get(cid) || 0) + 1);
-      }
-    }
-
-    // Assign colors to top 10 non-singleton communities (sorted by size desc); others gray
-    const palette = [
-      '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
-      '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
-    ];
-    const topCommunities = Array.from(sizeByCommunity.entries())
-      .map(([cid, size]) => ({ cid: String(cid), size: Number(size || 0) }))
-      .filter(g => g.size > 1)
-      .sort((a, b) => b.size - a.size)
-      .slice(0, 10);
-    const colorByCommunity = new Map<string, string>();
-    topCommunities.forEach((g, idx) => {
-      colorByCommunity.set(g.cid, palette[idx % palette.length]);
-    });
+    // Use centralized community -> color mapping from store for consistency with UI
+    const colorByCommunity = new Map<string, string>(
+      Object.entries(sim.flowColorByCommunity || {})
+    );
 
     // Group flight ids by assigned color
     const gray = '#9ca3af';

@@ -78,6 +78,7 @@ type State = {
   flowResolution: number;
   flowCommunities: Record<string, number> | null; // flightId -> communityId
   flowGroups: Record<string, string[]> | null;    // communityId -> flightIds
+  flowColorByCommunity: Record<string, string> | null; // communityId -> color
   flowLoading: boolean;
   flowError: string | null;
   // Regulation Design state
@@ -160,6 +161,7 @@ export const useSimStore = create<State>((set, get) => ({
   flowResolution: 1.0,
   flowCommunities: null,
   flowGroups: null,
+  flowColorByCommunity: null,
   flowLoading: false,
   flowError: null,
   regulationTargetFlightIds: new Set<string>(),
@@ -199,7 +201,11 @@ export const useSimStore = create<State>((set, get) => ({
   setFlowViewEnabled: (enabled) => set({ flowViewEnabled: enabled }),
   setFlowThreshold: (threshold) => set({ flowThreshold: threshold }),
   setFlowResolution: (resolution) => set({ flowResolution: resolution }),
-  setFlowCommunities: (communities, groups = null) => set({ flowCommunities: communities, flowGroups: groups }),
+  setFlowCommunities: (communities, groups = null) => set({
+    flowCommunities: communities,
+    flowGroups: groups,
+    flowColorByCommunity: computeFlowColorByCommunity(communities, groups)
+  }),
   setFlowLoading: (loading) => set({ flowLoading: loading }),
   setFlowError: (error) => set({ flowError: error }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
@@ -261,3 +267,43 @@ export const useSimStore = create<State>((set, get) => ({
   setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
   setIsResultsOpen: (open) => set({ isResultsOpen: open })
 }));
+
+// Compute a deterministic community -> color mapping so UI and map use identical colors
+function computeFlowColorByCommunity(
+  communities: Record<string, number> | null,
+  groups: Record<string, string[]> | null = null
+): Record<string, string> | null {
+  if (!communities && (!groups || Object.keys(groups).length === 0)) return null;
+
+  const sizeByCommunity = new Map<string, number>();
+  if (groups && Object.keys(groups).length > 0) {
+    for (const [cid, ids] of Object.entries(groups)) {
+      sizeByCommunity.set(String(cid), Array.isArray(ids) ? ids.length : 0);
+    }
+  } else if (communities) {
+    for (const cidAny of Object.values(communities)) {
+      const cid = String(cidAny);
+      sizeByCommunity.set(cid, (sizeByCommunity.get(cid) || 0) + 1);
+    }
+  }
+
+  const palette = [
+    '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
+    '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
+  ];
+
+  const topCommunities = Array.from(sizeByCommunity.entries())
+    .map(([cid, size]) => ({ cid: String(cid), size: Number(size || 0) }))
+    .filter(g => g.size > 1)
+    .sort((a, b) => {
+      if (b.size !== a.size) return b.size - a.size;
+      // stable tie-break by community id for deterministic assignment
+      return a.cid.localeCompare(b.cid);
+    })
+    .slice(0, 10);
+
+  const colorByCommunity: Record<string, string> = {};
+  topCommunities.forEach((g, idx) => { colorByCommunity[g.cid] = palette[idx % palette.length]; });
+
+  return colorByCommunity;
+}
