@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
+import HourGlass from "@/components/HourGlass";
 
 export default function RegulationPanel() {
   const {
@@ -518,6 +519,7 @@ export default function RegulationPanel() {
             flowColorByCommunity={flowColorByCommunity}
             flights={flights}
             orderedFlightsData={orderedFlightsData}
+            regulationTimeWindow={regulationTimeWindow}
           />
         )}
 
@@ -643,7 +645,7 @@ export default function RegulationPanel() {
   );
 }
 
-function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null }) {
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number] }) {
   // Derive community sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -706,6 +708,13 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                 <span className="opacity-80">Community {g.cid}</span>
               </div>
               <div className="text-[10px] opacity-70">{g.size} flights</div>
+            </div>
+            <div className="px-2 pt-2">
+              <HourGlass
+                data={g.ids.map((fid) => arrivalTimeById.get(String(fid))).filter(Boolean) as string[]}
+                range={[formatTime(regulationTimeWindow[0]), formatTime(regulationTimeWindow[1])]}
+                height={12}
+              />
             </div>
             <div className="max-h-40 overflow-y-auto no-scrollbar">
               <table className="w-full text-[11px]">

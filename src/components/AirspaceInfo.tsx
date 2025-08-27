@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line, LineChart } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
+import HourGlass from "@/components/HourGlass";
 
 // Use Next.js API route to avoid CORS issues
 
@@ -197,7 +198,7 @@ export default function AirspaceInfo() {
           arrivalTime: detail?.arrival_time || 'N/A',
           deltaSeconds: detail?.delta_seconds || 0
         };
-      }).slice(0, 50); // Limit to 50 flights for performance
+      }).slice(0, 500); // Limit to 500 flights for performance
     }
     
     // Legacy format fallback
@@ -223,6 +224,8 @@ export default function AirspaceInfo() {
   };
 
   const flightTableData = formatFlightData();
+
+  
 
   // Helper function to format seconds to HH:MM format for display
   function formatTime(seconds: number): string {
@@ -300,24 +303,26 @@ export default function AirspaceInfo() {
       });
     }
 
-    // Create filtered flight table data maintaining order from the API
+    // Create filtered flight table data; prefer ordering by proximity to current time
     let filteredFlightTableData;
     if (orderedFlightsData) {
-      filteredFlightTableData = orderedFlightsData.ordered_flights
-        .filter(flightId => filteredFlightIds.has(flightId))
-        .map(flightId => {
-          const flight = flights.find(f => String(f.flightId) === String(flightId));
-          const detail = orderedFlightsData.details.find(d => d.flight_id === flightId);
-          return {
-            flightId,
-            callsign: flight?.callSign || 'N/A',
-            origin: flight?.origin || 'N/A',
-            destination: flight?.destination || 'N/A',
-            takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
-            arrivalTime: detail?.arrival_time || 'N/A',
-            deltaSeconds: detail?.delta_seconds || 0
-          };
-        }).slice(0, 50);
+      const filteredDetails = orderedFlightsData.details
+        .filter(detail => filteredFlightIds.has(detail.flight_id))
+        .sort((a, b) => Math.abs(a.delta_seconds) - Math.abs(b.delta_seconds));
+
+      filteredFlightTableData = filteredDetails.slice(0, 500).map(detail => {
+        const flightId = detail.flight_id;
+        const flight = flights.find(f => String(f.flightId) === String(flightId));
+        return {
+          flightId,
+          callsign: flight?.callSign || 'N/A',
+          origin: flight?.origin || 'N/A',
+          destination: flight?.destination || 'N/A',
+          takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
+          arrivalTime: detail.arrival_time || 'N/A',
+          deltaSeconds: detail.delta_seconds || 0
+        };
+      });
     } else {
       filteredFlightTableData = Array.from(filteredFlightIds).map(flightId => {
         const flight = flights.find(f => String(f.flightId) === String(flightId));
@@ -330,7 +335,7 @@ export default function AirspaceInfo() {
           arrivalTime: 'N/A',
           deltaSeconds: 0
         };
-      }).slice(0, 50);
+      }).slice(0, 500);
     }
 
     return { 
@@ -339,6 +344,39 @@ export default function AirspaceInfo() {
       filteredFlightIds 
     };
   }, [focusMode, occupancyData, chartData, flightTableData, interestWindowLength, t, flightIdentifiersData, orderedFlightsData, flights]);
+
+  // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
+  const hourGlassData = useMemo(() => {
+    // Prefer ordered format with explicit arrival times
+    if (orderedFlightsData && orderedFlightsData.details && displayFlightTableData.length > 0) {
+      const want = new Set(displayFlightTableData.map(f => String(f.flightId)));
+      const arr: string[] = [];
+      for (const d of orderedFlightsData.details) {
+        if (want.has(String(d.flight_id)) && d.arrival_time) {
+          // Use HH:MM:SS string so HourGlass labels render as time
+          arr.push(String(d.arrival_time));
+        }
+      }
+      return arr;
+    }
+    // Legacy: infer from time-window bins by assigning each flight the window start time
+    if (flightIdentifiersData && displayFlightTableData.length > 0) {
+      const idToStart = new Map<string, string>();
+      for (const [timeWindow, ids] of Object.entries(flightIdentifiersData)) {
+        const start = String(timeWindow.split('-')[0] || '').trim();
+        for (const id of ids) {
+          if (!idToStart.has(String(id))) idToStart.set(String(id), start);
+        }
+      }
+      const arr: string[] = [];
+      for (const row of displayFlightTableData) {
+        const s = idToStart.get(String(row.flightId));
+        if (s) arr.push(s);
+      }
+      return arr;
+    }
+    return [] as string[];
+  }, [orderedFlightsData, flightIdentifiersData, displayFlightTableData]);
 
   // Update focus flight IDs in store when they change
   useEffect(() => {
@@ -571,6 +609,9 @@ export default function AirspaceInfo() {
                 </span>
               )}
             </div>
+            {hourGlassData.length > 0 && (
+              <HourGlass data={hourGlassData} label height={12} className="my-2" />
+            )}
             
             {flightListLoading && (
               <div className="flex items-center justify-center py-4">
@@ -622,8 +663,8 @@ export default function AirspaceInfo() {
                     ))}
                   </tbody>
                 </table>
-                {displayFlightTableData.length === 50 && (
-                  <p className="text-xs opacity-70 text-center mt-2">Showing first 50 flights</p>
+                {displayFlightTableData.length === 500 && (
+                  <p className="text-xs opacity-70 text-center mt-2">Showing first 500 flights</p>
                 )}
                 {orderedFlightsData && (
                   <p className="text-xs opacity-70 text-center mt-2">

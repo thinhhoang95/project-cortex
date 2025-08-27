@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
+import HourGlass from "@/components/HourGlass";
 
 interface RankedFlightComponentScores {
 	multiplicity?: number;
@@ -138,6 +139,19 @@ export default function RegulationFlightListLeftPanel2() {
 				<span className="text-xs opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
 			</div>
 			<div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+				{rankingData && filteredRankedFlights.length > 0 && (
+					<div className="py-2">
+						<HourGlass
+							data={filteredRankedFlights.map((rf) => rf.arrival_time)}
+							range={[formatTime(regulationTimeWindow[0]), formatTime(regulationTimeWindow[1])]}
+							height={12}
+							defaultColor="#22d3ee"
+							lineWidth={1}
+							lineHeightPct={0.7}
+							gloss={false}
+						/>
+					</div>
+				)}
 				{loading ? (
 					<div className="flex items-center justify-center py-4">
 						<div className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white"></div>
