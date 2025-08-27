@@ -651,6 +651,56 @@ function updateFlowRendering(map: maplibregl.Map | null) {
     const vis = sim.flowViewEnabled ? 'none' : 'visible';
     map.setLayoutProperty('reg-target-lines', 'visibility', vis);
   }
+
+  // Dim/Hide traffic volume backgrounds when Flow View is enabled
+  // Goal: make non-selected/non-hotspot sectors disappear to declutter the map
+  const sectorFillId = 'sector-fill';
+  const sectorOutlineId = 'sector-outline';
+  const sectorLabelsId = 'sector-labels';
+
+  if (sim.flowViewEnabled) {
+    // Hide base sector fill/outline completely
+    if (map.getLayer(sectorFillId)) {
+      map.setPaintProperty(sectorFillId, 'fill-opacity', 0);
+    }
+    if (map.getLayer(sectorOutlineId)) {
+      map.setPaintProperty(sectorOutlineId, 'line-opacity', 0);
+    }
+
+    // Show labels only for selected TV or active hotspots at current time
+    if (map.getLayer(sectorLabelsId)) {
+      const activeHotspots = sim.getActiveHotspots ? sim.getActiveHotspots() : [];
+      const hotspotIds = activeHotspots.map((h: any) => String(h.traffic_volume_id));
+      const allowedIds: string[] = [];
+      if (sim.selectedTrafficVolume) allowedIds.push(String(sim.selectedTrafficVolume));
+      for (const id of hotspotIds) if (!allowedIds.includes(id)) allowedIds.push(id);
+
+      if (allowedIds.length === 0) {
+        // If nothing is selected or a hotspot, hide all labels to minimize clutter
+        map.setPaintProperty(sectorLabelsId, 'text-opacity', 0 as any);
+      } else {
+        // Data-driven opacity: 1 for selected/hotspot labels, 0 otherwise
+        const labelOpacityExpr: any = [
+          'case',
+          ['in', ['to-string', ['get', 'label']], ['literal', allowedIds]],
+          1,
+          0
+        ];
+        map.setPaintProperty(sectorLabelsId, 'text-opacity', labelOpacityExpr as any);
+      }
+    }
+  } else {
+    // Restore base sector visuals when Flow View is disabled
+    if (map.getLayer(sectorFillId)) {
+      map.setPaintProperty(sectorFillId, 'fill-opacity', 0.01);
+    }
+    if (map.getLayer(sectorOutlineId)) {
+      map.setPaintProperty(sectorOutlineId, 'line-opacity', 0.05);
+    }
+    if (map.getLayer(sectorLabelsId)) {
+      map.setPaintProperty(sectorLabelsId, 'text-opacity', 1 as any);
+    }
+  }
 }
 
 // Format seconds since midnight to HH:MM
@@ -766,5 +816,4 @@ function hideSlackOverlay(map: maplibregl.Map) {
     map.setLayoutProperty('sector-slack', 'visibility', 'none');
   }
 }
-
 
