@@ -621,20 +621,20 @@ function updateFlowRendering(map: maplibregl.Map | null) {
       }
     }
 
-    // Assign colors per community (non-singletons); singletons/unassigned are gray
+    // Assign colors to top 10 non-singleton communities (sorted by size desc); others gray
     const palette = [
       '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
       '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
     ];
-    const commIds = Array.from(new Set(Object.values(sim.flowCommunities).map((v) => String(v))));
+    const topCommunities = Array.from(sizeByCommunity.entries())
+      .map(([cid, size]) => ({ cid: String(cid), size: Number(size || 0) }))
+      .filter(g => g.size > 1)
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 10);
     const colorByCommunity = new Map<string, string>();
-    let colorIdx = 0;
-    for (const cid of commIds) {
-      const size = sizeByCommunity.get(cid) || 0;
-      if (size <= 1) continue; // singletons will be gray
-      colorByCommunity.set(cid, palette[colorIdx % palette.length]);
-      colorIdx++;
-    }
+    topCommunities.forEach((g, idx) => {
+      colorByCommunity.set(g.cid, palette[idx % palette.length]);
+    });
 
     // Group flight ids by assigned color
     const gray = '#9ca3af';

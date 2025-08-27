@@ -30,6 +30,8 @@ export default function RegulationPanel() {
     setRegulationEditPayload,
     // Flow view state/actions
     flowViewEnabled,
+    flowCommunities,
+    flowGroups,
     flowThreshold,
     flowResolution,
     flowLoading,
@@ -447,6 +449,72 @@ export default function RegulationPanel() {
           </div>
         </div>
 
+        {/* Flow Control (moved here) */}
+        <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-medium text-sm opacity-90">Flow Control</div>
+            <button
+              onClick={async () => {
+                if (flowViewEnabled) {
+                  setFlowViewEnabled(false);
+                  setFlowCommunities(null, null);
+                  setFlowError(null);
+                } else {
+                  await requestFlowExtraction();
+                }
+              }}
+              className={`px-3 py-1 rounded-lg border text-xs ${flowViewEnabled ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+            >
+              {flowViewEnabled ? 'Disable Flow View' : 'Enable Flow View'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[11px] opacity-80 mb-1">Threshold</div>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.05}
+                value={flowThreshold}
+                onChange={(e) => setFlowThreshold(Number(e.currentTarget.value))}
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
+              />
+            </div>
+            <div>
+              <div className="text-[11px] opacity-80 mb-1">Resolution</div>
+              <input
+                type="number"
+                min={0.1}
+                max={10}
+                step={0.1}
+                value={flowResolution}
+                onChange={(e) => setFlowResolution(Number(e.currentTarget.value))}
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
+              />
+            </div>
+          </div>
+          {flowLoading && (
+            <div className="text-[10px] opacity-70 mt-2">Extracting flows…</div>
+          )}
+          {flowError && (
+            <div className="text-[10px] mt-2 text-red-200">{flowError}</div>
+          )}
+          {!flowLoading && flowViewEnabled && (
+            <div className="text-[10px] opacity-70 mt-2">Flow view active. Colors represent discovered flows; singletons/unassigned are gray.</div>
+          )}
+        </div>
+
+        {/* Flow Communities (top 10 by size) */}
+        {flowViewEnabled && (
+          <FlowCommunitiesSection
+            flowCommunities={flowCommunities}
+            flowGroups={flowGroups}
+            flights={flights}
+            orderedFlightsData={orderedFlightsData}
+          />
+        )}
+
         {/* Predicate / Flight List input */}
         <div className="bg-white/5 border border-white/10 rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
@@ -552,61 +620,6 @@ export default function RegulationPanel() {
           )}
         </div>
 
-        {/* Flow Control */}
-        <div className="bg-white/5 border border-white/10 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-medium text-sm opacity-90">Flow Control</div>
-            <button
-              onClick={async () => {
-                if (flowViewEnabled) {
-                  setFlowViewEnabled(false);
-                  setFlowCommunities(null, null);
-                  setFlowError(null);
-                } else {
-                  await requestFlowExtraction();
-                }
-              }}
-              className={`px-3 py-1 rounded-lg border text-xs ${flowViewEnabled ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
-            >
-              {flowViewEnabled ? 'Disable Flow View' : 'Enable Flow View'}
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-[11px] opacity-80 mb-1">Threshold</div>
-              <input
-                type="number"
-                min={0}
-                max={10}
-                step={0.05}
-                value={flowThreshold}
-                onChange={(e) => setFlowThreshold(Number(e.currentTarget.value))}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
-              />
-            </div>
-            <div>
-              <div className="text-[11px] opacity-80 mb-1">Resolution</div>
-              <input
-                type="number"
-                min={0.1}
-                max={10}
-                step={0.1}
-                value={flowResolution}
-                onChange={(e) => setFlowResolution(Number(e.currentTarget.value))}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
-              />
-            </div>
-          </div>
-          {flowLoading && (
-            <div className="text-[10px] opacity-70 mt-2">Extracting flows…</div>
-          )}
-          {flowError && (
-            <div className="text-[10px] mt-2 text-red-200">{flowError}</div>
-          )}
-          {!flowLoading && flowViewEnabled && (
-            <div className="text-[10px] opacity-70 mt-2">Flow view active. Colors represent discovered flows; singletons/unassigned are gray.</div>
-          )}
-        </div>
 
         {/* Add Button */}
         <div className="flex justify-end">
@@ -619,6 +632,114 @@ export default function RegulationPanel() {
             Add
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flights, orderedFlightsData }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flights: any[]; orderedFlightsData: any | null }) {
+  // Derive community sizes
+  const groupEntries = useMemo(() => {
+    if (flowGroups && Object.keys(flowGroups).length > 0) {
+      return Object.entries(flowGroups).map(([cid, ids]) => ({ cid: String(cid), ids: (ids || []).map(String) }));
+    }
+    const byCid = new Map<string, string[]>();
+    if (flowCommunities) {
+      for (const [fid, cidAny] of Object.entries(flowCommunities)) {
+        const cid = String(cidAny);
+        const arr = byCid.get(cid) || [];
+        arr.push(String(fid));
+        byCid.set(cid, arr);
+      }
+    }
+    return Array.from(byCid.entries()).map(([cid, ids]) => ({ cid, ids }));
+  }, [flowGroups, flowCommunities]);
+
+  // Sort communities by size desc and take top 10, excluding singletons
+  const topGroups = useMemo(() => {
+    return groupEntries
+      .map(g => ({ ...g, size: (g.ids || []).length }))
+      .filter(g => g.size > 1)
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 10);
+  }, [groupEntries]);
+
+  // Build a community color palette matching the canvas logic
+  const palette = useMemo(() => [
+    '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
+    '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
+  ], []);
+  const colorByCommunity = useMemo(() => {
+    const map = new Map<string, string>();
+    let idx = 0;
+    for (const g of topGroups) {
+      map.set(g.cid, palette[idx % palette.length]);
+      idx++;
+    }
+    return map;
+  }, [topGroups, palette]);
+
+  // Helper: lookup flight details by id
+  const flightById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const f of flights || []) m.set(String(f.flightId), f);
+    return m;
+  }, [flights]);
+
+  // Helper: lookup TV arrival time (HH:MM or HH:MM:SS) from orderedFlightsData
+  const arrivalTimeById = useMemo(() => {
+    const m = new Map<string, string>();
+    const details = orderedFlightsData?.details || [];
+    for (const d of details) {
+      const fid = String(d.flight_id);
+      const at = d.arrival_time || d.arrival || '';
+      if (fid && at) m.set(fid, String(at));
+    }
+    return m;
+  }, [orderedFlightsData]);
+
+  if (!topGroups || topGroups.length === 0) return null;
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+      <div className="font-medium text-sm opacity-90 mb-2">Top Communities</div>
+      <div className="space-y-3 max-h-64 overflow-y-auto no-scrollbar">
+        {topGroups.map((g) => (
+          <div key={g.cid} className="border border-white/10 rounded-md">
+            <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorByCommunity.get(g.cid) || '#9ca3af' }} />
+                <span className="opacity-80">Community {g.cid}</span>
+              </div>
+              <div className="text-[10px] opacity-70">{g.size} flights</div>
+            </div>
+            <div className="max-h-40 overflow-y-auto no-scrollbar">
+              <table className="w-full text-[11px]">
+                <thead className="sticky top-0">
+                  <tr className="bg-blue-900 text-white">
+                    <th className="text-left p-2 font-semibold">Callsign</th>
+                    <th className="text-left p-2 font-semibold">Origin</th>
+                    <th className="text-left p-2 font-semibold">Destination</th>
+                    <th className="text-left p-2 font-semibold">TV Arrival</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.ids.slice(0, 50).map((fid) => {
+                    const f = flightById.get(String(fid));
+                    return (
+                      <tr key={String(fid)} className="border-b border-white/10">
+                        <td className="p-2 font-mono">{f?.callSign || fid}</td>
+                        <td className="p-2">{f?.origin || 'N/A'}</td>
+                        <td className="p-2">{f?.destination || 'N/A'}</td>
+                        <td className="p-2 font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
