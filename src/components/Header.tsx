@@ -137,6 +137,9 @@ export default function Header() {
             <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
               Regulations
             </Link>
+            <Link href="/flows" className={`${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
+              DeepFlow
+            </Link>
             <Link href="#" className="text-white/80 hover:text-white transition-colors">
               Reroutes
             </Link>
