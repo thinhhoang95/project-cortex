@@ -4,7 +4,9 @@ import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Toolti
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 
-export default function RegulationPanel() {
+type RegulationPanelProps = { embedded?: boolean };
+
+export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeData,
@@ -402,9 +404,9 @@ export default function RegulationPanel() {
   if (!selectedTrafficVolume) return null;
 
   return (
-    <div className="absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)]
-                    rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-                    shadow-xl text-slate-900 text-white flex flex-col">
+    <div className={embedded
+      ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+      : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-70">Reference TV</div>
@@ -436,7 +438,7 @@ export default function RegulationPanel() {
         </button>
       </div>
 
-      <div className="overflow-y-auto no-scrollbar p-4 flex-1 space-y-4">
+      <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 flex-1 space-y-4"}>
         {/* Current count + capacity summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
@@ -531,6 +533,7 @@ export default function RegulationPanel() {
             flights={flights}
             orderedFlightsData={orderedFlightsData}
             regulationTimeWindow={regulationTimeWindow}
+            embedded={embedded}
           />
         )}
 
@@ -565,7 +568,7 @@ export default function RegulationPanel() {
           {selectedFlights.length === 0 ? (
             <div className="text-xs opacity-70">No flights targeted. Click lines on map or enter callsign.</div>
           ) : (
-            <div className="max-h-52 overflow-y-auto no-scrollbar">
+            <div className={embedded ? "" : "max-h-52 overflow-y-auto no-scrollbar"}>
               <table className="w-full text-xs">
                 <thead className="sticky top-0">
                   <tr className="bg-blue-900 text-white">
@@ -661,7 +664,7 @@ export default function RegulationPanel() {
   );
 }
 
-function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number] }) {
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow, embedded }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number]; embedded?: boolean }) {
   const { setFlowPreviewFlightId, setFlowPreviewGroupId } = useSimStore();
   // Derive community sizes
   const groupEntries = useMemo(() => {
@@ -716,7 +719,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
   return (
     <div className="bg-white/5 border border-white/10 rounded-lg p-3">
       <div className="font-medium text-sm opacity-90 mb-2">Top Communities</div>
-      <div className="space-y-3 max-h-64 overflow-y-auto no-scrollbar">
+      <div className={embedded ? "space-y-3" : "space-y-3 max-h-64 overflow-y-auto no-scrollbar"}>
         {topGroups.map((g) => (
           <div key={g.cid} className="border border-white/10 rounded-md">
             <div
@@ -737,7 +740,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                 height={12}
               />
             </div>
-            <div className="max-h-40 overflow-y-auto no-scrollbar">
+            <div className={embedded ? "" : "max-h-40 overflow-y-auto no-scrollbar"}>
               <table className="w-full text-[11px]">
                 <thead className="sticky top-0">
                   <tr className="bg-blue-900 text-white">

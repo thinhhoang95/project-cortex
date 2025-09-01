@@ -34,7 +34,9 @@ interface RankedFlightsResponse {
 	};
 }
 
-export default function RegulationFlightListLeftPanel2() {
+type RegulationFlightListLeftPanel2Props = { embedded?: boolean };
+
+export default function RegulationFlightListLeftPanel2({ embedded = false }: RegulationFlightListLeftPanel2Props) {
 	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds, setFlowPreviewFlightId } = useSimStore();
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -136,14 +138,14 @@ export default function RegulationFlightListLeftPanel2() {
 	if (!selectedTrafficVolume) return null;
 
 	return (
-		<div className="w-full max-h-[40vh] min-h-0 flex-shrink-0
-						rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-						shadow-xl text-slate-900 text-white flex flex-col overflow-hidden">
+		<div className={embedded
+			? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+			: "w-full max-h-[40vh] min-h-0 flex-shrink-0 rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col overflow-hidden"}>
 			<div className="flex items-center justify-between p-3 border-b border-white/20 flex-shrink-0">
 				<h3 className="font-semibold text-sm">Flight List ({rows.length})</h3>
 				<span className="text-xs opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
 			</div>
-			<div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+			<div className={embedded ? "px-3 pb-3 overflow-x-auto" : "px-3 pb-3 flex-1 min-h-0 overflow-y-auto overflow-x-auto"}>
 				{rankingData && filteredRankedFlights.length > 0 && (
 					<div className="py-2">
 						<HourGlass

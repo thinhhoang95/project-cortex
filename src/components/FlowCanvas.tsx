@@ -378,7 +378,7 @@ export default function FlowCanvas() {
     <>
       <div id="map" className="absolute inset-0" />
       {/* Regulation panels and slack controls removed in FlowCanvas */}
-      <PrecautionBanner />
+      <PrecautionBanner regulationPrecaution />
     </>
   );
 }
