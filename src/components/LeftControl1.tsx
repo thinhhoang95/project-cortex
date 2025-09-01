@@ -3,7 +3,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { useEffect, useState } from "react";
 
 export default function LeftControl1() {
-  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, showFlightLines, setShowFlightLines, showWaypoints, setShowWaypoints, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound, showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
+  const { t, range, setRange, playing, setPlaying, speed, setSpeed, date, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, showFlightLines, setShowFlightLines, showWaypoints, setShowWaypoints, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound, showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
   // Local draft time to avoid spamming global state (and API calls) while dragging
   const [isDraggingTime, setIsDraggingTime] = useState(false);
   const [draftT, setDraftT] = useState<number | null>(null);
@@ -52,6 +52,25 @@ export default function LeftControl1() {
     };
   }, [isDraggingTime, draftT, setT]);
   
+  const formatDateParts = (dateStr: string) => {
+    try {
+      const [ddStr, mmStr, yyyyStr] = dateStr.split("/");
+      const dd = Number(ddStr);
+      const mm = Number(mmStr);
+      const yyyy = Number(yyyyStr);
+      const jsDate = new Date(Date.UTC(yyyy, (mm || 1) - 1, dd || 1));
+      const DOW = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+      const MONTHS = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+      const dow = DOW[jsDate.getUTCDay()];
+      const month = MONTHS[(mm || 1) - 1];
+      const day = String(dd || 1).padStart(2, '0');
+      return { dow, month, day };
+    } catch {
+      return { dow: 'MON', month: 'JANUARY', day: '01' };
+    }
+  };
+  const { dow, month, day } = formatDateParts(date);
+
   return (
     <div className="absolute top-20 left-4 z-50 min-w-[280px] max-w-[360px] max-h-[calc(100vh-6rem)]
                     rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
@@ -61,7 +80,7 @@ export default function LeftControl1() {
       
       <div className="bg-white/5 rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="font-semibold">Time of day</h2>
+          <h2 className="font-semibold">Datetime</h2>
           <button
             onClick={() => setPlaying(!playing)}
             className="px-3 py-1.5 rounded-xl border border-white/30 bg-white/30 hover:bg-white/40 text-sm"
@@ -70,8 +89,15 @@ export default function LeftControl1() {
           </button>
         </div>
 
-        <div className="text-2xl font-bold mb-3 text-center bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent drop-shadow-lg">
-          T = {fmt(isDraggingTime && draftT !== null ? draftT : t)}
+        <div className="mb-3 flex items-end justify-between gap-4">
+          <div className="flex flex-col leading-tight">
+            <div className="text-xs tracking-wider uppercase opacity-80">{dow}, {month}</div>
+            <div className="text-3xl font-extrabold">{day}</div>
+          </div>
+          <div className="flex flex-col items-end leading-tight text-right">
+            <div className="text-xs tracking-wider uppercase opacity-80">Operation Time</div>
+            <div className="text-3xl font-extrabold">{fmt(isDraggingTime && draftT !== null ? draftT : t)}</div>
+          </div>
         </div>
 
         <input

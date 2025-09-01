@@ -392,7 +392,34 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     if (sim.t >= tr.t0 && sim.t <= tr.t1) activeFlightIds.push(String(tr.flightId));
   }
 
-  const lineIdsToShow: string[] = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  // When Flow View is enabled and communities are present, restrict to those flights
+  let lineIdsToShow: string[];
+  // Flight-level preview takes precedence over any group preview or other filters
+  if (sim.flowPreviewFlightId) {
+    lineIdsToShow = [String(sim.flowPreviewFlightId)];
+  } else if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+    const previewGroupId = sim.flowPreviewGroupId ? String(sim.flowPreviewGroupId) : null;
+    if (previewGroupId) {
+      // Preview mode: show only flights that belong to the hovered flow group
+      let previewIds: string[] = [];
+      if (sim.flowGroups && sim.flowGroups[previewGroupId]) {
+        previewIds = (sim.flowGroups[previewGroupId] || []).map(String);
+      } else {
+        // Fallback: derive from communities mapping
+        previewIds = Object.entries(sim.flowCommunities)
+          .filter(([, cid]) => String(cid) === previewGroupId)
+          .map(([fid]) => String(fid));
+      }
+      const previewSet = new Set(previewIds);
+      lineIdsToShow = activeFlightIds.filter(fid => previewSet.has(String(fid)));
+    } else {
+      // No preview: show all flights included in any community (flow extraction)
+      const communityIds = new Set<string>(Object.keys(sim.flowCommunities).map(String));
+      lineIdsToShow = activeFlightIds.filter(fid => communityIds.has(String(fid)));
+    }
+  } else {
+    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  }
 
   const filterExpr: any = [
     "match",
@@ -515,4 +542,3 @@ function updateFlowRendering(map: maplibregl.Map | null) {
 }
 
 // (Slack overlay and helpers removed in FlowCanvas)
-

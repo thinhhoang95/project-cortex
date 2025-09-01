@@ -58,6 +58,7 @@ type State = {
   range: [number, number]; // global window
   speed: number;
   playing: boolean;
+  date: string;            // operation date in DD/MM/YYYY
   showFlightLineLabels: boolean;
   showCallsigns: boolean;
   showFlightLines: boolean;
@@ -81,6 +82,9 @@ type State = {
   flowColorByCommunity: Record<string, string> | null; // communityId -> color
   flowLoading: boolean;
   flowError: string | null;
+  // Flow preview (hover) state
+  flowPreviewGroupId: string | null;
+  flowPreviewFlightId: string | null;
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationVisibleFlightIds: string[];
@@ -97,6 +101,7 @@ type State = {
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
+  setDate: (date: string) => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
   setShowFlightLines: (show: boolean) => void;
@@ -120,6 +125,8 @@ type State = {
   setFlowCommunities: (communities: Record<string, number> | null, groups?: Record<string, string[]> | null) => void;
   setFlowLoading: (loading: boolean) => void;
   setFlowError: (error: string | null) => void;
+  setFlowPreviewGroupId: (groupId: string | null) => void;
+  setFlowPreviewFlightId: (flightId: string | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
   // Regulation Design actions
@@ -142,6 +149,7 @@ export const useSimStore = create<State>((set, get) => ({
   range: [0, 24*3600],
   playing: false,
   speed: 1,
+  date: '01/08/2023',
   showFlightLineLabels: true,
   showCallsigns: true,
   showFlightLines: true,
@@ -164,6 +172,8 @@ export const useSimStore = create<State>((set, get) => ({
   flowColorByCommunity: null,
   flowLoading: false,
   flowError: null,
+  flowPreviewGroupId: null,
+  flowPreviewFlightId: null,
   regulationTargetFlightIds: new Set<string>(),
   regulationVisibleFlightIds: [],
   regulationTimeWindow: [0, 0],
@@ -176,6 +186,7 @@ export const useSimStore = create<State>((set, get) => ({
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
+  setDate: (date) => set({ date }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
   setShowFlightLines: (show) => set({ showFlightLines: show }),
@@ -208,6 +219,8 @@ export const useSimStore = create<State>((set, get) => ({
   }),
   setFlowLoading: (loading) => set({ flowLoading: loading }),
   setFlowError: (error) => set({ flowError: error }),
+  setFlowPreviewGroupId: (groupId) => set({ flowPreviewGroupId: groupId }),
+  setFlowPreviewFlightId: (flightId) => set({ flowPreviewFlightId: flightId }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });

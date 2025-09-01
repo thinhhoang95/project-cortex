@@ -4,11 +4,22 @@ import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithCh
 import { loadSectors } from "@/lib/airspace";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
+import HourGlass from "@/components/HourGlass";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
 
 export default function FlowRegulationPanel({ embedded = false }: FlowRegulationPanelProps) {
-  const { t, flights } = useSimStore();
+  const {
+    t,
+    flights,
+    // Flow view state/actions for coloring + map filtering
+    setFlowCommunities,
+    setFlowViewEnabled,
+    setFlowError,
+    flowColorByCommunity,
+    setFlowPreviewGroupId,
+    setFlowPreviewFlightId
+  } = useSimStore();
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +143,17 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         resolution: String(Math.min(10, Math.max(0.1, resolution))),
       });
       setFlowResults(data);
+      // Build community/group mapping for global store so map can color and filter
+      const communities: Record<string, number> = {};
+      const groups: Record<string, string[]> = {};
+      for (const f of data.flows || []) {
+        const fidList = (f.flights || []).map(ff => String(ff.flight_id));
+        groups[String(f.flow_id)] = fidList;
+        for (const fid of fidList) communities[String(fid)] = Number(f.flow_id);
+      }
+      setFlowCommunities(communities, groups);
+      setFlowViewEnabled(true);
+      setFlowError(null);
     } catch (e: any) {
       setExtractError(e?.message || 'Failed to extract flows');
     } finally {
@@ -144,6 +166,27 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     const flows = flowResults?.flows || [];
     return flows.slice().sort((a, b) => ((b.flights?.length || 0) - (a.flights?.length || 0)));
   }, [flowResults]);
+
+  // When TVs are cleared, reset extraction results and disable flow view
+  useEffect(() => {
+    if (selectedTVs.length === 0) {
+      setFlowResults(null);
+      setFlowCommunities(null, null);
+      setFlowViewEnabled(false);
+      setFlowError(null);
+      setFlowPreviewGroupId(null);
+      setFlowPreviewFlightId(null);
+    }
+  }, [selectedTVs, setFlowCommunities, setFlowViewEnabled, setFlowError]);
+
+  // Clear preview when results are not shown anymore; ensure cleanup on unmount
+  useEffect(() => {
+    if (!flowResults || !flowResults.flows || flowResults.flows.length === 0) {
+      setFlowPreviewGroupId(null);
+      setFlowPreviewFlightId(null);
+    }
+    return () => { setFlowPreviewGroupId(null); setFlowPreviewFlightId(null); };
+  }, [flowResults, setFlowPreviewGroupId]);
 
   if (!open) return null;
 
@@ -276,17 +319,44 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
             <div className="font-medium text-sm opacity-90 mb-2">Flow Extraction Results ({(flowResults.flows || []).reduce((sum, f) => sum + ((f.flights || []).length), 0)} flights)</div>
             <div className="text-[11px] opacity-70 mb-2">The extracted flows also include dwelling flights.</div>
             <div className="space-y-3">
-              {sortedFlows.map((flow) => (
+              {sortedFlows.map((flow) => {
+                const arrivalTimes = (flow.flights || [])
+                  .map((fl) => extractTimeFromDateTime(fl.earliest_crossing_time))
+                  .filter(Boolean) as string[];
+                const fromSec = hhmmToSec(fromTime);
+                const toSec = hhmmToSec(toTime);
+                const anyInRange = arrivalTimes.some((s) => {
+                  const sec = hhmmOrHHMMSSec(s);
+                  return sec >= fromSec && sec <= toSec;
+                });
+                return (
                 <div key={flow.flow_id} className="border border-white/10 rounded-md">
-                  <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">
+                  <div
+                    className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
+                    onMouseEnter={() => setFlowPreviewGroupId(String(flow.flow_id))}
+                    onMouseLeave={() => setFlowPreviewGroupId(null)}
+                  >
                     <div className="flex items-center gap-2 text-xs">
+                      <span
+                        className="inline-block w-3 h-3 rounded-sm"
+                        style={{ backgroundColor: (flowColorByCommunity && (flowColorByCommunity as any)[String(flow.flow_id)]) || '#9ca3af' }}
+                        title={`Flow ${flow.flow_id}`}
+                      />
                       <span className="opacity-80">Flow {flow.flow_id}</span>
                     </div>
                     <div className="text-[10px] opacity-70">
                       {flow.flights?.length || 0} flights{flow.controlled_volume ? ` • TV ${flow.controlled_volume}` : ''}
                     </div>
                   </div>
-                  <div className="px-2 py-2">
+                  <div className="px-2 pt-2">
+                    <HourGlass
+                      data={arrivalTimes}
+                      range={anyInRange ? [fromTime, toTime] : undefined}
+                      height={12}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="px-2 pb-2">
                     <table className="w-full text-[11px]">
                       <thead>
                         <tr className="bg-blue-900 text-white">
@@ -305,7 +375,12 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                           const destination = full?.destination || 'N/A';
                           const earliest = extractTimeFromDateTime(fl.earliest_crossing_time) || 'N/A';
                           return (
-                            <tr key={`${flow.flow_id}-${fl.flight_id}`} className="border-b border-white/10">
+                            <tr
+                              key={`${flow.flow_id}-${fl.flight_id}`}
+                              className="border-b border-white/10 hover:bg-white/10 cursor-pointer"
+                              onMouseEnter={() => setFlowPreviewFlightId(String(fl.flight_id))}
+                              onMouseLeave={() => setFlowPreviewFlightId(null)}
+                            >
                               <td className="p-2 font-mono">{callsign}</td>
                               <td className="p-2">{origin}</td>
                               <td className="p-2">{destination}</td>
@@ -318,7 +393,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                     </table>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           </div>
         )}
@@ -344,6 +419,15 @@ function hhmmToHHMMSS(hhmm: string): string {
   const mm = (m || '00').padStart(2, '0');
   const ss = '00';
   return `${hh}${mm}${ss}`;
+}
+
+// Parse "HH:MM" or "HH:MM:SS" to seconds of day
+function hhmmOrHHMMSSec(s: string): number {
+  const parts = String(s).split(":").map((p) => Number.parseInt(p, 10));
+  const h = parts[0] || 0;
+  const m = parts[1] || 0;
+  const sec = parts[2] || 0;
+  return h * 3600 + m * 60 + sec;
 }
 
 // Types for flows API response
