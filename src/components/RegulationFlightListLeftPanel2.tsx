@@ -35,7 +35,7 @@ interface RankedFlightsResponse {
 }
 
 export default function RegulationFlightListLeftPanel2() {
-	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds } = useSimStore();
+	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds, setFlowPreviewFlightId } = useSimStore();
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -128,6 +128,11 @@ export default function RegulationFlightListLeftPanel2() {
 		setRegulationVisibleFlightIds(ids);
 	}, [rows, setRegulationVisibleFlightIds]);
 
+	// Clear single-flight preview on unmount
+	useEffect(() => {
+		return () => { setFlowPreviewFlightId(null); };
+	}, [setFlowPreviewFlightId]);
+
 	if (!selectedTrafficVolume) return null;
 
 	return (
@@ -188,6 +193,8 @@ export default function RegulationFlightListLeftPanel2() {
 									<tr
 										key={row.flightId}
 										className={`border-b border-white/10 cursor-pointer ${idx % 2 === 0 ? 'bg-white/2' : ''} ${isTargeted ? 'bg-emerald-500/10 hover:bg-emerald-500/15' : 'hover:bg-white/5'}`}
+										onMouseEnter={() => setFlowPreviewFlightId(String(row.flightId))}
+										onMouseLeave={() => setFlowPreviewFlightId(null)}
 										onClick={() => {
 											const full = flights.find(f => String(f.flightId) === String(row.flightId));
 											if (full) {

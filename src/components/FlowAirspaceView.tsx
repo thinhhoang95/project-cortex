@@ -45,7 +45,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setFlowResolution,
     setFlowCommunities,
     setFlowLoading,
-    setFlowError
+    setFlowError,
+    setFlowPreviewFlightId
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -124,6 +125,11 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     loadFlights();
     return () => { cancelled = true; };
   }, [selectedTrafficVolume, t]);
+
+  // Clear single-flight preview on unmount
+  useEffect(() => {
+    return () => { setFlowPreviewFlightId(null); };
+  }, [setFlowPreviewFlightId]);
 
   // Recompute current count and capacity when time changes
   useEffect(() => {
@@ -502,6 +508,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               setFlowViewEnabled(false);
               setFlowCommunities(null, null);
               setFlowError(null);
+              setFlowPreviewFlightId(null);
               window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
             }}
             className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
@@ -588,6 +595,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                     <tr
                       key={String(flight.flightId)}
                       className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${index % 2 === 0 ? 'bg-white/2' : ''}`}
+                      onMouseEnter={() => setFlowPreviewFlightId(String(flight.flightId))}
+                      onMouseLeave={() => setFlowPreviewFlightId(null)}
                       onClick={() => {
                         const fullFlight = flights.find(f => String(f.flightId) === String(flight.flightId));
                         if (fullFlight) {

@@ -7,6 +7,7 @@ import { loadSectors } from "@/lib/airspace";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
+import PrecautionBanner from "@/components/PrecautionBanner";
 
 export default function FlowCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -377,6 +378,7 @@ export default function FlowCanvas() {
     <>
       <div id="map" className="absolute inset-0" />
       {/* Regulation panels and slack controls removed in FlowCanvas */}
+      <PrecautionBanner />
     </>
   );
 }

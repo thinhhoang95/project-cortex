@@ -42,7 +42,7 @@ interface OrderedFlightsData {
 }
 
 export default function AirspaceInfo() {
-  const { selectedTrafficVolume, selectedTrafficVolumeData, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT } = useSimStore();
+  const { selectedTrafficVolume, selectedTrafficVolumeData, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT, setFlowPreviewFlightId } = useSimStore();
   const [occupancyData, setOccupancyData] = useState<OccupancyData | null>(null);
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
   const [orderedFlightsData, setOrderedFlightsData] = useState<OrderedFlightsData | null>(null);
@@ -65,6 +65,11 @@ export default function AirspaceInfo() {
       setFlightListError(null);
     }
   }, [selectedTrafficVolume, t]);
+
+  // Clear flight preview on unmount or when TV changes
+  useEffect(() => {
+    return () => { setFlowPreviewFlightId(null); };
+  }, [setFlowPreviewFlightId]);
 
   const fetchOccupancyData = async (trafficVolumeId: string) => {
     setLoading(true);
@@ -643,6 +648,8 @@ export default function AirspaceInfo() {
                       <tr 
                         key={flight.flightId} 
                         className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${index % 2 === 0 ? 'bg-white/2' : ''}`}
+                        onMouseEnter={() => setFlowPreviewFlightId(String(flight.flightId))}
+                        onMouseLeave={() => setFlowPreviewFlightId(null)}
                         onClick={() => {
                           // Find the full flight data from the flights array
                           const fullFlight = flights.find(f => String(f.flightId) === String(flight.flightId));

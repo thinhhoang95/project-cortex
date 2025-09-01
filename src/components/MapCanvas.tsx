@@ -9,6 +9,7 @@ import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
+import PrecautionBanner from "@/components/PrecautionBanner";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -740,11 +741,7 @@ export default function MapCanvas() {
           setFocusFlightIds(new Set());
         }}
       />
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white-600/30 backdrop-blur-sm text-xs text-gray-400 pointer-events-none text-center px-4 py-2 rounded-lg z-50">
-        Experimental work.If you like this, find me on <a href="https://www.linkedin.com/in/thinh-hoang-571252b7/" className="text-white">LinkedIn</a>.
-        <br />
-        Data provided by <a href="https://opensky-network.org/" className="text-white">OpenSky Network</a> and EUROCONTROL as part of the SESAR DeepFlow project.
-      </div>
+      <PrecautionBanner />
       
       {/* <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">
         <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg flex items-center space-x-3">

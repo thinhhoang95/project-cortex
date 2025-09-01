@@ -43,7 +43,8 @@ export default function RegulationPanel() {
     setFlowResolution,
     setFlowCommunities,
     setFlowLoading,
-    setFlowError
+    setFlowError,
+    setFlowPreviewFlightId
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -299,6 +300,11 @@ export default function RegulationPanel() {
     return () => window.removeEventListener('regulation-add-flight', handler as any);
   }, [addRegulationTargetFlight]);
 
+  // Clear single-flight preview on unmount
+  useEffect(() => {
+    return () => { setFlowPreviewFlightId(null); };
+  }, [setFlowPreviewFlightId]);
+
   function handlePreviewRegulation() {
     if (!selectedTrafficVolume || selectedFlights.length === 0) return;
     
@@ -418,6 +424,7 @@ export default function RegulationPanel() {
             setFlowViewEnabled(false);
             setFlowCommunities(null, null);
             setFlowError(null);
+            setFlowPreviewFlightId(null);
             window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
           }}
           className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
@@ -566,7 +573,12 @@ export default function RegulationPanel() {
                 </thead>
                 <tbody>
                   {selectedFlights.map((f) => (
-                    <tr key={String(f.flightId)} className="border-b border-white/10 hover:bg-white/5">
+                    <tr
+                      key={String(f.flightId)}
+                      className="border-b border-white/10 hover:bg-white/5 cursor-pointer"
+                      onMouseEnter={() => setFlowPreviewFlightId(String(f.flightId))}
+                      onMouseLeave={() => setFlowPreviewFlightId(null)}
+                    >
                       <td className="p-2 font-mono">{f.callSign || f.flightId}</td>
                       <td className="p-2">{f.origin || 'N/A'}</td>
                       <td className="p-2">{f.destination || 'N/A'}</td>
@@ -646,6 +658,7 @@ export default function RegulationPanel() {
 }
 
 function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number] }) {
+  const { setFlowPreviewFlightId } = useSimStore();
   // Derive community sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -730,7 +743,12 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                   {g.ids.slice(0, 50).map((fid) => {
                     const f = flightById.get(String(fid));
                     return (
-                      <tr key={String(fid)} className="border-b border-white/10">
+                      <tr
+                        key={String(fid)}
+                        className="border-b border-white/10 hover:bg-white/5 cursor-pointer"
+                        onMouseEnter={() => setFlowPreviewFlightId(String(fid))}
+                        onMouseLeave={() => setFlowPreviewFlightId(null)}
+                      >
                         <td className="p-2 font-mono">{f?.callSign || fid}</td>
                         <td className="p-2">{f?.origin || 'N/A'}</td>
                         <td className="p-2">{f?.destination || 'N/A'}</td>
