@@ -589,13 +589,11 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
           .filter(([, cid]) => String(cid) === previewGroupId)
           .map(([fid]) => String(fid));
       }
-      const previewSet = new Set(previewIds);
-      // Show those in the current active set to stay consistent with flow view behavior
-      lineIdsToShow = activeFlightIds.filter(fid => previewSet.has(String(fid)));
+      // Show all flights in the hovered community (not time-sliced)
+      lineIdsToShow = previewIds.map(String);
     } else {
-      // In flow view with no preview group, show all flights that are in any community
-      const communityIds = new Set<string>(Object.keys(sim.flowCommunities).map(String));
-      lineIdsToShow = activeFlightIds.filter(fid => communityIds.has(String(fid)));
+      // Show all flights that belong to any community (not time-sliced)
+      lineIdsToShow = Object.keys(sim.flowCommunities).map(String);
     }
   } else {
     lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
