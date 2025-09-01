@@ -2,7 +2,9 @@
 import { useSimStore } from "@/components/useSimStore";
 import { useEffect, useState } from "react";
 
-export default function LeftControl1() {
+type LeftControl1Props = { embedded?: boolean };
+
+export default function LeftControl1({ embedded = false }: LeftControl1Props) {
   const { t, range, setRange, playing, setPlaying, speed, setSpeed, date, showFlightLineLabels, setShowFlightLineLabels, showCallsigns, setShowCallsigns, showFlightLines, setShowFlightLines, showWaypoints, setShowWaypoints, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound, showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
   // Local draft time to avoid spamming global state (and API calls) while dragging
   const [isDraggingTime, setIsDraggingTime] = useState(false);
@@ -72,11 +74,11 @@ export default function LeftControl1() {
   const { dow, month, day } = formatDateParts(date);
 
   return (
-    <div className="absolute top-20 left-4 z-50 min-w-[280px] max-w-[360px] max-h-[calc(100vh-6rem)]
-                    rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-                    shadow-xl text-slate-900 text-white flex flex-col overflow-hidden">
+    <div className={embedded
+      ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+      : "absolute top-20 left-4 z-50 min-w-[280px] max-w-[360px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col overflow-hidden"}>
       
-      <div className="overflow-y-auto no-scrollbar p-4 space-y-4 flex-1">
+      <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 space-y-4 flex-1"}>
       
       <div className="bg-white/5 rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
@@ -305,7 +307,7 @@ export default function LeftControl1() {
             </div>
             
             {hotspots.length > 0 && !hotspotsLoading ? (
-              <div className="max-h-32 overflow-y-auto no-scrollbar">
+              <div className={embedded ? "" : "max-h-32 overflow-y-auto no-scrollbar"}>
                 <table className="w-full text-xs">
                   <thead className="sticky top-0">
                     <tr className="bg-red-900 text-white">

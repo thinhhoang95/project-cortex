@@ -402,7 +402,7 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   } else if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
     const previewGroupId = sim.flowPreviewGroupId ? String(sim.flowPreviewGroupId) : null;
     if (previewGroupId) {
-      // Preview mode: show only flights that belong to the hovered flow group
+      // Preview mode: show all flights that belong to the hovered flow group (not time-sliced)
       let previewIds: string[] = [];
       if (sim.flowGroups && sim.flowGroups[previewGroupId]) {
         previewIds = (sim.flowGroups[previewGroupId] || []).map(String);
@@ -412,12 +412,10 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
           .filter(([, cid]) => String(cid) === previewGroupId)
           .map(([fid]) => String(fid));
       }
-      const previewSet = new Set(previewIds);
-      lineIdsToShow = activeFlightIds.filter(fid => previewSet.has(String(fid)));
+      lineIdsToShow = previewIds.map(String);
     } else {
-      // No preview: show all flights included in any community (flow extraction)
-      const communityIds = new Set<string>(Object.keys(sim.flowCommunities).map(String));
-      lineIdsToShow = activeFlightIds.filter(fid => communityIds.has(String(fid)));
+      // No preview: show all flights included in any community (flow extraction), not time-sliced
+      lineIdsToShow = Object.keys(sim.flowCommunities).map(String);
     }
   } else {
     lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
