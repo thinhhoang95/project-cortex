@@ -45,7 +45,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
         </button>
       ) : (
         <div 
-          className={`absolute top-20 z-40 w-[340px] max-h-[calc(100vh-6rem)]
+          className={`absolute top-16 z-40 w-[340px] max-h-[calc(100vh-6rem)]
                       rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
                       shadow-xl text-white flex flex-col transition-all duration-300 ${
                         isRegulationPanelOpen ? 'right-[416px]' : 'right-4'
