@@ -15,7 +15,7 @@ export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -317,6 +317,9 @@ export default function RegulationCanvas() {
   // on t change from UI (drag), update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [t]);
 
+  // When a single-flight or group preview is toggled via hover, update filters immediately
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId]);
+
   // When flow view state changes, update rendering
   useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
 
@@ -569,7 +572,34 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     if (sim.t >= tr.t0 && sim.t <= tr.t1) activeFlightIds.push(String(tr.flightId));
   }
 
-  const lineIdsToShow: string[] = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  let lineIdsToShow: string[];
+  if (sim.flowPreviewFlightId) {
+    // Hover preview takes precedence over other filters and shows the full trajectory regardless of current time
+    lineIdsToShow = [String(sim.flowPreviewFlightId)];
+  } else if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+    const previewGroupId = sim.flowPreviewGroupId ? String(sim.flowPreviewGroupId) : null;
+    if (previewGroupId) {
+      // Preview a community: show flights belonging to the hovered community
+      let previewIds: string[] = [];
+      if (sim.flowGroups && sim.flowGroups[previewGroupId]) {
+        previewIds = (sim.flowGroups[previewGroupId] || []).map(String);
+      } else {
+        // Fallback: derive from communities mapping
+        previewIds = Object.entries(sim.flowCommunities)
+          .filter(([, cid]) => String(cid) === previewGroupId)
+          .map(([fid]) => String(fid));
+      }
+      const previewSet = new Set(previewIds);
+      // Show those in the current active set to stay consistent with flow view behavior
+      lineIdsToShow = activeFlightIds.filter(fid => previewSet.has(String(fid)));
+    } else {
+      // In flow view with no preview group, show all flights that are in any community
+      const communityIds = new Set<string>(Object.keys(sim.flowCommunities).map(String));
+      lineIdsToShow = activeFlightIds.filter(fid => communityIds.has(String(fid)));
+    }
+  } else {
+    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  }
 
   const filterExpr: any = [
     "match",
@@ -581,9 +611,9 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume;
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
     const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
-    const lineOpacity = sim.flowViewEnabled ? 0.8 : baseOpacity;
+    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
     map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
   }
   if (map.getLayer("flight-line-labels")) {
@@ -819,4 +849,3 @@ function hideSlackOverlay(map: maplibregl.Map) {
     map.setLayoutProperty('sector-slack', 'visibility', 'none');
   }
 }
-

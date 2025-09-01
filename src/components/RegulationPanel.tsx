@@ -44,7 +44,8 @@ export default function RegulationPanel() {
     setFlowCommunities,
     setFlowLoading,
     setFlowError,
-    setFlowPreviewFlightId
+    setFlowPreviewFlightId,
+    setFlowPreviewGroupId
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -300,10 +301,10 @@ export default function RegulationPanel() {
     return () => window.removeEventListener('regulation-add-flight', handler as any);
   }, [addRegulationTargetFlight]);
 
-  // Clear single-flight preview on unmount
+  // Clear previews on unmount
   useEffect(() => {
-    return () => { setFlowPreviewFlightId(null); };
-  }, [setFlowPreviewFlightId]);
+    return () => { setFlowPreviewFlightId(null); setFlowPreviewGroupId(null); };
+  }, [setFlowPreviewFlightId, setFlowPreviewGroupId]);
 
   function handlePreviewRegulation() {
     if (!selectedTrafficVolume || selectedFlights.length === 0) return;
@@ -425,6 +426,7 @@ export default function RegulationPanel() {
             setFlowCommunities(null, null);
             setFlowError(null);
             setFlowPreviewFlightId(null);
+            setFlowPreviewGroupId(null);
             window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
           }}
           className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
@@ -472,6 +474,8 @@ export default function RegulationPanel() {
                   setFlowViewEnabled(false);
                   setFlowCommunities(null, null);
                   setFlowError(null);
+                  setFlowPreviewGroupId(null);
+                  setFlowPreviewFlightId(null);
                 } else {
                   await requestFlowExtraction();
                 }
@@ -658,7 +662,7 @@ export default function RegulationPanel() {
 }
 
 function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number] }) {
-  const { setFlowPreviewFlightId } = useSimStore();
+  const { setFlowPreviewFlightId, setFlowPreviewGroupId } = useSimStore();
   // Derive community sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -715,7 +719,11 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
       <div className="space-y-3 max-h-64 overflow-y-auto no-scrollbar">
         {topGroups.map((g) => (
           <div key={g.cid} className="border border-white/10 rounded-md">
-            <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">
+            <div
+              className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
+              onMouseEnter={() => setFlowPreviewGroupId(String(g.cid))}
+              onMouseLeave={() => setFlowPreviewGroupId(null)}
+            >
               <div className="flex items-center gap-2 text-xs">
                 <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorMap.get(g.cid) || '#9ca3af' }} />
                 <span className="opacity-80">Community {g.cid}</span>
