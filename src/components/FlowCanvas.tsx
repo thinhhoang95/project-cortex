@@ -8,6 +8,7 @@ import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import PrecautionBanner from "@/components/PrecautionBanner";
+import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function FlowCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -17,6 +18,7 @@ export default function FlowCanvas() {
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
+  const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   // init map
   useEffect(() => {
@@ -73,169 +75,176 @@ export default function FlowCanvas() {
     mapRef.current = map;
 
     map.on("load", async () => {
-      // Data
-      const [sectors, tracks] = await Promise.all([
-        loadSectors("/data/airspace.geojson"),
-        loadTrajectories("/data/flights_20230801.csv")
-      ]);
+      setBaseDataLoading(true);
+      try {
+        // Data
+        const [sectors, tracks] = await Promise.all([
+          loadSectors("/data/airspace.geojson"),
+          loadTrajectories("/data/flights_20230801.csv")
+        ]);
 
-      // Store flights in global store and compute global time range
-      setFlights(tracks);
-      const minT = Math.min(...tracks.map((track: any) => track.t0));
-      const maxT = Math.max(...tracks.map((track: any) => track.t1));
-      setRange([minT, maxT], minT);
+        // Store flights in global store and compute global time range
+        setFlights(tracks);
+        const minT = Math.min(...tracks.map((track: any) => track.t0));
+        const maxT = Math.max(...tracks.map((track: any) => track.t1));
+        setRange([minT, maxT], minT);
 
-      // --- Airspace polygons + labels ---
-      map.addSource("sectors", { type: "geojson", data: sectors });
-      (map as any).__sectors = sectors;
+        // --- Airspace polygons + labels ---
+        map.addSource("sectors", { type: "geojson", data: sectors });
+        (map as any).__sectors = sectors;
 
-      map.addLayer({ id: "sector-fill", type: "fill", source: "sectors", paint: { "fill-color": "#3b82f6", "fill-opacity": 0.01 } });
-      map.addLayer({ id: "sector-outline", type: "line", source: "sectors", paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.05 } });
-      // center labels via centroid points
-      const centroids = {
-        type: "FeatureCollection",
-        features: (sectors.features as any[]).map((f) => {
-          const c = turf.centroid(f as any);
-          c.properties = { ...f.properties, label: f.properties?.traffic_volume_id || "" };
-          return c;
-        })
-      } as GeoJSON.FeatureCollection;
-      map.addSource("sector-centroids", { type: "geojson", data: centroids });
-      map.addLayer({
-        id: "sector-labels",
-        type: "symbol",
-        source: "sector-centroids",
-        layout: { "text-field": ["get", "label"], "text-size": 12, "text-font": ["Noto Sans Regular"] },
-        paint: { "text-color": "#60a5fa", "text-halo-color": "#0f172a", "text-halo-width": 2 }
-      });
+        map.addLayer({ id: "sector-fill", type: "fill", source: "sectors", paint: { "fill-color": "#3b82f6", "fill-opacity": 0.01 } });
+        map.addLayer({ id: "sector-outline", type: "line", source: "sectors", paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.05 } });
+        // center labels via centroid points
+        const centroids = {
+          type: "FeatureCollection",
+          features: (sectors.features as any[]).map((f) => {
+            const c = turf.centroid(f as any);
+            c.properties = { ...f.properties, label: f.properties?.traffic_volume_id || "" };
+            return c;
+          })
+        } as GeoJSON.FeatureCollection;
+        map.addSource("sector-centroids", { type: "geojson", data: centroids });
+        map.addLayer({
+          id: "sector-labels",
+          type: "symbol",
+          source: "sector-centroids",
+          layout: { "text-field": ["get", "label"], "text-size": 12, "text-font": ["Noto Sans Regular"] },
+          paint: { "text-color": "#60a5fa", "text-halo-color": "#0f172a", "text-halo-width": 2 }
+        });
 
-      // Add highlight and hover layers for traffic volumes
-      map.addLayer({ id: "sector-highlight", type: "fill", source: "sectors", paint: { "fill-color": "#fbbf24", "fill-opacity": 0.3 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-highlight-outline", type: "line", source: "sectors", paint: { "line-color": "#fbbf24", "line-width": 3, "line-opacity": 0.8 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-hover", type: "fill", source: "sectors", paint: { "fill-color": "#06b6d4", "fill-opacity": 0.2 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-hover-outline", type: "line", source: "sectors", paint: { "line-color": "#06b6d4", "line-width": 2, "line-opacity": 0.6 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+        // Add highlight and hover layers for traffic volumes
+        map.addLayer({ id: "sector-highlight", type: "fill", source: "sectors", paint: { "fill-color": "#fbbf24", "fill-opacity": 0.3 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+        map.addLayer({ id: "sector-highlight-outline", type: "line", source: "sectors", paint: { "line-color": "#fbbf24", "line-width": 3, "line-opacity": 0.8 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+        map.addLayer({ id: "sector-hover", type: "fill", source: "sectors", paint: { "fill-color": "#06b6d4", "fill-opacity": 0.2 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+        map.addLayer({ id: "sector-hover-outline", type: "line", source: "sectors", paint: { "line-color": "#06b6d4", "line-width": 2, "line-opacity": 0.6 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
 
-      // (Slack overlay removed in FlowCanvas)
+        // (Slack overlay removed in FlowCanvas)
 
-      // Add hotspot layers for traffic volumes
-      map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.4 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+        // Add hotspot layers for traffic volumes
+        map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.4 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+        map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
 
-      // --- Flight lines (static geometry) ---
-      const lineFC: GeoJSON.FeatureCollection = {
-        type: "FeatureCollection",
-        features: tracks.map((tr: any) => {
-          // Determine dominant direction based on first and last coordinates
-          const firstCoord = tr.coords[0];
-          const lastCoord = tr.coords[tr.coords.length - 1];
-          const deltaLon = lastCoord[0] - firstCoord[0];
-          const deltaLat = lastCoord[1] - firstCoord[1];
-          
-          // Determine which direction is dominant by comparing absolute changes
-          const absLonChange = Math.abs(deltaLon);
-          const absLatChange = Math.abs(deltaLat);
-          
-          let color = "#10b981"; // default green
-          if (absLonChange > absLatChange) {
-            // Longitude change is dominant
-            color = deltaLon < 0 ? "#ec4899" : "#10b981"; // West: pink, East: green
-          } else {
-            // Latitude change is dominant
-            color = deltaLat > 0 ? "#ec4899" : "#10b981"; // North: pink, South: green
-          }
-          
-          return {
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: tr.coords.map((c: any)=>[c[0], c[1]]) },
-            properties: { 
-              flightId: tr.flightId, 
-              callSign: tr.callSign ?? tr.flightId,
-              lineColor: color
+        // --- Flight lines (static geometry) ---
+        const lineFC: GeoJSON.FeatureCollection = {
+          type: "FeatureCollection",
+          features: tracks.map((tr: any) => {
+            // Determine dominant direction based on first and last coordinates
+            const firstCoord = tr.coords[0];
+            const lastCoord = tr.coords[tr.coords.length - 1];
+            const deltaLon = lastCoord[0] - firstCoord[0];
+            const deltaLat = lastCoord[1] - firstCoord[1];
+            
+            // Determine which direction is dominant by comparing absolute changes
+            const absLonChange = Math.abs(deltaLon);
+            const absLatChange = Math.abs(deltaLat);
+            
+            let color = "#10b981"; // default green
+            if (absLonChange > absLatChange) {
+              // Longitude change is dominant
+              color = deltaLon < 0 ? "#ec4899" : "#10b981"; // West: pink, East: green
+            } else {
+              // Latitude change is dominant
+              color = deltaLat > 0 ? "#ec4899" : "#10b981"; // North: pink, South: green
             }
-          };
-        })
-      };
-      map.addSource("flight-lines", { type: "geojson", data: lineFC });
-      map.addLayer({ id: "flight-lines", type: "line", source: "flight-lines", paint: { "line-color": ["get", "lineColor"], "line-width": 1.0, "line-opacity": 0.15 } });
-      map.addLayer({
-        id: "flight-line-labels",
-        type: "symbol",
-        source: "flight-lines",
-        layout: { "symbol-placement": "line", "text-field": ["get", "callSign"], "text-size": 11, "text-font": ["Noto Sans Regular"] },
-        paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
-      });
+            
+            return {
+              type: "Feature",
+              geometry: { type: "LineString", coordinates: tr.coords.map((c: any)=>[c[0], c[1]]) },
+              properties: { 
+                flightId: tr.flightId, 
+                callSign: tr.callSign ?? tr.flightId,
+                lineColor: color
+              }
+            };
+          })
+        };
+        map.addSource("flight-lines", { type: "geojson", data: lineFC });
+        map.addLayer({ id: "flight-lines", type: "line", source: "flight-lines", paint: { "line-color": ["get", "lineColor"], "line-width": 1.0, "line-opacity": 0.15 } });
+        map.addLayer({
+          id: "flight-line-labels",
+          type: "symbol",
+          source: "flight-lines",
+          layout: { "symbol-placement": "line", "text-field": ["get", "callSign"], "text-size": 11, "text-font": ["Noto Sans Regular"] },
+          paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
+        });
 
-      // (Regulation target lines removed in FlowCanvas)
+        // (Regulation target lines removed in FlowCanvas)
 
-      // Save trajectories on map for the animation step
-      (map as any).__trajectories = tracks;
+        // Save trajectories on map for the animation step
+        (map as any).__trajectories = tracks;
 
-      // (Regulation flight-line click behavior removed in FlowCanvas)
+        // (Regulation flight-line click behavior removed in FlowCanvas)
 
-      // Change cursor to pointer when hovering over flight lines
-      map.on('mouseenter', 'flight-lines', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'flight-lines', () => { map.getCanvas().style.cursor = ''; });
+        // Change cursor to pointer when hovering over flight lines
+        map.on('mouseenter', 'flight-lines', () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', 'flight-lines', () => { map.getCanvas().style.cursor = ''; });
 
-      // Helper to select traffic volume by id
-      const selectTrafficVolume = (trafficVolumeId: string) => {
-        const sectorFeatures = map.querySourceFeatures('sectors', { filter: ['==', 'traffic_volume_id', trafficVolumeId] });
-        const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
-        const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-        setSelectedTrafficVolume(trafficVolumeId, tvData);
-        setHighlightedTrafficVolume(prev => prev === trafficVolumeId ? null : trafficVolumeId);
-      };
+        // Helper to select traffic volume by id
+        const selectTrafficVolume = (trafficVolumeId: string) => {
+          const sectorFeatures = map.querySourceFeatures('sectors', { filter: ['==', 'traffic_volume_id', trafficVolumeId] });
+          const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
+          const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
+          setSelectedTrafficVolume(trafficVolumeId, tvData);
+          setHighlightedTrafficVolume(prev => prev === trafficVolumeId ? null : trafficVolumeId);
+        };
 
-      // Click handler: only labels select a TV (disallow fills/overlays)
-      map.on('click', 'sector-labels', (e) => {
-        // If a flight line (including highlighted) is under the cursor, let that take precedence
-        const lineHits = map.queryRenderedFeatures(e.point, { layers: ['flight-lines'] });
-        if (lineHits && lineHits.length > 0) return;
-        if (e.features && e.features.length > 0) {
-          // Choose the closest label feature to the click point to avoid wrong selection when labels overlap
-          const candidates = e.features as any[];
-          let chosen = candidates[0];
-          if (candidates.length > 1) {
-            let minDist2 = Infinity;
-            for (const f of candidates) {
-              const geom: any = f.geometry;
-              if (geom && geom.type === 'Point' && Array.isArray(geom.coordinates)) {
-                const p = map.project({ lng: geom.coordinates[0], lat: geom.coordinates[1] } as any);
-                const dx = p.x - e.point.x;
-                const dy = p.y - e.point.y;
-                const d2 = dx * dx + dy * dy;
-                if (d2 < minDist2) { minDist2 = d2; chosen = f; }
+        // Click handler: only labels select a TV (disallow fills/overlays)
+        map.on('click', 'sector-labels', (e) => {
+          // If a flight line (including highlighted) is under the cursor, let that take precedence
+          const lineHits = map.queryRenderedFeatures(e.point, { layers: ['flight-lines'] });
+          if (lineHits && lineHits.length > 0) return;
+          if (e.features && e.features.length > 0) {
+            // Choose the closest label feature to the click point to avoid wrong selection when labels overlap
+            const candidates = e.features as any[];
+            let chosen = candidates[0];
+            if (candidates.length > 1) {
+              let minDist2 = Infinity;
+              for (const f of candidates) {
+                const geom: any = f.geometry;
+                if (geom && geom.type === 'Point' && Array.isArray(geom.coordinates)) {
+                  const p = map.project({ lng: geom.coordinates[0], lat: geom.coordinates[1] } as any);
+                  const dx = p.x - e.point.x;
+                  const dy = p.y - e.point.y;
+                  const d2 = dx * dx + dy * dy;
+                  if (d2 < minDist2) { minDist2 = d2; chosen = f; }
+                }
               }
             }
+            const trafficVolumeId = (chosen as any)?.properties?.label;
+            if (trafficVolumeId) selectTrafficVolume(String(trafficVolumeId));
           }
-          const trafficVolumeId = (chosen as any)?.properties?.label;
-          if (trafficVolumeId) selectTrafficVolume(String(trafficVolumeId));
-        }
-      });
+        });
 
-      // Hover effects for sector labels and fills
-      map.on('mouseenter', 'sector-labels', (e) => {
-        map.getCanvas().style.cursor = 'pointer';
-        if (e.features && e.features.length > 0) {
-          const feature = e.features[0];
-          const trafficVolumeId = feature.properties?.label;
-          if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
-        }
-      });
-      map.on('mousemove', 'sector-labels', (e) => {
-        if (e.features && e.features.length > 0) {
-          const feature = e.features[0];
-          const trafficVolumeId = feature.properties?.label;
-          if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
-        }
-        // no-op
-      });
-      map.on('mouseleave', 'sector-labels', () => { map.getCanvas().style.cursor = ''; setHoveredTrafficVolume(null); });
-      // Fills and slack overlay are not clickable; keep default cursor
+        // Hover effects for sector labels and fills
+        map.on('mouseenter', 'sector-labels', (e) => {
+          map.getCanvas().style.cursor = 'pointer';
+          if (e.features && e.features.length > 0) {
+            const feature = e.features[0];
+            const trafficVolumeId = feature.properties?.label;
+            if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
+          }
+        });
+        map.on('mousemove', 'sector-labels', (e) => {
+          if (e.features && e.features.length > 0) {
+            const feature = e.features[0];
+            const trafficVolumeId = feature.properties?.label;
+            if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
+          }
+          // no-op
+        });
+        map.on('mouseleave', 'sector-labels', () => { map.getCanvas().style.cursor = ''; setHoveredTrafficVolume(null); });
+        // Fills and slack overlay are not clickable; keep default cursor
 
-      // Fit to data
-      const b = new maplibregl.LngLatBounds();
-      lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
-      if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+        // Fit to data
+        const b = new maplibregl.LngLatBounds();
+        lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
+        if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+      } catch (err) {
+        console.error('Failed to load base data', err);
+      } finally {
+        setBaseDataLoading(false);
+      }
     });
 
     // RAF loop (time progression + layer updates)
@@ -379,6 +388,7 @@ export default function FlowCanvas() {
       <div id="map" className="absolute inset-0" />
       {/* Regulation panels and slack controls removed in FlowCanvas */}
       <PrecautionBanner regulationPrecaution />
+      <PageLoadingIndicator visible={baseDataLoading} />
     </>
   );
 }

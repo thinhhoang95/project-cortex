@@ -10,6 +10,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
 import PrecautionBanner from "@/components/PrecautionBanner";
+import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -21,6 +22,7 @@ export default function MapCanvas() {
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
+  const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   // init map
   useEffect(() => {
@@ -88,6 +90,7 @@ export default function MapCanvas() {
     mapRef.current = map;
 
     map.on("load", async () => {
+      setBaseDataLoading(true);
       // Data
       const [sectors, tracks] = await Promise.all([
         loadSectors("/data/airspace.geojson"),
@@ -267,6 +270,9 @@ export default function MapCanvas() {
         },
         paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
       });
+
+      // Base airspace and flight data are loaded; hide the page-loading indicator
+      setBaseDataLoading(false);
 
       // --- Waypoints (zoom-based filtering for better UX) ---
       // Load only waypoints within sector bbox with small margin
@@ -745,6 +751,7 @@ export default function MapCanvas() {
         }}
       />
       <PrecautionBanner />
+      <PageLoadingIndicator visible={baseDataLoading} />
       
       {/* <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">
         <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg flex items-center space-x-3">

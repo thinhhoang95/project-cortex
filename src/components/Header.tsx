@@ -5,6 +5,7 @@ import { useSimStore } from '@/components/useSimStore';
 import { loadSectors } from '@/lib/airspace';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { clearAppCache } from '@/lib/cache';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -235,6 +236,17 @@ export default function Header() {
             
             {showDropdown && (
               <div className="absolute right-0 top-full mt-2 w-48 bg-white/80 backdrop-blur-sm border border-white/20 rounded-lg shadow-xl">
+                <button 
+                  onClick={async () => {
+                    await clearAppCache();
+                    setShowDropdown(false);
+                    // Give lightweight feedback; keep UX simple for now
+                    alert('Cached data cleared');
+                  }}
+                  className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
+                >
+                  Clear Cache
+                </button>
                 <button 
                   onClick={() => setShowDropdown(false)}
                   className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"

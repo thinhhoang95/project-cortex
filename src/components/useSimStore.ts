@@ -149,14 +149,19 @@ type State = {
     name: string;
     color: string;
     items: FlowBasketItem[];
+    // Regulation period associated with this flow (from FlowRegulationPanel)
+    periodFrom?: string; // HH:MM
+    periodTo?: string;   // HH:MM
     createdAt: number;
   }>;
   addFlowBasket: (name: string, items?: Array<string | FlowBasketItem>) => string; // returns new flow id
+  addFlowBasketWithPeriod: (name: string, items: Array<string | FlowBasketItem>, periodFrom: string, periodTo: string) => string; // returns new flow id
   createEmptyFlowBasket: (name?: string) => string; // returns new flow id
   removeFlowBasket: (id: string) => void;
   addFlightsToBasketFlow: (id: string, items: Array<string | FlowBasketItem>) => void;
   removeFlightFromBasketFlow: (id: string, key: string) => void;
   moveFlightBetweenBasketFlows: (fromId: string, toId: string, key: string) => void;
+  setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => void;
 };
 
 export type FlowBasketItem = {
@@ -318,6 +323,19 @@ export const useSimStore = create<State>((set, get) => ({
     set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, createdAt }] }));
     return id;
   },
+  addFlowBasketWithPeriod: (name: string, items: Array<string | FlowBasketItem> = [], periodFrom: string, periodTo: string) => {
+    const palette = [
+      '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
+      '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
+    ];
+    const id = `FB${Date.now()}${Math.floor(Math.random()*1000)}`;
+    const createdAt = Date.now();
+    const colorIdx = get().flowBasket.length % palette.length;
+    const color = palette[colorIdx];
+    const normalized: FlowBasketItem[] = normalizeBasketItems(items);
+    set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, periodFrom, periodTo, createdAt }] }));
+    return id;
+  },
   createEmptyFlowBasket: (name?: string) => {
     return get().addFlowBasket(name || `Flow ${get().flowBasket.length+1}`, []);
   },
@@ -332,6 +350,16 @@ export const useSimStore = create<State>((set, get) => ({
         for (const it of f.items) byKey.set(String(it.key), it);
         for (const it of normalized) byKey.set(String(it.key), { ...(byKey.get(String(it.key)) || { key: String(it.key) }), ...it });
         return { ...f, items: Array.from(byKey.values()) };
+      })
+    }));
+  },
+  setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => {
+    set(state => ({
+      flowBasket: state.flowBasket.map(f => {
+        if (f.id !== id) return f;
+        const shouldOverwrite = opts?.overwrite ?? false;
+        if (!shouldOverwrite && f.periodFrom && f.periodTo) return f;
+        return { ...f, periodFrom, periodTo };
       })
     }));
   },

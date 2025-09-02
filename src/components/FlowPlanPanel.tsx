@@ -122,8 +122,8 @@ export default function FlowPlanPanel() {
         <div className="absolute top-16 right-[416px] z-40 w-[340px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col transition-all duration-300">
           <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
             <div>
-              <div className="text-[10px] uppercase tracking-wider opacity-70">Active Network</div>
-              <div className="text-lg font-semibold">Flow Plan</div>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Regulation</div>
+              <div className="text-lg font-semibold">Flow Basket</div>
               <div className="text-xs opacity-80">{flowBasket.length} Flow{flowBasket.length !== 1 ? 's' : ''} • {totalFlights} Flight{totalFlights !== 1 ? 's' : ''}</div>
             </div>
             <div className="flex items-center gap-2">
@@ -212,7 +212,7 @@ export default function FlowPlanPanel() {
                           <span className="opacity-90 font-medium truncate" title={bf.name}>{bf.name}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] opacity-70">{bf.items?.length || 0} flights</span>
+                          <span className="text-[10px] opacity-70">{bf.items?.length || 0} flights{bf.periodFrom && bf.periodTo ? ` • Period ${bf.periodFrom}–${bf.periodTo}` : ''}</span>
                           <button
                             className="p-1 text-white/80 hover:text-red-200"
                             title="Delete flow"

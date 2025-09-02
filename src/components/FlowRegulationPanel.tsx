@@ -352,6 +352,8 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                       <AddToBasketMenu
                         flowId={String(flow.flow_id)}
                         items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
+                        periodFrom={fromTime}
+                        periodTo={toTime}
                         openId={openAddMenuFor}
                         setOpenId={setOpenAddMenuFor}
                       />
@@ -492,8 +494,8 @@ function extractTimeFromDateTime(value: string | null | undefined): string | nul
 // Event handler
 // (no-op placeholder removed)
 
-function AddToBasketMenu({ flowId, items, openId, setOpenId }: { flowId: string; items: Array<{ key: string; requestedBin?: number; earliestCrossing?: string | null }>; openId: string | null; setOpenId: (id: string | null) => void }) {
-  const { flowBasket, addFlowBasket, addFlightsToBasketFlow } = useSimStore();
+function AddToBasketMenu({ flowId, items, periodFrom, periodTo, openId, setOpenId }: { flowId: string; items: Array<{ key: string; requestedBin?: number; earliestCrossing?: string | null }>; periodFrom: string; periodTo: string; openId: string | null; setOpenId: (id: string | null) => void }) {
+  const { flowBasket, addFlowBasket, addFlowBasketWithPeriod, addFlightsToBasketFlow, setFlowBasketPeriod } = useSimStore();
   const isOpen = openId === flowId;
   return (
     <div className="relative inline-block text-[11px]">
@@ -510,7 +512,19 @@ function AddToBasketMenu({ flowId, items, openId, setOpenId }: { flowId: string;
           <button
             className="w-full text-left px-3 py-2 hover:bg-white/10"
             onClick={() => {
-              addFlowBasket(`Flow ${flowId}`, items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing })));
+              if (periodFrom && periodTo) {
+                addFlowBasketWithPeriod(
+                  `Flow ${flowId}`,
+                  items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing })),
+                  periodFrom,
+                  periodTo
+                );
+              } else {
+                addFlowBasket(
+                  `Flow ${flowId}`,
+                  items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing }))
+                );
+              }
               setOpenId(null);
             }}
           >Add as New</button>
@@ -522,7 +536,11 @@ function AddToBasketMenu({ flowId, items, openId, setOpenId }: { flowId: string;
               {flowBasket.map((bf) => (
                 <button key={bf.id}
                   className="w-full text-left px-3 py-2 hover:bg-white/10"
-                  onClick={() => { addFlightsToBasketFlow(bf.id, items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing }))); setOpenId(null); }}
+                  onClick={() => {
+                    addFlightsToBasketFlow(bf.id, items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing })));
+                    if (periodFrom && periodTo) setFlowBasketPeriod(bf.id, periodFrom, periodTo, { overwrite: false });
+                    setOpenId(null);
+                  }}
                 >Add to {bf.name}</button>
               ))}
             </div>

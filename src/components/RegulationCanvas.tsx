@@ -10,6 +10,7 @@ import { Trajectory } from "@/lib/models";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import RegulationResults from "@/components/RegulationResults";
 import PrecautionBanner from "@/components/PrecautionBanner";
+import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -19,6 +20,7 @@ export default function RegulationCanvas() {
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
+  const [baseDataLoading, setBaseDataLoading] = useState(true);
   const [slackSign, setSlackSign] = useState<"minus" | "plus">("minus");
   const [slackMode, setSlackMode] = useState<"off" | "minus" | "plus">("off");
   const [isFetchingSlack, setIsFetchingSlack] = useState<boolean>(false);
@@ -89,6 +91,7 @@ export default function RegulationCanvas() {
     mapRef.current = map;
 
     map.on("load", async () => {
+      setBaseDataLoading(true);
       // Data
       const [sectors, tracks] = await Promise.all([
         loadSectors("/data/airspace.geojson"),
@@ -292,6 +295,7 @@ export default function RegulationCanvas() {
       const b = new maplibregl.LngLatBounds();
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+      setBaseDataLoading(false);
     });
 
     // RAF loop (time progression + layer updates)
@@ -476,6 +480,7 @@ export default function RegulationCanvas() {
         result={regulationSimulationResult}
         onClose={() => { setIsResultsOpen(false); setRegulationSimulationResult(null); }}
       />
+      <PageLoadingIndicator visible={baseDataLoading} />
       {/* Slack mode toggle: Off / Minus / Plus */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md">
         <span className="px-2 text-gray-300">Slack View</span>
