@@ -35,7 +35,13 @@ export default function FlowPlanPanel() {
     return f || null;
   };
 
-  const totalFlights = useMemo(() => flowBasket.reduce((sum, f) => sum + f.flightKeys.length, 0), [flowBasket]);
+  const restoreFlowPreview = () => {
+    setFlowCommunities(origCommunitiesRef.current, origGroupsRef.current);
+    setFlowViewEnabled(!!origEnabledRef.current);
+    setFlowPreviewGroupId(null);
+    setFlowPreviewFlightId(null);
+  };
+  const totalFlights = useMemo(() => flowBasket.reduce((sum, f) => sum + (f.items?.length || 0), 0), [flowBasket]);
 
   return (
     <>
@@ -99,8 +105,8 @@ export default function FlowPlanPanel() {
                     origGroupsRef.current = st.flowGroups;
                     origEnabledRef.current = st.flowViewEnabled;
                     // Build temp mapping for this basket flow
-                    const ids = bf.flightKeys
-                      .map(k => resolveByKey(k)?.flightId)
+                    const ids = (bf.items || [])
+                      .map(it => resolveByKey(it.key)?.flightId)
                       .filter(Boolean)
                       .map(String) as string[];
                     const groups: Record<string, string[]> = { [tempGroupId]: ids };
@@ -111,10 +117,7 @@ export default function FlowPlanPanel() {
                     setFlowPreviewGroupId(tempGroupId);
                   };
                   const handleFlowMouseLeave = () => {
-                    // Restore
-                    setFlowCommunities(origCommunitiesRef.current, origGroupsRef.current);
-                    setFlowViewEnabled(!!origEnabledRef.current);
-                    setFlowPreviewGroupId(null);
+                    restoreFlowPreview();
                   };
                   return (
                     <div key={bf.id} className="border border-white/10 rounded-md">
@@ -128,11 +131,11 @@ export default function FlowPlanPanel() {
                           <span className="opacity-90 font-medium truncate" title={bf.name}>{bf.name}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] opacity-70">{bf.flightKeys.length} flights</span>
+                          <span className="text-[10px] opacity-70">{bf.items?.length || 0} flights</span>
                           <button
                             className="p-1 text-white/80 hover:text-red-200"
                             title="Delete flow"
-                            onClick={() => removeFlowBasket(bf.id)}
+                            onClick={() => { restoreFlowPreview(); removeFlowBasket(bf.id); }}
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
                           </button>
@@ -151,21 +154,24 @@ export default function FlowPlanPanel() {
                             </tr>
                           </thead>
                           <tbody>
-                            {bf.flightKeys.map((key) => {
+                            {(bf.items || []).map((it) => {
+                              const key = it.key;
                               const f = resolveByKey(key);
                               const callsign = f?.callSign || key;
                               const origin = f?.origin || '—';
                               const destination = f?.destination || '—';
                               return (
-                                <tr key={`${bf.id}-${key}`} className="border-b border-white/10 hover:bg-white/10">
-                                  <td className="p-2 font-mono"
-                                    onMouseEnter={() => { if (f?.flightId) setFlowPreviewFlightId(String(f.flightId)); }}
-                                    onMouseLeave={() => setFlowPreviewFlightId(null)}
-                                  >{callsign}</td>
+                                <tr
+                                  key={`${bf.id}-${key}`}
+                                  className="border-b border-white/10 hover:bg-white/10"
+                                  onMouseEnter={() => { if (f?.flightId) setFlowPreviewFlightId(String(f.flightId)); }}
+                                  onMouseLeave={() => setFlowPreviewFlightId(null)}
+                                >
+                                  <td className="p-2 font-mono">{callsign}</td>
                                   <td className="p-2">{origin}</td>
                                   <td className="p-2">{destination}</td>
-                                  <td className="p-2">—</td>
-                                  <td className="p-2">—</td>
+                                  <td className="p-2">{it.requestedBin != null ? String(it.requestedBin) : '—'}</td>
+                                  <td className="p-2">{it.earliestCrossing != null ? String(it.earliestCrossing) : '—'}</td>
                                   <td className="p-2">
                                     <div className="flex items-center gap-2">
                                       {/* Move */}

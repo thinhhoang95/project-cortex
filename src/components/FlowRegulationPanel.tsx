@@ -351,7 +351,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                       </div>
                       <AddToBasketMenu
                         flowId={String(flow.flow_id)}
-                        flightKeys={(flow.flights || []).map(fl => String(fl.flight_id))}
+                        items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
                         openId={openAddMenuFor}
                         setOpenId={setOpenAddMenuFor}
                       />
@@ -492,7 +492,7 @@ function extractTimeFromDateTime(value: string | null | undefined): string | nul
 // Event handler
 // (no-op placeholder removed)
 
-function AddToBasketMenu({ flowId, flightKeys, openId, setOpenId }: { flowId: string; flightKeys: string[]; openId: string | null; setOpenId: (id: string | null) => void }) {
+function AddToBasketMenu({ flowId, items, openId, setOpenId }: { flowId: string; items: Array<{ key: string; requestedBin?: number; earliestCrossing?: string | null }>; openId: string | null; setOpenId: (id: string | null) => void }) {
   const { flowBasket, addFlowBasket, addFlightsToBasketFlow } = useSimStore();
   const isOpen = openId === flowId;
   return (
@@ -510,7 +510,7 @@ function AddToBasketMenu({ flowId, flightKeys, openId, setOpenId }: { flowId: st
           <button
             className="w-full text-left px-3 py-2 hover:bg-white/10"
             onClick={() => {
-              addFlowBasket(`Flow ${flowId}`, flightKeys);
+              addFlowBasket(`Flow ${flowId}`, items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing })));
               setOpenId(null);
             }}
           >Add as New</button>
@@ -522,7 +522,7 @@ function AddToBasketMenu({ flowId, flightKeys, openId, setOpenId }: { flowId: st
               {flowBasket.map((bf) => (
                 <button key={bf.id}
                   className="w-full text-left px-3 py-2 hover:bg-white/10"
-                  onClick={() => { addFlightsToBasketFlow(bf.id, flightKeys); setOpenId(null); }}
+                  onClick={() => { addFlightsToBasketFlow(bf.id, items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing }))); setOpenId(null); }}
                 >Add to {bf.name}</button>
               ))}
             </div>
