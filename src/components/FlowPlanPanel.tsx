@@ -1,0 +1,263 @@
+"use client";
+import { useMemo, useRef, useState } from "react";
+import { useSimStore } from "@/components/useSimStore";
+
+export default function FlowPlanPanel() {
+  const {
+    flights,
+    flowBasket,
+    createEmptyFlowBasket,
+    removeFlowBasket,
+    addFlightsToBasketFlow,
+    removeFlightFromBasketFlow,
+    moveFlightBetweenBasketFlows,
+    // Hover/preview + map flow view hookup
+    setFlowCommunities,
+    setFlowViewEnabled,
+    setFlowPreviewGroupId,
+    setFlowPreviewFlightId,
+  } = useSimStore();
+
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [newFlowBusy, setNewFlowBusy] = useState(false);
+
+  // Track original global flow communities/groups so we can restore after hover
+  const origCommunitiesRef = useRef<ReturnType<typeof useSimStore.getState>["flowCommunities"] | null>(null);
+  const origGroupsRef = useRef<ReturnType<typeof useSimStore.getState>["flowGroups"] | null>(null);
+  const origEnabledRef = useRef<boolean | null>(null);
+
+  // Utilities
+  const resolveByKey = (key: string) => {
+    // Try as flightId first, then as callsign
+    let f = flights.find(ff => String(ff.flightId) === String(key));
+    if (f) return f;
+    f = flights.find(ff => ff.callSign && String(ff.callSign) === String(key));
+    return f || null;
+  };
+
+  const totalFlights = useMemo(() => flowBasket.reduce((sum, f) => sum + f.flightKeys.length, 0), [flowBasket]);
+
+  return (
+    <>
+      {isMinimized ? (
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="fixed z-[200] bottom-4 right-4 w-12 h-12 rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-lg border border-white/20 flex items-center justify-center hover:opacity-90"
+          title={`Show Flow Plan (${flowBasket.length})`}
+          aria-label="Show Flow Plan"
+        >
+          <span className="text-sm font-semibold">{flowBasket.length}</span>
+        </button>
+      ) : (
+        <div className="absolute top-16 right-[416px] z-40 w-[340px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col transition-all duration-300">
+          <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Active Network</div>
+              <div className="text-lg font-semibold">Flow Plan</div>
+              <div className="text-xs opacity-80">{flowBasket.length} Flow{flowBasket.length !== 1 ? 's' : ''} • {totalFlights} Flight{totalFlights !== 1 ? 's' : ''}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsMinimized(true)}
+                className="px-3 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+                title="Minimize panel"
+                aria-label="Minimize panel"
+              >
+                –
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-y-auto no-scrollbar p-4 flex-1 space-y-4">
+            {/* New Flow Button */}
+            <div className="flex items-center justify-between">
+              <div className="text-sm opacity-80">Manage flows to regulate</div>
+              <button
+                onClick={() => {
+                  if (newFlowBusy) return; setNewFlowBusy(true);
+                  try { createEmptyFlowBasket(); } finally { setNewFlowBusy(false); }
+                }}
+                className="px-2 py-1 rounded-lg bg-white/10 border border-white/20 text-white shadow hover:bg-white/15 flex items-center gap-1 text-xs"
+                title="Create new empty flow"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+                New flow
+              </button>
+            </div>
+
+            {/* Flow Basket */}
+            {flowBasket.length === 0 ? (
+              <div className="text-xs opacity-70 text-center py-6">No flows in basket yet. Use the Flow panel to add one or create a new empty flow.</div>
+            ) : (
+              <div className="space-y-3">
+                {flowBasket.map((bf) => {
+                  const tempGroupId = `basket-${bf.id}`;
+                  const handleFlowMouseEnter = () => {
+                    // Save original
+                    const st = useSimStore.getState();
+                    origCommunitiesRef.current = st.flowCommunities;
+                    origGroupsRef.current = st.flowGroups;
+                    origEnabledRef.current = st.flowViewEnabled;
+                    // Build temp mapping for this basket flow
+                    const ids = bf.flightKeys
+                      .map(k => resolveByKey(k)?.flightId)
+                      .filter(Boolean)
+                      .map(String) as string[];
+                    const groups: Record<string, string[]> = { [tempGroupId]: ids };
+                    const communities: Record<string, number> = {};
+                    for (const fid of ids) communities[fid] = 0; // all in one group
+                    setFlowCommunities(communities, groups);
+                    setFlowViewEnabled(true);
+                    setFlowPreviewGroupId(tempGroupId);
+                  };
+                  const handleFlowMouseLeave = () => {
+                    // Restore
+                    setFlowCommunities(origCommunitiesRef.current, origGroupsRef.current);
+                    setFlowViewEnabled(!!origEnabledRef.current);
+                    setFlowPreviewGroupId(null);
+                  };
+                  return (
+                    <div key={bf.id} className="border border-white/10 rounded-md">
+                      <div
+                        className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
+                        onMouseEnter={handleFlowMouseEnter}
+                        onMouseLeave={handleFlowMouseLeave}
+                      >
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: bf.color }} title={bf.name} />
+                          <span className="opacity-90 font-medium truncate" title={bf.name}>{bf.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] opacity-70">{bf.flightKeys.length} flights</span>
+                          <button
+                            className="p-1 text-white/80 hover:text-red-200"
+                            title="Delete flow"
+                            onClick={() => removeFlowBasket(bf.id)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="px-2 pb-2">
+                        <table className="w-full text-[11px]">
+                          <thead>
+                            <tr className="bg-blue-900 text-white">
+                              <th className="text-left p-2 font-semibold">Callsign</th>
+                              <th className="text-left p-2 font-semibold">Origin</th>
+                              <th className="text-left p-2 font-semibold">Destination</th>
+                              <th className="text-left p-2 font-semibold">Requested Bin</th>
+                              <th className="text-left p-2 font-semibold">Earliest Crossing</th>
+                              <th className="text-left p-2 font-semibold">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bf.flightKeys.map((key) => {
+                              const f = resolveByKey(key);
+                              const callsign = f?.callSign || key;
+                              const origin = f?.origin || '—';
+                              const destination = f?.destination || '—';
+                              return (
+                                <tr key={`${bf.id}-${key}`} className="border-b border-white/10 hover:bg-white/10">
+                                  <td className="p-2 font-mono"
+                                    onMouseEnter={() => { if (f?.flightId) setFlowPreviewFlightId(String(f.flightId)); }}
+                                    onMouseLeave={() => setFlowPreviewFlightId(null)}
+                                  >{callsign}</td>
+                                  <td className="p-2">{origin}</td>
+                                  <td className="p-2">{destination}</td>
+                                  <td className="p-2">—</td>
+                                  <td className="p-2">—</td>
+                                  <td className="p-2">
+                                    <div className="flex items-center gap-2">
+                                      {/* Move */}
+                                      <MoveFlightMenu
+                                        flows={flowBasket}
+                                        currentFlowId={bf.id}
+                                        onMove={(toId) => moveFlightBetweenBasketFlows(bf.id, toId, key)}
+                                      />
+                                      {/* Delete */}
+                                      <button
+                                        className="p-1 text-white/70 hover:text-red-200"
+                                        title="Remove from this flow"
+                                        onClick={() => removeFlightFromBasketFlow(bf.id, key)}
+                                      >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {/* New row */}
+                            <NewFlightRow
+                              onAdd={(token) => {
+                                const trimmed = String(token || '').trim();
+                                if (!trimmed) return;
+                                addFlightsToBasketFlow(bf.id, [trimmed]);
+                              }}
+                            />
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function NewFlightRow({ onAdd }: { onAdd: (token: string) => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <tr className="bg-white/5">
+      <td className="p-2" colSpan={4}>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.currentTarget.value)}
+          placeholder="Enter callsign or flight identifier"
+          className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white text-[11px] focus:outline-none"
+        />
+      </td>
+      <td className="p-2 text-right" colSpan={1}></td>
+      <td className="p-2 text-right">
+        <button
+          onClick={() => { const v = value.trim(); if (!v) return; onAdd(v); setValue(""); }}
+          className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white text-[11px] hover:bg-white/15"
+          title="Add to flow"
+        >Add</button>
+      </td>
+    </tr>
+  );
+}
+
+function MoveFlightMenu({ flows, currentFlowId, onMove }: { flows: Array<{ id: string; name: string }>; currentFlowId: string; onMove: (toId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative inline-block">
+      <button
+        className="p-1 text-white/70 hover:text-white"
+        title="Move to another flow"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {/* Move icon */}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M6 6l3 3M15 15l3 3M6 18l3-3M15 9l3-3" stroke="currentColor" strokeWidth="1.5"/></svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-40 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-10">
+          {flows.filter(f => f.id !== currentFlowId).length === 0 ? (
+            <div className="px-3 py-2 text-[11px] opacity-70">No other flows</div>
+          ) : flows.filter(f => f.id !== currentFlowId).map(f => (
+            <button key={f.id}
+              className="w-full text-left px-3 py-2 text-[11px] hover:bg-white/10"
+              onClick={() => { onMove(f.id); setOpen(false); }}
+            >{f.name}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,6 +1,7 @@
 "use client";
 import { useSimStore } from "@/components/useSimStore";
 import { useEffect, useState } from "react";
+import ShimmeringText from "@/components/ShimmeringText";
 
 type LeftControl1Props = { embedded?: boolean };
 
@@ -301,7 +302,7 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
               {hotspotsLoading && (
                 <div className="flex items-center">
                   <div className="animate-spin rounded-full h-3 w-3 border border-white/20 border-t-white"></div>
-                  <span className="ml-1 text-xs opacity-70">Loading...</span>
+                  <ShimmeringText text="Loading..." className="ml-1 text-xs opacity-70" />
                 </div>
               )}
             </div>

@@ -2,6 +2,7 @@ import FlowCanvas from "@/components/FlowCanvas";
 import LeftControl1Flow from "@/components/LeftControl1Flow";
 import FlowRegulationPanel from "@/components/FlowRegulationPanel";
 import FlowAirspaceView from "@/components/FlowAirspaceView";
+import FlowPlanPanel from "@/components/FlowPlanPanel";
 import Header from "@/components/Header";
 
 export default function FlowsPage() {
@@ -18,7 +19,8 @@ export default function FlowsPage() {
         <FlowRegulationPanel embedded />
         <FlowAirspaceView embedded />
       </div>
+      {/* Dock FlowPlanPanel to the left of the right-side wrapper */}
+      <FlowPlanPanel />
     </main>
   );
 }
-

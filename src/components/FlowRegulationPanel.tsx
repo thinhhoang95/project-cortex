@@ -30,6 +30,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [flowResults, setFlowResults] = useState<FlowsResponse | null>(null);
+  const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   // Flow extraction params
   const [threshold, setThreshold] = useState<number>(0.1);
   const [resolution, setResolution] = useState<number>(1.0);
@@ -344,8 +345,16 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                       />
                       <span className="opacity-80">Flow {flow.flow_id}</span>
                     </div>
-                    <div className="text-[10px] opacity-70">
-                      {flow.flights?.length || 0} flights{flow.controlled_volume ? ` • TV ${flow.controlled_volume}` : ''}
+                    <div className="flex items-center gap-2">
+                      <div className="text-[10px] opacity-70">
+                        {flow.flights?.length || 0} flights{flow.controlled_volume ? ` • TV ${flow.controlled_volume}` : ''}
+                      </div>
+                      <AddToBasketMenu
+                        flowId={String(flow.flow_id)}
+                        flightKeys={(flow.flights || []).map(fl => String(fl.flight_id))}
+                        openId={openAddMenuFor}
+                        setOpenId={setOpenAddMenuFor}
+                      />
                     </div>
                   </div>
                   <div className="px-2 pt-2">
@@ -482,3 +491,44 @@ function extractTimeFromDateTime(value: string | null | undefined): string | nul
 
 // Event handler
 // (no-op placeholder removed)
+
+function AddToBasketMenu({ flowId, flightKeys, openId, setOpenId }: { flowId: string; flightKeys: string[]; openId: string | null; setOpenId: (id: string | null) => void }) {
+  const { flowBasket, addFlowBasket, addFlightsToBasketFlow } = useSimStore();
+  const isOpen = openId === flowId;
+  return (
+    <div className="relative inline-block text-[11px]">
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpenId(isOpen ? null : flowId); }}
+        className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1"
+        title="Add this flow to Flow Basket"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+        <span className="hidden sm:inline">Add</span>
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 mt-1 w-48 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-20" onClick={(e) => e.stopPropagation()}>
+          <button
+            className="w-full text-left px-3 py-2 hover:bg-white/10"
+            onClick={() => {
+              addFlowBasket(`Flow ${flowId}`, flightKeys);
+              setOpenId(null);
+            }}
+          >Add as New</button>
+          <div className="h-px bg-white/10" />
+          {flowBasket.length === 0 ? (
+            <div className="px-3 py-2 opacity-60">No flows in basket</div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto">
+              {flowBasket.map((bf) => (
+                <button key={bf.id}
+                  className="w-full text-left px-3 py-2 hover:bg-white/10"
+                  onClick={() => { addFlightsToBasketFlow(bf.id, flightKeys); setOpenId(null); }}
+                >Add to {bf.name}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

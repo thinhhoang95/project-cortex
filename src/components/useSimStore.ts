@@ -142,6 +142,20 @@ type State = {
   setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
   setRegulationSimulationResult: (r: RegulationPlanSimulationResponse | null) => void;
   setIsResultsOpen: (open: boolean) => void;
+  // Flow Basket (for FlowPlanPanel)
+  flowBasket: Array<{
+    id: string;
+    name: string;
+    color: string;
+    flightKeys: string[]; // each entry is either a flightId or a callsign token
+    createdAt: number;
+  }>;
+  addFlowBasket: (name: string, flightKeys?: string[]) => string; // returns new flow id
+  createEmptyFlowBasket: (name?: string) => string; // returns new flow id
+  removeFlowBasket: (id: string) => void;
+  addFlightsToBasketFlow: (id: string, keys: string[]) => void;
+  removeFlightFromBasketFlow: (id: string, key: string) => void;
+  moveFlightBetweenBasketFlows: (fromId: string, toId: string, key: string) => void;
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -183,6 +197,8 @@ export const useSimStore = create<State>((set, get) => ({
   regulationEditPayload: null,
   regulationSimulationResult: null,
   isResultsOpen: false,
+  // Flow Basket initial state
+  flowBasket: [],
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -279,6 +295,52 @@ export const useSimStore = create<State>((set, get) => ({
   setRegulationEditPayload: (p) => set({ regulationEditPayload: p }),
   setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
   setIsResultsOpen: (open) => set({ isResultsOpen: open })
+  ,
+  // Flow Basket actions
+  addFlowBasket: (name: string, flightKeys: string[] = []) => {
+    const palette = [
+      '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
+      '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
+    ];
+    const id = `FB${Date.now()}${Math.floor(Math.random()*1000)}`;
+    const createdAt = Date.now();
+    const colorIdx = get().flowBasket.length % palette.length;
+    const color = palette[colorIdx];
+    const dedup = Array.from(new Set((flightKeys || []).map(String)));
+    set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, flightKeys: dedup, createdAt }] }));
+    return id;
+  },
+  createEmptyFlowBasket: (name?: string) => {
+    return get().addFlowBasket(name || `Flow ${get().flowBasket.length+1}`, []);
+  },
+  removeFlowBasket: (id: string) => set(state => ({ flowBasket: state.flowBasket.filter(f => f.id !== id) })),
+  addFlightsToBasketFlow: (id: string, keys: string[]) => {
+    if (!keys || keys.length === 0) return;
+    set(state => ({
+      flowBasket: state.flowBasket.map(f => {
+        if (f.id !== id) return f;
+        const next = new Set(f.flightKeys.map(String));
+        for (const k of keys) next.add(String(k));
+        return { ...f, flightKeys: Array.from(next) };
+      })
+    }));
+  },
+  removeFlightFromBasketFlow: (id: string, key: string) => set(state => ({
+    flowBasket: state.flowBasket.map(f => f.id === id ? { ...f, flightKeys: f.flightKeys.filter(k => String(k) !== String(key)) } : f)
+  })),
+  moveFlightBetweenBasketFlows: (fromId: string, toId: string, key: string) => {
+    set(state => ({
+      flowBasket: state.flowBasket.map(f => {
+        if (f.id === fromId) return { ...f, flightKeys: f.flightKeys.filter(k => String(k) !== String(key)) };
+        if (f.id === toId) {
+          const next = new Set(f.flightKeys.map(String));
+          next.add(String(key));
+          return { ...f, flightKeys: Array.from(next) };
+        }
+        return f;
+      })
+    }));
+  }
 }));
 
 // Compute a deterministic community -> color mapping so UI and map use identical colors

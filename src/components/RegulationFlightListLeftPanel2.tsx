@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
+import ShimmeringText from "@/components/ShimmeringText";
 
 interface RankedFlightComponentScores {
 	multiplicity?: number;
@@ -162,7 +163,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 				{loading ? (
 					<div className="flex items-center justify-center py-4">
 						<div className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white"></div>
-						<span className="ml-2 text-xs opacity-70">Loading...</span>
+						<ShimmeringText text="Loading..." className="ml-2 text-xs opacity-70" />
 					</div>
 				) : error ? (
 					<div className="bg-red-500/20 border border-red-500/30 rounded-lg p-2 mb-3 text-xs">{error}</div>
