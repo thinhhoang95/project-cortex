@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
+import HourGlass from "@/components/HourGlass";
 
-export default function FlowPlanPanel() {
+type FlowPlanPanelProps = { embedded?: boolean };
+
+export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) {
   const {
     flights,
     flowBasket,
@@ -109,7 +112,7 @@ export default function FlowPlanPanel() {
 
   return (
     <>
-      {isMinimized ? (
+      {!embedded && isMinimized ? (
         <button
           onClick={() => setIsMinimized(false)}
           className="fixed z-[200] bottom-4 right-4 w-12 h-12 rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-lg border border-white/20 flex items-center justify-center hover:opacity-90"
@@ -119,7 +122,9 @@ export default function FlowPlanPanel() {
           <span className="text-sm font-semibold">{flowBasket.length}</span>
         </button>
       ) : (
-        <div className="absolute top-16 right-[416px] z-40 w-[340px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col transition-all duration-300">
+        <div className={embedded
+          ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col transition-all duration-300"
+          : "absolute top-16 right-[416px] z-40 w-[340px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col transition-all duration-300"}>
           <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
             <div>
               <div className="text-[10px] uppercase tracking-wider opacity-70">Regulation</div>
@@ -127,14 +132,16 @@ export default function FlowPlanPanel() {
               <div className="text-xs opacity-80">{flowBasket.length} Flow{flowBasket.length !== 1 ? 's' : ''} • {totalFlights} Flight{totalFlights !== 1 ? 's' : ''}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsMinimized(true)}
-                className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-                title="Minimize panel"
-                aria-label="Minimize panel"
-              >
-                –
-              </button>
+              {!embedded && (
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+                  title="Minimize panel"
+                  aria-label="Minimize panel"
+                >
+                  –
+                </button>
+              )}
               <button
                 onClick={() => {
                   if (!basketView) applyBasketView(); else clearBasketView();
@@ -154,7 +161,7 @@ export default function FlowPlanPanel() {
             </div>
           </div>
 
-          <div className="overflow-y-auto no-scrollbar p-4 flex-1 space-y-4">
+          <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 flex-1 space-y-4"}>
             {/* New Flow Button */}
             <div className="flex items-center justify-between">
               <div className="text-sm opacity-80">Manage flows to regulate</div>
@@ -221,6 +228,14 @@ export default function FlowPlanPanel() {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
                           </button>
                         </div>
+                      </div>
+                      <div className="px-2 pt-2">
+                        <HourGlass
+                          data={(bf.items || []).map(it => it.earliestCrossing).filter(Boolean) as string[]}
+                          range={bf.periodFrom && bf.periodTo ? [String(bf.periodFrom), String(bf.periodTo)] : undefined}
+                          height={12}
+                          className="w-full"
+                        />
                       </div>
                       <div className="px-2 pb-2">
                         <table className="w-full text-[11px]">

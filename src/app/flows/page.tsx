@@ -19,8 +19,10 @@ export default function FlowsPage() {
         <FlowRegulationPanel embedded />
         <FlowAirspaceView embedded />
       </div>
-      {/* Dock FlowPlanPanel to the left of the right-side wrapper */}
-      <FlowPlanPanel />
+      {/* Left of right-side wrapper: full-height scroll container for FlowPlanPanel */}
+      <div className="absolute top-0 right-[416px] z-40 w-[340px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4">
+        <FlowPlanPanel embedded />
+      </div>
     </main>
   );
 }
