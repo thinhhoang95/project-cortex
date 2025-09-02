@@ -2,12 +2,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
+import { loadSectors } from "@/lib/airspace";
 
 type FlowPlanPanelProps = { embedded?: boolean };
 
 export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) {
   const {
     flights,
+    // Target cells state/actions
+    targetCells,
+    addTargetCell,
+    removeTargetCell,
     flowBasket,
     createEmptyFlowBasket,
     removeFlowBasket,
@@ -24,6 +29,14 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const [isMinimized, setIsMinimized] = useState(false);
   const [newFlowBusy, setNewFlowBusy] = useState(false);
   const [basketView, setBasketView] = useState(false);
+
+  // Target Cells: local search + time prompt state
+  const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
+  const [tvSearchQuery, setTvSearchQuery] = useState("");
+  const [tvSearchOpen, setTvSearchOpen] = useState(false);
+  const [pendingTV, setPendingTV] = useState<{ id: string; feature: any } | null>(null);
+  const [pendingFrom, setPendingFrom] = useState<string>("07:00");
+  const [pendingTo, setPendingTo] = useState<string>("08:00");
 
   // Track original global flow communities/groups so we can restore after hover
   const origCommunitiesRef = useRef<ReturnType<typeof useSimStore.getState>["flowCommunities"] | null>(null);
@@ -97,6 +110,50 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     hoverOrigColorsRef.current = origColorsRef.current;
   };
 
+  // Load traffic volumes once for the search box
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const fc = await loadSectors("/data/airspace.geojson");
+        if (!cancelled) setTrafficVolumes(fc.features || []);
+      } catch (e) {
+        // ignore
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Filter TV search results
+  const filteredTVs = useMemo(() => {
+    const q = tvSearchQuery.trim().toLowerCase();
+    if (!q) return [] as Array<{ id: string; feature: any }>;
+    const matches = (trafficVolumes || [])
+      .map((f: any) => ({ id: String(f?.properties?.traffic_volume_id || ''), feature: f }))
+      .filter((o: any) => o.id && o.id.toLowerCase().includes(q))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    return matches.slice(0, 30);
+  }, [tvSearchQuery, trafficVolumes]);
+
+  const handleSelectTV = (tv: { id: string; feature: any }) => {
+    setPendingTV(tv);
+    // Default 1h window for UX; user can adjust
+    setPendingFrom(padHHMM("07:00"));
+    setPendingTo(padHHMM("08:00"));
+    setTvSearchOpen(false);
+  };
+
+  const confirmAddTargetCell = () => {
+    if (!pendingTV) return;
+    const f = pendingFrom.trim();
+    const t = pendingTo.trim();
+    if (!isValidTimeRange(f, t)) return; // simple guard
+    addTargetCell(pendingTV.id, f, t);
+    setPendingTV(null);
+    setTvSearchQuery("");
+  };
+
   // Keep mapping in sync if basket changes while view is active
   useEffect(() => {
     if (!basketView) return;
@@ -127,7 +184,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
           : "absolute top-16 right-[416px] z-40 w-[340px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col transition-all duration-300"}>
           <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
             <div>
-              <div className="text-[10px] uppercase tracking-wider opacity-70">Regulation</div>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Regulation Design</div>
               <div className="text-lg font-semibold">Flow Basket</div>
               <div className="text-xs opacity-80">{flowBasket.length} Flow{flowBasket.length !== 1 ? 's' : ''} • {totalFlights} Flight{totalFlights !== 1 ? 's' : ''}</div>
             </div>
@@ -162,6 +219,115 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
           </div>
 
           <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 flex-1 space-y-4"}>
+            {/* Target Cells */}
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-medium text-sm opacity-90">Target Cells</div>
+                <div className="text-[11px] opacity-70">{targetCells.length} selected</div>
+              </div>
+              <div className="relative mb-3">
+                <input
+                  type="text"
+                  placeholder="Search traffic volumes..."
+                  value={tvSearchQuery}
+                  onChange={(e) => { setTvSearchQuery(e.currentTarget.value); setTvSearchOpen(true); }}
+                  onFocus={() => setTvSearchOpen(true)}
+                  onBlur={() => setTimeout(() => setTvSearchOpen(false), 150)}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/20"
+                />
+                <svg
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" />
+                </svg>
+                {tvSearchOpen && filteredTVs.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-slate-900/95 border border-white/20 rounded-lg shadow-lg">
+                    {filteredTVs.map((tv) => (
+                      <button
+                        key={tv.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleSelectTV(tv)}
+                        className="w-full text-left px-3 py-2 text-[12px] hover:bg-white/10"
+                        title={`Add ${tv.id}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                          <span>{tv.id}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {pendingTV && (
+                <div className="mb-3 rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="text-[12px] opacity-80 mb-2">Select time period for {pendingTV.id}</div>
+                  <div className="grid grid-cols-2 gap-3 items-end">
+                    <div>
+                      <div className="text-[11px] opacity-80 mb-1">From</div>
+                      <input
+                        type="time"
+                        value={pendingFrom}
+                        onChange={(e) => setPendingFrom(padHHMM(e.currentTarget.value))}
+                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                        style={{ colorScheme: "dark" }}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-[11px] opacity-80 mb-1">To</div>
+                      <input
+                        type="time"
+                        value={pendingTo}
+                        onChange={(e) => setPendingTo(padHHMM(e.currentTarget.value))}
+                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                        style={{ colorScheme: "dark" }}
+                      />
+                    </div>
+                  </div>
+                  {!isValidTimeRange(pendingFrom, pendingTo) && (
+                    <div className="text-[11px] text-red-200 mt-2">End time must be after start time</div>
+                  )}
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={confirmAddTargetCell}
+                      disabled={!isValidTimeRange(pendingFrom, pendingTo)}
+                      className="px-3 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 text-[12px]"
+                    >Add Cell</button>
+                    <button
+                      onClick={() => setPendingTV(null)}
+                      className="px-3 py-1 rounded-md bg-white/0 border border-white/20 text-white/70 hover:bg-white/10 text-[12px]"
+                    >Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {targetCells.length === 0 ? (
+                <div className="text-[12px] opacity-70">No target cells yet. Search a traffic volume to add one.</div>
+              ) : (
+                <div className="space-y-2">
+                  {targetCells.sort((a, b) => a.trafficVolume.localeCompare(b.trafficVolume)).map((cell) => (
+                    <div key={cell.id} className="flex items-center justify-between px-2 py-1 bg-white/5 border border-white/10 rounded-md">
+                      <div className="flex items-center gap-2 text-[12px]">
+                        <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                        <span className="font-mono font-medium">{cell.trafficVolume}</span>
+                        <span className="opacity-70">{cell.from}–{cell.to}</span>
+                      </div>
+                      <button
+                        className="p-1 text-white/70 hover:text-red-200"
+                        title="Remove cell"
+                        onClick={() => removeTargetCell(cell.id)}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* New Flow Button */}
             <div className="flex items-center justify-between">
               <div className="text-sm opacity-80">Manage flows to regulate</div>
@@ -310,6 +476,21 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
       )}
     </>
   );
+}
+
+// Helpers
+function padHHMM(v: string): string {
+  const [h, m] = String(v || '').split(':');
+  const hh = String((h || '00')).padStart(2, '0');
+  const mm = String((m || '00')).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+function isValidTimeRange(from: string, to: string): boolean {
+  const [fh, fm] = (from || '00:00').split(':').map(n => Number(n) || 0);
+  const [th, tm] = (to || '00:00').split(':').map(n => Number(n) || 0);
+  const fs = fh*3600 + fm*60;
+  const ts = th*3600 + tm*60;
+  return ts > fs;
 }
 
 function NewFlightRow({ onAdd }: { onAdd: (token: string) => void }) {

@@ -143,6 +143,11 @@ type State = {
   setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
   setRegulationSimulationResult: (r: RegulationPlanSimulationResponse | null) => void;
   setIsResultsOpen: (open: boolean) => void;
+  // Target Cells (Traffic Volume + Time Period)
+  targetCells: Array<{ id: string; trafficVolume: string; from: string; to: string; createdAt: number }>;
+  addTargetCell: (trafficVolume: string, from: string, to: string) => string; // returns id (existing or new)
+  addTargetCells: (trafficVolumes: string[], from: string, to: string) => string[]; // returns ids
+  removeTargetCell: (id: string) => void;
   // Flow Basket (for FlowPlanPanel)
   flowBasket: Array<{
     id: string;
@@ -209,6 +214,8 @@ export const useSimStore = create<State>((set, get) => ({
   regulationEditPayload: null,
   regulationSimulationResult: null,
   isResultsOpen: false,
+  // Target Cells initial state
+  targetCells: [],
   // Flow Basket initial state
   flowBasket: [],
   setRange: (r, t = get().t) => set({ range: r, t }),
@@ -309,6 +316,38 @@ export const useSimStore = create<State>((set, get) => ({
   setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
   setIsResultsOpen: (open) => set({ isResultsOpen: open })
   ,
+  // Target Cells actions
+  addTargetCell: (trafficVolume: string, from: string, to: string) => {
+    const tv = String(trafficVolume).trim();
+    const f = String(from).trim();
+    const t = String(to).trim();
+    if (!tv || !f || !t) return '';
+    const existing = get().targetCells.find(c => c.trafficVolume === tv && c.from === f && c.to === t);
+    if (existing) return existing.id;
+    const id = `TC${Date.now()}${Math.floor(Math.random()*1000)}`;
+    const createdAt = Date.now();
+    set(state => ({ targetCells: [...state.targetCells, { id, trafficVolume: tv, from: f, to: t, createdAt }] }));
+    return id;
+  },
+  addTargetCells: (trafficVolumes: string[], from: string, to: string) => {
+    const ids: string[] = [];
+    const tvs = Array.from(new Set((trafficVolumes || []).map(v => String(v).trim()).filter(Boolean)));
+    let acc = get().targetCells.slice();
+    for (const tv of tvs) {
+      const f = String(from).trim();
+      const t = String(to).trim();
+      if (!tv || !f || !t) continue;
+      const existing = acc.find(c => c.trafficVolume === tv && c.from === f && c.to === t);
+      if (existing) { ids.push(existing.id); continue; }
+      const id = `TC${Date.now()}${Math.floor(Math.random()*1000)}`;
+      acc.push({ id, trafficVolume: tv, from: f, to: t, createdAt: Date.now() });
+      ids.push(id);
+    }
+    set({ targetCells: acc });
+    return ids;
+  },
+  removeTargetCell: (id: string) => set(state => ({ targetCells: state.targetCells.filter(c => c.id !== id) })),
+  
   // Flow Basket actions
   addFlowBasket: (name: string, items: Array<string | FlowBasketItem> = []) => {
     const palette = [

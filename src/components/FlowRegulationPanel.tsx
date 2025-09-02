@@ -197,8 +197,8 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
       : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <div>
-          <div className="text-[10px] uppercase tracking-wider opacity-70">Flow Regulation</div>
-          <div className="text-lg font-semibold">Design</div>
+          <div className="text-[10px] uppercase tracking-wider opacity-70">Traffic Flows</div>
+          <div className="text-lg font-semibold">Select and Extract</div>
         </div>
       </div>
 
@@ -227,7 +227,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         </div>
 
         <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-          <div className="font-medium text-sm opacity-90 mb-3">Regulation Period</div>
+          <div className="font-medium text-sm opacity-90 mb-3">Extraction Period</div>
           <div className="grid grid-cols-2 gap-3 items-end">
             <div>
               <div className="text-[11px] opacity-80 mb-1">From</div>
@@ -352,6 +352,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                       <AddToBasketMenu
                         flowId={String(flow.flow_id)}
                         items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
+                        tvs={selectedTVs}
                         periodFrom={fromTime}
                         periodTo={toTime}
                         openId={openAddMenuFor}
@@ -494,8 +495,8 @@ function extractTimeFromDateTime(value: string | null | undefined): string | nul
 // Event handler
 // (no-op placeholder removed)
 
-function AddToBasketMenu({ flowId, items, periodFrom, periodTo, openId, setOpenId }: { flowId: string; items: Array<{ key: string; requestedBin?: number; earliestCrossing?: string | null }>; periodFrom: string; periodTo: string; openId: string | null; setOpenId: (id: string | null) => void }) {
-  const { flowBasket, addFlowBasket, addFlowBasketWithPeriod, addFlightsToBasketFlow, setFlowBasketPeriod } = useSimStore();
+function AddToBasketMenu({ flowId, items, tvs, periodFrom, periodTo, openId, setOpenId }: { flowId: string; items: Array<{ key: string; requestedBin?: number; earliestCrossing?: string | null }>; tvs: string[]; periodFrom: string; periodTo: string; openId: string | null; setOpenId: (id: string | null) => void }) {
+  const { flowBasket, addFlowBasket, addFlowBasketWithPeriod, addFlightsToBasketFlow, setFlowBasketPeriod, addTargetCells } = useSimStore();
   const isOpen = openId === flowId;
   return (
     <div className="relative inline-block text-[11px]">
@@ -519,6 +520,10 @@ function AddToBasketMenu({ flowId, items, periodFrom, periodTo, openId, setOpenI
                   periodFrom,
                   periodTo
                 );
+                // Also add selected TVs as Target Cells with this period
+                if (Array.isArray(tvs) && tvs.length > 0) {
+                  addTargetCells(tvs, periodFrom, periodTo);
+                }
               } else {
                 addFlowBasket(
                   `Flow ${flowId}`,
@@ -538,7 +543,13 @@ function AddToBasketMenu({ flowId, items, periodFrom, periodTo, openId, setOpenI
                   className="w-full text-left px-3 py-2 hover:bg-white/10"
                   onClick={() => {
                     addFlightsToBasketFlow(bf.id, items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing })));
-                    if (periodFrom && periodTo) setFlowBasketPeriod(bf.id, periodFrom, periodTo, { overwrite: false });
+                    if (periodFrom && periodTo) {
+                      setFlowBasketPeriod(bf.id, periodFrom, periodTo, { overwrite: false });
+                      // Also add selected TVs as Target Cells with this period
+                      if (Array.isArray(tvs) && tvs.length > 0) {
+                        addTargetCells(tvs, periodFrom, periodTo);
+                      }
+                    }
                     setOpenId(null);
                   }}
                 >Add to {bf.name}</button>
