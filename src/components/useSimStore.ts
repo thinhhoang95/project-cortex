@@ -122,11 +122,12 @@ type State = {
   setFlowViewEnabled: (enabled: boolean) => void;
   setFlowThreshold: (threshold: number) => void;
   setFlowResolution: (resolution: number) => void;
-  setFlowCommunities: (communities: Record<string, number> | null, groups?: Record<string, string[]> | null) => void;
+  setFlowCommunities: (communities: Record<string, number> | null, groups?: Record<string, string[]> | null, colorOverride?: Record<string, string> | null) => void;
   setFlowLoading: (loading: boolean) => void;
   setFlowError: (error: string | null) => void;
   setFlowPreviewGroupId: (groupId: string | null) => void;
   setFlowPreviewFlightId: (flightId: string | null) => void;
+  setFlowColorByCommunity: (m: Record<string, string> | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
   // Regulation Design actions
@@ -234,15 +235,16 @@ export const useSimStore = create<State>((set, get) => ({
   setFlowViewEnabled: (enabled) => set({ flowViewEnabled: enabled }),
   setFlowThreshold: (threshold) => set({ flowThreshold: threshold }),
   setFlowResolution: (resolution) => set({ flowResolution: resolution }),
-  setFlowCommunities: (communities, groups = null) => set({
+  setFlowCommunities: (communities, groups = null, colorOverride = undefined) => set({
     flowCommunities: communities,
     flowGroups: groups,
-    flowColorByCommunity: computeFlowColorByCommunity(communities, groups)
+    flowColorByCommunity: colorOverride !== undefined ? colorOverride : computeFlowColorByCommunity(communities, groups)
   }),
   setFlowLoading: (loading) => set({ flowLoading: loading }),
   setFlowError: (error) => set({ flowError: error }),
   setFlowPreviewGroupId: (groupId) => set({ flowPreviewGroupId: groupId }),
   setFlowPreviewFlightId: (flightId) => set({ flowPreviewFlightId: flightId }),
+  setFlowColorByCommunity: (m) => set({ flowColorByCommunity: m }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });

@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 
 export default function FlowPlanPanel() {
@@ -20,11 +20,19 @@ export default function FlowPlanPanel() {
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [newFlowBusy, setNewFlowBusy] = useState(false);
+  const [basketView, setBasketView] = useState(false);
 
   // Track original global flow communities/groups so we can restore after hover
   const origCommunitiesRef = useRef<ReturnType<typeof useSimStore.getState>["flowCommunities"] | null>(null);
   const origGroupsRef = useRef<ReturnType<typeof useSimStore.getState>["flowGroups"] | null>(null);
   const origEnabledRef = useRef<boolean | null>(null);
+  const origColorsRef = useRef<ReturnType<typeof useSimStore.getState>["flowColorByCommunity"] | null>(null);
+
+  // Separate refs for hover/preview so we don't overwrite basket baseline
+  const hoverOrigCommunitiesRef = useRef<ReturnType<typeof useSimStore.getState>["flowCommunities"] | null>(null);
+  const hoverOrigGroupsRef = useRef<ReturnType<typeof useSimStore.getState>["flowGroups"] | null>(null);
+  const hoverOrigEnabledRef = useRef<boolean | null>(null);
+  const hoverOrigColorsRef = useRef<ReturnType<typeof useSimStore.getState>["flowColorByCommunity"] | null>(null);
 
   // Utilities
   const resolveByKey = (key: string) => {
@@ -36,12 +44,68 @@ export default function FlowPlanPanel() {
   };
 
   const restoreFlowPreview = () => {
-    setFlowCommunities(origCommunitiesRef.current, origGroupsRef.current);
-    setFlowViewEnabled(!!origEnabledRef.current);
+    setFlowCommunities(hoverOrigCommunitiesRef.current, hoverOrigGroupsRef.current, hoverOrigColorsRef.current || null);
+    setFlowViewEnabled(!!hoverOrigEnabledRef.current);
     setFlowPreviewGroupId(null);
     setFlowPreviewFlightId(null);
   };
   const totalFlights = useMemo(() => flowBasket.reduce((sum, f) => sum + (f.items?.length || 0), 0), [flowBasket]);
+
+  // Build communities/groups/colors from the current Flow Basket
+  const buildBasketFlowMapping = () => {
+    const groups: Record<string, string[]> = {};
+    const communities: Record<string, number> = {} as any; // using 0 as placeholder, community id will be key string
+    const colorMap: Record<string, string> = {};
+    for (const bf of flowBasket) {
+      const cid = `basket-${bf.id}`; // community id key for this basket flow
+      const ids = (bf.items || [])
+        .map(it => resolveByKey(it.key)?.flightId)
+        .filter(Boolean)
+        .map(String) as string[];
+      groups[cid] = ids;
+      for (const fid of ids) (communities as any)[fid] = cid as any;
+      colorMap[cid] = bf.color;
+    }
+    return { groups, communities: communities as any, colorMap };
+  };
+
+  // Toggle the Flow Basket map view
+  const applyBasketView = () => {
+    // Save original
+    const st = useSimStore.getState();
+    origCommunitiesRef.current = st.flowCommunities;
+    origGroupsRef.current = st.flowGroups;
+    origEnabledRef.current = st.flowViewEnabled;
+    origColorsRef.current = st.flowColorByCommunity;
+    // Apply basket mapping
+    const { groups, communities, colorMap } = buildBasketFlowMapping();
+    setFlowCommunities(communities, groups, colorMap);
+    setFlowViewEnabled(true);
+  };
+  const clearBasketView = () => {
+    setFlowCommunities(origCommunitiesRef.current, origGroupsRef.current, origColorsRef.current || null);
+    setFlowViewEnabled(!!origEnabledRef.current);
+    setFlowPreviewGroupId(null);
+    setFlowPreviewFlightId(null);
+    // Reset hover baseline to the restored state to avoid stale hover restoration
+    hoverOrigCommunitiesRef.current = origCommunitiesRef.current;
+    hoverOrigGroupsRef.current = origGroupsRef.current;
+    hoverOrigEnabledRef.current = origEnabledRef.current;
+    hoverOrigColorsRef.current = origColorsRef.current;
+  };
+
+  // Keep mapping in sync if basket changes while view is active
+  useEffect(() => {
+    if (!basketView) return;
+    const { groups, communities, colorMap } = buildBasketFlowMapping();
+    setFlowCommunities(communities, groups, colorMap);
+    setFlowViewEnabled(true);
+  }, [basketView, flowBasket, flights]);
+
+  // Cleanup on unmount if basketView was active
+  useEffect(() => {
+    return () => { if (basketView) clearBasketView(); };
+  }, [basketView]);
 
   return (
     <>
@@ -65,11 +129,27 @@ export default function FlowPlanPanel() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsMinimized(true)}
-                className="px-3 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+                className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
                 title="Minimize panel"
                 aria-label="Minimize panel"
               >
                 –
+              </button>
+              <button
+                onClick={() => {
+                  if (!basketView) applyBasketView(); else clearBasketView();
+                  setBasketView(v => !v);
+                }}
+                className={`h-7 w-7 flex items-center justify-center rounded-lg border text-sm transition-colors ${basketView ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-white/30 bg-white/20 hover:bg-white/30'}`}
+                title={basketView ? 'Hide basket flow lines' : 'Show basket flow lines'}
+                aria-label="Toggle basket flow lines"
+              >
+                {/* Eye icon */}
+                {basketView ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5"/></svg>
+                )}
               </button>
             </div>
           </div>
@@ -99,11 +179,12 @@ export default function FlowPlanPanel() {
                 {flowBasket.map((bf) => {
                   const tempGroupId = `basket-${bf.id}`;
                   const handleFlowMouseEnter = () => {
-                    // Save original
+                    // Save original (hover baseline)
                     const st = useSimStore.getState();
-                    origCommunitiesRef.current = st.flowCommunities;
-                    origGroupsRef.current = st.flowGroups;
-                    origEnabledRef.current = st.flowViewEnabled;
+                    hoverOrigCommunitiesRef.current = st.flowCommunities;
+                    hoverOrigGroupsRef.current = st.flowGroups;
+                    hoverOrigEnabledRef.current = st.flowViewEnabled;
+                    hoverOrigColorsRef.current = st.flowColorByCommunity;
                     // Build temp mapping for this basket flow
                     const ids = (bf.items || [])
                       .map(it => resolveByKey(it.key)?.flightId)
@@ -112,7 +193,7 @@ export default function FlowPlanPanel() {
                     const groups: Record<string, string[]> = { [tempGroupId]: ids };
                     const communities: Record<string, number> = {};
                     for (const fid of ids) communities[fid] = 0; // all in one group
-                    setFlowCommunities(communities, groups);
+                    setFlowCommunities(communities, groups, { [tempGroupId]: bf.color });
                     setFlowViewEnabled(true);
                     setFlowPreviewGroupId(tempGroupId);
                   };
