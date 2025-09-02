@@ -142,7 +142,7 @@ export default function Header() {
               DeepFlow
             </Link>
             <Link href="#" className="text-white/80 hover:text-white transition-colors">
-              Reroutes
+              Analytics
             </Link>
           </nav>
           
