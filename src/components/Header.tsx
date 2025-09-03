@@ -145,7 +145,7 @@ export default function Header() {
             <div className="relative">
               <button
                 onClick={() => setShowAnalyticsDropdown(!showAnalyticsDropdown)}
-                className={`${pathname === '/original_count' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}
+                className={`${pathname?.includes('/original_count') || pathname?.includes('/flow-evaluation') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}
               >
                 Analytics
               </button>
@@ -157,6 +157,13 @@ export default function Header() {
                     className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
                   >
                     Original Counts
+                  </Link>
+                  <Link
+                    href="/flow-evaluation"
+                    onClick={() => setShowAnalyticsDropdown(false)}
+                    className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
+                  >
+                    Flow Evaluation
                   </Link>
                   <button
                     onClick={() => setShowAnalyticsDropdown(false)}

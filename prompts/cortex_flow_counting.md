@@ -20,7 +20,7 @@ When displaying the results, I would like the page two contain many of the follo
 
 4. Finally, there is a section to show (in dashboard style) the objective function values.
 
-5. Connect 
+5. In `FlowPlanPanel.tsx`, add a Button at the end of the panel that says: "Preview Baseline". Clicking on it will open this Flow Impact Evaluation page, with appropriate URL params for input from the data of the dialog.
 
 
 # API Reference

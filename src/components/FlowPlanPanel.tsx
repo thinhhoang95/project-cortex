@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import { loadSectors } from "@/lib/airspace";
@@ -66,6 +67,42 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowPreviewFlightId(null);
   };
   const totalFlights = useMemo(() => flowBasket.reduce((sum, f) => sum + (f.items?.length || 0), 0), [flowBasket]);
+  const router = useRouter();
+
+  // Build request body for Flow Impact Evaluation
+  const buildBaselinePayload = () => {
+    // Stable flow ordering by createdAt
+    const flowsOrdered = flowBasket.slice().sort((a, b) => a.createdAt - b.createdAt);
+    const flows: Record<string, string[]> = {};
+    const colorsByFlow: Record<string, string> = {};
+    flowsOrdered.forEach((flow, idx) => {
+      const items = (flow.items || []).map((it) => {
+        const f = resolveByKey(it.key);
+        return f?.flightId ? String(f.flightId) : String(it.key);
+      }).filter(Boolean);
+      flows[String(idx)] = items;
+      colorsByFlow[String(idx)] = flow.color;
+    });
+
+    // Merge target time windows per TV to [min(from), max(to)]
+    const buckets = new Map<string, { min: number; max: number }>();
+    for (const cell of targetCells) {
+      const tv = String(cell.trafficVolume);
+      const fromM = hhmmToMinutes(cell.from);
+      const toM = hhmmToMinutes(cell.to);
+      if (toM <= fromM) continue; // ignore invalid
+      const prev = buckets.get(tv) || { min: fromM, max: toM };
+      const next = { min: Math.min(prev.min, fromM), max: Math.max(prev.max, toM) };
+      buckets.set(tv, next);
+    }
+    const targets: Record<string, { from: string; to: string }> = {};
+    for (const [tv, r] of buckets.entries()) {
+      targets[tv] = { from: minutesToHHMM(r.min), to: minutesToHHMM(r.max) } as any;
+    }
+
+    const payload: any = { flows, targets, colorsByFlow };
+    return payload;
+  };
 
   // Build communities/groups/colors from the current Flow Basket
   const buildBasketFlowMapping = () => {
@@ -471,6 +508,30 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 })}
               </div>
             )}
+            {/* Footer actions */}
+            <div className="flex items-center justify-center pt-2">
+              <button
+                onClick={() => {
+                  try {
+                    const payload = buildBaselinePayload();
+                    const b64 = encodePayloadParam(payload);
+                    const params = new URLSearchParams();
+                    params.set('payload', b64);
+                    params.set('autostart', '1');
+                    router.push(`/flow-evaluation?${params.toString()}`);
+                  } catch (e) {
+                    alert('Failed to build payload');
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow flex items-center gap-2 text-sm hover:opacity-90"
+                title="Open Flow Impact Evaluation"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8 5v14l11-7z" fill="currentColor"/>
+                </svg>
+                Preview Baseline
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -543,4 +604,31 @@ function MoveFlightMenu({ flows, currentFlowId, onMove }: { flows: Array<{ id: s
       )}
     </div>
   );
+}
+
+// Local helpers for building baseline payload and URL encoding
+function hhmmToMinutes(v: string): number {
+  const [h, m] = String(v || '00:00').split(':').map((x) => Number(x));
+  const hh = Number.isFinite(h) ? h : 0;
+  const mm = Number.isFinite(m) ? m : 0;
+  return Math.max(0, Math.min(1439, hh*60 + mm));
+}
+
+function encodePayloadParam(obj: any): string {
+  const json = JSON.stringify(obj);
+  if (typeof window === 'undefined') {
+    // Next.js server-side safety
+    // @ts-ignore
+    const b = Buffer.from(json, 'utf-8').toString('base64');
+    return b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+  const b64 = btoa(json);
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function minutesToHHMM(mins: number): string {
+  const m = Math.max(0, Math.min(1439, Math.floor(mins)));
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
 }

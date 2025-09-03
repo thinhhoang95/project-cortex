@@ -51,6 +51,8 @@ export default function OriginalCountPage() {
   // View-only time window for histogram (does not affect API params)
   const [viewFromTime, setViewFromTime] = useState<string>("00:00");
   const [viewToTime, setViewToTime] = useState<string>("23:59");
+  const [showRequest, setShowRequest] = useState<boolean>(false);
+  const [showResponse, setShowResponse] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,6 +175,21 @@ export default function OriginalCountPage() {
 
           {/* Controls */}
           <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <button
+                onClick={handleQuery}
+                disabled={!valid || querying}
+                className={`px-3 py-2 rounded-lg text-sm font-bold transition-colors ${querying ? 'bg-gradient-to-r from-blue-500 to-cyan-400 text-white opacity-80 cursor-wait' : valid ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 hover:from-blue-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40' : 'opacity-50 cursor-not-allowed border border-white/20 bg-white/5 text-white/60'}`}
+              >
+                {querying ? <ShimmeringText text="Querying..." /> : 'Query'}
+              </button>
+              {!valid && (
+                <div className="text-[11px] text-red-200">End time must not be earlier than start time</div>
+              )}
+              {error && (
+                <div className="text-[11px] text-red-200">{error}</div>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
               <div className="md:col-span-2">
                 <div className="text-[11px] opacity-80 mb-1 text-white">Traffic Volumes</div>
@@ -221,27 +238,29 @@ export default function OriginalCountPage() {
                 />
                 <span className="text-sm">Rolling Hour</span>
               </label>
-              <button
-                onClick={handleQuery}
-                disabled={!valid || querying}
-                className={`px-3 py-2 rounded-lg border text-sm ${querying ? 'border-blue-400/50 bg-blue-500/20 text-blue-200' : valid ? 'border-white/30 bg-white/10 text-white/90 hover:bg-white/15' : 'opacity-50 cursor-not-allowed border-white/20 bg-white/5 text-white/60'}`}
-              >
-                {querying ? <ShimmeringText text="Querying..." /> : 'Query'}
-              </button>
-              {!valid && (
-                <div className="text-[11px] text-red-200">End time must not be earlier than start time</div>
-              )}
-              {error && (
-                <div className="text-[11px] text-red-200">{error}</div>
-              )}
-          </div>
-          {/* Debug: Request JSON */}
-          <div className="mt-4">
-            <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Request JSON</div>
-            <div className="bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-40 overflow-auto">
-              {JSON.stringify(debugPayload, null, 2)}
             </div>
-          </div>
+
+            {/* Debug toggles */}
+            <div className="mt-3 flex items-center gap-3 text-[12px]">
+              <button
+                onClick={() => setShowRequest((s) => !s)}
+                className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
+              >{showRequest ? 'Hide Request' : 'Show Request'}</button>
+              <button
+                onClick={() => setShowResponse((s) => !s)}
+                className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
+              >{showResponse ? 'Hide Response' : 'Show Response'}</button>
+            </div>
+            {showRequest && (
+              <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-48 overflow-auto">
+                {JSON.stringify(debugPayload, null, 2)}
+              </div>
+            )}
+            {showResponse && data && (
+              <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-72 overflow-auto">
+                {JSON.stringify(data, null, 2)}
+              </div>
+            )}
 
           {/* Histogram view control */}
           <div className="mt-6">
@@ -337,14 +356,26 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
       </div>
       <div className="h-36">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
+          <ComposedChart data={rows} margin={{ top: 4, right: 6, left: 0, bottom: 16 }}>
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-            <XAxis dataKey="idx" tick={false} axisLine={false} tickLine={false} />
-            <YAxis
-              tick={true}
+            <XAxis
+              dataKey="idx"
+              tick={{ fontSize: 10 }}
               axisLine={true}
               tickLine={true}
-              width={1}
+              interval="preserveStartEnd"
+              tickFormatter={(value: any) => {
+                const idx = Number(value ?? 0);
+                const l = labels[idx] || '';
+                return l || binIndexToRangeLabel(idx, minutesPerBin);
+              }}
+            />
+            <YAxis
+              tick={{ fontSize: 10 }}
+              axisLine={true}
+              tickLine={true}
+              allowDecimals={false}
+              width={32}
             />
             <Tooltip
               wrapperStyle={{ zIndex: 9999 }}

@@ -93,3 +93,23 @@ export interface RegulationPlanSimulationResponse {
   excess_vector_stats?: { sum: number; max: number; mean: number; count: number };
   metadata: RegulationPlanMetadata;
 }
+
+// Flow Impact Evaluation models
+export interface FlowEval {
+  flow_id: number;
+  controlled_volume: string | null;
+  n0: number[]; // length T+1
+  demand: number[]; // length T
+  target_demands: Record<string, number[]>; // tv -> series length T
+  ripple_demands?: Record<string, number[]>; // tv -> series length T
+}
+
+export interface BaseEvaluationResponse {
+  num_time_bins: number;
+  tvs: string[];
+  target_cells: Array<[string, number]>;
+  ripple_cells?: Array<[string, number]>;
+  flows: FlowEval[];
+  objective: { score: number; components: Record<string, number> };
+  weights_used?: Record<string, number>;
+}
