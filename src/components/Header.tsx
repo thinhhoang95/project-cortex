@@ -9,6 +9,7 @@ import { clearAppCache } from '@/lib/cache';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showAnalyticsDropdown, setShowAnalyticsDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -141,9 +142,31 @@ export default function Header() {
             <Link href="/flows" className={`${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
               DeepFlow
             </Link>
-            <Link href="#" className="text-white/80 hover:text-white transition-colors">
-              Analytics
-            </Link>
+            <div className="relative">
+              <button
+                onClick={() => setShowAnalyticsDropdown(!showAnalyticsDropdown)}
+                className={`${pathname === '/original_count' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}
+              >
+                Analytics
+              </button>
+              {showAnalyticsDropdown && (
+                <div className="absolute left-0 top-full mt-2 w-48 bg-white/80 backdrop-blur-sm border border-white/20 rounded-lg shadow-xl z-50">
+                  <Link
+                    href="/original_count"
+                    onClick={() => setShowAnalyticsDropdown(false)}
+                    className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
+                  >
+                    Original Counts
+                  </Link>
+                  <button
+                    onClick={() => setShowAnalyticsDropdown(false)}
+                    className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
+                  >
+                    Others...
+                  </button>
+                </div>
+              )}
+            </div>
           </nav>
           
           <div className="relative">

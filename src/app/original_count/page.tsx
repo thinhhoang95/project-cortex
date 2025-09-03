@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import ShimmeringText from "@/components/ShimmeringText";
 import { loadSectors } from "@/lib/airspace";
+import TimeScaleControl from "@/components/TimeScaleControl";
 import {
   ComposedChart,
   Bar,
@@ -47,6 +48,9 @@ export default function OriginalCountPage() {
   const [querying, setQuerying] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CountsResponse | null>(null);
+  // View-only time window for histogram (does not affect API params)
+  const [viewFromTime, setViewFromTime] = useState<string>("00:00");
+  const [viewToTime, setViewToTime] = useState<string>("23:59");
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +118,9 @@ export default function OriginalCountPage() {
       }
       const json = await res.json();
       setData(json);
+      // After a successful query, align view window with request
+      setViewFromTime(fromTime);
+      setViewToTime(toTime);
     } catch (e: any) {
       setError(e?.message || 'Failed to query original counts');
     } finally {
@@ -235,15 +242,36 @@ export default function OriginalCountPage() {
               {JSON.stringify(debugPayload, null, 2)}
             </div>
           </div>
+
+          {/* Histogram view control */}
+          <div className="mt-6">
+            <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Histogram View Range</div>
+            <TimeScaleControl
+              time_from={viewFromTime}
+              time_to={viewToTime}
+              stepMinutes={data?.time_bin_minutes ?? 1}
+              onCommit={(f, t) => { setViewFromTime(f); setViewToTime(t); }}
+            />
+          </div>
         </div>
 
           {/* Mentioned TVs */}
           <section className="mb-8">
             <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Mentioned Traffic Volumes</div>
             {data?.mentioned_counts && Object.keys(data.mentioned_counts).length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2">
                 {mentionedItems.map(({ tvId, series, labels, capacitySeries }) => (
-                  <ChartCard key={`m-${tvId}`} tvId={tvId} series={series} capacitySeries={capacitySeries} labels={labels} minutesPerBin={data?.time_bin_minutes ?? 15} showCapacity={rollingHour} />
+                  <ChartCard
+                    key={`m-${tvId}`}
+                    tvId={tvId}
+                    series={series}
+                    capacitySeries={capacitySeries}
+                    labels={labels}
+                    minutesPerBin={data?.time_bin_minutes ?? 15}
+                    showCapacity={rollingHour}
+                    viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
+                    viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
+                  />
                 ))}
               </div>
             ) : (
@@ -255,9 +283,19 @@ export default function OriginalCountPage() {
           <section className="mb-4">
             <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Top Traffic Volumes</div>
             {data?.counts && Object.keys(data.counts).length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
                 {topItems.map(({ tvId, series, labels, capacitySeries }) => (
-                  <ChartCard key={`t-${tvId}`} tvId={tvId} series={series} capacitySeries={capacitySeries} labels={labels} minutesPerBin={data?.time_bin_minutes ?? 15} showCapacity={rollingHour} />
+                  <ChartCard
+                    key={`t-${tvId}`}
+                    tvId={tvId}
+                    series={series}
+                    capacitySeries={capacitySeries}
+                    labels={labels}
+                    minutesPerBin={data?.time_bin_minutes ?? 15}
+                    showCapacity={rollingHour}
+                    viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
+                    viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
+                  />
                 ))}
               </div>
             ) : (
@@ -270,16 +308,27 @@ export default function OriginalCountPage() {
   );
 }
 
-function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], showCapacity = false }: { tvId: string; series: number[]; labels: string[]; minutesPerBin: number; capacitySeries?: number[]; showCapacity?: boolean }) {
+function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], showCapacity = false, viewFromMin, viewToMin }: { tvId: string; series: number[]; labels: string[]; minutesPerBin: number; capacitySeries?: number[]; showCapacity?: boolean; viewFromMin: number; viewToMin: number }) {
   const rows = useMemo(() => {
     const n = Math.min(series.length, labels.length);
-    return new Array(n).fill(0).map((_, i) => {
+    const arr = new Array(n).fill(0).map((_, i) => {
       const rawCap = capacitySeries[i];
       const capNum = Number(rawCap);
       const capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
-      return { idx: i, value: Number(series[i] ?? 0), capacity };
+      const label = String(labels[i] || "");
+      // Try to parse start HH:MM from label; accept formats like "HH:MM" or "HH:MM-HH:MM"
+      let startLabel = label;
+      const dashIdx = label.indexOf("-");
+      if (dashIdx > 0) startLabel = label.slice(0, dashIdx);
+      const parsed = hhmmToMinutes(startLabel);
+      const startMin = Number.isFinite(parsed) ? parsed : i * minutesPerBin;
+      return { idx: i, value: Number(series[i] ?? 0), capacity, startMin };
     });
-  }, [series, labels, capacitySeries]);
+    // Filter by view window
+    const vFrom = Math.max(0, Math.floor(viewFromMin));
+    const vTo = Math.min(24 * 60 - 1, Math.floor(viewToMin));
+    return arr.filter((r) => r.startMin >= vFrom && r.startMin <= vTo);
+  }, [series, labels, capacitySeries, minutesPerBin, viewFromMin, viewToMin]);
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
@@ -324,6 +373,15 @@ function hhmmToSec(hhmm: string): number {
   const hh = Number.isFinite(h) ? h : 0;
   const mm = Number.isFinite(m) ? m : 0;
   return Math.max(0, hh * 3600 + mm * 60);
+}
+
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = (hhmm || '').split(":").map((x) => Number(x));
+  const hh = Number.isFinite(h) ? h : NaN;
+  const mm = Number.isFinite(m) ? m : NaN;
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return NaN;
+  const total = hh * 60 + mm;
+  return Math.max(0, Math.min(24 * 60 - 1, total));
 }
 
 function formatMinutesToHHMM(totalMinutes: number): string {
