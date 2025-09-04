@@ -30,6 +30,8 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const [isMinimized, setIsMinimized] = useState(false);
   const [newFlowBusy, setNewFlowBusy] = useState(false);
   const [basketView, setBasketView] = useState(false);
+  const [autoRippleEnabled, setAutoRippleEnabled] = useState(false);
+  const [autoRippleBins, setAutoRippleBins] = useState<number>(2);
 
   // Target Cells: local search + time prompt state
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
@@ -101,6 +103,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     }
 
     const payload: any = { flows, targets, colorsByFlow };
+    if (autoRippleEnabled && Number.isFinite(autoRippleBins) && autoRippleBins > 0) {
+      payload.auto_ripple_time_bins = Math.floor(autoRippleBins);
+    }
     return payload;
   };
 
@@ -508,6 +513,45 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 })}
               </div>
             )}
+            {/* Auto Ripples */}
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center gap-2 text-[12px] opacity-90">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoRippleEnabled}
+                  onClick={() => setAutoRippleEnabled((v) => !v)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAutoRippleEnabled((v) => !v); } }}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-white/30 ${autoRippleEnabled ? 'bg-emerald-500/60 border-emerald-400/50' : 'bg-white/20 border-white/30'}`}
+                  aria-label="Toggle Auto Ripples"
+                >
+                  <span className="sr-only">Auto Ripples</span>
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${autoRippleEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+                  />
+                </button>
+                <span>Auto Ripples</span>
+              </div>
+              {autoRippleEnabled && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] opacity-80">Shoulder Time Bins</span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={autoRippleBins}
+                    onChange={(e) => {
+                      const n = Math.floor(Number(e.currentTarget.value) || 0);
+                      setAutoRippleBins(n < 1 ? 1 : n);
+                    }}
+                    className="w-16 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white text-[12px] focus:outline-none"
+                    style={{ colorScheme: "dark" }}
+                    title="Number of time bins to dilate ripple windows by"
+                  />
+                </div>
+              )}
+            </div>
+
             {/* Footer actions */}
             <div className="flex items-center justify-center pt-2">
               <button
@@ -518,7 +562,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     const params = new URLSearchParams();
                     params.set('payload', b64);
                     params.set('autostart', '1');
-                    router.push(`/flow-evaluation?${params.toString()}`);
+                    window.open(`/flow-evaluation?${params.toString()}`, '_blank');
                   } catch (e) {
                     alert('Failed to build payload');
                   }

@@ -5,6 +5,8 @@ import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
 import { BaseEvaluationResponse } from "@/lib/models";
+import { useSimStore } from "@/components/useSimStore";
+import { loadTrajectories } from "@/lib/flights";
 import {
   ComposedChart,
   Bar,
@@ -14,12 +16,15 @@ import {
   ResponsiveContainer,
   CartesianGrid,
   Cell,
+  PieChart,
+  Pie,
 } from "recharts";
 
 type FlowInputPayload = {
   flows: Record<string | number, string[]>;
   targets: Record<string, { from: string; to: string }>;
   ripples?: Record<string, { from: string; to: string }>;
+  auto_ripple_time_bins?: number;
   indexer_path?: string;
   flights_path?: string;
   capacities_path?: string;
@@ -88,6 +93,7 @@ export default function FlowEvaluationPage() {
   const payloadParam = sp?.get("payload") || null;
   const autostart = (sp?.get("autostart") || "0") === "1" || !!payloadParam;
   const viewParam = parseViewParam(sp?.get("view") || null);
+  const { flights, setFlights, setRange } = useSimStore();
 
   const [input, setInput] = useState<FlowInputPayload | null>(() => decodePayloadParam(payloadParam));
   const [evalState, setEvalState] = useState<FetchState>({ loading: false, error: null, data: null });
@@ -97,6 +103,10 @@ export default function FlowEvaluationPage() {
   const [showResponse, setShowResponse] = useState<boolean>(false);
   const [weightsOverride, setWeightsOverride] = useState<Record<string, number> | null>(null);
   const [showLabels, setShowLabels] = useState<boolean>(false);
+  const [showWeightDetails, setShowWeightDetails] = useState<boolean>(true);
+  const [rippleSummaryExpanded, setRippleSummaryExpanded] = useState<boolean>(false);
+  const [expandedTargetCharts, setExpandedTargetCharts] = useState<Record<number, boolean>>({});
+  const [expandedRippleCharts, setExpandedRippleCharts] = useState<Record<number, boolean>>({});
 
   const minutesPerBin = useMemo(() => {
     const T = evalState.data?.num_time_bins;
@@ -111,6 +121,27 @@ export default function FlowEvaluationPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autostart, input]);
+
+  // Ensure flight metadata is available for tables (callsign, origin, destination, takeoff)
+  useEffect(() => {
+    let cancelled = false;
+    if (flights.length > 0) return;
+    (async () => {
+      try {
+        const tracks = await loadTrajectories("/data/flights_20230801.csv");
+        if (cancelled) return;
+        setFlights(tracks);
+        if (tracks && tracks.length > 0) {
+          const minT = Math.min(...tracks.map((tr: any) => tr.t0));
+          const maxT = Math.max(...tracks.map((tr: any) => tr.t1));
+          setRange([minT, maxT], minT);
+        }
+      } catch (e) {
+        console.warn("Failed to load flight trajectories for Flow Evaluation page", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [flights.length, setFlights, setRange]);
 
   const handleRun = async () => {
     if (!input) return;
@@ -152,6 +183,13 @@ export default function FlowEvaluationPage() {
     return s;
   }, [evalState.data?.ripple_cells]);
 
+  // TVs derived from response ripple cells (preferred display when available)
+  const rippleTvIdsFromResponse = useMemo(() => {
+    const cells = evalState.data?.ripple_cells || [];
+    const ids = Array.from(new Set(cells.map((c) => String(c[0]))));
+    return ids.sort((a, b) => a.localeCompare(b));
+  }, [evalState.data?.ripple_cells]);
+
   const flowFlightCounts = useMemo(() => {
     const mp = new Map<number, number>();
     const mapping = input?.flows || {};
@@ -175,6 +213,29 @@ export default function FlowEvaluationPage() {
     return `/flow-evaluation?${params.toString()}`;
   }, [input, weightsOverride, viewFrom, viewTo]);
 
+  // Descriptions for known weight terms
+  const WEIGHT_DEFINITIONS: Array<{ key: string; description: string }> = useMemo(() => ([
+    // Capacity exceedance (alpha)
+    { key: 'alpha_gt', description: 'Penalty on rolling-hour capacity exceedance in target cells (J_cap).' },
+    { key: 'alpha_rip', description: 'Penalty on rolling-hour exceedance in ripple cells (J_cap).' },
+    { key: 'alpha_ctx', description: 'Penalty on rolling-hour exceedance in context cells (J_cap).' },
+    // Demand deviation regularization (beta)
+    { key: 'beta_gt', description: 'Weight on |n_f(t) − d_f(t)| for target bins (J_reg).' },
+    { key: 'beta_rip', description: 'Weight on |n_f(t) − d_f(t)| for ripple bins (J_reg).' },
+    { key: 'beta_ctx', description: 'Weight on |n_f(t) − d_f(t)| for context/overflow bins (J_reg).' },
+    // Temporal smoothness (gamma)
+    { key: 'gamma_gt', description: 'Weight on temporal variation |n_f(t+1) − n_f(t)| for target bins (J_tv).' },
+    { key: 'gamma_rip', description: 'Weight on temporal variation for ripple bins (J_tv).' },
+    { key: 'gamma_ctx', description: 'Weight on temporal variation for context/overflow bins (J_tv).' },
+    // Delay cost
+    { key: 'lambda_delay', description: 'Multiplier on total pushback delay minutes (J_delay).' },
+    // Fairness and spill (optional)
+    { key: 'theta_share', description: 'Weight on per-bin deviation of flow shares from demand shares (J_share).' },
+    { key: 'eta_spill', description: 'Penalty per unit released into overflow bin T (J_spill).' },
+    // Classification tolerance
+    { key: 'class_tolerance_w', description: 'Bin tolerance w for GT/RIP classification (affects β/γ class only).' },
+  ]), []);
+
   return (
     <main className="min-h-screen w-screen overflow-x-hidden bg-slate-900 relative">
       <Header />
@@ -182,7 +243,7 @@ export default function FlowEvaluationPage() {
         <div className="max-w-7xl mx-auto">
           <div className="mb-6">
             <div className="text-[11px] uppercase tracking-wider text-white/70">Analytics</div>
-            <h1 className="text-2xl font-semibold text-white">Flow Impact Evaluation</h1>
+            <h1 className="text-2xl font-semibold text-white">Flow Impact Evaluation and Optimization</h1>
           </div>
 
           {/* Top controls + summary */}
@@ -191,9 +252,17 @@ export default function FlowEvaluationPage() {
               <button
                 onClick={handleRun}
                 disabled={!input || evalState.loading}
-                className={`px-3 py-2 rounded-lg text-sm font-bold transition-colors ${evalState.loading ? 'bg-gradient-to-r from-blue-500 to-cyan-400 text-white opacity-80 cursor-wait' : input ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 hover:from-blue-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40' : 'opacity-50 cursor-not-allowed border border-white/20 bg-white/5 text-white/60'}`}
+                className={`px-3 py-1 rounded-lg border text-xs ${evalState.loading ? 'border-blue-400/50 bg-blue-500/20 text-blue-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
               >
                 {evalState.loading ? <ShimmeringText text="Evaluating..." /> : 'Run Evaluation'}
+              </button>
+              
+              <button
+                onClick={() => {}}
+                disabled={!input || evalState.loading}
+                className={`px-3 py-1 rounded-lg border text-xs ${evalState.loading ? 'border-purple-400/50 bg-purple-500/20 text-purple-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+              >
+                Optimize with The World's Best Optimization Algorithm: Simulated Annealing®
               </button>
               
               {evalState.error && <div className="text-[11px] text-red-200">{evalState.error}</div>}
@@ -231,65 +300,144 @@ export default function FlowEvaluationPage() {
               {/* Ripples */}
               <div className="bg-white/5 border border-white/10 rounded-lg p-3">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Ripple TVs</div>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(input?.ripples || {}).map(([tv, tw]) => (
-                    <div key={tv} className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-xs text-white/90 flex items-center gap-1.5">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: '#c084fc' }} />
-                      <span className="font-mono">{tv}</span>
-                      <span className="opacity-70 ml-1">{tw.from}–{tw.to}</span>
-                    </div>
-                  ))}
-                  {(!input || !input.ripples || Object.keys(input.ripples).length === 0) && (
-                    <div className="text-xs text-white/70">None</div>
-                  )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(() => {
+                    const LIMIT = 25;
+                    if (rippleTvIdsFromResponse.length > 0) {
+                      const list = rippleTvIdsFromResponse;
+                      const shown = rippleSummaryExpanded ? list : list.slice(0, LIMIT);
+                      return (
+                        <>
+                          {shown.map((tv) => (
+                            <div key={tv} className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-xs text-white/90 flex items-center gap-1.5">
+                              <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: '#c084fc' }} />
+                              <span className="font-mono">{tv}</span>
+                            </div>
+                          ))}
+                          {list.length > LIMIT && (
+                            <button
+                              onClick={() => setRippleSummaryExpanded((s) => !s)}
+                              className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15"
+                            >{rippleSummaryExpanded ? 'Show less' : 'Show more'}</button>
+                          )}
+                        </>
+                      );
+                    }
+                    const entries = Object.entries(input?.ripples || {}).sort((a, b) => a[0].localeCompare(b[0]));
+                    if (entries.length === 0) return <div className="text-xs text-white/70">None</div>;
+                    const shown = rippleSummaryExpanded ? entries : entries.slice(0, LIMIT);
+                    return (
+                      <>
+                        {shown.map(([tv, tw]) => (
+                          <div key={tv} className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-xs text-white/90 flex items-center gap-1.5">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: '#c084fc' }} />
+                            <span className="font-mono">{tv}</span>
+                            <span className="opacity-70 ml-1">{tw.from}–{tw.to}</span>
+                          </div>
+                        ))}
+                        {entries.length > LIMIT && (
+                          <button
+                            onClick={() => setRippleSummaryExpanded((s) => !s)}
+                            className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15"
+                          >{rippleSummaryExpanded ? 'Show less' : 'Show more'}</button>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
 
             {/* Weights override */}
             <div className="mt-4">
-              <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Weights</div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[11px] uppercase tracking-wider text-white/60">Weights</div>
+                <button
+                  onClick={() => setShowWeightDetails((s) => !s)}
+                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
+                >{showWeightDetails ? 'Hide Details' : 'Show Details'}</button>
+              </div>
+              {showWeightDetails && (
               <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
                 <table className="w-full text-sm text-white/90">
                   <thead className="bg-white/5 text-white/70">
                     <tr>
                       <th className="text-left px-3 py-2">Weight key</th>
+                      <th className="text-left px-3 py-2">Description</th>
                       <th className="text-left px-3 py-2">Value</th>
-                      <th className="text-left px-3 py-2 w-24">Actions</th>
+                      <th className="text-left px-3 py-2 w-28">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(weightsOverride || {}).map(([key, val]) => (
-                      <tr key={key} className="border-t border-white/10">
-                        <td className="px-3 py-2 font-mono text-[12px] text-white/80">{key}</td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={String(val)}
-                            onChange={(e) => {
-                              const num = Number(e.currentTarget.value);
-                              setWeightsOverride((prev) => ({ ...(prev || {}), [key]: Number.isFinite(num) ? num : 0 }));
-                            }}
-                            className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
-                            style={{ colorScheme: 'dark' }}
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            onClick={() => setWeightsOverride((prev) => {
-                              const next = { ...(prev || {}) } as Record<string, number>;
-                              delete next[key];
-                              return next;
-                            })}
-                            className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-[12px] text-white/80 hover:bg-white/15"
-                          >Remove</button>
-                        </td>
-                      </tr>
-                    ))}
+                    {(() => {
+                      const used = (evalState.data?.weights_used || {}) as Record<string, number>;
+                      const override = (weightsOverride || {}) as Record<string, number>;
+                      const knownKeys = WEIGHT_DEFINITIONS.map((d) => d.key);
+                      const extraKeys = Array.from(new Set([
+                        ...Object.keys(used || {}),
+                        ...Object.keys(override || {}),
+                      ])).filter((k) => !knownKeys.includes(k));
+                      const orderedKeys = [...knownKeys, ...extraKeys];
+                      return orderedKeys.map((key) => {
+                        const def = WEIGHT_DEFINITIONS.find((d) => d.key === key);
+                        const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
+                        const displayVal = hasOverride
+                          ? String(override[key])
+                          : (used && Object.prototype.hasOwnProperty.call(used, key))
+                            ? String(used[key])
+                            : '';
+                        return (
+                          <tr key={key} className="border-t border-white/10 align-top">
+                            <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
+                            <td className="px-3 py-2 text-white/70 text-[12px]">
+                              {def?.description || 'Custom weight key'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={displayVal}
+                                onChange={(e) => {
+                                  const raw = e.currentTarget.value;
+                                  setWeightsOverride((prev) => {
+                                    const base = { ...(prev || {}) } as Record<string, number>;
+                                    if (raw === '') {
+                                      // Clear override to fall back to used value
+                                      delete base[key];
+                                      return Object.keys(base).length > 0 ? base : null;
+                                    }
+                                    const num = Number(raw);
+                                    if (!Number.isFinite(num)) return base;
+                                    base[key] = num;
+                                    return base;
+                                  });
+                                }}
+                                className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
+                                style={{ colorScheme: 'dark' }}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              {hasOverride ? (
+                                <button
+                                  onClick={() => setWeightsOverride((prev) => {
+                                    const next = { ...(prev || {}) } as Record<string, number>;
+                                    delete next[key];
+                                    return Object.keys(next).length > 0 ? next : null;
+                                  })}
+                                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-[12px] text-white/80 hover:bg-white/15"
+                                >Clear</button>
+                              ) : (
+                                <span className="text-white/40 text-[12px]">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
                     <WeightsAddRow onAdd={(key, val) => setWeightsOverride((prev) => ({ ...(prev || {}), [key]: val }))} />
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
 
             {/* Debug toggles */}
@@ -330,6 +478,89 @@ export default function FlowEvaluationPage() {
             />
           </section>
 
+          {/* Objective & components (moved up under TimeScaleControl) */}
+          {!!evalState.data?.objective && (
+            <section className="mb-8">
+              {(() => {
+                const score = Number(evalState.data?.objective?.score ?? 0);
+                const rawEntries = Object.entries(evalState.data?.objective?.components || {});
+                const entries = rawEntries
+                  .map(([name, raw]) => ({ name, value: Number(raw) }))
+                  .filter((d) => Number.isFinite(d.value));
+                const positives = entries.filter((d) => d.value > 0);
+                const sum = positives.reduce((s, d) => s + d.value, 0);
+                const colors = ['#60a5fa','#f59e0b','#34d399','#a78bfa','#f472b6','#f87171','#22d3ee','#eab308','#4ade80','#f97316','#c084fc'];
+                return (
+                  <div className="grid gap-4 md:grid-rows-2 md:grid-flow-col auto-cols-fr">
+                    {/* Objective card */}
+                    <div className="bg-white/5 border border-white/10 rounded-lg p-4 min-h-[96px]">
+                      <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Objective</div>
+                      <div className="text-3xl font-semibold text-white">{Number.isFinite(score) ? score.toFixed(1) : '0.0'}</div>
+                      <div className="text-[12px] text-white/60 mt-1">Lower is better</div>
+                    </div>
+                    {/* Component value cards */}
+                    {entries.length === 0 && (
+                      <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-sm text-white/70 min-h-[96px]">No component breakdown available.</div>
+                    )}
+                    {entries.length > 0 && entries.map((d) => (
+                      <div key={String(d.name)} className="bg-white/5 border border-white/10 rounded-lg p-4 min-h-[96px]">
+                        <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">{String(d.name)}</div>
+                        <div className="text-2xl md:text-3xl font-semibold text-white">{Number(d.value).toFixed(1)}</div>
+                      </div>
+                    ))}
+                    {/* Pie chart as part of the same grid, spans two rows on md+ */}
+                    <div className="bg-white/5 border border-white/10 rounded-lg p-4 md:row-span-2 md:min-h-[260px]">
+                      <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Component Shares</div>
+                      {sum <= 0 ? (
+                        <div className="text-sm text-white/70">No positive components to display.</div>
+                      ) : (
+                        <div className="h-44 md:h-[180px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={positives.map((d, i) => ({ ...d, fill: colors[i % colors.length] }))}
+                                dataKey="value"
+                                nameKey="name"
+                                innerRadius={38}
+                                outerRadius={68}
+                                paddingAngle={2}
+                                stroke="rgba(255,255,255,0.15)"
+                              >
+                                {positives.map((_, i) => (
+                                  <Cell key={`slice-${i}`} fill={colors[i % colors.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(val: any, name: any) => {
+                                  const v = Number(val) || 0;
+                                  const pct = sum > 0 ? (v * 100) / sum : 0;
+                                  return [`${v.toFixed(2)} (${pct.toFixed(1)}%)`, String(name)];
+                                }}
+                                contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'white' }}
+                                itemStyle={{ color: 'white' }}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                      {sum > 0 && (
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-white/80">
+                          {positives.map((d, i) => (
+                            <div key={`legend-${d.name}`} className="flex items-center gap-2">
+                              <span className="inline-block w-2 h-2 rounded-sm" style={{ background: colors[i % colors.length] }} />
+                              <span className="truncate" title={d.name}>{d.name}</span>
+                              <span className="ml-auto font-mono opacity-80">{((d.value * 100) / sum).toFixed(1)}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </section>
+          )}
+
           {/* Per-flow results */}
           <section>
             {evalState.loading && (
@@ -346,13 +577,21 @@ export default function FlowEvaluationPage() {
               const targets = flow.target_demands || {};
               const ripples = flow.ripple_demands || {};
 
-              // Ensure controlled TV first in targets grid
+              // Sort by total demand descending; ensure controlled TV first for targets
               const targetTvIds = Object.keys(targets).sort((a, b) => {
                 if (controlledTv && a === controlledTv) return -1;
                 if (controlledTv && b === controlledTv) return 1;
+                const sumA = (targets[a] || []).reduce((s: number, v: number) => s + (Number(v) || 0), 0);
+                const sumB = (targets[b] || []).reduce((s: number, v: number) => s + (Number(v) || 0), 0);
+                if (sumA !== sumB) return sumB - sumA;
                 return a.localeCompare(b);
               });
-              const rippleTvIds = Object.keys(ripples).sort((a, b) => a.localeCompare(b));
+              const rippleTvIds = Object.keys(ripples).sort((a, b) => {
+                const sumA = (ripples[a] || []).reduce((s: number, v: number) => s + (Number(v) || 0), 0);
+                const sumB = (ripples[b] || []).reduce((s: number, v: number) => s + (Number(v) || 0), 0);
+                if (sumA !== sumB) return sumB - sumA;
+                return a.localeCompare(b);
+              });
 
               return (
                 <div key={`flow-${idx}`} className="mb-8">
@@ -367,22 +606,37 @@ export default function FlowEvaluationPage() {
                   <div className="mb-4">
                     <div className="text-sm uppercase tracking-wider text-gray-300 mb-2">Targets</div>
                     {targetTvIds.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
-                        {targetTvIds.map((tvId) => (
-                          <HistogramCard
-                            key={`t-${flow.flow_id}-${tvId}`}
-                            tvId={tvId}
-                            series={targets[tvId] || []}
-                            minutesPerBin={minutesPerBin}
-                            viewFrom={viewFrom}
-                            viewTo={viewTo}
-                            isControlled={controlledTv === tvId}
-                            showLabels={showLabels}
-                            attentionSet={targetHighlights}
-                            markerColor="#f59e0b"
-                          />
-                        ))}
-                      </div>
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
+                          {(() => {
+                            const LIMIT = 6;
+                            const showAll = !!expandedTargetCharts[flow.flow_id];
+                            const list = showAll ? targetTvIds : targetTvIds.slice(0, LIMIT);
+                            return list.map((tvId) => (
+                              <HistogramCard
+                                key={`t-${flow.flow_id}-${tvId}`}
+                                tvId={tvId}
+                                series={targets[tvId] || []}
+                                minutesPerBin={minutesPerBin}
+                                viewFrom={viewFrom}
+                                viewTo={viewTo}
+                                isControlled={controlledTv === tvId}
+                                showLabels={showLabels}
+                                attentionSet={targetHighlights}
+                                markerColor="#f59e0b"
+                              />
+                            ));
+                          })()}
+                        </div>
+                        {targetTvIds.length > 6 && (
+                          <div className="mt-2">
+                            <button
+                              onClick={() => setExpandedTargetCharts((prev) => ({ ...prev, [flow.flow_id]: !prev[flow.flow_id] }))}
+                              className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
+                            >{expandedTargetCharts[flow.flow_id] ? 'Show less' : 'Show more'}</button>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <div className="text-xs text-gray-300">No target demands.</div>
                     )}
@@ -393,21 +647,34 @@ export default function FlowEvaluationPage() {
                     <div>
                       <div className="text-sm uppercase tracking-wider text-gray-300 mb-2">Ripples</div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
-                        {rippleTvIds.map((tvId) => (
-                          <HistogramCard
-                            key={`r-${flow.flow_id}-${tvId}`}
-                            tvId={tvId}
-                            series={ripples[tvId] || []}
-                            minutesPerBin={minutesPerBin}
-                            viewFrom={viewFrom}
-                            viewTo={viewTo}
-                            isControlled={false}
-                            showLabels={showLabels}
-                            attentionSet={rippleHighlights}
-                            markerColor="#c084fc"
-                          />
-                        ))}
+                        {(() => {
+                          const LIMIT = 12;
+                          const showAll = !!expandedRippleCharts[flow.flow_id];
+                          const list = showAll ? rippleTvIds : rippleTvIds.slice(0, LIMIT);
+                          return list.map((tvId) => (
+                            <HistogramCard
+                              key={`r-${flow.flow_id}-${tvId}`}
+                              tvId={tvId}
+                              series={ripples[tvId] || []}
+                              minutesPerBin={minutesPerBin}
+                              viewFrom={viewFrom}
+                              viewTo={viewTo}
+                              isControlled={false}
+                              showLabels={showLabels}
+                              attentionSet={rippleHighlights}
+                              markerColor="#c084fc"
+                            />
+                          ));
+                        })()}
                       </div>
+                      {rippleTvIds.length > 12 && (
+                        <div className="mt-2">
+                          <button
+                            onClick={() => setExpandedRippleCharts((prev) => ({ ...prev, [flow.flow_id]: !prev[flow.flow_id] }))}
+                            className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
+                          >{expandedRippleCharts[flow.flow_id] ? 'Show less' : 'Show more'}</button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -415,23 +682,7 @@ export default function FlowEvaluationPage() {
             })}
           </section>
 
-          {/* Objective & components */}
-          {evalState.data?.objective && (
-            <section className="mt-8">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-                  <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Objective</div>
-                  <div className="text-3xl font-semibold text-white">{Number(evalState.data.objective?.score ?? 0).toFixed(1)}</div>
-                </div>
-                {Object.entries(evalState.data.objective?.components || {}).map(([k, v]) => (
-                  <div key={k} className="bg-white/5 border border-white/10 rounded-lg p-4">
-                    <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">{k}</div>
-                    <div className="text-3xl font-semibold text-white">{Number(v).toFixed(1)}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          
         </div>
       </div>
     </main>
@@ -482,35 +733,80 @@ function FlowsSummary({ flows, colors }: { flows: Record<string, string[]>; colo
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
   const entries = Object.entries(flows || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const { flights } = useSimStore();
+
+  function formatTime(seconds?: number): string {
+    if (!Number.isFinite(seconds)) return 'N/A';
+    const s = Math.max(0, Math.min(24 * 3600 - 1, Math.floor(seconds as number)));
+    const hh = Math.floor(s / 3600);
+    const mm = Math.floor((s % 3600) / 60);
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }
+
+  function resolveFlight(token: string) {
+    // Prefer flightId match, fallback to callsign
+    let f = flights.find(ff => String(ff.flightId) === String(token));
+    if (!f) f = flights.find(ff => ff.callSign && String(ff.callSign) === String(token));
+    return f;
+  }
+
   return (
-    <div className="space-y-2">
-      {entries.map(([fid, flights]) => {
+    <div className="space-y-3">
+      {entries.map(([fid, ids]) => {
+        const list = ids || [];
         const showAll = !!expanded[fid];
-        const list = flights || [];
-        const shown = showAll ? list : list.slice(0, 8);
+        const shown = showAll ? list : list.slice(0, 25);
+        const color = colors?.[String(fid)] || '#60a5fa';
         return (
           <div key={fid} className="text-sm text-white/90">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: colors?.[String(fid)] || '#60a5fa' }} />
+                <span className="inline-block w-2 h-2 rounded-full" style={{ background: color }} />
                 <span>Flow {fid}</span>
               </div>
-              <span className="text-white/70">{list.length} flights</span>
+              <div className="flex items-center gap-2">
+                <span className="text-white/70">{list.length} flights</span>
+                {list.length > 25 && (
+                  <button onClick={() => toggle(fid)} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15">
+                    {showAll ? 'Show less' : 'Show all'}
+                  </button>
+                )}
+              </div>
             </div>
-            {list.length > 0 && (
-              <div className="mt-1">
-                <div className="flex flex-wrap gap-1">
-                  {shown.map((id, i) => (
-                    <span key={`${fid}-${i}`} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] font-mono text-white/80">{id}</span>
-                  ))}
-                  {list.length > shown.length && (
-                    <button onClick={() => toggle(fid)} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15">Show all</button>
-                  )}
-                  {showAll && list.length > 8 && (
-                    <button onClick={() => toggle(fid)} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15">Show less</button>
-                  )}
+            {list.length > 0 ? (
+              <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
+                <div className="max-h-56 overflow-auto">
+                  <table className="w-full text-xs min-w-max whitespace-nowrap">
+                    <thead className="sticky top-0 z-10 bg-blue-900">
+                      <tr className="text-white">
+                        <th className="text-left p-2 font-semibold">Callsign</th>
+                        <th className="text-left p-2 font-semibold">Origin</th>
+                        <th className="text-left p-2 font-semibold">Destination</th>
+                        <th className="text-left p-2 font-semibold">Takeoff</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shown.map((token, i) => {
+                        const f = resolveFlight(String(token));
+                        const callsign = f?.callSign || String(token);
+                        const origin = f?.origin || 'N/A';
+                        const destination = f?.destination || 'N/A';
+                        const takeoff = f ? formatTime(f.t0) : 'N/A';
+                        return (
+                          <tr key={`${fid}-${i}`} className={`border-b border-white/10 ${i % 2 === 0 ? 'bg-white/2' : ''}`}>
+                            <td className="p-2 font-mono">{callsign}</td>
+                            <td className="p-2">{origin}</td>
+                            <td className="p-2">{destination}</td>
+                            <td className="p-2 font-mono">{takeoff}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
+            ) : (
+              <div className="text-xs text-white/70">None</div>
             )}
           </div>
         );
