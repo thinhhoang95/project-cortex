@@ -4,35 +4,24 @@ import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import ShimmeringText from "@/components/ShimmeringText";
 
-interface RankedFlightComponentScores {
-	multiplicity?: number;
-	similarity?: number;
-	slack?: number;
-	
-	// New: NSH component score from ranking API
-	nsh?: number;
-}
-
 interface RankedFlight {
-	flight_id: string;
-	arrival_time: string; // HH:MM or HH:MM:SS
-	time_window: string; // HH:MM-HH:MM
-	delta_seconds: number;
-	score: number;
-	components?: RankedFlightComponentScores;
+  flight_id: string;
+  arrival_time: string; // HH:MM or HH:MM:SS
+  time_window: string; // HH:MM-HH:MM
+  delta_seconds: number;
 }
 
 interface RankedFlightsResponse {
-	traffic_volume_id: string;
-	ref_time_str: string;
-	seed_flight_ids: string[];
-	ranked_flights: RankedFlight[];
-	metadata?: {
-		num_candidates?: number;
-		num_ranked?: number;
-		time_bin_minutes?: number;
-		duration_min?: number;
-	};
+  traffic_volume_id: string;
+  ref_time_str: string;
+  seed_flight_ids: string[];
+  ranked_flights: RankedFlight[];
+  metadata?: {
+    num_candidates?: number;
+    num_ranked?: number;
+    time_bin_minutes?: number;
+    duration_min?: number;
+  };
 }
 
 type RegulationFlightListLeftPanel2Props = { embedded?: boolean };
@@ -117,8 +106,6 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 					origin: flight?.origin || 'N/A',
 					destination: flight?.destination || 'N/A',
 					arrivalTime: rf.arrival_time || 'N/A',
-					score: rf.score,
-					components: rf.components || {}
 				};
 			});
 		}
@@ -178,15 +165,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 								{rankingData && (
 									<th className="text-left p-2 font-semibold">TV Arrival</th>
 								)}
-								{rankingData && (
-									<>
-										<th className="text-left p-2 font-semibold">Score</th>
-										<th className="text-left p-2 font-semibold">Mult</th>
-										<th className="text-left p-2 font-semibold">Sim</th>
-										<th className="text-left p-2 font-semibold">Slack</th>
-										<th className="text-left p-2 font-semibold">NSH</th>
-									</>
-								)}
+								{/* Score/components columns removed (API no longer returns them) */}
 							</tr>
 						</thead>
 						<tbody>
@@ -215,15 +194,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 										{rankingData && (
 											<td className="p-2 font-mono">{row.arrivalTime}</td>
 										)}
-										{rankingData && (
-											<>
-												<td className="p-2 font-mono">{formatScore(row.score)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.multiplicity)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.similarity)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.slack)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.nsh)}</td>
-											</>
-										)}
+									{/* Score/components cells removed */}
 									</tr>
 								);
 							})}
@@ -259,7 +230,4 @@ function parseHHMMSSToSeconds(value: string): number {
 	return h * 3600 + m * 60 + s;
 }
 
-function formatScore(value?: number): string {
-	if (value === undefined || value === null || Number.isNaN(value)) return '-';
-	return value.toFixed(3);
-}
+// Score/component formatting removed as API no longer returns them

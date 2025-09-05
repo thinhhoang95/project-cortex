@@ -665,7 +665,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 }
 
 function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow, embedded }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number]; embedded?: boolean }) {
-  const { setFlowPreviewFlightId, setFlowPreviewGroupId } = useSimStore();
+  const { setFlowPreviewFlightId, setFlowPreviewGroupId, regulationTargetFlightIds, setRegulationTargetFlightIds } = useSimStore();
   // Derive community sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -731,7 +731,25 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                 <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorMap.get(g.cid) || '#9ca3af' }} />
                 <span className="opacity-80">Community {g.cid}</span>
               </div>
-              <div className="text-[10px] opacity-70">{g.size} flights</div>
+              <div className="flex items-center gap-2">
+                <div className="text-[10px] opacity-70">{g.size} flights</div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Bulk add this community's flights to the Target Regulation Flight List
+                    const next = new Set<string>(regulationTargetFlightIds);
+                    for (const fid of g.ids || []) {
+                      if (fid) next.add(String(fid));
+                    }
+                    if (!areSetsEqual(next, regulationTargetFlightIds)) setRegulationTargetFlightIds(next);
+                  }}
+                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1 text-[11px]"
+                  title="Add this community to Targeted Flights"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+                  <span className="hidden sm:inline">Add</span>
+                </button>
+              </div>
             </div>
             <div className="px-2 pt-2">
               <HourGlass

@@ -4,10 +4,12 @@ import FlowRegulationPanel from "@/components/FlowRegulationPanel";
 import FlowAirspaceView from "@/components/FlowAirspaceView";
 import FlowPlanPanel from "@/components/FlowPlanPanel";
 import Header from "@/components/Header";
+import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 
 export default function FlowsPage() {
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
+      <StateResetOnPageLoad />
       <Header />
       <FlowCanvas />
       {/* Left-side wrapper: full-height scroll; panels take natural height */}

@@ -3,10 +3,12 @@ import LeftControl1Regulation from "@/components/LeftControl1Regulation";
 import RegulationFlightListLeftPanel2 from "@/components/RegulationFlightListLeftPanel2";
 import RegulationPanel from "@/components/RegulationPanel";
 import Header from "@/components/Header";
+import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 
 export default function RegulationsPage() {
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
+      <StateResetOnPageLoad />
       <Header />
       <RegulationCanvas />
       {/* Left-side wrapper: full-height scroll; panels take natural height */}

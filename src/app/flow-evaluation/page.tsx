@@ -10,6 +10,7 @@ import { loadTrajectories } from "@/lib/flights";
 import {
   ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -106,19 +107,85 @@ export default function FlowEvaluationPage() {
   const [showOptResponse, setShowOptResponse] = useState<boolean>(false);
   const [weightsOverride, setWeightsOverride] = useState<Record<string, number> | null>(null);
   const [showLabels, setShowLabels] = useState<boolean>(false);
-  const [showWeightDetails, setShowWeightDetails] = useState<boolean>(true);
+  const [showWeightDetails, setShowWeightDetails] = useState<boolean>(false);
+  const [saParamsOverride, setSaParamsOverride] = useState<Record<string, number> | null>(null);
   const [rippleSummaryExpanded, setRippleSummaryExpanded] = useState<boolean>(false);
   const [expandedTargetCharts, setExpandedTargetCharts] = useState<Record<number, boolean>>({});
   const [expandedRippleCharts, setExpandedRippleCharts] = useState<Record<number, boolean>>({});
+  const [expandedOccAll, setExpandedOccAll] = useState<boolean>(false);
   // View toggle UI only (logic wiring to be handled later)
-  const [seriesView, setSeriesView] = useState<'demand' | 'occupancy'>("demand");
+  const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all'>("demand");
+
+  type AutorateOccupancyResponse = {
+    time_bin_minutes: number;
+    num_bins: number;
+    tv_ids_order: string[];
+    timebins?: { labels?: string[] };
+    pre_counts: Record<string, number[]>;
+    post_counts: Record<string, number[]>;
+    capacity?: Record<string, number[]>;
+  };
+  const [occAllState, setOccAllState] = useState<{ loading: boolean; error: string | null; data: AutorateOccupancyResponse | null }>({ loading: false, error: null, data: null });
 
   const minutesPerBin = useMemo(() => {
+    // Prefer explicit minutes from Occupancy All response if present
+    if (occAllState.data?.time_bin_minutes && Number.isFinite(occAllState.data.time_bin_minutes)) {
+      return Math.max(1, Math.round(occAllState.data.time_bin_minutes));
+    }
     const T = evalState.data?.num_time_bins || optState.data?.num_time_bins;
     if (!T || !Number.isFinite(T)) return 15; // default
     // Round to integer minutes per bin; tolerate non-divisible day
-    return Math.max(1, Math.round(1440 / T));
-  }, [evalState.data?.num_time_bins, optState.data?.num_time_bins]);
+    return Math.max(1, Math.round(1440 / (T as number)));
+  }, [occAllState.data?.time_bin_minutes, evalState.data?.num_time_bins, optState.data?.num_time_bins]);
+
+  async function handleSelectOccupancyAll() {
+    if (!input) {
+      setOccAllState({ loading: false, error: 'No input payload provided.', data: null });
+      return;
+    }
+    try {
+      setOccAllState({ loading: true, error: null, data: null });
+      // Ensure we have an autorate result; if not, run optimization first using current overrides
+      let autorateResult = optState.data;
+      if (!autorateResult) {
+        const body: any = { ...input };
+        if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
+          body.weights = weightsOverride;
+        }
+        if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
+          body.sa_params = saParamsOverride;
+        }
+        delete body.colorsByFlow;
+        const optRes = await fetch("/api/automatic_rate_adjustment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!optRes.ok) {
+          const text = await optRes.text();
+          throw new Error(text || `Optimization failed: ${optRes.status}`);
+        }
+        const optJson = (await optRes.json()) as AutomaticRateAdjustmentResponse;
+        setOptState({ loading: false, error: null, data: optJson });
+        autorateResult = optJson;
+      }
+
+      // Now request aggregated occupancy
+      const occRes = await fetch("/api/autorate_occupancy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autorate_result: autorateResult, include_capacity: true }),
+      });
+      if (!occRes.ok) {
+        const text = await occRes.text();
+        throw new Error(text || `autorate_occupancy failed: ${occRes.status}`);
+      }
+      const occJson = (await occRes.json()) as AutorateOccupancyResponse;
+      setOccAllState({ loading: false, error: null, data: occJson });
+    } catch (e: any) {
+      setOccAllState({ loading: false, error: e?.message || 'Failed to fetch Occupancy All aggregation', data: null });
+    }
+  }
 
   useEffect(() => {
     if (autostart && input && !evalState.data && !evalState.loading) {
@@ -181,6 +248,9 @@ export default function FlowEvaluationPage() {
       const body: any = { ...input };
       if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
         body.weights = weightsOverride;
+      }
+      if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
+        body.sa_params = saParamsOverride;
       }
       delete body.colorsByFlow;
       const res = await fetch("/api/automatic_rate_adjustment", {
@@ -266,6 +336,20 @@ export default function FlowEvaluationPage() {
     { key: 'class_tolerance_w', description: 'Bin tolerance w for GT/RIP classification (affects β/γ class only).' },
   ]), []);
 
+  const SA_PARAM_DEFINITIONS: Array<{ key: string; description: string; default: number }> = useMemo(() => ([
+    { key: 'iterations', description: 'Total SA moves to attempt', default: 1000 },
+    { key: 'warmup_moves', description: 'Initial moves before cooling begins', default: 50 },
+    { key: 'alpha_T', description: 'Temperature decay factor per period', default: 0.95 },
+    { key: 'L', description: 'Temperature update period', default: 50 },
+    { key: 'seed', description: 'Random seed (0 for deterministic default)', default: 0 },
+    { key: 'attention_bias', description: 'Probability to sample from target/ripple bins', default: 0.8 },
+    { key: 'max_shift', description: 'Maximum Δ for shift-later', default: 4 },
+    { key: 'pull_max', description: 'Maximum Δ for pull-forward', default: 2 },
+    { key: 'smooth_window_max', description: 'Max window length for smoothing', default: 3 },
+    { key: 'rate_change_lower_bound_min', description: 'Minutes to expand below earliest target bin', default: 0 },
+    { key: 'rate_change_upper_bound_min', description: 'Minutes to expand above latest target bin', default: 0 },
+  ]), []);
+
   return (
     <main className="min-h-screen w-screen overflow-x-hidden bg-slate-900 relative">
       <Header />
@@ -292,7 +376,7 @@ export default function FlowEvaluationPage() {
                 disabled={!input || evalState.loading || optState.loading}
                 className={`px-3 py-1 rounded-lg border text-xs ${optState.loading ? 'border-purple-400/50 bg-purple-500/20 text-purple-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
               >
-                {optState.loading ? <ShimmeringText text="Playing in Boltzmann Realms..." /> : "Optimize with Simulated Annealing PRO®"}
+                {optState.loading ? <ShimmeringText text="Playing in Boltzmann Realms..." /> : "Optimize Release Rates with Simulated Annealing"}
               </button>
               {optState.error && <div className="text-[11px] text-red-200">{optState.error}</div>}
               
@@ -388,7 +472,7 @@ export default function FlowEvaluationPage() {
             {/* Weights override */}
             <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-[11px] uppercase tracking-wider text-white/60">Weights</div>
+                <div className="text-[11px] uppercase tracking-wider text-white/60">Weights and Hyperparameters</div>
                 <button
                   onClick={() => setShowWeightDetails((s) => !s)}
                   className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
@@ -402,7 +486,6 @@ export default function FlowEvaluationPage() {
                       <th className="text-left px-3 py-2">Weight key</th>
                       <th className="text-left px-3 py-2">Description</th>
                       <th className="text-left px-3 py-2">Value</th>
-                      <th className="text-left px-3 py-2 w-28">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -452,20 +535,7 @@ export default function FlowEvaluationPage() {
                                 style={{ colorScheme: 'dark' }}
                               />
                             </td>
-                            <td className="px-3 py-2">
-                              {hasOverride ? (
-                                <button
-                                  onClick={() => setWeightsOverride((prev) => {
-                                    const next = { ...(prev || {}) } as Record<string, number>;
-                                    delete next[key];
-                                    return Object.keys(next).length > 0 ? next : null;
-                                  })}
-                                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-[12px] text-white/80 hover:bg-white/15"
-                                >Clear</button>
-                              ) : (
-                                <span className="text-white/40 text-[12px]">—</span>
-                              )}
-                            </td>
+                            
                           </tr>
                         );
                       });
@@ -473,6 +543,65 @@ export default function FlowEvaluationPage() {
                     <WeightsAddRow onAdd={(key, val) => setWeightsOverride((prev) => ({ ...(prev || {}), [key]: val }))} />
                   </tbody>
                 </table>
+              </div>
+              )}
+
+              {showWeightDetails && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[11px] uppercase tracking-wider text-white/60">Optimization Hyperparameters</div>
+                </div>
+                <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm text-white/90">
+                    <thead className="bg-white/5 text-white/70">
+                      <tr>
+                        <th className="text-left px-3 py-2">Parameter</th>
+                        <th className="text-left px-3 py-2">Description</th>
+                        <th className="text-left px-3 py-2">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {SA_PARAM_DEFINITIONS.map(({ key, description, default: defVal }) => {
+                        const used = (optState.data?.sa_params_used || {}) as Record<string, number>;
+                        const override = (saParamsOverride || {}) as Record<string, number>;
+                        const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
+                        const displayVal = hasOverride
+                          ? String(override[key])
+                          : (used && Object.prototype.hasOwnProperty.call(used, key))
+                            ? String(used[key])
+                            : String(defVal);
+                        return (
+                          <tr key={key} className="border-t border-white/10 align-top">
+                            <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
+                            <td className="px-3 py-2 text-white/70 text-[12px]">{description}</td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={displayVal}
+                                onChange={(e) => {
+                                  const raw = e.currentTarget.value;
+                                  setSaParamsOverride((prev) => {
+                                    const base = { ...(prev || {}) } as Record<string, number>;
+                                    if (raw === '') {
+                                      delete base[key];
+                                      return Object.keys(base).length > 0 ? base : null;
+                                    }
+                                    const num = Number(raw);
+                                    if (!Number.isFinite(num)) return base;
+                                    base[key] = num;
+                                    return base;
+                                  });
+                                }}
+                                className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
+                                style={{ colorScheme: 'dark' }}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
               )}
             </div>
@@ -608,10 +737,10 @@ export default function FlowEvaluationPage() {
           )}
 
 
-          {/* Demand vs Occupancy toggle (UI only) */}
+          {/* Demand vs Occupancy toggle (adds Occupancy All) */}
           <div className="mt-3 flex items-center gap-2 mb-6">
               <div className="text-[11px] uppercase tracking-wider text-white/60">Histogram Values</div>
-              <div className="inline-flex rounded-md shadow-xs overflow-hidden" role="group" aria-label="Toggle view between Demand and Occupancy">
+              <div className="inline-flex rounded-md shadow-xs overflow-hidden" role="group" aria-label="Toggle view between Demand, Occupancy, and Occupancy All">
                 <button
                   type="button"
                   aria-pressed={seriesView === 'demand'}
@@ -632,12 +761,129 @@ export default function FlowEvaluationPage() {
                     seriesView === 'occupancy'
                       ? 'bg-blue-500/20 border-blue-400/60 text-white'
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
-                  } rounded-r-md`}
+                  }`}
                 >
                   Occupancy
                 </button>
+                <button
+                  type="button"
+                  aria-pressed={seriesView === 'occupancy_all'}
+                  onClick={async () => { setSeriesView('occupancy_all'); await handleSelectOccupancyAll(); }}
+                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors -ml-px ${
+                    seriesView === 'occupancy_all'
+                      ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                      : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                  } rounded-r-md`}
+                >
+                  Occupancy All
+                </button>
               </div>
             </div>
+
+          {seriesView === 'occupancy_all' && (
+            <section className="mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[11px] uppercase tracking-wider text-white/60">Aggregated Occupancy Across Flows</div>
+                {occAllState.loading && <div className="text-xs text-white/70">Loading...</div>}
+              </div>
+              {occAllState.error && (
+                <div className="text-xs text-rose-300 mb-2">{occAllState.error}</div>
+              )}
+              {occAllState.data && (() => {
+                const d = occAllState.data!;
+                const minutes = Number(d.time_bin_minutes || 15);
+                const vFrom = hhmmToMinutesSafe(viewFrom);
+                const vTo = hhmmToMinutesSafe(viewTo);
+                const buildRows = (pre: number[], post: number[], capacitySeries?: number[]) => {
+                  const n = Math.min(pre.length, post.length);
+                  const rows: Array<{ idx: number; base: number; inc: number; dec: number; pre: number; post: number; capacity?: number | null }>
+                    = new Array(n).fill(0).map((_, i) => {
+                      const p0 = Number(pre[i] ?? 0);
+                      const p1 = Number(post[i] ?? 0);
+                      const base = Math.min(p0, p1);
+                      const inc = Math.max(0, p1 - p0);
+                      const dec = Math.max(0, p0 - p1);
+                      const rawCap = capacitySeries?.[i];
+                      const capNum = Number(rawCap);
+                      const capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
+                      return { idx: i, base, inc, dec, pre: p0, post: p1, capacity };
+                    });
+                  return rows.filter(r => {
+                    const startMin = r.idx * minutes;
+                    return startMin >= vFrom && startMin <= vTo;
+                  });
+                };
+                const tvs = (d.tv_ids_order || []).filter(tv => (d.pre_counts?.[tv] || []).length > 0);
+                if (tvs.length === 0) return <div className="text-xs text-gray-300">No aggregated occupancy available.</div>;
+                const LIMIT = 12;
+                const showAll = expandedOccAll;
+                const list = showAll ? tvs : tvs.slice(0, LIMIT);
+                return (
+                  <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
+                    {list.map(tvId => {
+                      const pre = d.pre_counts?.[tvId] || [];
+                      const post = d.post_counts?.[tvId] || [];
+                      const cap = d.capacity?.[tvId] || [];
+                      const data = buildRows(pre, post, cap);
+                      return (
+                        <div key={`occ-all-${tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-sm font-semibold text-white">{tvId}</div>
+                          </div>
+                          <div className="h-36">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={data} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
+                                <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
+                                <XAxis
+                                  dataKey="idx"
+                                  tick={false}
+                                  axisLine={false}
+                                  tickLine={false}
+                                />
+                                <YAxis tick={false} axisLine={false} tickLine={false} width={0} />
+                                <Tooltip
+                                  contentStyle={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
+                                  formatter={(value, name, ctx: any) => {
+                                    if (name === 'inc') return [`+${value}`, 'Post-Pre'];
+                                    if (name === 'dec') return [`-${value}`, 'Pre-Post'];
+                                    if (name === 'base') return [String(value), 'Base'];
+                                    if (name === 'capacity') return [String(value), 'Capacity'];
+                                    return [String(value), String(name)];
+                                  }}
+                                  labelFormatter={(label, payload: any) => {
+                                    const p = Array.isArray(payload) && payload.length > 0 ? payload[0].payload : null;
+                                    const preV = p?.pre ?? 0;
+                                    const postV = p?.post ?? 0;
+                                    const capV = p?.capacity;
+                                    const labelText = binIndexToRangeLabel(Number(label ?? 0), minutes);
+                                    return `${labelText}  |  pre: ${preV}  post: ${postV}${Number.isFinite(capV) ? `  cap: ${capV}` : ''}`;
+                                  }}
+                                />
+                                <Bar dataKey="base" stackId="a" fill="#60a5fa" name="base" />
+                                <Bar dataKey="inc" stackId="a" fill="#ef4444" name="inc" />
+                                <Bar dataKey="dec" stackId="a" fill="#22c55e" name="dec" />
+                                <Line type="stepAfter" dataKey="capacity" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {tvs.length > LIMIT && (
+                    <div className="mt-2">
+                      <button
+                        onClick={() => setExpandedOccAll((s) => !s)}
+                        className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
+                      >{expandedOccAll ? 'Show less' : 'Show more'}</button>
+                    </div>
+                  )}
+                  </>
+                );
+              })()}
+            </section>
+          )}
 
           {evalState.data?.objective && optState.data && (
             <section className="mb-8">
@@ -686,7 +932,8 @@ export default function FlowEvaluationPage() {
             </section>
           )}
 
-          {/* Per-flow results */}
+          {/* Per-flow results (hidden when Occupancy All selected) */}
+          {seriesView !== 'occupancy_all' && (
           <section>
             {evalState.loading && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -824,6 +1071,7 @@ export default function FlowEvaluationPage() {
               );
             })}
           </section>
+          )}
 
           
         </div>
@@ -853,18 +1101,19 @@ function WeightsAddRow({ onAdd }: { onAdd: (key: string, val: number) => void })
           className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white text-[12px]"
         />
       </td>
+      <td className="px-3 py-2 text-white/70 text-[12px]">—</td>
       <td className="px-3 py-2">
-        <input
-          placeholder="value"
-          type="number"
-          value={valInput}
-          onChange={(e) => setValInput(e.currentTarget.value)}
-          className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
-          style={{ colorScheme: 'dark' }}
-        />
-      </td>
-      <td className="px-3 py-2">
-        <button onClick={handleAdd} className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-[12px] text-white/80 hover:bg-white/15">Add</button>
+        <div className="flex items-center gap-2">
+          <input
+            placeholder="value"
+            type="number"
+            value={valInput}
+            onChange={(e) => setValInput(e.currentTarget.value)}
+            className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
+            style={{ colorScheme: 'dark' }}
+          />
+          <button onClick={handleAdd} className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-[12px] text-white/80 hover:bg-white/15">Add</button>
+        </div>
       </td>
     </tr>
   );

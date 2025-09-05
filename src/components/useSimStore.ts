@@ -143,6 +143,8 @@ type State = {
   setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
   setRegulationSimulationResult: (r: RegulationPlanSimulationResponse | null) => void;
   setIsResultsOpen: (open: boolean) => void;
+  // Reset all non-function state back to defaults
+  resetAll: () => void;
   // Target Cells (Traffic Volume + Time Period)
   targetCells: Array<{ id: string; trafficVolume: string; from: string; to: string; createdAt: number }>;
   addTargetCell: (trafficVolume: string, from: string, to: string) => string; // returns id (existing or new)
@@ -175,9 +177,51 @@ export type FlowBasketItem = {
   earliestCrossing?: string | null; // HH:MM(:SS)
 };
 
-export const useSimStore = create<State>((set, get) => ({
+// Centralized default values for non-function state
+const defaultState: Pick<State,
+  | 't'
+  | 'range'
+  | 'playing'
+  | 'speed'
+  | 'date'
+  | 'showFlightLineLabels'
+  | 'showCallsigns'
+  | 'showFlightLines'
+  | 'showWaypoints'
+  | 'selectedTrafficVolume'
+  | 'selectedTrafficVolumeData'
+  | 'flLowerBound'
+  | 'flUpperBound'
+  | 'flights'
+  | 'focusMode'
+  | 'focusFlightIds'
+  | 'showHotspots'
+  | 'hotspots'
+  | 'hotspotsLoading'
+  | 'flowViewEnabled'
+  | 'flowThreshold'
+  | 'flowResolution'
+  | 'flowCommunities'
+  | 'flowGroups'
+  | 'flowColorByCommunity'
+  | 'flowLoading'
+  | 'flowError'
+  | 'flowPreviewGroupId'
+  | 'flowPreviewFlightId'
+  | 'regulationTargetFlightIds'
+  | 'regulationVisibleFlightIds'
+  | 'regulationTimeWindow'
+  | 'regulationRate'
+  | 'regulations'
+  | 'isRegulationPanelOpen'
+  | 'regulationEditPayload'
+  | 'regulationSimulationResult'
+  | 'isResultsOpen'
+  | 'targetCells'
+  | 'flowBasket'
+> = {
   t: 0,
-  range: [0, 24*3600],
+  range: [0, 24 * 3600],
   playing: false,
   speed: 1,
   date: '01/08/2023',
@@ -214,10 +258,12 @@ export const useSimStore = create<State>((set, get) => ({
   regulationEditPayload: null,
   regulationSimulationResult: null,
   isResultsOpen: false,
-  // Target Cells initial state
   targetCells: [],
-  // Flow Basket initial state
-  flowBasket: [],
+  flowBasket: []
+};
+
+export const useSimStore = create<State>((set, get) => ({
+  ...defaultState,
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -314,7 +360,9 @@ export const useSimStore = create<State>((set, get) => ({
   setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open }),
   setRegulationEditPayload: (p) => set({ regulationEditPayload: p }),
   setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
-  setIsResultsOpen: (open) => set({ isResultsOpen: open })
+  setIsResultsOpen: (open) => set({ isResultsOpen: open }),
+  // Reset all stateful values back to defaults (used on page navigation)
+  resetAll: () => set(() => ({ ...defaultState }))
   ,
   // Target Cells actions
   addTargetCell: (trafficVolume: string, from: string, to: string) => {
