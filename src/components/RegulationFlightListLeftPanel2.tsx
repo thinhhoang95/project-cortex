@@ -2,40 +2,32 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
-
-interface RankedFlightComponentScores {
-	multiplicity?: number;
-	similarity?: number;
-	slack?: number;
-	
-	// New: NSH component score from ranking API
-	nsh?: number;
-}
+import ShimmeringText from "@/components/ShimmeringText";
 
 interface RankedFlight {
-	flight_id: string;
-	arrival_time: string; // HH:MM or HH:MM:SS
-	time_window: string; // HH:MM-HH:MM
-	delta_seconds: number;
-	score: number;
-	components?: RankedFlightComponentScores;
+  flight_id: string;
+  arrival_time: string; // HH:MM or HH:MM:SS
+  time_window: string; // HH:MM-HH:MM
+  delta_seconds: number;
 }
 
 interface RankedFlightsResponse {
-	traffic_volume_id: string;
-	ref_time_str: string;
-	seed_flight_ids: string[];
-	ranked_flights: RankedFlight[];
-	metadata?: {
-		num_candidates?: number;
-		num_ranked?: number;
-		time_bin_minutes?: number;
-		duration_min?: number;
-	};
+  traffic_volume_id: string;
+  ref_time_str: string;
+  seed_flight_ids: string[];
+  ranked_flights: RankedFlight[];
+  metadata?: {
+    num_candidates?: number;
+    num_ranked?: number;
+    time_bin_minutes?: number;
+    duration_min?: number;
+  };
 }
 
-export default function RegulationFlightListLeftPanel2() {
-	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds } = useSimStore();
+type RegulationFlightListLeftPanel2Props = { embedded?: boolean };
+
+export default function RegulationFlightListLeftPanel2({ embedded = false }: RegulationFlightListLeftPanel2Props) {
+	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds, setFlowPreviewFlightId } = useSimStore();
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -114,8 +106,6 @@ export default function RegulationFlightListLeftPanel2() {
 					origin: flight?.origin || 'N/A',
 					destination: flight?.destination || 'N/A',
 					arrivalTime: rf.arrival_time || 'N/A',
-					score: rf.score,
-					components: rf.components || {}
 				};
 			});
 		}
@@ -128,17 +118,22 @@ export default function RegulationFlightListLeftPanel2() {
 		setRegulationVisibleFlightIds(ids);
 	}, [rows, setRegulationVisibleFlightIds]);
 
+	// Clear single-flight preview on unmount
+	useEffect(() => {
+		return () => { setFlowPreviewFlightId(null); };
+	}, [setFlowPreviewFlightId]);
+
 	if (!selectedTrafficVolume) return null;
 
 	return (
-		<div className="w-full max-h-[40vh] min-h-0 flex-shrink-0
-						rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-						shadow-xl text-slate-900 text-white flex flex-col overflow-hidden">
+		<div className={embedded
+			? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+			: "w-full max-h-[40vh] min-h-0 flex-shrink-0 rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col overflow-hidden"}>
 			<div className="flex items-center justify-between p-3 border-b border-white/20 flex-shrink-0">
 				<h3 className="font-semibold text-sm">Flight List ({rows.length})</h3>
 				<span className="text-xs opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
 			</div>
-			<div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+			<div className={embedded ? "px-3 pb-3 overflow-x-auto" : "px-3 pb-3 flex-1 min-h-0 overflow-y-auto overflow-x-auto"}>
 				{rankingData && filteredRankedFlights.length > 0 && (
 					<div className="py-2">
 						<HourGlass
@@ -155,7 +150,7 @@ export default function RegulationFlightListLeftPanel2() {
 				{loading ? (
 					<div className="flex items-center justify-center py-4">
 						<div className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white"></div>
-						<span className="ml-2 text-xs opacity-70">Loading...</span>
+						<ShimmeringText text="Loading..." className="ml-2 text-xs opacity-70" />
 					</div>
 				) : error ? (
 					<div className="bg-red-500/20 border border-red-500/30 rounded-lg p-2 mb-3 text-xs">{error}</div>
@@ -170,15 +165,7 @@ export default function RegulationFlightListLeftPanel2() {
 								{rankingData && (
 									<th className="text-left p-2 font-semibold">TV Arrival</th>
 								)}
-								{rankingData && (
-									<>
-										<th className="text-left p-2 font-semibold">Score</th>
-										<th className="text-left p-2 font-semibold">Mult</th>
-										<th className="text-left p-2 font-semibold">Sim</th>
-										<th className="text-left p-2 font-semibold">Slack</th>
-										<th className="text-left p-2 font-semibold">NSH</th>
-									</>
-								)}
+								{/* Score/components columns removed (API no longer returns them) */}
 							</tr>
 						</thead>
 						<tbody>
@@ -188,6 +175,8 @@ export default function RegulationFlightListLeftPanel2() {
 									<tr
 										key={row.flightId}
 										className={`border-b border-white/10 cursor-pointer ${idx % 2 === 0 ? 'bg-white/2' : ''} ${isTargeted ? 'bg-emerald-500/10 hover:bg-emerald-500/15' : 'hover:bg-white/5'}`}
+										onMouseEnter={() => setFlowPreviewFlightId(String(row.flightId))}
+										onMouseLeave={() => setFlowPreviewFlightId(null)}
 										onClick={() => {
 											const full = flights.find(f => String(f.flightId) === String(row.flightId));
 											if (full) {
@@ -205,15 +194,7 @@ export default function RegulationFlightListLeftPanel2() {
 										{rankingData && (
 											<td className="p-2 font-mono">{row.arrivalTime}</td>
 										)}
-										{rankingData && (
-											<>
-												<td className="p-2 font-mono">{formatScore(row.score)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.multiplicity)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.similarity)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.slack)}</td>
-												<td className="p-2 font-mono">{formatScore(row.components?.nsh)}</td>
-											</>
-										)}
+									{/* Score/components cells removed */}
 									</tr>
 								);
 							})}
@@ -249,7 +230,4 @@ function parseHHMMSSToSeconds(value: string): number {
 	return h * 3600 + m * 60 + s;
 }
 
-function formatScore(value?: number): string {
-	if (value === undefined || value === null || Number.isNaN(value)) return '-';
-	return value.toFixed(3);
-}
+// Score/component formatting removed as API no longer returns them

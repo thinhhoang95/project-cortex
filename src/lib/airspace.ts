@@ -1,3 +1,6 @@
+import { fetchCached } from "./cache";
+
 export async function loadSectors(url: string): Promise<GeoJSON.FeatureCollection> {
-  return fetch(url).then(r => r.json());
+  const resp = await fetchCached(url);
+  return resp.json();
 }

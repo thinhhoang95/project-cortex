@@ -58,6 +58,7 @@ type State = {
   range: [number, number]; // global window
   speed: number;
   playing: boolean;
+  date: string;            // operation date in DD/MM/YYYY
   showFlightLineLabels: boolean;
   showCallsigns: boolean;
   showFlightLines: boolean;
@@ -81,6 +82,9 @@ type State = {
   flowColorByCommunity: Record<string, string> | null; // communityId -> color
   flowLoading: boolean;
   flowError: string | null;
+  // Flow preview (hover) state
+  flowPreviewGroupId: string | null;
+  flowPreviewFlightId: string | null;
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationVisibleFlightIds: string[];
@@ -97,6 +101,7 @@ type State = {
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
+  setDate: (date: string) => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
   setShowFlightLines: (show: boolean) => void;
@@ -117,9 +122,12 @@ type State = {
   setFlowViewEnabled: (enabled: boolean) => void;
   setFlowThreshold: (threshold: number) => void;
   setFlowResolution: (resolution: number) => void;
-  setFlowCommunities: (communities: Record<string, number> | null, groups?: Record<string, string[]> | null) => void;
+  setFlowCommunities: (communities: Record<string, number> | null, groups?: Record<string, string[]> | null, colorOverride?: Record<string, string> | null) => void;
   setFlowLoading: (loading: boolean) => void;
   setFlowError: (error: string | null) => void;
+  setFlowPreviewGroupId: (groupId: string | null) => void;
+  setFlowPreviewFlightId: (flightId: string | null) => void;
+  setFlowColorByCommunity: (m: Record<string, string> | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
   // Regulation Design actions
@@ -135,13 +143,88 @@ type State = {
   setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
   setRegulationSimulationResult: (r: RegulationPlanSimulationResponse | null) => void;
   setIsResultsOpen: (open: boolean) => void;
+  // Reset all non-function state back to defaults
+  resetAll: () => void;
+  // Target Cells (Traffic Volume + Time Period)
+  targetCells: Array<{ id: string; trafficVolume: string; from: string; to: string; createdAt: number }>;
+  addTargetCell: (trafficVolume: string, from: string, to: string) => string; // returns id (existing or new)
+  addTargetCells: (trafficVolumes: string[], from: string, to: string) => string[]; // returns ids
+  removeTargetCell: (id: string) => void;
+  // Flow Basket (for FlowPlanPanel)
+  flowBasket: Array<{
+    id: string;
+    name: string;
+    color: string;
+    items: FlowBasketItem[];
+    // Regulation period associated with this flow (from FlowRegulationPanel)
+    periodFrom?: string; // HH:MM
+    periodTo?: string;   // HH:MM
+    createdAt: number;
+  }>;
+  addFlowBasket: (name: string, items?: Array<string | FlowBasketItem>) => string; // returns new flow id
+  addFlowBasketWithPeriod: (name: string, items: Array<string | FlowBasketItem>, periodFrom: string, periodTo: string) => string; // returns new flow id
+  createEmptyFlowBasket: (name?: string) => string; // returns new flow id
+  removeFlowBasket: (id: string) => void;
+  addFlightsToBasketFlow: (id: string, items: Array<string | FlowBasketItem>) => void;
+  removeFlightFromBasketFlow: (id: string, key: string) => void;
+  moveFlightBetweenBasketFlows: (fromId: string, toId: string, key: string) => void;
+  setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => void;
 };
 
-export const useSimStore = create<State>((set, get) => ({
+export type FlowBasketItem = {
+  key: string; // flightId or callsign token
+  requestedBin?: number;
+  earliestCrossing?: string | null; // HH:MM(:SS)
+};
+
+// Centralized default values for non-function state
+const defaultState: Pick<State,
+  | 't'
+  | 'range'
+  | 'playing'
+  | 'speed'
+  | 'date'
+  | 'showFlightLineLabels'
+  | 'showCallsigns'
+  | 'showFlightLines'
+  | 'showWaypoints'
+  | 'selectedTrafficVolume'
+  | 'selectedTrafficVolumeData'
+  | 'flLowerBound'
+  | 'flUpperBound'
+  | 'flights'
+  | 'focusMode'
+  | 'focusFlightIds'
+  | 'showHotspots'
+  | 'hotspots'
+  | 'hotspotsLoading'
+  | 'flowViewEnabled'
+  | 'flowThreshold'
+  | 'flowResolution'
+  | 'flowCommunities'
+  | 'flowGroups'
+  | 'flowColorByCommunity'
+  | 'flowLoading'
+  | 'flowError'
+  | 'flowPreviewGroupId'
+  | 'flowPreviewFlightId'
+  | 'regulationTargetFlightIds'
+  | 'regulationVisibleFlightIds'
+  | 'regulationTimeWindow'
+  | 'regulationRate'
+  | 'regulations'
+  | 'isRegulationPanelOpen'
+  | 'regulationEditPayload'
+  | 'regulationSimulationResult'
+  | 'isResultsOpen'
+  | 'targetCells'
+  | 'flowBasket'
+> = {
   t: 0,
-  range: [0, 24*3600],
+  range: [0, 24 * 3600],
   playing: false,
   speed: 1,
+  date: '01/08/2023',
   showFlightLineLabels: true,
   showCallsigns: true,
   showFlightLines: true,
@@ -164,6 +247,8 @@ export const useSimStore = create<State>((set, get) => ({
   flowColorByCommunity: null,
   flowLoading: false,
   flowError: null,
+  flowPreviewGroupId: null,
+  flowPreviewFlightId: null,
   regulationTargetFlightIds: new Set<string>(),
   regulationVisibleFlightIds: [],
   regulationTimeWindow: [0, 0],
@@ -173,9 +258,16 @@ export const useSimStore = create<State>((set, get) => ({
   regulationEditPayload: null,
   regulationSimulationResult: null,
   isResultsOpen: false,
+  targetCells: [],
+  flowBasket: []
+};
+
+export const useSimStore = create<State>((set, get) => ({
+  ...defaultState,
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
+  setDate: (date) => set({ date }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
   setShowFlightLines: (show) => set({ showFlightLines: show }),
@@ -201,13 +293,16 @@ export const useSimStore = create<State>((set, get) => ({
   setFlowViewEnabled: (enabled) => set({ flowViewEnabled: enabled }),
   setFlowThreshold: (threshold) => set({ flowThreshold: threshold }),
   setFlowResolution: (resolution) => set({ flowResolution: resolution }),
-  setFlowCommunities: (communities, groups = null) => set({
+  setFlowCommunities: (communities, groups = null, colorOverride = undefined) => set({
     flowCommunities: communities,
     flowGroups: groups,
-    flowColorByCommunity: computeFlowColorByCommunity(communities, groups)
+    flowColorByCommunity: colorOverride !== undefined ? colorOverride : computeFlowColorByCommunity(communities, groups)
   }),
   setFlowLoading: (loading) => set({ flowLoading: loading }),
   setFlowError: (error) => set({ flowError: error }),
+  setFlowPreviewGroupId: (groupId) => set({ flowPreviewGroupId: groupId }),
+  setFlowPreviewFlightId: (flightId) => set({ flowPreviewFlightId: flightId }),
+  setFlowColorByCommunity: (m) => set({ flowColorByCommunity: m }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });
@@ -265,8 +360,130 @@ export const useSimStore = create<State>((set, get) => ({
   setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open }),
   setRegulationEditPayload: (p) => set({ regulationEditPayload: p }),
   setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
-  setIsResultsOpen: (open) => set({ isResultsOpen: open })
+  setIsResultsOpen: (open) => set({ isResultsOpen: open }),
+  // Reset all stateful values back to defaults (used on page navigation)
+  resetAll: () => set(() => ({ ...defaultState }))
+  ,
+  // Target Cells actions
+  addTargetCell: (trafficVolume: string, from: string, to: string) => {
+    const tv = String(trafficVolume).trim();
+    const f = String(from).trim();
+    const t = String(to).trim();
+    if (!tv || !f || !t) return '';
+    const existing = get().targetCells.find(c => c.trafficVolume === tv && c.from === f && c.to === t);
+    if (existing) return existing.id;
+    const id = `TC${Date.now()}${Math.floor(Math.random()*1000)}`;
+    const createdAt = Date.now();
+    set(state => ({ targetCells: [...state.targetCells, { id, trafficVolume: tv, from: f, to: t, createdAt }] }));
+    return id;
+  },
+  addTargetCells: (trafficVolumes: string[], from: string, to: string) => {
+    const ids: string[] = [];
+    const tvs = Array.from(new Set((trafficVolumes || []).map(v => String(v).trim()).filter(Boolean)));
+    let acc = get().targetCells.slice();
+    for (const tv of tvs) {
+      const f = String(from).trim();
+      const t = String(to).trim();
+      if (!tv || !f || !t) continue;
+      const existing = acc.find(c => c.trafficVolume === tv && c.from === f && c.to === t);
+      if (existing) { ids.push(existing.id); continue; }
+      const id = `TC${Date.now()}${Math.floor(Math.random()*1000)}`;
+      acc.push({ id, trafficVolume: tv, from: f, to: t, createdAt: Date.now() });
+      ids.push(id);
+    }
+    set({ targetCells: acc });
+    return ids;
+  },
+  removeTargetCell: (id: string) => set(state => ({ targetCells: state.targetCells.filter(c => c.id !== id) })),
+  
+  // Flow Basket actions
+  addFlowBasket: (name: string, items: Array<string | FlowBasketItem> = []) => {
+    const palette = [
+      '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
+      '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
+    ];
+    const id = `FB${Date.now()}${Math.floor(Math.random()*1000)}`;
+    const createdAt = Date.now();
+    const colorIdx = get().flowBasket.length % palette.length;
+    const color = palette[colorIdx];
+    const normalized: FlowBasketItem[] = normalizeBasketItems(items);
+    set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, createdAt }] }));
+    return id;
+  },
+  addFlowBasketWithPeriod: (name: string, items: Array<string | FlowBasketItem> = [], periodFrom: string, periodTo: string) => {
+    const palette = [
+      '#e6194b','#3cb44b','#ffe119','#0082c8','#f58231','#911eb4','#46f0f0','#f032e6','#d2f53c','#fabebe',
+      '#008080','#e6beff','#aa6e28','#800000','#aaffc3','#808000','#ffd8b1','#000080','#bcf60c','#808080'
+    ];
+    const id = `FB${Date.now()}${Math.floor(Math.random()*1000)}`;
+    const createdAt = Date.now();
+    const colorIdx = get().flowBasket.length % palette.length;
+    const color = palette[colorIdx];
+    const normalized: FlowBasketItem[] = normalizeBasketItems(items);
+    set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, periodFrom, periodTo, createdAt }] }));
+    return id;
+  },
+  createEmptyFlowBasket: (name?: string) => {
+    return get().addFlowBasket(name || `Flow ${get().flowBasket.length+1}`, []);
+  },
+  removeFlowBasket: (id: string) => set(state => ({ flowBasket: state.flowBasket.filter(f => f.id !== id) })),
+  addFlightsToBasketFlow: (id: string, items: Array<string | FlowBasketItem>) => {
+    if (!items || items.length === 0) return;
+    const normalized = normalizeBasketItems(items);
+    set(state => ({
+      flowBasket: state.flowBasket.map(f => {
+        if (f.id !== id) return f;
+        const byKey = new Map<string, FlowBasketItem>();
+        for (const it of f.items) byKey.set(String(it.key), it);
+        for (const it of normalized) byKey.set(String(it.key), { ...(byKey.get(String(it.key)) || { key: String(it.key) }), ...it });
+        return { ...f, items: Array.from(byKey.values()) };
+      })
+    }));
+  },
+  setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => {
+    set(state => ({
+      flowBasket: state.flowBasket.map(f => {
+        if (f.id !== id) return f;
+        const shouldOverwrite = opts?.overwrite ?? false;
+        if (!shouldOverwrite && f.periodFrom && f.periodTo) return f;
+        return { ...f, periodFrom, periodTo };
+      })
+    }));
+  },
+  removeFlightFromBasketFlow: (id: string, key: string) => set(state => ({
+    flowBasket: state.flowBasket.map(f => f.id === id ? { ...f, items: f.items.filter(it => String(it.key) !== String(key)) } : f)
+  })),
+  moveFlightBetweenBasketFlows: (fromId: string, toId: string, key: string) => {
+    set(state => ({
+      flowBasket: state.flowBasket.map(f => {
+        if (f.id === fromId) return { ...f, items: f.items.filter(it => String(it.key) !== String(key)) };
+        if (f.id === toId) {
+          const byKey = new Map<string, FlowBasketItem>();
+          for (const it of f.items) byKey.set(String(it.key), it);
+          const existing = byKey.get(String(key));
+          byKey.set(String(key), existing || { key: String(key) });
+          return { ...f, items: Array.from(byKey.values()) };
+        }
+        return f;
+      })
+    }));
+  }
 }));
+
+function normalizeBasketItems(items: Array<string | FlowBasketItem> | undefined): FlowBasketItem[] {
+  const byKey = new Map<string, FlowBasketItem>();
+  for (const it of items || []) {
+    if (typeof it === 'string') {
+      const key = String(it);
+      byKey.set(key, { key });
+    } else if (it && typeof it === 'object' && 'key' in it) {
+      const key = String((it as any).key);
+      const prev = byKey.get(key) || { key };
+      byKey.set(key, { ...prev, ...it, key });
+    }
+  }
+  return Array.from(byKey.values());
+}
 
 // Compute a deterministic community -> color mapping so UI and map use identical colors
 function computeFlowColorByCommunity(

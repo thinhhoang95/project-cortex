@@ -93,3 +93,53 @@ export interface RegulationPlanSimulationResponse {
   excess_vector_stats?: { sum: number; max: number; mean: number; count: number };
   metadata: RegulationPlanMetadata;
 }
+
+// Flow Impact Evaluation models
+export interface FlowEval {
+  flow_id: number;
+  controlled_volume: string | null;
+  n0: number[]; // length T+1
+  demand: number[]; // length T
+  target_demands: Record<string, number[]>; // tv -> series length T
+  ripple_demands?: Record<string, number[]>; // tv -> series length T
+  // New in revised API: realized per-bin occupancy under baseline schedule (no delays)
+  target_occupancy?: Record<string, number[]>; // tv -> series length T
+  ripple_occupancy?: Record<string, number[]>; // tv -> series length T
+}
+
+export interface BaseEvaluationResponse {
+  num_time_bins: number;
+  tvs: string[];
+  target_cells: Array<[string, number]>;
+  ripple_cells?: Array<[string, number]>;
+  flows: FlowEval[];
+  objective: { score: number; components: Record<string, number> };
+  weights_used?: Record<string, number>;
+}
+
+// Optimization results (automatic rate adjustment)
+export interface FlowOptResult {
+  flow_id: number;
+  controlled_volume: string | null;
+  n0: number[];            // length T+1
+  demand: number[];        // length T
+  n_opt: number[];         // length T+1
+  target_demands: Record<string, number[]>; // baseline earliest crossings
+  ripple_demands?: Record<string, number[]>;
+  target_occupancy_opt?: Record<string, number[]>; // realized occupancy post-optimization
+  ripple_occupancy_opt?: Record<string, number[]>;
+}
+
+export interface AutomaticRateAdjustmentResponse {
+  num_time_bins: number;
+  tvs: string[];
+  target_cells: Array<[string, number]>;
+  ripple_cells?: Array<[string, number]>;
+  flows: FlowOptResult[];
+  delays_min?: Record<string, number>; // flight_id -> delay minutes
+  objective_baseline: { score: number; components: Record<string, number> };
+  objective_optimized: { score: number; components: Record<string, number> };
+  improvement: { absolute: number; percent: number };
+  weights_used?: Record<string, number>;
+  sa_params_used?: Record<string, number>;
+}

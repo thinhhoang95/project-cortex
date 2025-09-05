@@ -1,9 +1,12 @@
 "use client";
 import { useSimStore } from "@/components/useSimStore";
 import { useEffect, useState } from "react";
+import ShimmeringText from "@/components/ShimmeringText";
 
-export default function LeftControl1Regulation() {
-  const { t, range, setRange, playing, setPlaying, speed, setSpeed, showFlightLineLabels, setShowFlightLineLabels, showFlightLines, setShowFlightLines, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound, showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
+type LeftControl1RegulationProps = { embedded?: boolean };
+
+export default function LeftControl1Regulation({ embedded = false }: LeftControl1RegulationProps) {
+  const { t, range, setRange, playing, setPlaying, speed, setSpeed, date, showFlightLineLabels, setShowFlightLineLabels, showFlightLines, setShowFlightLines, flLowerBound, flUpperBound, setFlLowerBound, setFlUpperBound, showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
   // Local draft time to avoid spamming global state (and API calls) while dragging
   const [isDraggingTime, setIsDraggingTime] = useState(false);
   const [draftT, setDraftT] = useState<number | null>(null);
@@ -49,16 +52,35 @@ export default function LeftControl1Regulation() {
     };
   }, [isDraggingTime, draftT, setT]);
   
+  const formatDateParts = (dateStr: string) => {
+    try {
+      const [ddStr, mmStr, yyyyStr] = dateStr.split("/");
+      const dd = Number(ddStr);
+      const mm = Number(mmStr);
+      const yyyy = Number(yyyyStr);
+      const jsDate = new Date(Date.UTC(yyyy, (mm || 1) - 1, dd || 1));
+      const DOW = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+      const MONTHS = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+      const dow = DOW[jsDate.getUTCDay()];
+      const month = MONTHS[(mm || 1) - 1];
+      const day = String(dd || 1).padStart(2, '0');
+      return { dow, month, day };
+    } catch {
+      return { dow: 'MON', month: 'JANUARY', day: '01' };
+    }
+  };
+  const { dow, month, day } = formatDateParts(date);
+
   return (
-    <div className="w-full flex-1 min-h-0
-                    rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-                    shadow-xl text-slate-900 text-white flex flex-col overflow-hidden">
+    <div className={embedded
+      ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+      : "w-full flex-1 min-h-0 rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col overflow-hidden"}>
       
-      <div className="overflow-y-auto no-scrollbar p-4 space-y-4 flex-1 min-h-0">
+      <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 space-y-4 flex-1 min-h-0"}>
       
       <div className="bg-white/5 rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="font-semibold">Time of day</h2>
+          <h2 className="font-semibold">Datetime</h2>
           <button
             onClick={() => setPlaying(!playing)}
             className="px-3 py-1.5 rounded-xl border border-white/30 bg-white/30 hover:bg-white/40 text-sm"
@@ -67,8 +89,15 @@ export default function LeftControl1Regulation() {
           </button>
         </div>
 
-        <div className="text-2xl font-bold mb-3 text-center bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent drop-shadow-lg">
-          T = {fmt(isDraggingTime && draftT !== null ? draftT : t)}
+        <div className="mb-3 flex items-end justify-between gap-4">
+          <div className="flex flex-col leading-tight">
+            <div className="text-xs tracking-wider uppercase opacity-80">{dow}, {month}</div>
+            <div className="text-3xl font-extrabold">{day}</div>
+          </div>
+          <div className="flex flex-col items-end leading-tight text-right">
+            <div className="text-xs tracking-wider uppercase opacity-80">Operation Time</div>
+            <div className="text-3xl font-extrabold">{fmt(isDraggingTime && draftT !== null ? draftT : t)}</div>
+          </div>
         </div>
 
         <input
@@ -191,7 +220,7 @@ export default function LeftControl1Regulation() {
         </div>
       </div>
 
-      <div className="bg-white/5 rounded-lg p-4 flex-1 flex flex-col">
+      <div className={embedded ? "bg-white/5 rounded-lg p-4 flex flex-col" : "bg-white/5 rounded-lg p-4 flex-1 flex flex-col"}>
         <h2 className="font-semibold mb-3">Dynamic Capacity Balancing</h2>
         
         <div className="flex items-center gap-2 mb-4">
@@ -230,13 +259,13 @@ export default function LeftControl1Regulation() {
               {hotspotsLoading && (
                 <div className="flex items-center">
                   <div className="animate-spin rounded-full h-3 w-3 border border-white/20 border-t-white"></div>
-                  <span className="ml-1 text-xs opacity-70">Loading...</span>
+                  <ShimmeringText text="Loading..." className="ml-1 text-xs opacity-70" />
                 </div>
               )}
             </div>
             
             {hotspots.length > 0 && !hotspotsLoading ? (
-              <div className="flex-1 overflow-y-auto no-scrollbar">
+              <div className={embedded ? "" : "flex-1 overflow-y-auto no-scrollbar"}>
                 <table className="w-full text-xs">
                   <thead className="sticky top-0">
                     <tr className="bg-red-900 text-white">

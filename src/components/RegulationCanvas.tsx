@@ -9,15 +9,18 @@ import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import RegulationResults from "@/components/RegulationResults";
+import PrecautionBanner from "@/components/PrecautionBanner";
+import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
+  const [baseDataLoading, setBaseDataLoading] = useState(true);
   const [slackSign, setSlackSign] = useState<"minus" | "plus">("minus");
   const [slackMode, setSlackMode] = useState<"off" | "minus" | "plus">("off");
   const [isFetchingSlack, setIsFetchingSlack] = useState<boolean>(false);
@@ -88,6 +91,7 @@ export default function RegulationCanvas() {
     mapRef.current = map;
 
     map.on("load", async () => {
+      setBaseDataLoading(true);
       // Data
       const [sectors, tracks] = await Promise.all([
         loadSectors("/data/airspace.geojson"),
@@ -291,6 +295,7 @@ export default function RegulationCanvas() {
       const b = new maplibregl.LngLatBounds();
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+      setBaseDataLoading(false);
     });
 
     // RAF loop (time progression + layer updates)
@@ -315,6 +320,9 @@ export default function RegulationCanvas() {
 
   // on t change from UI (drag), update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [t]);
+
+  // When a single-flight or group preview is toggled via hover, update filters immediately
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId]);
 
   // When flow view state changes, update rendering
   useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
@@ -472,6 +480,7 @@ export default function RegulationCanvas() {
         result={regulationSimulationResult}
         onClose={() => { setIsResultsOpen(false); setRegulationSimulationResult(null); }}
       />
+      <PageLoadingIndicator visible={baseDataLoading} />
       {/* Slack mode toggle: Off / Minus / Plus */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md">
         <span className="px-2 text-gray-300">Slack View</span>
@@ -548,6 +557,8 @@ export default function RegulationCanvas() {
           </div>
         </div>
       )}
+      {/* Precaution banner slightly above Slack View panel */}
+      <PrecautionBanner positionClass="bottom-16" />
       <div className="absolute bottom-4 left-4 bg-white-600/30 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-xs text-gray-400 pointer-events-none">
         Regulation Design Mode
       </div>
@@ -566,7 +577,32 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     if (sim.t >= tr.t0 && sim.t <= tr.t1) activeFlightIds.push(String(tr.flightId));
   }
 
-  const lineIdsToShow: string[] = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  let lineIdsToShow: string[];
+  if (sim.flowPreviewFlightId) {
+    // Hover preview takes precedence over other filters and shows the full trajectory regardless of current time
+    lineIdsToShow = [String(sim.flowPreviewFlightId)];
+  } else if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+    const previewGroupId = sim.flowPreviewGroupId ? String(sim.flowPreviewGroupId) : null;
+    if (previewGroupId) {
+      // Preview a community: show flights belonging to the hovered community
+      let previewIds: string[] = [];
+      if (sim.flowGroups && sim.flowGroups[previewGroupId]) {
+        previewIds = (sim.flowGroups[previewGroupId] || []).map(String);
+      } else {
+        // Fallback: derive from communities mapping
+        previewIds = Object.entries(sim.flowCommunities)
+          .filter(([, cid]) => String(cid) === previewGroupId)
+          .map(([fid]) => String(fid));
+      }
+      // Show all flights in the hovered community (not time-sliced)
+      lineIdsToShow = previewIds.map(String);
+    } else {
+      // Show all flights that belong to any community (not time-sliced)
+      lineIdsToShow = Object.keys(sim.flowCommunities).map(String);
+    }
+  } else {
+    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  }
 
   const filterExpr: any = [
     "match",
@@ -578,9 +614,9 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume;
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
     const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
-    const lineOpacity = sim.flowViewEnabled ? 0.8 : baseOpacity;
+    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
     map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
   }
   if (map.getLayer("flight-line-labels")) {
@@ -816,4 +852,3 @@ function hideSlackOverlay(map: maplibregl.Map) {
     map.setLayoutProperty('sector-slack', 'visibility', 'none');
   }
 }
-

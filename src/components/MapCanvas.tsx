@@ -9,17 +9,20 @@ import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
+import PrecautionBanner from "@/components/PrecautionBanner";
+import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId } = useSimStore();
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
+  const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   // init map
   useEffect(() => {
@@ -87,6 +90,7 @@ export default function MapCanvas() {
     mapRef.current = map;
 
     map.on("load", async () => {
+      setBaseDataLoading(true);
       // Data
       const [sectors, tracks] = await Promise.all([
         loadSectors("/data/airspace.geojson"),
@@ -266,6 +270,9 @@ export default function MapCanvas() {
         },
         paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
       });
+
+      // Base airspace and flight data are loaded; hide the page-loading indicator
+      setBaseDataLoading(false);
 
       // --- Waypoints (zoom-based filtering for better UX) ---
       // Load only waypoints within sector bbox with small margin
@@ -491,6 +498,9 @@ export default function MapCanvas() {
 
   // on t change from UI (drag), update plane positions immediately
   useEffect(() => { updatePlanePositions(mapRef.current); }, [t]);
+
+  // When a single-flight preview is toggled via hover, update filters immediately
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId]);
 
   // on showFlightLineLabels change, update layer visibility
   useEffect(() => {
@@ -740,11 +750,8 @@ export default function MapCanvas() {
           setFocusFlightIds(new Set());
         }}
       />
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white-600/30 backdrop-blur-sm text-xs text-gray-400 pointer-events-none text-center px-4 py-2 rounded-lg z-50">
-        Experimental work.If you like this, find me on <a href="https://www.linkedin.com/in/thinh-hoang-571252b7/" className="text-white">LinkedIn</a>.
-        <br />
-        Data provided by <a href="https://opensky-network.org/" className="text-white">OpenSky Network</a> and EUROCONTROL as part of the SESAR DeepFlow project.
-      </div>
+      <PrecautionBanner />
+      <PageLoadingIndicator visible={baseDataLoading} />
       
       {/* <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">
         <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg flex items-center space-x-3">
@@ -830,7 +837,13 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
   // Filter flight line + label layers
   // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
-  const lineIdsToShow: string[] = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  let lineIdsToShow: string[];
+  if (sim.flowPreviewFlightId) {
+    // Hover preview takes precedence over other filters and shows the full trajectory regardless of current time
+    lineIdsToShow = [String(sim.flowPreviewFlightId)];
+  } else {
+    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+  }
 
   const filterExpr: any = [
     "match",
@@ -842,8 +855,8 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume;
-    const lineOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0;
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
+    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
   }
   if (map.getLayer("flight-line-labels")) {

@@ -2,10 +2,12 @@ import Papa from "papaparse";
 import * as turf from "@turf/turf";
 import { FlightSegment, Trajectory } from "./models";
 import { parseCompactHMS } from "./time";
+import { fetchCached } from "./cache";
 
 // Load & group CSV into trajectories
 export async function loadTrajectories(csvUrl: string): Promise<Trajectory[]> {
-  const text = await fetch(csvUrl).then(r => r.text());
+  const resp = await fetchCached(csvUrl);
+  const text = await resp.text();
   const { data } = Papa.parse<FlightSegment>(text, { header: true, dynamicTyping: true, skipEmptyLines: true });
 
   const byFlight = new Map<string, FlightSegment[]>();
