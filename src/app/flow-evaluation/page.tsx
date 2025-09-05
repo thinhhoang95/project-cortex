@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
-import { BaseEvaluationResponse } from "@/lib/models";
+import { BaseEvaluationResponse, AutomaticRateAdjustmentResponse } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import {
@@ -34,6 +34,7 @@ type FlowInputPayload = {
 };
 
 type FetchState = { loading: boolean; error: string | null; data: BaseEvaluationResponse | null };
+type OptFetchState = { loading: boolean; error: string | null; data: AutomaticRateAdjustmentResponse | null };
 
 function decodePayloadParam(param: string | null): FlowInputPayload | null {
   if (!param) return null;
@@ -97,23 +98,27 @@ export default function FlowEvaluationPage() {
 
   const [input, setInput] = useState<FlowInputPayload | null>(() => decodePayloadParam(payloadParam));
   const [evalState, setEvalState] = useState<FetchState>({ loading: false, error: null, data: null });
+  const [optState, setOptState] = useState<OptFetchState>({ loading: false, error: null, data: null });
   const [viewFrom, setViewFrom] = useState<string>(viewParam?.from || "00:00");
   const [viewTo, setViewTo] = useState<string>(viewParam?.to || "23:59");
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const [showResponse, setShowResponse] = useState<boolean>(false);
+  const [showOptResponse, setShowOptResponse] = useState<boolean>(false);
   const [weightsOverride, setWeightsOverride] = useState<Record<string, number> | null>(null);
   const [showLabels, setShowLabels] = useState<boolean>(false);
   const [showWeightDetails, setShowWeightDetails] = useState<boolean>(true);
   const [rippleSummaryExpanded, setRippleSummaryExpanded] = useState<boolean>(false);
   const [expandedTargetCharts, setExpandedTargetCharts] = useState<Record<number, boolean>>({});
   const [expandedRippleCharts, setExpandedRippleCharts] = useState<Record<number, boolean>>({});
+  // View toggle UI only (logic wiring to be handled later)
+  const [seriesView, setSeriesView] = useState<'demand' | 'occupancy'>("demand");
 
   const minutesPerBin = useMemo(() => {
-    const T = evalState.data?.num_time_bins;
+    const T = evalState.data?.num_time_bins || optState.data?.num_time_bins;
     if (!T || !Number.isFinite(T)) return 15; // default
     // Round to integer minutes per bin; tolerate non-divisible day
     return Math.max(1, Math.round(1440 / T));
-  }, [evalState.data?.num_time_bins]);
+  }, [evalState.data?.num_time_bins, optState.data?.num_time_bins]);
 
   useEffect(() => {
     if (autostart && input && !evalState.data && !evalState.loading) {
@@ -166,6 +171,31 @@ export default function FlowEvaluationPage() {
       setEvalState({ loading: false, error: null, data: json });
     } catch (e: any) {
       setEvalState({ loading: false, error: e?.message || "Failed to run base evaluation", data: null });
+    }
+  };
+
+  const handleOptimize = async () => {
+    if (!input) return;
+    setOptState({ loading: true, error: null, data: null });
+    try {
+      const body: any = { ...input };
+      if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
+        body.weights = weightsOverride;
+      }
+      delete body.colorsByFlow;
+      const res = await fetch("/api/automatic_rate_adjustment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Request failed: ${res.status}`);
+      }
+      const json = (await res.json()) as AutomaticRateAdjustmentResponse;
+      setOptState({ loading: false, error: null, data: json });
+    } catch (e: any) {
+      setOptState({ loading: false, error: e?.message || "Failed to run optimization", data: null });
     }
   };
 
@@ -258,12 +288,13 @@ export default function FlowEvaluationPage() {
               </button>
               
               <button
-                onClick={() => {}}
-                disabled={!input || evalState.loading}
-                className={`px-3 py-1 rounded-lg border text-xs ${evalState.loading ? 'border-purple-400/50 bg-purple-500/20 text-purple-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+                onClick={handleOptimize}
+                disabled={!input || evalState.loading || optState.loading}
+                className={`px-3 py-1 rounded-lg border text-xs ${optState.loading ? 'border-purple-400/50 bg-purple-500/20 text-purple-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
               >
-                Optimize with The World's Best Optimization Algorithm: Simulated Annealing®
+                {optState.loading ? <ShimmeringText text="Playing in Boltzmann Realms..." /> : "Optimize with Simulated Annealing PRO®"}
               </button>
+              {optState.error && <div className="text-[11px] text-red-200">{optState.error}</div>}
               
               {evalState.error && <div className="text-[11px] text-red-200">{evalState.error}</div>}
             </div>
@@ -274,7 +305,11 @@ export default function FlowEvaluationPage() {
               <div className="bg-white/5 border border-white/10 rounded-lg p-3">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Flows</div>
                 {input ? (
-                  <FlowsSummary flows={input.flows || {}} colors={input.colorsByFlow || {}} />
+                  <FlowsSummary
+                    flows={input.flows || {}}
+                    colors={input.colorsByFlow || {}}
+                    optDelays={optState.data?.delays_min || null}
+                  />
                 ) : (
                   <div className="text-xs text-white/70">No input payload provided.</div>
                 )}
@@ -347,6 +382,8 @@ export default function FlowEvaluationPage() {
                 </div>
               </div>
             </div>
+
+            {/* Demand vs Occupancy */}
 
             {/* Weights override */}
             <div className="mt-4">
@@ -453,7 +490,11 @@ export default function FlowEvaluationPage() {
               <button
                 onClick={() => setShowResponse((s) => !s)}
                 className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
-              >{showResponse ? 'Hide Response' : 'Show Response'}</button>
+              >{showResponse ? 'Hide Baseline Response' : 'Show Baseline Response'}</button>
+              <button
+                onClick={() => setShowOptResponse((s) => !s)}
+                className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
+              >{showOptResponse ? 'Hide Optimization Response' : 'Show Optimization Response'}</button>
             </div>
             {showDebug && (
               <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-48 overflow-auto">
@@ -463,6 +504,11 @@ export default function FlowEvaluationPage() {
             {showResponse && evalState.data && (
               <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-72 overflow-auto">
                 {JSON.stringify(evalState.data, null, 2)}
+              </div>
+            )}
+            {showOptResponse && optState.data && (
+              <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-72 overflow-auto">
+                {JSON.stringify(optState.data, null, 2)}
               </div>
             )}
           </section>
@@ -478,8 +524,8 @@ export default function FlowEvaluationPage() {
             />
           </section>
 
-          {/* Objective & components (moved up under TimeScaleControl) */}
-          {!!evalState.data?.objective && (
+          {/* Objective & components */}
+          {!!evalState.data?.objective && !optState.data && (
             <section className="mb-8">
               {(() => {
                 const score = Number(evalState.data?.objective?.score ?? 0);
@@ -561,6 +607,85 @@ export default function FlowEvaluationPage() {
             </section>
           )}
 
+
+          {/* Demand vs Occupancy toggle (UI only) */}
+          <div className="mt-3 flex items-center gap-2 mb-6">
+              <div className="text-[11px] uppercase tracking-wider text-white/60">Histogram Values</div>
+              <div className="inline-flex rounded-md shadow-xs overflow-hidden" role="group" aria-label="Toggle view between Demand and Occupancy">
+                <button
+                  type="button"
+                  aria-pressed={seriesView === 'demand'}
+                  onClick={() => setSeriesView('demand')}
+                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors ${
+                    seriesView === 'demand'
+                      ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                      : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                  } rounded-l-md`}
+                >
+                  Rate (Demand)
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={seriesView === 'occupancy'}
+                  onClick={() => setSeriesView('occupancy')}
+                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors -ml-px ${
+                    seriesView === 'occupancy'
+                      ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                      : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                  } rounded-r-md`}
+                >
+                  Occupancy
+                </button>
+              </div>
+            </div>
+
+          {evalState.data?.objective && optState.data && (
+            <section className="mb-8">
+              {(() => {
+                const b = optState.data!.objective_baseline;
+                const o = optState.data!.objective_optimized;
+                const compKeys = Array.from(new Set([
+                  ...Object.keys(b.components || {}),
+                  ...Object.keys(o.components || {}),
+                ])).sort();
+                const fmt = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : "0.0");
+                const delta = b.score - o.score;
+                const pct = (delta * 100) / (b.score || 1);
+                return (
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+                      <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Objective Score</div>
+                      <div className="text-xl text-white">
+                        {fmt(b.score)} → {fmt(o.score)}
+                        <span className={`ml-2 text-sm ${delta >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                          ({delta >= 0 ? '−' : '+'}{Math.abs(delta).toFixed(1)}, {delta >= 0 ? '−' : '+'}{Math.abs(pct).toFixed(2)}%)
+                        </span>
+                      </div>
+                      <div className="text-[12px] text-white/60 mt-1">Lower is better</div>
+                    </div>
+                    {compKeys.map((k) => {
+                      const vb = Number(b.components?.[k] ?? 0);
+                      const vo = Number(o.components?.[k] ?? 0);
+                      const d = vb - vo;
+                      const p = (d * 100) / (vb || 1);
+                      return (
+                        <div key={k} className="bg-white/5 border border-white/10 rounded-lg p-4">
+                          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">{k}</div>
+                          <div className="text-white">
+                            {fmt(vb)} → {fmt(vo)}
+                            <span className={`ml-2 text-[12px] ${d >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                              ({d >= 0 ? '−' : '+'}{Math.abs(d).toFixed(1)}, {d >= 0 ? '−' : '+'}{Math.abs(p).toFixed(1)}%)
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </section>
+          )}
+
           {/* Per-flow results */}
           <section>
             {evalState.loading && (
@@ -574,8 +699,14 @@ export default function FlowEvaluationPage() {
             {evalState.data?.flows?.map((flow, idx) => {
               const numFlights = flowFlightCounts.get(flow.flow_id) || 0;
               const controlledTv = flow.controlled_volume || null;
-              const targets = flow.target_demands || {};
-              const ripples = flow.ripple_demands || {};
+              // Choose baseline series based on view toggle, with safe fallbacks
+              const targets = seriesView === 'demand'
+                ? (flow.target_demands || {})
+                : (flow.target_occupancy || flow.target_demands || {});
+              const ripples = seriesView === 'demand'
+                ? (flow.ripple_demands || {})
+                : (flow.ripple_occupancy || flow.ripple_demands || {});
+              const optFlow = optState.data?.flows?.find(f => f.flow_id === flow.flow_id);
 
               // Sort by total demand descending; ensure controlled TV first for targets
               const targetTvIds = Object.keys(targets).sort((a, b) => {
@@ -612,11 +743,16 @@ export default function FlowEvaluationPage() {
                             const LIMIT = 6;
                             const showAll = !!expandedTargetCharts[flow.flow_id];
                             const list = showAll ? targetTvIds : targetTvIds.slice(0, LIMIT);
-                            return list.map((tvId) => (
+                          return list.map((tvId) => {
+                            const seriesOpt = seriesView === 'demand'
+                              ? (optFlow?.target_demands?.[tvId] || null)
+                              : (optFlow?.target_occupancy_opt?.[tvId] || null);
+                            return (
                               <HistogramCard
                                 key={`t-${flow.flow_id}-${tvId}`}
                                 tvId={tvId}
                                 series={targets[tvId] || []}
+                                seriesB={seriesOpt}
                                 minutesPerBin={minutesPerBin}
                                 viewFrom={viewFrom}
                                 viewTo={viewTo}
@@ -625,7 +761,8 @@ export default function FlowEvaluationPage() {
                                 attentionSet={targetHighlights}
                                 markerColor="#f59e0b"
                               />
-                            ));
+                            );
+                          });
                           })()}
                         </div>
                         {targetTvIds.length > 6 && (
@@ -651,21 +788,27 @@ export default function FlowEvaluationPage() {
                           const LIMIT = 12;
                           const showAll = !!expandedRippleCharts[flow.flow_id];
                           const list = showAll ? rippleTvIds : rippleTvIds.slice(0, LIMIT);
-                          return list.map((tvId) => (
-                            <HistogramCard
-                              key={`r-${flow.flow_id}-${tvId}`}
-                              tvId={tvId}
-                              series={ripples[tvId] || []}
-                              minutesPerBin={minutesPerBin}
-                              viewFrom={viewFrom}
-                              viewTo={viewTo}
-                              isControlled={false}
-                              showLabels={showLabels}
-                              attentionSet={rippleHighlights}
-                              markerColor="#c084fc"
-                            />
-                          ));
-                        })()}
+                          return list.map((tvId) => {
+                            const seriesOpt = seriesView === 'demand'
+                              ? (optFlow?.ripple_demands?.[tvId] || null)
+                              : (optFlow?.ripple_occupancy_opt?.[tvId] || null);
+                            return (
+                              <HistogramCard
+                                key={`r-${flow.flow_id}-${tvId}`}
+                                tvId={tvId}
+                                series={ripples[tvId] || []}
+                                seriesB={seriesOpt}
+                                minutesPerBin={minutesPerBin}
+                                viewFrom={viewFrom}
+                                viewTo={viewTo}
+                                isControlled={false}
+                                showLabels={showLabels}
+                                attentionSet={rippleHighlights}
+                                markerColor="#c084fc"
+                              />
+                            );
+                          });
+                          })()}
                       </div>
                       {rippleTvIds.length > 12 && (
                         <div className="mt-2">
@@ -729,7 +872,7 @@ function WeightsAddRow({ onAdd }: { onAdd: (key: string, val: number) => void })
 
 // Downloads removed per updated design.
 
-function FlowsSummary({ flows, colors }: { flows: Record<string, string[]>; colors: Record<string, string> }) {
+function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, string[]>; colors: Record<string, string>; optDelays?: Record<string, number> | null }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
   const entries = Object.entries(flows || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
@@ -750,8 +893,28 @@ function FlowsSummary({ flows, colors }: { flows: Record<string, string[]>; colo
     return f;
   }
 
+  const extraDelayFlightsWarning = useMemo(() => {
+    const delays = optDelays || undefined;
+    if (!delays) return null;
+    const allInputFlightIds = new Set<string>();
+    for (const ids of Object.values(flows || {})) {
+      for (const token of (ids || [])) {
+        const f = resolveFlight(String(token));
+        if (f?.flightId) allInputFlightIds.add(String(f.flightId));
+      }
+    }
+    const extra = Object.keys(delays).filter((fid) => !allInputFlightIds.has(String(fid)));
+    if (extra.length === 0) return null;
+    const preview = extra.slice(0, 5).join(', ');
+    const more = extra.length > 5 ? ` and ${extra.length - 5} more` : '';
+    return `Warning: optimization returned delays for flights not in your input: ${preview}${more}.`;
+  }, [flows, optDelays, flights]);
+
   return (
     <div className="space-y-3">
+      {extraDelayFlightsWarning && (
+        <div className="text-[12px] text-rose-300">{extraDelayFlightsWarning}</div>
+      )}
       {entries.map(([fid, ids]) => {
         const list = ids || [];
         const showAll = !!expanded[fid];
@@ -783,6 +946,7 @@ function FlowsSummary({ flows, colors }: { flows: Record<string, string[]>; colo
                         <th className="text-left p-2 font-semibold">Origin</th>
                         <th className="text-left p-2 font-semibold">Destination</th>
                         <th className="text-left p-2 font-semibold">Takeoff</th>
+                        <th className="text-left p-2 font-semibold">Delay (min)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -792,12 +956,19 @@ function FlowsSummary({ flows, colors }: { flows: Record<string, string[]>; colo
                         const origin = f?.origin || 'N/A';
                         const destination = f?.destination || 'N/A';
                         const takeoff = f ? formatTime(f.t0) : 'N/A';
+                        const delayVal = (() => {
+                          if (!optDelays) return null;
+                          const key = f?.flightId ? String(f.flightId) : String(token);
+                          const v = (optDelays as Record<string, number>)[key];
+                          return Number.isFinite(v) ? Number(v) : null;
+                        })();
                         return (
                           <tr key={`${fid}-${i}`} className={`border-b border-white/10 ${i % 2 === 0 ? 'bg-white/2' : ''}`}>
                             <td className="p-2 font-mono">{callsign}</td>
                             <td className="p-2">{origin}</td>
                             <td className="p-2">{destination}</td>
                             <td className="p-2 font-mono">{takeoff}</td>
+                            <td className="p-2 font-mono">{delayVal === null ? '—' : delayVal}</td>
                           </tr>
                         );
                       })}
@@ -815,9 +986,10 @@ function FlowsSummary({ flows, colors }: { flows: Record<string, string[]>; colo
   );
 }
 
-function HistogramCard({ tvId, series, minutesPerBin, viewFrom, viewTo, isControlled, showLabels, attentionSet, markerColor }: {
+function HistogramCard({ tvId, series, seriesB, minutesPerBin, viewFrom, viewTo, isControlled, showLabels, attentionSet, markerColor }: {
   tvId: string;
   series: number[];
+  seriesB?: number[] | null; // optimized occupancy
   minutesPerBin: number;
   viewFrom: string;
   viewTo: string;
@@ -827,25 +999,33 @@ function HistogramCard({ tvId, series, minutesPerBin, viewFrom, viewTo, isContro
   markerColor?: string;
 }) {
   const rows = useMemo(() => {
-    const n = series.length;
+    const n = Math.max(series.length, Array.isArray(seriesB) ? seriesB.length : 0);
     const arr = new Array(n).fill(0).map((_, i) => {
       const startMin = i * minutesPerBin;
-      const value = Number(series[i] ?? 0);
+      const valueA = Number(series[i] ?? 0);
+      const valueB = Number(Array.isArray(seriesB) ? seriesB[i] ?? 0 : 0);
       const isAttention = attentionSet.has(`${tvId}|${i}`);
-      return { idx: i, value, startMin, isAttention };
+      return { idx: i, valueA, valueB, startMin, isAttention };
     });
     const vFrom = hhmmToMinutesSafe(viewFrom);
     const vTo = hhmmToMinutesSafe(viewTo);
     return arr.filter((r) => r.startMin >= vFrom && r.startMin <= vTo);
-  }, [series, minutesPerBin, attentionSet, tvId, viewFrom, viewTo]);
+  }, [series, seriesB, minutesPerBin, attentionSet, tvId, viewFrom, viewTo]);
 
-  const total = useMemo(() => series.reduce((s, v) => s + (Number(v) || 0), 0), [series]);
-  const peak = useMemo(() => {
+  const totalA = useMemo(() => series.reduce((s, v) => s + (Number(v) || 0), 0), [series]);
+  const peakA = useMemo(() => {
     let bestIdx = -1; let bestVal = -Infinity;
     for (let i = 0; i < series.length; i++) { const v = Number(series[i] || 0); if (v > bestVal) { bestVal = v; bestIdx = i; } }
     return { idx: bestIdx, value: bestVal };
   }, [series]);
-  const attentionSum = useMemo(() => rows.reduce((s, r) => s + (r.isAttention ? r.value : 0), 0), [rows]);
+  const totalB = useMemo(() => (Array.isArray(seriesB) ? seriesB : []).reduce((s, v) => s + (Number(v) || 0), 0), [seriesB]);
+  const peakB = useMemo(() => {
+    const s = Array.isArray(seriesB) ? seriesB : [];
+    let bestIdx = -1; let bestVal = -Infinity;
+    for (let i = 0; i < s.length; i++) { const v = Number(s[i] || 0); if (v > bestVal) { bestVal = v; bestIdx = i; } }
+    return { idx: bestIdx, value: bestVal };
+  }, [seriesB]);
+  const attentionSum = useMemo(() => rows.reduce((s, r) => s + (r.isAttention ? r.valueA : 0), 0), [rows]);
 
   return (
     <div className={`rounded-xl p-3 ${isControlled ? 'border-rose-400/70' : 'border-white/10'} bg-white/5 border`}>
@@ -882,19 +1062,30 @@ function HistogramCard({ tvId, series, minutesPerBin, viewFrom, viewTo, isContro
                 const i = Number(labelIdx ?? 0);
                 return binIndexToRangeLabel(i, minutesPerBin);
               }}
-              formatter={(value: any) => [String(value), 'Count']}
+              formatter={(val: any, name: any) => [String(val), name]}
             />
-            <Bar dataKey="value">
+            <Bar dataKey="valueA" name="Baseline">
               {rows.map((r, i) => (
-                <Cell key={`c-${i}`} fill={r.isAttention ? '#fb7185' /* rose-400 */ : '#60a5fa'} />
+                <Cell key={`c-${i}`} fill={r.isAttention ? '#fb7185' : '#60a5fa'} />
               ))}
             </Bar>
+            {Array.isArray(seriesB) && <Bar dataKey="valueB" name="Optimized" fill="#22c55e" />}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-white/80">
-        <div>Total: <span className="font-mono text-white/90">{total}</span></div>
-        <div>Peak: <span className="font-mono text-white/90">{Number.isFinite(peak.value) ? peak.value : 0}</span> @{peak.idx >= 0 ? binIndexToRangeLabel(peak.idx, minutesPerBin) : '--'}</div>
+        <div>
+          Total:
+          <span className="font-mono text-white/90 ml-1">{totalA}</span>
+          {Array.isArray(seriesB) && <span className="ml-1">→ <span className="font-mono text-white/90">{totalB}</span></span>}
+        </div>
+        <div>
+          Peak:
+          <span className="font-mono text-white/90 ml-1">{Number.isFinite(peakA.value) ? peakA.value : 0}</span>
+          {Array.isArray(seriesB) && (
+            <span className="ml-1">→ <span className="font-mono text-white/90">{Number.isFinite(peakB.value) ? peakB.value : 0}</span></span>
+          )} @{peakA.idx >= 0 ? binIndexToRangeLabel(peakA.idx, minutesPerBin) : '--'}
+        </div>
         <div>Attention sum: <span className="font-mono text-white/90">{attentionSum}</span></div>
       </div>
     </div>

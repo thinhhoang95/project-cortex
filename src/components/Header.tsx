@@ -156,7 +156,7 @@ export default function Header() {
                     onClick={() => setShowAnalyticsDropdown(false)}
                     className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
                   >
-                    Original Counts
+                    Pre-optimization Occupancy
                   </Link>
                   <Link
                     href="/flow-evaluation"
