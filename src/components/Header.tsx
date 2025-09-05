@@ -156,15 +156,15 @@ export default function Header() {
                     onClick={() => setShowAnalyticsDropdown(false)}
                     className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
                   >
-                    Pre-optimization Occupancy
+                    Current Occupancy
                   </Link>
-                  <Link
+                  {/* <Link
                     href="/flow-evaluation"
                     onClick={() => setShowAnalyticsDropdown(false)}
                     className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
                   >
                     Flow Evaluation
-                  </Link>
+                  </Link> */}
                   <button
                     onClick={() => setShowAnalyticsDropdown(false)}
                     className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
