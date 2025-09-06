@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
@@ -115,6 +115,24 @@ export default function FlowEvaluationPage() {
   const [expandedOccAll, setExpandedOccAll] = useState<boolean>(false);
   // View toggle UI only (logic wiring to be handled later)
   const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all'>("demand");
+
+  // Initialize default histogram view range once based on earliest target "from" time
+  const didInitViewDefault = useRef<boolean>(false);
+  useEffect(() => {
+    if (didInitViewDefault.current) return;
+    if (viewParam) return; // respect explicit URL view
+    const targets = input?.targets || {};
+    const fromMinutes: number[] = Object.values(targets)
+      .map((tw) => hhmmToMinutesSafe(tw?.from))
+      .filter((m) => Number.isFinite(m));
+    if (fromMinutes.length === 0) return;
+    const minFrom = Math.min(...fromMinutes);
+    const newFrom = minutesToHHMM(minFrom);
+    const newTo = minutesToHHMM(Math.min(1439, minFrom + 240)); // 4 hours window, clamped to end of day
+    setViewFrom(newFrom);
+    setViewTo(newTo);
+    didInitViewDefault.current = true;
+  }, [input?.targets, viewParam]);
 
   type AutorateOccupancyResponse = {
     time_bin_minutes: number;
@@ -264,6 +282,11 @@ export default function FlowEvaluationPage() {
       }
       const json = (await res.json()) as AutomaticRateAdjustmentResponse;
       setOptState({ loading: false, error: null, data: json });
+      // If user is currently viewing Occupancy All, switch back to Rate (Demand)
+      // to avoid presenting stale aggregated occupancy (which updates only on tab switch).
+      if (seriesView === 'occupancy_all') {
+        setSeriesView('demand');
+      }
     } catch (e: any) {
       setOptState({ loading: false, error: e?.message || "Failed to run optimization", data: null });
     }
@@ -386,7 +409,7 @@ export default function FlowEvaluationPage() {
             {/* Inputs summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Flows */}
-              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3 max-h-72 overflow-y-auto">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Flows</div>
                 {input ? (
                   <FlowsSummary
@@ -400,7 +423,7 @@ export default function FlowEvaluationPage() {
               </div>
 
               {/* Targets */}
-              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3 max-h-72 overflow-y-auto">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Target TVs</div>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(input?.targets || {}).map(([tv, tw]) => (
@@ -417,7 +440,7 @@ export default function FlowEvaluationPage() {
               </div>
 
               {/* Ripples */}
-              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3 max-h-72 overflow-y-auto">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Ripple TVs</div>
                 <div className="flex flex-wrap items-center gap-2">
                   {(() => {
@@ -1187,7 +1210,7 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
             </div>
             {list.length > 0 ? (
               <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
-                <div className="max-h-56 overflow-auto">
+                <div className="overflow-visible">
                   <table className="w-full text-xs min-w-max whitespace-nowrap">
                     <thead className="sticky top-0 z-10 bg-blue-900">
                       <tr className="text-white">
