@@ -211,7 +211,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
 
   return (
     <>
-      {!embedded && isMinimized ? (
+      {isMinimized ? (
         <button
           onClick={() => setIsMinimized(false)}
           className="fixed z-[200] bottom-4 right-4 w-12 h-12 rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-lg border border-white/20 flex items-center justify-center hover:opacity-90"
@@ -231,16 +231,14 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
               <div className="text-xs opacity-80">{flowBasket.length} Flow{flowBasket.length !== 1 ? 's' : ''} • {totalFlights} Flight{totalFlights !== 1 ? 's' : ''}</div>
             </div>
             <div className="flex items-center gap-2">
-              {!embedded && (
-                <button
-                  onClick={() => setIsMinimized(true)}
-                  className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-                  title="Minimize panel"
-                  aria-label="Minimize panel"
-                >
-                  –
-                </button>
-              )}
+              <button
+                onClick={() => setIsMinimized(true)}
+                className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+                title="Minimize panel"
+                aria-label="Minimize panel"
+              >
+                –
+              </button>
               <button
                 onClick={() => {
                   if (!basketView) applyBasketView(); else clearBasketView();
