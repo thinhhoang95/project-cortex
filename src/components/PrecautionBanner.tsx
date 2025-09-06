@@ -12,7 +12,7 @@ export default function PrecautionBanner({ positionClass = "bottom-4", regulatio
       Experimental work. I'm currently open to work, find me on <a href="https://www.linkedin.com/in/thinh-hoang-571252b7/" target="_blank" rel="noopener noreferrer" className="text-white">LinkedIn</a>.
       <br />
       {regulationPrecaution && <>This Flow Regulation Module is part of my own research and is fundamentally different from Task 4.2 and Task 4.3's.<br /></>}
-      Data provided by <a href="https://opensky-network.org/" target="_blank" rel="noopener noreferrer" className="text-white">OpenSky Network</a> and EUROCONTROL as part of the SESAR DeepFlow project.
+      Data provided by <a href="https://opensky-network.org/" target="_blank" rel="noopener noreferrer" className="text-white">OpenSky Network</a>.
     </div>
   );
 }
