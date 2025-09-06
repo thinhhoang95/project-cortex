@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
@@ -115,6 +115,24 @@ export default function FlowEvaluationPage() {
   const [expandedOccAll, setExpandedOccAll] = useState<boolean>(false);
   // View toggle UI only (logic wiring to be handled later)
   const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all'>("demand");
+
+  // Initialize default histogram view range once based on earliest target "from" time
+  const didInitViewDefault = useRef<boolean>(false);
+  useEffect(() => {
+    if (didInitViewDefault.current) return;
+    if (viewParam) return; // respect explicit URL view
+    const targets = input?.targets || {};
+    const fromMinutes: number[] = Object.values(targets)
+      .map((tw) => hhmmToMinutesSafe(tw?.from))
+      .filter((m) => Number.isFinite(m));
+    if (fromMinutes.length === 0) return;
+    const minFrom = Math.min(...fromMinutes);
+    const newFrom = minutesToHHMM(minFrom);
+    const newTo = minutesToHHMM(Math.min(1439, minFrom + 240)); // 4 hours window, clamped to end of day
+    setViewFrom(newFrom);
+    setViewTo(newTo);
+    didInitViewDefault.current = true;
+  }, [input?.targets, viewParam]);
 
   type AutorateOccupancyResponse = {
     time_bin_minutes: number;
@@ -264,6 +282,11 @@ export default function FlowEvaluationPage() {
       }
       const json = (await res.json()) as AutomaticRateAdjustmentResponse;
       setOptState({ loading: false, error: null, data: json });
+      // If user is currently viewing Occupancy All, switch back to Rate (Demand)
+      // to avoid presenting stale aggregated occupancy (which updates only on tab switch).
+      if (seriesView === 'occupancy_all') {
+        setSeriesView('demand');
+      }
     } catch (e: any) {
       setOptState({ loading: false, error: e?.message || "Failed to run optimization", data: null });
     }
