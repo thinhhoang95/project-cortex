@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
@@ -91,6 +91,25 @@ function parseViewParam(v: string | null): { from: string; to: string } | null {
 }
 
 export default function FlowEvaluationPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen w-screen overflow-x-hidden bg-slate-900 relative">
+          <Header />
+          <div className="pt-16 pb-12 px-6">
+            <div className="max-w-7xl mx-auto">
+              <div className="text-white/70 text-sm">Loading...</div>
+            </div>
+          </div>
+        </main>
+      }
+    >
+      <FlowEvaluationPageContent />
+    </Suspense>
+  );
+}
+
+function FlowEvaluationPageContent() {
   const sp = useSearchParams();
   const payloadParam = sp?.get("payload") || null;
   const autostart = (sp?.get("autostart") || "0") === "1" || !!payloadParam;

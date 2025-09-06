@@ -256,11 +256,11 @@ export default function Header() {
               className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
             >
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                <span className="text-white font-medium text-sm">TH</span>
+                <span className="text-white font-medium text-sm">NO</span>
               </div>
               <div className="text-left">
                 <div className="text-xs text-white/60">Welcome back, Chef!</div>
-                <div className="text-sm text-white font-medium">Thinh Hoang</div>
+                <div className="text-sm text-white font-medium">Network Operator</div>
               </div>
             </button>
             
