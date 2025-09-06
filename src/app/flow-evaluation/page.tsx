@@ -386,7 +386,7 @@ export default function FlowEvaluationPage() {
             {/* Inputs summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Flows */}
-              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3 max-h-72 overflow-y-auto">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Flows</div>
                 {input ? (
                   <FlowsSummary
@@ -400,7 +400,7 @@ export default function FlowEvaluationPage() {
               </div>
 
               {/* Targets */}
-              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3 max-h-72 overflow-y-auto">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Target TVs</div>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(input?.targets || {}).map(([tv, tw]) => (
@@ -417,7 +417,7 @@ export default function FlowEvaluationPage() {
               </div>
 
               {/* Ripples */}
-              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3 max-h-72 overflow-y-auto">
                 <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Ripple TVs</div>
                 <div className="flex flex-wrap items-center gap-2">
                   {(() => {
@@ -1187,7 +1187,7 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
             </div>
             {list.length > 0 ? (
               <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
-                <div className="max-h-56 overflow-auto">
+                <div className="overflow-visible">
                   <table className="w-full text-xs min-w-max whitespace-nowrap">
                     <thead className="sticky top-0 z-10 bg-blue-900">
                       <tr className="text-white">
