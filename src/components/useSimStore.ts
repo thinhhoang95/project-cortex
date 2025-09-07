@@ -102,6 +102,8 @@ type State = {
   slackSign: "minus" | "plus";
   isFetchingSlack: boolean;
   deltaMin: number;
+  // View options control (global minimized state so other UI can react)
+  viewOptionsMinimized: boolean;
   setRegulationVisibleFlightIds: (ids: string[]) => void;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
@@ -153,6 +155,7 @@ type State = {
   setSlackSign: (sign: "minus" | "plus") => void;
   setIsFetchingSlack: (fetching: boolean) => void;
   setDeltaMin: (delta: number) => void;
+  setViewOptionsMinimized: (minimized: boolean) => void;
   // Reset all non-function state back to defaults
   resetAll: () => void;
   // Target Cells (Traffic Volume + Time Period)
@@ -233,6 +236,7 @@ const defaultState: Pick<State,
   | 'slackSign'
   | 'isFetchingSlack'
   | 'deltaMin'
+  | 'viewOptionsMinimized'
 > = {
   t: 0,
   range: [0, 24 * 3600],
@@ -278,6 +282,7 @@ const defaultState: Pick<State,
   slackSign: "minus",
   isFetchingSlack: false,
   deltaMin: 0,
+  viewOptionsMinimized: false,
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -384,6 +389,7 @@ export const useSimStore = create<State>((set, get) => ({
   setSlackSign: (sign) => set({ slackSign: sign }),
   setIsFetchingSlack: (fetching) => set({ isFetchingSlack: fetching }),
   setDeltaMin: (delta) => set({ deltaMin: delta }),
+  setViewOptionsMinimized: (minimized) => set({ viewOptionsMinimized: minimized }),
   // Reset all stateful values back to defaults (used on page navigation)
   resetAll: () => set(() => ({ ...defaultState }))
   ,

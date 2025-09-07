@@ -28,6 +28,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
     flLowerBound,
     flUpperBound,
     setFlRange,
+    setViewOptionsMinimized,
   } = useSimStore();
 
   const { dow, month, day } = useMemo(() => formatDateParts(date), [date]);
@@ -42,7 +43,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
         type="button"
         title="Expand View Options"
         aria-label="Expand View Options"
-        onClick={() => setMinimized(false)}
+        onClick={() => { setMinimized(false); setViewOptionsMinimized(false); }}
         className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 w-8 h-8 rounded-full border border-white/30 bg-white/10 backdrop-blur-md text-white/80 hover:text-white hover:bg-white/15 flex items-center justify-center shadow-md"
       >
         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -197,7 +198,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
               type="button"
               title="Minimize"
               aria-label="Minimize"
-              onClick={() => setMinimized(true)}
+              onClick={() => { setMinimized(true); setViewOptionsMinimized(true); }}
               className="w-9 h-9 mx-1 rounded-full border border-white/30 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition-colors flex items-center justify-center"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

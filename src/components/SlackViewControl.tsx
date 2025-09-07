@@ -2,10 +2,10 @@
 import { useSimStore } from "@/components/useSimStore";
 
 export default function SlackViewControl() {
-  const { slackMode, setSlackMode, setSlackSign, deltaMin, setDeltaMin, isFetchingSlack } = useSimStore();
+  const { slackMode, setSlackMode, setSlackSign, deltaMin, setDeltaMin, isFetchingSlack, viewOptionsMinimized } = useSimStore();
   
   return (
-    <div className="absolute bottom-24 left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md z-50">
+    <div className={`absolute ${viewOptionsMinimized ? 'bottom-16' : 'bottom-24'} left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md z-50`}>
       <span className="px-2 text-gray-300">Slack View</span>
       <div className="w-px h-4 bg-white/30"></div>
       <button
