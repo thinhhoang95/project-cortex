@@ -9,7 +9,6 @@ import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
-import PrecautionBanner from "@/components/PrecautionBanner";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function MapCanvas() {
@@ -750,7 +749,7 @@ export default function MapCanvas() {
           setFocusFlightIds(new Set());
         }}
       />
-      <PrecautionBanner />
+      
       <PageLoadingIndicator visible={baseDataLoading} />
       
       {/* <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">

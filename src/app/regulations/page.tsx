@@ -4,6 +4,8 @@ import RegulationFlightListLeftPanel2 from "@/components/RegulationFlightListLef
 import RegulationPanel from "@/components/RegulationPanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
+import ViewOptionsControl from "@/components/ViewOptionsControl";
+import SlackViewControl from "@/components/SlackViewControl";
 
 export default function RegulationsPage() {
   return (
@@ -26,6 +28,8 @@ export default function RegulationsPage() {
           <RegulationPanel embedded />
         </div>
       </div>
+      <SlackViewControl />
+      <ViewOptionsControl />
     </main>
   );
 }

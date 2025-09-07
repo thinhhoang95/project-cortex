@@ -97,6 +97,11 @@ type State = {
   isResultsOpen: boolean;
   // Regulation edit handoff
   regulationEditPayload: Omit<Regulation, 'id' | 'createdAt'> | null;
+  // Slack view state
+  slackMode: "off" | "minus" | "plus";
+  slackSign: "minus" | "plus";
+  isFetchingSlack: boolean;
+  deltaMin: number;
   setRegulationVisibleFlightIds: (ids: string[]) => void;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
@@ -143,6 +148,11 @@ type State = {
   setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
   setRegulationSimulationResult: (r: RegulationPlanSimulationResponse | null) => void;
   setIsResultsOpen: (open: boolean) => void;
+  // Slack view actions
+  setSlackMode: (mode: "off" | "minus" | "plus") => void;
+  setSlackSign: (sign: "minus" | "plus") => void;
+  setIsFetchingSlack: (fetching: boolean) => void;
+  setDeltaMin: (delta: number) => void;
   // Reset all non-function state back to defaults
   resetAll: () => void;
   // Target Cells (Traffic Volume + Time Period)
@@ -219,6 +229,10 @@ const defaultState: Pick<State,
   | 'isResultsOpen'
   | 'targetCells'
   | 'flowBasket'
+  | 'slackMode'
+  | 'slackSign'
+  | 'isFetchingSlack'
+  | 'deltaMin'
 > = {
   t: 0,
   range: [0, 24 * 3600],
@@ -259,7 +273,11 @@ const defaultState: Pick<State,
   regulationSimulationResult: null,
   isResultsOpen: false,
   targetCells: [],
-  flowBasket: []
+  flowBasket: [],
+  slackMode: "off",
+  slackSign: "minus",
+  isFetchingSlack: false,
+  deltaMin: 0,
 };
 
 export const useSimStore = create<State>((set, get) => ({
@@ -361,6 +379,11 @@ export const useSimStore = create<State>((set, get) => ({
   setRegulationEditPayload: (p) => set({ regulationEditPayload: p }),
   setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
   setIsResultsOpen: (open) => set({ isResultsOpen: open }),
+  // Slack view actions
+  setSlackMode: (mode) => set({ slackMode: mode }),
+  setSlackSign: (sign) => set({ slackSign: sign }),
+  setIsFetchingSlack: (fetching) => set({ isFetchingSlack: fetching }),
+  setDeltaMin: (delta) => set({ deltaMin: delta }),
   // Reset all stateful values back to defaults (used on page navigation)
   resetAll: () => set(() => ({ ...defaultState }))
   ,

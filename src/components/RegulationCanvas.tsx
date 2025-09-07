@@ -9,32 +9,20 @@ import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import RegulationResults from "@/components/RegulationResults";
-import PrecautionBanner from "@/components/PrecautionBanner";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
-  const [slackSign, setSlackSign] = useState<"minus" | "plus">("minus");
-  const [slackMode, setSlackMode] = useState<"off" | "minus" | "plus">("off");
-  const [isFetchingSlack, setIsFetchingSlack] = useState<boolean>(false);
-  const [deltaMin, setDeltaMin] = useState<number>(0);
   const [slackMetaByTv, setSlackMetaByTv] = useState<Record<string, { time_window: string; slack: number; occupancy: number }>>({});
   const [hoverLabelPoint, setHoverLabelPoint] = useState<{ x: number; y: number } | null>(null);
   const lastSlackKeyRef = useRef<string | null>(null);
-  const slackSignRef = useRef<"minus" | "plus">("minus");
-  const slackModeRef = useRef<"off" | "minus" | "plus">("off");
-  const deltaMinRef = useRef<number>(0);
-
-  useEffect(() => { slackSignRef.current = slackSign; }, [slackSign]);
-  useEffect(() => { slackModeRef.current = slackMode; }, [slackMode]);
-  useEffect(() => { deltaMinRef.current = deltaMin; }, [deltaMin]);
 
   // init map
   useEffect(() => {
@@ -231,12 +219,14 @@ export default function RegulationCanvas() {
         setSelectedTrafficVolume(trafficVolumeId, tvData);
         setHighlightedTrafficVolume(prev => prev === trafficVolumeId ? null : trafficVolumeId);
         // Trigger slack fetch immediately on selection (even if TV id unchanged)
-        const simT = useSimStore.getState().t;
+        const sim = useSimStore.getState();
+        const simT = sim.t;
         const refStr = formatSecondsToHHMM(simT);
-        const sign = slackSignRef.current;
-        lastSlackKeyRef.current = `${trafficVolumeId}|${refStr}|${sign}|${deltaMinRef.current}`;
-        const showNow = slackModeRef.current !== 'off';
-        fetchAndApplySlack(map, trafficVolumeId, refStr, sign, deltaMinRef.current, setIsFetchingSlack, setSlackMetaByTv, showNow);
+        const sign = sim.slackSign;
+        const dMin = sim.deltaMin;
+        lastSlackKeyRef.current = `${trafficVolumeId}|${refStr}|${sign}|${dMin}`;
+        const showNow = sim.slackMode !== 'off';
+        fetchAndApplySlack(map, trafficVolumeId, refStr, sign, dMin, sim.setIsFetchingSlack, setSlackMetaByTv, showNow);
       };
 
       // Click handler: only labels select a TV (disallow fills/overlays)
@@ -273,7 +263,7 @@ export default function RegulationCanvas() {
           const feature = e.features[0];
           const trafficVolumeId = feature.properties?.label;
           if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
-          if (e.point && slackModeRef.current !== 'off') {
+          if (e.point && useSimStore.getState().slackMode !== 'off') {
             setHoverLabelPoint({ x: (e.point as any).x, y: (e.point as any).y });
           }
         }
@@ -284,7 +274,7 @@ export default function RegulationCanvas() {
           const trafficVolumeId = feature.properties?.label;
           if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
         }
-        if (e.point && slackModeRef.current !== 'off') {
+        if (e.point && useSimStore.getState().slackMode !== 'off') {
           setHoverLabelPoint({ x: (e.point as any).x, y: (e.point as any).y });
         }
       });
@@ -359,7 +349,7 @@ export default function RegulationCanvas() {
       if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hvFilter as any);
       if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hvFilter as any);
     }
-  }, [flLowerBound, flUpperBound]);
+  }, [flLowerBound, flUpperBound, highlightedTrafficVolume, hoveredTrafficVolume]);
 
   // Update highlight/hover layers when state changes
   useEffect(() => {
@@ -369,7 +359,7 @@ export default function RegulationCanvas() {
       : ["==", ["get", "traffic_volume_id"], ""];
     if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", highlightFilter as any);
     if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
-  }, [highlightedTrafficVolume]);
+  }, [highlightedTrafficVolume, flLowerBound, flUpperBound]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -378,7 +368,7 @@ export default function RegulationCanvas() {
       : ["==", ["get", "traffic_volume_id"], ""];
     if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hoverFilter as any);
     if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hoverFilter as any);
-  }, [hoveredTrafficVolume]);
+  }, [hoveredTrafficVolume, flLowerBound, flUpperBound]);
 
   // Update hotspot layers when hotspots/time/FL range changes
   useEffect(() => {
@@ -402,7 +392,7 @@ export default function RegulationCanvas() {
     };
     window.addEventListener('clearTrafficVolumeHighlight', handleClearHighlight);
     return () => { window.removeEventListener('clearTrafficVolumeHighlight', handleClearHighlight); };
-  }, []);
+  }, [setSlackMode]);
 
   // Listen for traffic volume search selection events to pan and select
   useEffect(() => {
@@ -427,12 +417,14 @@ export default function RegulationCanvas() {
       const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
       setSelectedTrafficVolume(tvId, tvData);
       setHighlightedTrafficVolume(tvId);
-      const simT = useSimStore.getState().t;
+      const sim = useSimStore.getState();
+      const simT = sim.t;
       const refStr = formatSecondsToHHMM(simT);
-      const sign = slackSignRef.current;
-      lastSlackKeyRef.current = `${tvId}|${refStr}|${sign}|${deltaMinRef.current}`;
-      const showNow = slackModeRef.current !== 'off';
-      fetchAndApplySlack(map, tvId, refStr, sign, deltaMinRef.current, setIsFetchingSlack, setSlackMetaByTv, showNow);
+      const sign = sim.slackSign;
+      const dMin = sim.deltaMin;
+      lastSlackKeyRef.current = `${tvId}|${refStr}|${sign}|${dMin}`;
+      const showNow = sim.slackMode !== 'off';
+      fetchAndApplySlack(map, tvId, refStr, sign, dMin, sim.setIsFetchingSlack, setSlackMetaByTv, showNow);
       if (tvGeometry && tvGeometry.type === 'Polygon') {
         const coords = (tvGeometry as any).coordinates[0];
         let centerLon = 0, centerLat = 0;
@@ -443,7 +435,7 @@ export default function RegulationCanvas() {
     };
     window.addEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect);
     return () => { window.removeEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect); };
-  }, []);
+  }, [setSelectedTrafficVolume]);
 
   // Fetch and display slack distribution when TV is selected, highlighted, and sign/time changes
   useEffect(() => {
@@ -454,9 +446,9 @@ export default function RegulationCanvas() {
     const key = `${selectedTrafficVolume}|${refStr}|${slackSign}|${deltaMin}`;
     if (lastSlackKeyRef.current === key) return;
     lastSlackKeyRef.current = key;
-    const showNow = slackModeRef.current !== 'off';
+    const showNow = slackMode !== 'off';
     fetchAndApplySlack(map, selectedTrafficVolume, refStr, slackSign, deltaMin, setIsFetchingSlack, setSlackMetaByTv, showNow);
-  }, [selectedTrafficVolume, highlightedTrafficVolume, slackSign, deltaMin, t]);
+  }, [selectedTrafficVolume, highlightedTrafficVolume, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack]);
 
   // Show/hide slack overlay based on mode (Off/Minus/Plus)
   useEffect(() => {
@@ -481,56 +473,6 @@ export default function RegulationCanvas() {
         onClose={() => { setIsResultsOpen(false); setRegulationSimulationResult(null); }}
       />
       <PageLoadingIndicator visible={baseDataLoading} />
-      {/* Slack mode toggle: Off / Minus / Plus */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md">
-        <span className="px-2 text-gray-300">Slack View</span>
-        <div className="w-px h-4 bg-white/30"></div>
-        <button
-          onClick={() => setSlackMode('off')}
-          className={`flex items-center gap-1 px-2 py-1 rounded-md ${slackMode === 'off' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-gray-200'}`}
-          title="Turn off slack overlay"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>
-          <span>Off</span>
-        </button>
-        <button
-          onClick={() => { setSlackSign('minus'); setSlackMode('minus'); }}
-          className={`flex items-center gap-1 px-2 py-1 rounded-md ${slackMode === 'minus' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-gray-200'}`}
-          title="Shift backward in time (minus)"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"></path></svg>
-          <span>Minus</span>
-        </button>
-        <button
-          onClick={() => { setSlackSign('plus'); setSlackMode('plus'); }}
-          className={`flex items-center gap-1 px-2 py-1 rounded-md ${slackMode === 'plus' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-gray-200'}`}
-          title="Shift forward in time (plus)"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
-          <span>Plus</span>
-        </button>
-        <div className="w-px h-4 bg-white/30"></div>
-        <span className="px-2 text-gray-300">Delay</span>
-        <select
-          value={deltaMin}
-          onChange={(e) => setDeltaMin(Number(e.target.value))}
-          className="bg-transparent text-white text-xs focus:outline-none pl-3 pr-1 py-1 rounded-md hover:bg-white/10"
-          title="Additional shift in minutes"
-        >
-          {(() => {
-            const opts: number[] = [];
-            for (let m = -90; m <= 90; m += 10) opts.push(m);
-            for (let m = -25; m <= 25; m += 5) opts.push(m); // fill in -25,-20,-15,-10,-5,0,5,10,15,20,25 (with -30 and 30 already covered)
-            const uniqueSorted = Array.from(new Set(opts)).sort((a,b) => a - b);
-            return uniqueSorted.map((m) => (
-              <option key={m} value={m} className="bg-slate-800 text-white">{m}</option>
-            ));
-          })()}
-        </select>
-        {isFetchingSlack && (
-          <div className="ml-2 h-2 w-2 rounded-full bg-white/70 animate-pulse" title="Loading slack..." />
-        )}
-      </div>
       {slackMode !== 'off' && hoveredTrafficVolume && hoverLabelPoint && (slackMetaByTv as any)[hoveredTrafficVolume] && (
         <div
           className="absolute pointer-events-none z-50"
@@ -557,8 +499,7 @@ export default function RegulationCanvas() {
           </div>
         </div>
       )}
-      {/* Precaution banner slightly above Slack View panel */}
-      <PrecautionBanner positionClass="bottom-16" />
+      
       <div className="absolute bottom-4 left-4 bg-white-600/30 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-xs text-gray-400 pointer-events-none">
         Regulation Design Mode
       </div>

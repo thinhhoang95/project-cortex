@@ -3,6 +3,7 @@ import LeftControl1 from "@/components/LeftControl1";
 import RightControl1 from "@/components/RightControl1";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
+import ViewOptionsControl from "@/components/ViewOptionsControl";
 
 export default function Page() {
   return (
@@ -15,6 +16,7 @@ export default function Page() {
         <LeftControl1 embedded />
       </div>
       <RightControl1 />
+      <ViewOptionsControl />
     </main>
   );
 }

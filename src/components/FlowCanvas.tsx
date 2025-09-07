@@ -7,7 +7,6 @@ import { loadSectors } from "@/lib/airspace";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
-import PrecautionBanner from "@/components/PrecautionBanner";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 
 export default function FlowCanvas() {
@@ -387,7 +386,7 @@ export default function FlowCanvas() {
     <>
       <div id="map" className="absolute inset-0" />
       {/* Regulation panels and slack controls removed in FlowCanvas */}
-      <PrecautionBanner regulationPrecaution />
+      
       <PageLoadingIndicator visible={baseDataLoading} />
     </>
   );

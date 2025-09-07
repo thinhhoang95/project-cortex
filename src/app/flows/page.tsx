@@ -5,6 +5,7 @@ import FlowAirspaceView from "@/components/FlowAirspaceView";
 import FlowPlanPanel from "@/components/FlowPlanPanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
+import ViewOptionsControl from "@/components/ViewOptionsControl";
 
 export default function FlowsPage() {
   return (
@@ -33,6 +34,7 @@ export default function FlowsPage() {
           <FlowPlanPanel embedded />
         </div>
       </div>
+      <ViewOptionsControl />
     </main>
   );
 }
