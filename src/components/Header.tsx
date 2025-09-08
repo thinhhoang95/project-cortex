@@ -165,12 +165,7 @@ export default function Header() {
                   >
                     Flow Evaluation
                   </Link> */}
-                  <button
-                    onClick={() => setShowAnalyticsDropdown(false)}
-                    className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
-                  >
-                    Others...
-                  </button>
+                  
                 </div>
               )}
             </div>

@@ -248,18 +248,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                 Simulate Plan
               </button>
 
-              {/* Small Auto button with a sparkles icon */}
-              <button
-                onClick={() => { /* no-op for now */ }}
-                className="px-2 py-2 rounded-lg bg-white/10 border border-white/20 text-white shadow hover:bg-white/15 flex items-center gap-1 text-xs"
-                title="Auto (coming soon)"
-              >
-                {/* Sparkles icon */}
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2l1.5 3.5L17 7l-3.5 1.5L12 12l-1.5-3.5L7 7l3.5-1.5L12 2zM19 13l.9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13zM5 14l.7 1.6L7 16l-1.3.4L5 18l-.7-1.6L3 16l1.3-.4L5 14z" fill="currentColor"/>
-                </svg>
-                Auto (AI)
-              </button>
+              
             </>
           )}
         </div>

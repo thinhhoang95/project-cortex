@@ -91,11 +91,12 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                 <table className="w-full text-xs">
                   <thead className="sticky top-0">
                     <tr className="bg-red-900 text-white">
-                      <th className="text-left p-2 font-semibold">TV ID</th>
-                      <th className="text-left p-2 font-semibold">Time Bin</th>
-                      <th className="text-left p-2 font-semibold">Z Max</th>
-                      <th className="text-left p-2 font-semibold">Occupancy</th>
-                      <th className="text-left p-2 font-semibold">Capacity</th>
+                      <th className="text-left p-2 font-semibold">TV</th>
+                      <th className="text-left p-2 font-semibold">Time</th>
+                      <th className="text-left p-2 font-semibold">Zmax</th>
+                      <th className="text-left p-2 font-semibold">Occ.</th>
+                      <th className="text-left p-2 font-semibold">Cap.</th>
+                      <th className="text-left p-2 font-semibold">Ex.</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -111,6 +112,7 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                         <td className="p-2 font-mono">{hotspot.z_max.toFixed(1)}</td>
                         <td className="p-2 font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
                         <td className="p-2 font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
+                        <td className="p-2 font-mono">{(hotspot.hourly_occupancy - hotspot.hourly_capacity).toFixed(0)}</td>
                       </tr>
                     ))}
                   </tbody>

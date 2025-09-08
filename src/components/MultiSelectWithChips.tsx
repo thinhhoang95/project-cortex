@@ -117,17 +117,51 @@ export default function MultiSelectWithChips({
   );
 
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div ref={containerRef} className="relative">
       <div
-        className={`w-full min-h-[42px] px-2 py-2 rounded-lg border backdrop-blur-sm flex flex-wrap items-center gap-2 cursor-text
+        className={`w-full min-h-[42px] px-3 py-2 rounded-lg border backdrop-blur-sm flex flex-wrap items-center gap-2 cursor-text
           ${disabled ? "opacity-60 cursor-not-allowed" : ""}
-          bg-white/10 border-white/20 text-white hover:bg-white/15 focus-within:border-white/40`}
+          border-white/20 text-white hover:bg-white/15 focus-within:border-white/40 ${className}`}
         onClick={() => {
           if (disabled) return;
           setOpen(true);
           requestAnimationFrame(() => inputRef.current?.focus());
         }}
       >
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Backspace" && query === "" && selectedIds.length > 0) {
+              // Remove last chip
+              onChange(selectedIds.slice(0, -1));
+            }
+            if (e.key === "Enter" && filtered.length > 0) {
+              // toggle the first filtered item
+              e.preventDefault();
+              toggle(filtered[0].id);
+              setQuery("");
+            }
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={selectedOptions.length > 0 ? "" : placeholder}
+          disabled={disabled}
+          className="flex-1 min-w-[80px] bg-transparent outline-none text-sm text-white placeholder-white/60 text-[12pt]"
+        />
+        <svg
+          className="w-5 h-5 text-white/60 flex-shrink-0"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            fillRule="evenodd"
+            d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
+            clipRule="evenodd"
+          />
+        </svg>
         {selectedOptions.length > 0 ? (
           selectedOptions.map((opt) => (
             <span
@@ -149,27 +183,6 @@ export default function MultiSelectWithChips({
         ) : (
           <span className="text-white/60 text-sm ml-1"></span>
         )}
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Backspace" && query === "" && selectedIds.length > 0) {
-              // Remove last chip
-              onChange(selectedIds.slice(0, -1));
-            }
-            if (e.key === "Enter" && filtered.length > 0) {
-              // toggle the first filtered item
-              e.preventDefault();
-              toggle(filtered[0].id);
-              setQuery("");
-            }
-          }}
-          onFocus={() => setOpen(true)}
-          placeholder={selectedOptions.length > 0 ? "" : placeholder}
-          disabled={disabled}
-          className="flex-1 min-w-[80px] bg-transparent outline-none text-sm text-white placeholder-white/60"
-        />
         {selectedIds.length > 0 && (
           <button
             type="button"
