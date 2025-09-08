@@ -2,7 +2,9 @@
 import AirspaceInfo from "@/components/AirspaceInfo";
 import { useSimStore } from "@/components/useSimStore";
 
-export default function RightControl1() {
+type RightControl1Props = { embedded?: boolean };
+
+export default function RightControl1({ embedded = false }: RightControl1Props) {
   const { selectedTrafficVolume, setSelectedTrafficVolume, setFocusMode, setFocusFlightIds } = useSimStore();
 
   const handleClose = () => {
@@ -19,9 +21,9 @@ export default function RightControl1() {
   }
 
   return (
-    <div className="absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)]
-                    rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
-                    shadow-xl text-slate-900 text-white flex flex-col">
+    <div className={embedded
+      ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+      : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <h2 className="font-semibold">Airspace Information</h2>
         <button
@@ -33,7 +35,7 @@ export default function RightControl1() {
         </button>
       </div>
       
-      <div className="overflow-y-auto no-scrollbar p-4 flex-1">
+      <div className="p-4 flex-1">
         <AirspaceInfo />
       </div>
     </div>

@@ -632,7 +632,7 @@ export default function AirspaceInfo() {
             )}
 
             {displayFlightTableData.length > 0 && !flightListLoading && (
-              <div className="max-h-60 overflow-y-auto no-scrollbar">
+              <div>
                 <table className="w-full text-xs">
                   <thead className="sticky top-0">
                     <tr className="bg-blue-900 text-white">

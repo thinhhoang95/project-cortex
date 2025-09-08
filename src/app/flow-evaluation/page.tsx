@@ -902,9 +902,9 @@ function FlowEvaluationPageContent() {
                                     return `${labelText}  |  pre: ${preV}  post: ${postV}${Number.isFinite(capV) ? `  cap: ${capV}` : ''}`;
                                   }}
                                 />
-                                <Bar dataKey="base" stackId="a" fill="#60a5fa" name="base" />
-                                <Bar dataKey="inc" stackId="a" fill="#ef4444" name="inc" />
-                                <Bar dataKey="dec" stackId="a" fill="#22c55e" name="dec" />
+                                <Bar dataKey="base" stackId="a" fill="#0f468a" name="base" />
+                                <Bar dataKey="inc" stackId="a" fill="#f87171" name="inc" />
+                                <Bar dataKey="dec" stackId="a" fill="#34d399" name="dec" />
                                 <Line type="stepAfter" dataKey="capacity" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
                               </ComposedChart>
                             </ResponsiveContainer>
@@ -1210,7 +1210,7 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
         const list = ids || [];
         const showAll = !!expanded[fid];
         const shown = showAll ? list : list.slice(0, 25);
-        const color = colors?.[String(fid)] || '#60a5fa';
+        const color = colors?.[String(fid)] || '#0f468a';
         return (
           <div key={fid} className="text-sm text-white/90">
             <div className="flex items-center justify-between mb-1">
@@ -1357,10 +1357,10 @@ function HistogramCard({ tvId, series, seriesB, minutesPerBin, viewFrom, viewTo,
             />
             <Bar dataKey="valueA" name="Baseline">
               {rows.map((r, i) => (
-                <Cell key={`c-${i}`} fill={r.isAttention ? '#fb7185' : '#60a5fa'} />
+                <Cell key={`c-${i}`} fill={r.isAttention ? '#fb7185' : '#0f468a'} />
               ))}
             </Bar>
-            {Array.isArray(seriesB) && <Bar dataKey="valueB" name="Optimized" fill="#22c55e" />}
+            {Array.isArray(seriesB) && <Bar dataKey="valueB" name="Optimized" fill="#34d399" />}
           </ComposedChart>
         </ResponsiveContainer>
       </div>

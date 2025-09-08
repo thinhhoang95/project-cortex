@@ -15,7 +15,12 @@ export default function Page() {
       <div className="absolute top-0 left-4 z-40 w-[360px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4">
         <LeftControl1 embedded />
       </div>
-      <RightControl1 />
+      {/* Right-side wrapper: full-height scroll for the panel */}
+      <div className="absolute top-0 right-4 z-40 w-[384px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
+        <div className="pointer-events-auto">
+          <RightControl1 embedded />
+        </div>
+      </div>
       <ViewOptionsControl />
     </main>
   );

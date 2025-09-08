@@ -45,6 +45,7 @@ export default function OriginalCountPage() {
   const [fromTime, setFromTime] = useState<string>("00:00");
   const [toTime, setToTime] = useState<string>("23:59");
   const [rollingHour, setRollingHour] = useState<boolean>(true);
+  const [rankBy, setRankBy] = useState<string>("total_excess");
   const [querying, setQuerying] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CountsResponse | null>(null);
@@ -108,6 +109,7 @@ export default function OriginalCountPage() {
         from_time_str: fromTime,
         to_time_str: toTime,
         rolling_hour: Boolean(rollingHour),
+        rank_by: rankBy,
       };
       const res = await fetch('/api/original_counts', {
         method: 'POST',
@@ -136,10 +138,11 @@ export default function OriginalCountPage() {
       from_time_str: fromTime,
       to_time_str: toTime,
       rolling_hour: Boolean(rollingHour),
+      rank_by: rankBy,
     };
     if (selectedTVs.length > 0) p.traffic_volume_ids = selectedTVs;
     return p;
-  }, [fromTime, toTime, rollingHour, selectedTVs]);
+  }, [fromTime, toTime, rollingHour, selectedTVs, rankBy]);
 
   const mentionedItems = useMemo(() => {
     const mc = data?.mentioned_counts || {};
@@ -190,7 +193,7 @@ export default function OriginalCountPage() {
                 <div className="text-[11px] text-red-200">{error}</div>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-end">
               <div className="md:col-span-2">
                 <div className="text-[11px] opacity-80 mb-1 text-white">Traffic Volumes</div>
                 <MultiSelectWithChips
@@ -226,6 +229,17 @@ export default function OriginalCountPage() {
                   className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
                   style={{ colorScheme: 'dark' }}
                 />
+              </div>
+              <div>
+                <div className="text-[11px] opacity-80 mb-1 text-white">Rank by</div>
+                <select
+                  value={rankBy}
+                  onChange={(e) => setRankBy(e.currentTarget.value)}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                >
+                  <option value="total_excess">Total Excess</option>
+                  <option value="total_count">Total Count</option>
+                </select>
               </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">

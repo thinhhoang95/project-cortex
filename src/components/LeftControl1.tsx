@@ -1,12 +1,17 @@
 "use client";
 import { useSimStore } from "@/components/useSimStore";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ShimmeringText from "@/components/ShimmeringText";
 
 type LeftControl1Props = { embedded?: boolean };
 
 export default function LeftControl1({ embedded = false }: LeftControl1Props) {
   const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
+  
+  // Sorting state for hotspot table
+  type SortKey = 'tv' | 'time' | 'zmax' | 'occ' | 'cap' | 'ex';
+  const [sortBy, setSortBy] = useState<SortKey>('zmax');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   
   // Fetch hotspots when show hotspots is turned on
   useEffect(() => {
@@ -19,6 +24,63 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
   const parseTimeToSeconds = (timeStr: string): number => {
     const [hours, minutes] = timeStr.split(':').map(Number);
     return hours * 3600 + minutes * 60;
+  };
+
+  // Compute sorted hotspots based on current sort key and direction
+  const sortedHotspots = useMemo(() => {
+    const list = [...hotspots];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    list.sort((a: any, b: any) => {
+      let av: string | number = 0;
+      let bv: string | number = 0;
+      switch (sortBy) {
+        case 'tv':
+          av = String(a.traffic_volume_id || '');
+          bv = String(b.traffic_volume_id || '');
+          return (av as string).localeCompare(bv as string) * dir;
+        case 'time': {
+          const [aStart] = String(a.time_bin || '').split('-');
+          const [bStart] = String(b.time_bin || '').split('-');
+          av = parseTimeToSeconds(aStart || '00:00');
+          bv = parseTimeToSeconds(bStart || '00:00');
+          break;
+        }
+        case 'zmax':
+          av = Number(a.z_max || 0);
+          bv = Number(b.z_max || 0);
+          break;
+        case 'occ':
+          av = Number(a.hourly_occupancy || 0);
+          bv = Number(b.hourly_occupancy || 0);
+          break;
+        case 'cap':
+          av = Number(a.hourly_capacity || 0);
+          bv = Number(b.hourly_capacity || 0);
+          break;
+        case 'ex':
+          av = Number(a.hourly_occupancy || 0) - Number(a.hourly_capacity || 0);
+          bv = Number(b.hourly_occupancy || 0) - Number(b.hourly_capacity || 0);
+          break;
+      }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      // Stable tie-break: by TV then time start
+      const tvCmp = String(a.traffic_volume_id || '').localeCompare(String(b.traffic_volume_id || ''));
+      if (tvCmp !== 0) return tvCmp;
+      const [aStart] = String(a.time_bin || '').split('-');
+      const [bStart] = String(b.time_bin || '').split('-');
+      return parseTimeToSeconds(aStart || '00:00') - parseTimeToSeconds(bStart || '00:00');
+    });
+    return list;
+  }, [hotspots, sortBy, sortDir]);
+
+  const handleHeaderClick = (key: SortKey) => {
+    if (key === sortBy) {
+      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(key);
+      setSortDir('asc');
+    }
   };
 
   // Handle clicking on hotspot row
@@ -96,17 +158,17 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
               <div className={embedded ? "" : "max-h-32 overflow-y-auto no-scrollbar"}>
                 <table className="w-full text-xs">
                   <thead className="sticky top-0">
-                    <tr className="bg-red-900 text-white">
-                      <th className="text-left p-2 font-semibold">TV</th>
-                      <th className="text-left p-2 font-semibold">Time</th>
-                      <th className="text-left p-2 font-semibold">Zmax</th>
-                      <th className="text-left p-2 font-semibold">Occ.</th>
-                      <th className="text-left p-2 font-semibold">Cap.</th>
-                      <th className="text-left p-2 font-semibold">Ex.</th>
+                    <tr className="bg-red-900 text-white select-none">
+                      <SortableTh label="TV" active={sortBy === 'tv'} dir={sortDir} onClick={() => handleHeaderClick('tv')} />
+                      <SortableTh label="Time" active={sortBy === 'time'} dir={sortDir} onClick={() => handleHeaderClick('time')} />
+                      <SortableTh label="Zmax" active={sortBy === 'zmax'} dir={sortDir} onClick={() => handleHeaderClick('zmax')} />
+                      <SortableTh label="Occ." active={sortBy === 'occ'} dir={sortDir} onClick={() => handleHeaderClick('occ')} />
+                      <SortableTh label="Cap." active={sortBy === 'cap'} dir={sortDir} onClick={() => handleHeaderClick('cap')} />
+                      <SortableTh label="Ex." active={sortBy === 'ex'} dir={sortDir} onClick={() => handleHeaderClick('ex')} />
                     </tr>
                   </thead>
                   <tbody>
-                    {hotspots.map((hotspot, index) => (
+                    {sortedHotspots.map((hotspot, index) => (
                       <tr 
                         key={`${hotspot.traffic_volume_id}-${hotspot.time_bin}`} 
                         className={`border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white/2' : ''}`}
@@ -133,6 +195,37 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
 
       </div>
     </div>
+  );
+}
+
+type SortableThProps = {
+  label: string;
+  active: boolean;
+  dir: 'asc' | 'desc';
+  onClick: () => void;
+};
+
+function SortableTh({ label, active, dir, onClick }: SortableThProps) {
+  return (
+    <th className="text-left p-2 font-semibold">
+      <button 
+        type="button"
+        onClick={onClick}
+        className="inline-flex items-center gap-1 cursor-pointer select-none focus:outline-none focus:ring-1 focus:ring-white/40 rounded"
+        aria-pressed={active}
+        title={`Sort by ${label} (${dir === 'asc' ? 'ascending' : 'descending'})`}
+      >
+        <span>{label}</span>
+        <svg 
+          className={`w-3 h-3 transition-transform ${active ? 'opacity-100' : 'opacity-0'} ${active && dir === 'asc' ? 'transform rotate-180' : ''}`}
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor"
+        >
+          <path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </th>
   );
 }
 

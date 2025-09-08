@@ -194,7 +194,7 @@ export default function MapCanvas() {
         source: "sectors",
         paint: {
           "fill-color": "#ef4444",
-          "fill-opacity": 0.4
+          "fill-opacity": 0.1
         },
         filter: ["==", ["get", "traffic_volume_id"], ""]
       });

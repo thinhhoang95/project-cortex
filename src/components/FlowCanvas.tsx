@@ -121,7 +121,7 @@ export default function FlowCanvas() {
         // (Slack overlay removed in FlowCanvas)
 
         // Add hotspot layers for traffic volumes
-        map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.4 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+        map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.1 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
         map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
 
         // --- Flight lines (static geometry) ---
