@@ -149,8 +149,8 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
             </div>
             
             {hotspots.length > 0 && !hotspotsLoading ? (
-              <div className={embedded ? "" : "flex-1 overflow-y-auto no-scrollbar"}>
-                <table className="w-full text-xs">
+              <div className={embedded ? "overflow-x-auto" : "flex-1 overflow-y-auto no-scrollbar overflow-x-auto"}>
+                <table className="w-full text-xs min-w-max whitespace-nowrap">
                   <thead className="sticky top-0">
                     <tr className="bg-red-900 text-white select-none">
                       <SortableTh label="TV" active={sortBy === 'tv'} dir={sortDir} onClick={() => handleHeaderClick('tv')} />

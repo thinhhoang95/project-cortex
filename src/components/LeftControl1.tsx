@@ -155,8 +155,10 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
             </div>
             
             {hotspots.length > 0 && !hotspotsLoading ? (
-              <div className={embedded ? "" : "max-h-32 overflow-y-auto no-scrollbar"}>
-                <table className="w-full text-xs">
+              <div className={embedded 
+                ? "overflow-x-auto"
+                : "max-h-32 overflow-y-auto no-scrollbar overflow-x-auto"}>
+                <table className="w-full text-xs min-w-max whitespace-nowrap">
                   <thead className="sticky top-0">
                     <tr className="bg-red-900 text-white select-none">
                       <SortableTh label="TV" active={sortBy === 'tv'} dir={sortDir} onClick={() => handleHeaderClick('tv')} />
