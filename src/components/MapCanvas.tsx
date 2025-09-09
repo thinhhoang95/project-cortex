@@ -15,7 +15,8 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId } = useSimStore();
+  const { t, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const lastUpdateRef = useRef<number>(performance.now());
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -269,6 +270,12 @@ export default function MapCanvas() {
         },
         paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
       });
+      // Apply initial visibility based on store defaults
+      try {
+        const { showFlightLineLabels } = useSimStore.getState();
+        map.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
+        map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
+      } catch {}
 
       // Base airspace and flight data are loaded; hide the page-loading indicator
       setBaseDataLoading(false);
@@ -376,6 +383,12 @@ export default function MapCanvas() {
           "text-halo-width": 2
         }
       });
+      // Apply initial plane label visibility based on store defaults
+      try {
+        const { showCallsigns } = useSimStore.getState();
+        map.setPaintProperty("plane-icons", "text-opacity", showCallsigns ? 1 : 0);
+        map.setPaintProperty("plane-icons", "text-halo-width", showCallsigns ? 2 : 0);
+      } catch {}
 
       // Save trajectories on map for the animation step
       (map as any).__trajectories = tracks;
@@ -477,17 +490,6 @@ export default function MapCanvas() {
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
     });
 
-    // RAF loop (time progression + plane updates)
-    const loop = () => {
-      const now = performance.now();
-      const dt = now - lastTs.current;
-      lastTs.current = now;
-      tick(dt);
-      updatePlanePositions(mapRef.current);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       map.remove();
@@ -495,11 +497,42 @@ export default function MapCanvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // on t change from UI (drag), update plane positions immediately
-  useEffect(() => { updatePlanePositions(mapRef.current); }, [t]);
+  // Control RAF loop based on playing; throttle to ~30 FPS
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (playing) {
+      lastTs.current = performance.now();
+      lastUpdateRef.current = lastTs.current;
+      const targetFrameMs = 1000 / 30;
+      const loop = () => {
+        const now = performance.now();
+        const dt = now - lastTs.current;
+        lastTs.current = now;
+        const sinceUpdate = now - lastUpdateRef.current;
+        if (sinceUpdate >= targetFrameMs) {
+          tick(dt);
+          updatePlanePositions(mapRef.current);
+          lastUpdateRef.current = now;
+        }
+        rafRef.current = requestAnimationFrame(loop);
+      };
+      rafRef.current = requestAnimationFrame(loop);
+      return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    } else {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = undefined; }
+      // Render once when pausing to ensure view is up to date
+      updatePlanePositions(mapRef.current);
+    }
+  }, [playing, tick]);
+
+  // on t change from UI (drag), update plane positions immediately when paused
+  useEffect(() => { if (!playing) updatePlanePositions(mapRef.current); }, [t, playing]);
 
   // When a single-flight preview is toggled via hover, update filters immediately
   useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId]);
+
+  // Refresh filters on focus/visibility changes
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume]);
 
   // on showFlightLineLabels change, update layer visibility
   useEffect(() => {
@@ -786,6 +819,33 @@ async function loadImage(map: maplibregl.Map, url: string) {
   });
 }
 
+// Binary search for current segment index such that times[i] <= t <= times[i+1]
+function segmentIndex(times: number[], t: number): number {
+  let lo = 0;
+  let hi = times.length - 2; // compare against i+1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const tMid = times[mid];
+    const tNext = times[mid + 1];
+    if (t < tMid) hi = mid - 1; else if (t > tNext) lo = mid + 1; else return mid;
+  }
+  // clamp
+  if (times.length <= 1) return 0;
+  return Math.max(0, Math.min(times.length - 2, lo));
+}
+
+// Fast bearing calculation (deg)
+function fastBearing(lon1: number, lat1: number, lon2: number, lat2: number): number {
+  const toRad = Math.PI / 180;
+  const phi1 = lat1 * toRad;
+  const phi2 = lat2 * toRad;
+  const deltaLambda = (lon2 - lon1) * toRad;
+  const y = Math.sin(deltaLambda) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+  const theta = Math.atan2(y, x) * 180 / Math.PI;
+  return (theta + 360) % 360;
+}
+
 // Interpolate each trajectory at current sim time and update the "planes" source
 function updatePlanePositions(map: maplibregl.Map | null) {
   if (!map || !map.isStyleLoaded()) return;
@@ -800,7 +860,7 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     if (sim.t < tr.t0 || sim.t > tr.t1) continue;
 
     // find segment i such that times[i] <= t <= times[i+1]
-    const idx = Math.max(0, tr.times.findIndex((tt: number, i: number) => sim.t >= tt && sim.t <= tr.times[i+1]));
+    const idx = segmentIndex(tr.times, sim.t);
     const t0 = tr.times[idx], t1 = tr.times[idx+1];
     const p0 = tr.coords[idx], p1 = tr.coords[idx+1];
     const u = t1 === t0 ? 0 : (sim.t - t0) / (t1 - t0);
@@ -810,7 +870,7 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     const alt = p0[2] !== undefined && p1[2] !== undefined ? p0[2] + (p1[2] - p0[2]) * u : 0;
 
     // bearing for icon rotation
-    const bearing = turf.bearing([p0[0], p0[1]], [p1[0], p1[1]]);
+    const bearing = fastBearing(p0[0], p0[1], p1[0], p1[1]);
 
     // Format altitude as flight level (divide by 100 and prefix with FL)
     const flightLevel = Math.round(alt / 100);
@@ -853,15 +913,21 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   ];
 
   if (map.getLayer("flight-lines")) {
-    map.setFilter("flight-lines", filterExpr as any);
+    // Avoid redundant filter updates
+    const key = lineIdsToShow.length <= 256 ? lineIdsToShow.join('|') : `${lineIdsToShow.length}:${lineIdsToShow[0]}:${lineIdsToShow.at(-1)}`;
+    const prevKey = (map as any).__prevFilterKey;
+    if (prevKey !== key) {
+      map.setFilter("flight-lines", filterExpr as any);
+      if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
+      if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
+      (map as any).__prevFilterKey = key;
+    }
     const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
     const lineOpacity = sim.flowPreviewFlightId ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
-    map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
-  }
-  if (map.getLayer("flight-line-labels")) {
-    map.setFilter("flight-line-labels", filterExpr as any);
-  }
-  if (map.getLayer("plane-icons")) {
-    map.setFilter("plane-icons", filterExpr as any);
+    const prevOpacity = (map as any).__prevLineOpacity;
+    if (prevOpacity !== lineOpacity) {
+      map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
+      (map as any).__prevLineOpacity = lineOpacity;
+    }
   }
 }
