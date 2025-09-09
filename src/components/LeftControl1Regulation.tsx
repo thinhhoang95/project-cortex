@@ -9,9 +9,11 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
   const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
   
   // Sorting state for hotspot table
-  type SortKey = 'tv' | 'time' | 'zmax' | 'occ' | 'cap' | 'ex';
-  const [sortBy, setSortBy] = useState<SortKey>('zmax');
+  type SortKey = 'tv' | 'time' | 'occ' | 'cap' | 'ex';
+  const [sortBy, setSortBy] = useState<SortKey>('ex');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // Show-more toggle for hotspot table
+  const [showAllHotspots, setShowAllHotspots] = useState(false);
   
   // Fetch hotspots when show hotspots is turned on
   useEffect(() => {
@@ -45,10 +47,6 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
           bv = parseTimeToSeconds(bStart || '00:00');
           break;
         }
-        case 'zmax':
-          av = Number(a.z_max || 0);
-          bv = Number(b.z_max || 0);
-          break;
         case 'occ':
           av = Number(a.hourly_occupancy || 0);
           bv = Number(b.hourly_occupancy || 0);
@@ -73,6 +71,12 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
     });
     return list;
   }, [hotspots, sortBy, sortDir]);
+
+  // Determine which hotspots to display based on show-more state
+  const displayedHotspots = useMemo(() => {
+    if (showAllHotspots) return sortedHotspots;
+    return sortedHotspots.slice(0, 20);
+  }, [sortedHotspots, showAllHotspots]);
 
   const handleHeaderClick = (key: SortKey) => {
     if (key === sortBy) {
@@ -155,14 +159,13 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                     <tr className="bg-red-900 text-white select-none">
                       <SortableTh label="TV" active={sortBy === 'tv'} dir={sortDir} onClick={() => handleHeaderClick('tv')} />
                       <SortableTh label="Time" active={sortBy === 'time'} dir={sortDir} onClick={() => handleHeaderClick('time')} />
-                      <SortableTh label="Zmax" active={sortBy === 'zmax'} dir={sortDir} onClick={() => handleHeaderClick('zmax')} />
                       <SortableTh label="Occ." active={sortBy === 'occ'} dir={sortDir} onClick={() => handleHeaderClick('occ')} />
                       <SortableTh label="Cap." active={sortBy === 'cap'} dir={sortDir} onClick={() => handleHeaderClick('cap')} />
                       <SortableTh label="Ex." active={sortBy === 'ex'} dir={sortDir} onClick={() => handleHeaderClick('ex')} />
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedHotspots.map((hotspot, index) => (
+                    {displayedHotspots.map((hotspot, index) => (
                       <tr 
                         key={`${hotspot.traffic_volume_id}-${hotspot.time_bin}`} 
                         className={`border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white/2' : ''}`}
@@ -171,12 +174,29 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                       >
                         <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
                         <td className="p-2 font-mono text-xs">{hotspot.time_bin}</td>
-                        <td className="p-2 font-mono">{hotspot.z_max.toFixed(1)}</td>
                         <td className="p-2 font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
                         <td className="p-2 font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
                         <td className="p-2 font-mono">{(hotspot.hourly_occupancy - hotspot.hourly_capacity).toFixed(0)}</td>
                       </tr>
                     ))}
+                    {!showAllHotspots && sortedHotspots.length > 20 && (
+                      <tr 
+                        className="border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
+                        onClick={() => setShowAllHotspots(true)}
+                        title="Show the remaining hotspots"
+                      >
+                        <td className="p-2 text-center italic opacity-80" colSpan={5}>See more…</td>
+                      </tr>
+                    )}
+                    {showAllHotspots && sortedHotspots.length > 20 && (
+                      <tr 
+                        className="border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
+                        onClick={() => setShowAllHotspots(false)}
+                        title="Collapse the list"
+                      >
+                        <td className="p-2 text-center italic opacity-80" colSpan={5}>See less…</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

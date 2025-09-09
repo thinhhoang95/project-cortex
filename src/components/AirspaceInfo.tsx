@@ -51,6 +51,8 @@ export default function AirspaceInfo() {
   const [error, setError] = useState<string | null>(null);
   const [flightListError, setFlightListError] = useState<string | null>(null);
   const [interestWindowLength, setInterestWindowLength] = useState<string>('1h');
+  const [expanded, setExpanded] = useState(false);
+  const MAX_VISIBLE = 20;
 
   // Fetch data when traffic volume selection changes or time changes
   useEffect(() => {
@@ -229,6 +231,18 @@ export default function AirspaceInfo() {
   };
 
   const flightTableData = formatFlightData();
+
+  // Visible subset with expand/collapse toggle
+  const visibleFlightTableData = useMemo(() => {
+    if (!flightTableData) return [] as ReturnType<typeof formatFlightData>;
+    if (!expanded && flightTableData.length > MAX_VISIBLE) return flightTableData.slice(0, MAX_VISIBLE);
+    return flightTableData;
+  }, [flightTableData, expanded]);
+
+  // Reset expansion when the underlying dataset changes materially
+  useEffect(() => {
+    setExpanded(false);
+  }, [selectedTrafficVolume, focusMode, interestWindowLength, orderedFlightsData, flightIdentifiersData]);
 
   
 
@@ -644,7 +658,7 @@ export default function AirspaceInfo() {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayFlightTableData.map((flight, index) => (
+                    {visibleFlightTableData.map((flight, index) => (
                       <tr 
                         key={flight.flightId} 
                         className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${index % 2 === 0 ? 'bg-white/2' : ''}`}
@@ -668,9 +682,22 @@ export default function AirspaceInfo() {
                         {orderedFlightsData && <td className="p-2 font-mono">{flight.arrivalTime}</td>}
                       </tr>
                     ))}
+                    {displayFlightTableData.length > MAX_VISIBLE && (
+                      <tr
+                        className="border-b border-white/10 cursor-pointer hover:bg-white/5"
+                        onClick={() => setExpanded(!expanded)}
+                      >
+                        <td
+                          className="p-2 text-center italic opacity-80"
+                          colSpan={orderedFlightsData ? 5 : 4}
+                        >
+                          {expanded ? 'Show less…' : `See more… (${displayFlightTableData.length - MAX_VISIBLE} more)`}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
-                {displayFlightTableData.length === 500 && (
+                {expanded && displayFlightTableData.length === 500 && (
                   <p className="text-xs opacity-70 text-center mt-2">Showing first 500 flights</p>
                 )}
                 {orderedFlightsData && (

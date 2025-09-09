@@ -18,6 +18,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setT,
     regulationTargetFlightIds,
     regulationVisibleFlightIds,
+    setRegulationVisibleFlightIds,
     addRegulationTargetFlight,
     removeRegulationTargetFlight,
     clearRegulationTargetFlights,
@@ -58,6 +59,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
   const [flightListLoading, setFlightListLoading] = useState(false);
   const [flightListError, setFlightListError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const MAX_VISIBLE = 20;
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -306,6 +309,23 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     }
     return [] as string[];
   }, [orderedFlightsData, flightIdentifiersData, flightTableData]);
+
+  // Derive visible rows and publish visible IDs for bulk actions (e.g., "all")
+  const visibleRows = useMemo(() => {
+    if (!flightTableData) return [] as typeof flightTableData;
+    if (!expanded && flightTableData.length > MAX_VISIBLE) return flightTableData.slice(0, MAX_VISIBLE);
+    return flightTableData;
+  }, [flightTableData, expanded]);
+
+  useEffect(() => {
+    const ids = visibleRows.map(r => String(r.flightId));
+    setRegulationVisibleFlightIds(ids);
+  }, [visibleRows, setRegulationVisibleFlightIds]);
+
+  // Reset expansion when dataset changes
+  useEffect(() => {
+    setExpanded(false);
+  }, [selectedTrafficVolume, regulationTimeWindow[0], regulationTimeWindow[1]]);
 
   // time window presets
   const presets = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h", "2h30", "3h", "3h30", "4h"];
@@ -579,7 +599,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           )}
 
           {flightTableData.length > 0 && !flightListLoading && (
-            <div className="max-h-60 overflow-y-auto no-scrollbar">
+            <>
               <table className="w-full text-xs">
                 <thead className="sticky top-0">
                   <tr className="bg-blue-900 text-white">
@@ -591,7 +611,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                   </tr>
                 </thead>
                 <tbody>
-                  {flightTableData.map((flight, index) => (
+                  {visibleRows.map((flight, index) => (
                     <tr
                       key={String(flight.flightId)}
                       className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${index % 2 === 0 ? 'bg-white/2' : ''}`}
@@ -611,6 +631,19 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       {orderedFlightsData && <td className="p-2 font-mono">{flight.arrivalTime}</td>}
                     </tr>
                   ))}
+                  {flightTableData.length > MAX_VISIBLE && (
+                    <tr
+                      className="border-b border-white/10 cursor-pointer hover:bg-white/5"
+                      onClick={() => setExpanded(!expanded)}
+                    >
+                      <td
+                        className="p-2 text-center italic opacity-80"
+                        colSpan={orderedFlightsData ? 5 : 4}
+                      >
+                        {expanded ? 'Show less…' : `See more… (${flightTableData.length - MAX_VISIBLE} more)`}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               {flightTableData.length === 500 && (
@@ -619,7 +652,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               {orderedFlightsData && (
                 <p className="text-xs opacity-70 text-center mt-2">Flights ordered by proximity to current time ({formatTime(t)})</p>
               )}
-            </div>
+            </>
           )}
 
           {flightTableData.length === 0 && !flightListLoading && !flightListError && (

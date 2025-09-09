@@ -31,6 +31,8 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const MAX_VISIBLE = 20;
 
 	// Compute seed flight identifiers from regulation targets (stored as callsigns)
 	const seedFlightIds = useMemo(() => {
@@ -113,10 +115,21 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 	}, [selectedTrafficVolume, flights, filteredRankedFlights]);
 
 	// Publish the currently visible flight IDs to the store for bulk actions (e.g., "all")
+  const visibleRows = useMemo(() => {
+    if (!rows) return [] as Array<any>;
+    if (!expanded && rows.length > MAX_VISIBLE) return rows.slice(0, MAX_VISIBLE);
+    return rows;
+  }, [rows, expanded]);
+
 	useEffect(() => {
-		const ids = rows.map(r => String(r.flightId));
+		const ids = visibleRows.map(r => String(r.flightId));
 		setRegulationVisibleFlightIds(ids);
-	}, [rows, setRegulationVisibleFlightIds]);
+	}, [visibleRows, setRegulationVisibleFlightIds]);
+
+  // Reset expansion when the dataset changes
+  useEffect(() => {
+    setExpanded(false);
+  }, [selectedTrafficVolume, regulationTimeWindow[0], regulationTimeWindow[1]]);
 
 	// Clear single-flight preview on unmount
 	useEffect(() => {
@@ -169,7 +182,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 							</tr>
 						</thead>
 						<tbody>
-							{rows.map((row, idx) => {
+							{visibleRows.map((row, idx) => {
 								const isTargeted = regulationTargetFlightIds.has(String(row.flightId));
 								return (
 									<tr
@@ -198,6 +211,19 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 									</tr>
 								);
 							})}
+                {rows.length > MAX_VISIBLE && (
+                  <tr
+                    className="border-b border-white/10 cursor-pointer hover:bg-white/5"
+                    onClick={() => setExpanded(!expanded)}
+                  >
+                    <td
+                      className="p-2 text-center text-cyan-300 font-semibold"
+                      colSpan={rankingData ? 5 : 4}
+                    >
+                      {expanded ? 'Show less…' : `See more… (${rows.length - MAX_VISIBLE} more)`}
+                    </td>
+                  </tr>
+                )}
 						</tbody>
 					</table>
 				) : (
