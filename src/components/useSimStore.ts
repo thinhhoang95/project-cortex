@@ -8,6 +8,8 @@ interface User {
   signInDate: string;
   token: string;
   renewToken: string;
+  displayName?: string;
+  organization?: string;
 }
 
 interface Hotspot {
@@ -324,7 +326,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       if (!token) {
         return { ok: false as const, error: 'Malformed response from server' };
       }
-      set({ user: { email, signInDate: new Date().toISOString(), token, renewToken: '' } });
+      const displayName = typeof (data as any)?.display_name === 'string' ? (data as any).display_name : undefined;
+      const organization = typeof (data as any)?.organization === 'string' ? (data as any).organization : undefined;
+      set({ user: { email, signInDate: new Date().toISOString(), token, renewToken: '', displayName, organization } });
       return { ok: true as const };
     } catch (e) {
       return { ok: false as const, error: 'Unable to sign in. Please try again.' };
@@ -377,7 +381,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });
     try {
-      const response = await fetch(`/api/hotspot?threshold=${threshold}`);
+      const token = get().user?.token;
+      const response = await fetch(`/api/hotspot?threshold=${threshold}` , {
+        headers: token ? { Authorization: `Bearer ${token}` } as any : undefined,
+      });
       if (!response.ok) {
         throw new Error(`Failed to fetch hotspots: ${response.statusText}`);
       }

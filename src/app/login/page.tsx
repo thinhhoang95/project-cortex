@@ -3,7 +3,9 @@
 
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import Image from 'next/image'
 import LoginForm from '@/components/LoginForm'
+import loginArt from '@/assets/login_art.webp'
 
 
 import { useEffect } from 'react';
@@ -31,18 +33,32 @@ export default function LoginPage() {
       {/* Subtle vertical gradient to deepen contrast */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-900/30 to-slate-950/60" />
 
-      <section className="relative z-10 w-full max-w-md">
-        <div className="mb-8 text-center">
-          
-          <h1 className="text-3xl font-semibold tracking-tight text-white">Sign in</h1>
-        </div>
+      <section className="relative z-10 w-full max-w-3xl">
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-sm">
-          <LoginForm />
-          
-          <p className="mt-6 text-center text-xs text-white/50">
-            Don&apos;t have access? Ping me at <Link href="mailto:dthoang@intuelle.com" className="text-white/60 hover:text-white">dthoang@intuelle.com</Link>.
-          </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-2xl">
+          {/* Left: Illustration */}
+          <div className="relative hidden md:block">
+            <Image
+              src={loginArt}
+              alt="Stylized login art"
+              className="h-full w-full object-cover"
+              priority
+              placeholder="blur"
+            />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-slate-900/30 to-transparent" />
+            <div className="absolute bottom-2 right-2 text-xs text-white/30">
+              Painted by OpenAI Sora
+            </div>
+          </div>
+
+          {/* Right: Form */}
+          <div className="p-8 md:p-8 flex flex-col justify-center h-full">
+            <h1 className="text-3xl font-semibold tracking-tight text-white mb-8">Sign in</h1>
+            <LoginForm />
+            <p className="mt-8 text-center text-xs text-white/50">
+              Don&apos;t have access? Ping me at <Link href="mailto:dthoang@intuelle.com" className="text-white/60 hover:text-white">dthoang@intuelle.com</Link>.
+            </p>
+          </div>
         </div>
 
         <div className="mt-6 text-center">

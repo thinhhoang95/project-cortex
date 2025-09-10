@@ -758,7 +758,8 @@ async function fetchAndApplySlack(
     if (!Number.isNaN(deltaMin)) {
       url.searchParams.set('delta_min', String(deltaMin));
     }
-    const resp = await fetch(url.toString());
+    const { authFetch } = await import("@/lib/auth");
+    const resp = await authFetch(url.toString());
     if (!resp.ok) throw new Error(`Slack API error ${resp.status}`);
     const data = await resp.json();
     const results: any[] = Array.isArray(data?.results) ? data.results : [];

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
+import { authFetch } from "@/lib/auth";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
 
@@ -78,7 +79,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         clearRegulationTargetFlights();
       }
       try {
-        const res = await fetch(`/api/tv_count_with_capacity?traffic_volume_id=${selectedTrafficVolume}`);
+        const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${selectedTrafficVolume}`);
         if (!res.ok) throw new Error('failed');
         const data = await res.json();
         if (cancelled) return;
@@ -108,7 +109,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       setFlightListError(null);
       try {
         const ref = formatTimeForAPI(t);
-        const res = await fetch(`/api/tv_flights?traffic_volume_id=${selectedTrafficVolume}&ref_time_str=${ref}`);
+        const res = await authFetch(`/api/tv_flights?traffic_volume_id=${selectedTrafficVolume}&ref_time_str=${ref}`);
         if (!res.ok) throw new Error('Failed');
         const data = await res.json();
         if (cancelled) return;
@@ -435,7 +436,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         resolution: String(flowResolution),
         flight_ids: ids.join(',')
       });
-      const res = await fetch(`/api/flow_extraction?${params.toString()}`);
+      const res = await authFetch(`/api/flow_extraction?${params.toString()}`);
       if (!res.ok) throw new Error(`Failed: ${res.status}`);
       const data = await res.json();
       // Expect data.communities: { flightId: communityId }, data.groups: { comId: [flightIds] }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/app/api/_utils';
 
 // Proxy endpoint for simulation. Expects POST with JSON payload
 export async function POST(request: NextRequest) {
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     const resp = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withAuth(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 
@@ -46,5 +47,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/app/api/_utils';
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,7 +8,7 @@ export async function POST(request: NextRequest) {
 
     const resp = await fetch(`${backendUrl}/autorate_occupancy`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withAuth(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 
@@ -29,4 +30,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

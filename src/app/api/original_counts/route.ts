@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/app/api/_utils';
 
 // Proxies to backend original_counts endpoint (POST JSON)
 export async function POST(request: NextRequest) {
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     const resp = await fetch(`${backendUrl}/original_counts`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withAuth(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 
@@ -52,4 +53,3 @@ export async function POST(request: NextRequest) {
 function safeParseJSON(s: string) {
   try { return JSON.parse(s); } catch { return null; }
 }
-

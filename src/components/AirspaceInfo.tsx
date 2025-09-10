@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line, LineChart } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
+import { authFetch } from "@/lib/auth";
 import HourGlass from "@/components/HourGlass";
 
 // Use Next.js API route to avoid CORS issues
@@ -78,7 +79,7 @@ export default function AirspaceInfo() {
     setError(null);
     
     try {
-      const response = await fetch(`/api/tv_count_with_capacity?traffic_volume_id=${trafficVolumeId}`);
+      const response = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${trafficVolumeId}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -102,7 +103,7 @@ export default function AirspaceInfo() {
     try {
       // Format current time as HHMMSS for the new API
       const currentTimeStr = formatTimeForAPI(t);
-      const response = await fetch(`/api/tv_flights?traffic_volume_id=${trafficVolumeId}&ref_time_str=${currentTimeStr}`);
+      const response = await authFetch(`/api/tv_flights?traffic_volume_id=${trafficVolumeId}&ref_time_str=${currentTimeStr}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));

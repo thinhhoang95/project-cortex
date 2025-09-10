@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
+import { authFetch } from "@/lib/auth";
 import ShimmeringText from "@/components/ShimmeringText";
 
 interface RegulationPlanPanelProps {
@@ -215,7 +216,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
                       include_excess_vector: false,
                     };
 
-                    const res = await fetch("/api/regulation_plan_simulation", {
+                    const res = await authFetch("/api/regulation_plan_simulation", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify(payload),

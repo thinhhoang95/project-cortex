@@ -134,7 +134,7 @@ export default function OriginalCountPage() {
         rolling_hour: Boolean(rollingHour),
         rank_by: rankBy,
       };
-      const res = await fetch('/api/original_counts', {
+      const res = await (await import("@/lib/auth")).authFetch('/api/original_counts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

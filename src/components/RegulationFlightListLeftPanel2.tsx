@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import ShimmeringText from "@/components/ShimmeringText";
+import { authFetch } from "@/lib/auth";
 
 interface RankedFlight {
   flight_id: string;
@@ -70,7 +71,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 					duration_min: String(durationMin),
 					top_k: String(topK)
 				});
-				const res = await fetch(`/api/regulation_ranking_tv_flights_ordered?${params.toString()}`);
+				const res = await authFetch(`/api/regulation_ranking_tv_flights_ordered?${params.toString()}`);
 				if (!res.ok) throw new Error('Failed to fetch ranked flights');
 				const data: RankedFlightsResponse = await res.json();
 				if (cancelled) return;

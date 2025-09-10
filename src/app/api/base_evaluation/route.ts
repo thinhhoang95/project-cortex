@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/app/api/_utils';
 
 // Proxy to backend `/base_evaluation` with JSON POST body
 export async function POST(request: NextRequest) {
@@ -8,7 +9,7 @@ export async function POST(request: NextRequest) {
 
     const resp = await fetch(`${backendUrl}/base_evaluation`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withAuth(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 
@@ -30,4 +31,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

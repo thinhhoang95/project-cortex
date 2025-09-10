@@ -17,7 +17,7 @@ export default function Header() {
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
   
   const router = useRouter();
-  const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout } = useSimStore();
+  const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout, user } = useSimStore();
   const pathname = usePathname();
 
   // Load traffic volumes data on component mount
@@ -256,7 +256,7 @@ export default function Header() {
               </div>
               <div className="text-left">
                 <div className="text-xs text-white/60">Welcome back, Chef!</div>
-                <div className="text-sm text-white font-medium">Network Operator</div>
+                <div className="text-sm text-white font-medium">{user?.displayName ? (user?.organization ? `${user.displayName} (${user.organization})` : user.displayName) : 'Network Operator'}</div>
               </div>
             </button>
             

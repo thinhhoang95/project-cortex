@@ -210,7 +210,7 @@ function FlowEvaluationPageContent() {
           body.sa_params = saParamsOverride;
         }
         delete body.colorsByFlow;
-        const optRes = await fetch("/api/automatic_rate_adjustment", {
+        const optRes = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -225,7 +225,7 @@ function FlowEvaluationPageContent() {
       }
 
       // Now request aggregated occupancy
-      const occRes = await fetch("/api/autorate_occupancy", {
+      const occRes = await (await import("@/lib/auth")).authFetch("/api/autorate_occupancy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ autorate_result: autorateResult, include_capacity: true }),
@@ -279,7 +279,7 @@ function FlowEvaluationPageContent() {
       }
       // Don't forward UI-only metadata if present
       delete body.colorsByFlow;
-      const res = await fetch("/api/base_evaluation", {
+      const res = await (await import("@/lib/auth")).authFetch("/api/base_evaluation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -307,7 +307,7 @@ function FlowEvaluationPageContent() {
         body.sa_params = saParamsOverride;
       }
       delete body.colorsByFlow;
-      const res = await fetch("/api/automatic_rate_adjustment", {
+      const res = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

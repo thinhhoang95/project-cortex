@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/app/api/_utils';
 
 const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -17,9 +18,7 @@ export async function GET(request: NextRequest) {
     const response = await fetch(
       `${API_BASE_URL}/tv_count_with_capacity?traffic_volume_id=${encodeURIComponent(trafficVolumeId)}`,
       {
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: withAuth(request, { 'Content-Type': 'application/json' }),
       }
     );
 

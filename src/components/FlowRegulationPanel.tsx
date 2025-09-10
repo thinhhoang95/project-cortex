@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import { loadSectors } from "@/lib/airspace";
+import { authFetch } from "@/lib/auth";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import HourGlass from "@/components/HourGlass";
@@ -466,7 +467,7 @@ async function fetchFlows(params: { tvs: string; from_time_str?: string; to_time
   if (params.to_time_str) usp.set('to_time_str', params.to_time_str);
   if (params.threshold) usp.set('threshold', params.threshold);
   if (params.resolution) usp.set('resolution', params.resolution);
-  const res = await fetch(`/api/flows?${usp.toString()}`);
+  const res = await authFetch(`/api/flows?${usp.toString()}`);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Request failed: ${res.status}`);

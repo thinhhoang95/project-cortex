@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/app/api/_utils';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,11 +13,7 @@ export async function GET(request: NextRequest) {
     
     const response = await fetch(apiUrl, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        // Add authentication headers if needed
-        // 'Authorization': `Bearer ${process.env.API_TOKEN}`,
-      },
+      headers: withAuth(request, { 'Content-Type': 'application/json' }),
     });
     
     if (!response.ok) {

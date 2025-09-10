@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@/app/api/_utils';
 
 const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     if (flightIds) params.set('flight_ids', flightIds);
 
     const endpoint = `${API_BASE_URL}/flow_extraction?${params.toString()}`;
-    const response = await fetch(endpoint, { headers: { 'Content-Type': 'application/json' } });
+    const response = await fetch(endpoint, { headers: withAuth(request, { 'Content-Type': 'application/json' }) });
     if (!response.ok) {
       throw new Error(`API responded with status: ${response.status}`);
     }
@@ -47,5 +48,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
 
