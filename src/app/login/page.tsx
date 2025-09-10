@@ -38,7 +38,7 @@ export default function LoginPage() {
           {/* Left: Illustration */}
           <div className="relative hidden md:block">
             <Image
-              src="/assets/login_art.webp"
+              src="/assets/DSC_0390.jpg"
               width={512}
               height={768}
               
@@ -48,7 +48,7 @@ export default function LoginPage() {
             />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-slate-900/30 to-transparent" />
             <div className="absolute bottom-2 right-2 text-xs text-white/30">
-              Painted by OpenAI Sora
+              Portrait of Thinh Hoang
             </div>
           </div>
 
@@ -64,7 +64,7 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center">
           <Link href="https://www.intuelle.com" className="text-sm text-white/60 hover:text-white">
-            Visit Kitchen's Blog
+            Visit the Kitchen's Blog
           </Link>
           <span className="text-sm text-white/40 mx-2">·</span>
           <span className="text-sm text-white/50">Proudly made in Toulouse.</span>
