@@ -277,9 +277,6 @@ export default function MapCanvas() {
         map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
       } catch {}
 
-      // Base airspace and flight data are loaded; hide the page-loading indicator
-      setBaseDataLoading(false);
-
       // --- Waypoints (zoom-based filtering for better UX) ---
       // Load only waypoints within sector bbox with small margin
       // Western Europe bounding box
@@ -359,6 +356,8 @@ export default function MapCanvas() {
           ]
         }
       });
+
+      
 
       // --- Dynamic plane positions (updated each frame) ---
       map.addImage("plane", await loadImage(map, "/plane.svg"), { pixelRatio: 2 });
@@ -484,10 +483,22 @@ export default function MapCanvas() {
         setHoveredTrafficVolume(null);
       });
 
+      // Base airspace and flight data are loaded; hide the page-loading indicator
+      setBaseDataLoading(false);
+
       // Fit to data (optional)
       const b = new maplibregl.LngLatBounds();
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+
+      // Wait until the map is fully idle (all sources loaded) before the first render
+      map.once("idle", () => {
+        try {
+          updatePlanePositions(mapRef.current);
+        } catch (e) {
+          console.error("Error during initial updatePlanePositions call:", e);
+        }
+      });
     });
 
     return () => {
@@ -848,7 +859,20 @@ function fastBearing(lon1: number, lat1: number, lon2: number, lat2: number): nu
 
 // Interpolate each trajectory at current sim time and update the "planes" source
 function updatePlanePositions(map: maplibregl.Map | null) {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map){
+    return;
+  }
+  if (!map.isStyleLoaded()){
+    // Defer this update until the map is idle to avoid dropping filter/paint changes
+    try {
+      map.once("idle", () => {
+        try { updatePlanePositions(map); } catch (e) { console.error("Deferred updatePlanePositions error:", e); }
+      });
+    } catch {}
+    return;
+  }
+
+
   const sim = useSimStore.getState();
   const tracks = (map as any).__trajectories as any[] | undefined;
   if (!tracks) return;
@@ -904,24 +928,23 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
   }
 
-  const filterExpr: any = [
-    "match",
-    ["to-string", ["get", "flightId"]],
-    lineIdsToShow,
-    true,
-    false
-  ];
+  let filterExpr: any;
+  if (lineIdsToShow.length === 0) {
+    // Always-false filter when nothing should be shown
+    filterExpr = ["==", 1, 0];
+  } else {
+    // Robust membership check for a dynamic list of ids
+    filterExpr = [
+      "in",
+      ["to-string", ["get", "flightId"]],
+      ["literal", lineIdsToShow]
+    ];
+  }
 
   if (map.getLayer("flight-lines")) {
-    // Avoid redundant filter updates
-    const key = lineIdsToShow.length <= 256 ? lineIdsToShow.join('|') : `${lineIdsToShow.length}:${lineIdsToShow[0]}:${lineIdsToShow.at(-1)}`;
-    const prevKey = (map as any).__prevFilterKey;
-    if (prevKey !== key) {
-      map.setFilter("flight-lines", filterExpr as any);
-      if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
-      if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
-      (map as any).__prevFilterKey = key;
-    }
+    map.setFilter("flight-lines", filterExpr as any);
+    if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
+    if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
     const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
     const lineOpacity = sim.flowPreviewFlightId ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;

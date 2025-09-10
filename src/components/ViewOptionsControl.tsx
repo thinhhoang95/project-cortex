@@ -1,7 +1,7 @@
 "use client";
 
 import { useSimStore } from "@/components/useSimStore";
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useMemo, useState, useEffect } from "react";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import FlightLevelRangeControl from "@/components/FlightLevelRangeControl";
 
@@ -35,6 +35,12 @@ export default function ViewOptionsControl({ embedded = false, className }: View
 
   const [showTimeSeeker, setShowTimeSeeker] = useState(false);
   const [minimized, setMinimized] = useState(false);
+
+  const [localT, setLocalT] = useState(t);
+  // Sync local state if global state changes (e.g., from playback)
+  useEffect(() => {
+    setLocalT(t);
+  }, [t]);
 
   // If not embedded and minimized, render a small restore button near the bottom
   if (!embedded && minimized) {
@@ -106,11 +112,13 @@ export default function ViewOptionsControl({ embedded = false, className }: View
                     min={0}
                     max={24 * 3600 - 1}
                     step={60}
-                    value={Math.floor(t)}
-                    onChange={(e) => setT(Number(e.currentTarget.value))}
+                    value={Math.floor(localT)}
+                    onChange={(e) => setLocalT(Number(e.currentTarget.value))}
+                    onMouseUp={() => setT(localT)}
+                    onTouchEnd={() => setT(localT)}
                     className="w-[280px] h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer"
                   />
-                  <span className="text-xs font-mono">{fmt(t)}</span>
+                  <span className="text-xs font-mono">{fmt(localT)}</span>
                 </div>
               </div>
             )}

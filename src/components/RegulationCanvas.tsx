@@ -286,6 +286,7 @@ export default function RegulationCanvas() {
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
       setBaseDataLoading(false);
+      
     });
 
     // RAF loop (time progression + layer updates)
