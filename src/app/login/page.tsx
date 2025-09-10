@@ -38,7 +38,7 @@ export default function LoginPage() {
           {/* Left: Illustration */}
           <div className="relative hidden md:block">
             <Image
-              src="/assets/DSC_0390.jpg"
+              src="/assets/login_art.webp"
               width={512}
               height={768}
               
