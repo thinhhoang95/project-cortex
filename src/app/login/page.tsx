@@ -5,7 +5,6 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
 import LoginForm from '@/components/LoginForm'
-import loginArt from '@/assets/login_art.webp'
 
 
 import { useEffect } from 'react';
@@ -39,11 +38,13 @@ export default function LoginPage() {
           {/* Left: Illustration */}
           <div className="relative hidden md:block">
             <Image
-              src={loginArt}
+              src="/assets/login_art.webp"
+              width={512}
+              height={768}
+              
               alt="Stylized login art"
               className="h-full w-full object-cover"
               priority
-              placeholder="blur"
             />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-slate-900/30 to-transparent" />
             <div className="absolute bottom-2 right-2 text-xs text-white/30">
