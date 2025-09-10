@@ -1,3 +1,8 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSimStore } from '@/components/useSimStore';
 import RegulationCanvas from "@/components/RegulationCanvas";
 import LeftControl1Regulation from "@/components/LeftControl1Regulation";
 import RegulationFlightListLeftPanel2 from "@/components/RegulationFlightListLeftPanel2";
@@ -8,6 +13,28 @@ import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SlackViewControl from "@/components/SlackViewControl";
 
 export default function RegulationsPage() {
+  const router = useRouter();
+  const user = useSimStore((state) => state.user);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
+    setHydrated(useSimStore.persist.hasHydrated());
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hydrated && !user) {
+      router.push('/login');
+    }
+  }, [hydrated, user, router]);
+
+  if (!hydrated || !user) {
+    return null;
+  }
+
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
       <StateResetOnPageLoad />

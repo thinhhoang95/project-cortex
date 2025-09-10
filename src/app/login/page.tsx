@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function LoginPage() {
   return (
-    <main className="relative min-h-screen flex items-center justify-center px-6 py-12">
+    <main className="relative h-screen flex items-center justify-center px-6 py-12 overflow-hidden">
       {/* Ambient cyan glow accents */}
       <div className="pointer-events-none absolute -top-20 -left-24 h-80 w-80 rounded-full bg-cyan-500/20 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full bg-cyan-400/10 blur-3xl" />
@@ -33,7 +33,7 @@ export default function LoginPage() {
                 name="email"
                 type="email"
                 autoComplete="email"
-                placeholder="you@company.com"
+                placeholder="your.name@intuelle.com"
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-white placeholder-white/40 outline-none transition focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-500/30"
               />
             </div>
@@ -74,7 +74,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-xs text-white/50">
-            Don&apos;t have access? Contact me at <Link href="mailto:dthoang@intuelle.com" className="text-white/60 hover:text-white">dthoang@intuelle.com</Link>.
+            Don&apos;t have access? Ping me at <Link href="mailto:dthoang@intuelle.com" className="text-white/60 hover:text-white">dthoang@intuelle.com</Link>.
           </p>
         </div>
 

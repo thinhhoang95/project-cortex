@@ -1,3 +1,8 @@
+'use client';
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSimStore } from "@/components/useSimStore";
 import MapCanvas from "@/components/MapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
 import RightControl1 from "@/components/RightControl1";
@@ -6,6 +11,28 @@ import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
 
 export default function Page() {
+  const router = useRouter();
+  const user = useSimStore((state) => state.user);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
+    setHydrated(useSimStore.persist.hasHydrated());
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hydrated && !user) {
+      router.push('/login');
+    }
+  }, [hydrated, user, router]);
+
+  if (!hydrated || !user) {
+    return null;
+  }
+
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
       <StateResetOnPageLoad />

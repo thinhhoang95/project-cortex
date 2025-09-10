@@ -1,6 +1,14 @@
 "use client";
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse } from "@/lib/models";
+
+interface User {
+  email: string;
+  signInDate: string;
+  token: string;
+  renewToken: string;
+}
 
 interface Hotspot {
   traffic_volume_id: string;
@@ -105,6 +113,8 @@ type State = {
   deltaMin: number;
   // View options control (global minimized state so other UI can react)
   viewOptionsMinimized: boolean;
+  // User state
+  user: User | null;
   setRegulationVisibleFlightIds: (ids: string[]) => void;
   setRegulationListedFlightIds: (ids: string[]) => void;
   setRange: (r: [number, number], t?: number) => void;
@@ -184,6 +194,7 @@ type State = {
   removeFlightFromBasketFlow: (id: string, key: string) => void;
   moveFlightBetweenBasketFlows: (fromId: string, toId: string, key: string) => void;
   setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => void;
+  setUser: (user: User | null) => void;
 };
 
 export type FlowBasketItem = {
@@ -240,6 +251,7 @@ const defaultState: Pick<State,
   | 'isFetchingSlack'
   | 'deltaMin'
   | 'viewOptionsMinimized'
+  | 'user'
 > = {
   t: 0,
   range: [0, 24 * 3600],
@@ -287,10 +299,12 @@ const defaultState: Pick<State,
   isFetchingSlack: false,
   deltaMin: 0,
   viewOptionsMinimized: false,
+  user: null,
 };
 
-export const useSimStore = create<State>((set, get) => ({
+export const useSimStore = create(persist<State>((set, get) => ({
   ...defaultState,
+  setUser: (user) => set({ user }),
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -502,7 +516,12 @@ export const useSimStore = create<State>((set, get) => ({
       })
     }));
   }
-}));
+}),
+{
+  name: 'sim-storage',
+  partialize: (state) => ({ user: state.user }),
+}
+));
 
 function normalizeBasketItems(items: Array<string | FlowBasketItem> | undefined): FlowBasketItem[] {
   const byKey = new Map<string, FlowBasketItem>();

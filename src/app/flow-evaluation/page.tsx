@@ -1,6 +1,6 @@
 "use client";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -110,6 +110,9 @@ export default function FlowEvaluationPage() {
 }
 
 function FlowEvaluationPageContent() {
+  const router = useRouter();
+  const user = useSimStore((state) => state.user);
+  const [hydrated, setHydrated] = useState(false);
   const sp = useSearchParams();
   const payloadParam = sp?.get("payload") || null;
   const autostart = (sp?.get("autostart") || "0") === "1" || !!payloadParam;
@@ -134,6 +137,20 @@ function FlowEvaluationPageContent() {
   const [expandedOccAll, setExpandedOccAll] = useState<boolean>(false);
   // View toggle UI only (logic wiring to be handled later)
   const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all'>("demand");
+
+  useEffect(() => {
+    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
+    setHydrated(useSimStore.persist.hasHydrated());
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hydrated && !user) {
+      router.push('/login');
+    }
+  }, [hydrated, user, router]);
 
   // Initialize default histogram view range once based on earliest target "from" time
   const didInitViewDefault = useRef<boolean>(false);
@@ -391,6 +408,10 @@ function FlowEvaluationPageContent() {
     { key: 'rate_change_lower_bound_min', description: 'Minutes to expand below earliest target bin', default: 0 },
     { key: 'rate_change_upper_bound_min', description: 'Minutes to expand above latest target bin', default: 0 },
   ]), []);
+
+  if (!hydrated || !user) {
+    return null;
+  }
 
   return (
     <main className="min-h-screen w-screen overflow-x-hidden bg-slate-900 relative">
