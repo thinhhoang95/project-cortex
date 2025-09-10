@@ -138,6 +138,12 @@ function FlowEvaluationPageContent() {
   const [expandedOccOriginal, setExpandedOccOriginal] = useState<boolean>(false);
   // View toggle UI only (logic wiring to be handled later)
   const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all' | 'occupancy_original'>("demand");
+  // Ripple TV sort mode (applies only to ripple TVs in Demand/Occupancy views)
+  const [rippleSortMode, setRippleSortMode] = useState<'total' | 'abs_change'>("total");
+  // Occupancy Flow/Total-Pre TV sort mode
+  const [occOrigSortMode, setOccOrigSortMode] = useState<'total' | 'flow_absolute' | 'flow_relative' | 'exceedance'>("total");
+  // Occupancy Pre-Post TV sort mode
+  const [occAllSortMode, setOccAllSortMode] = useState<'total' | 'abs_change' | 'exceedance'>("total");
 
   useEffect(() => {
     const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
@@ -411,6 +417,131 @@ function FlowEvaluationPageContent() {
     const ids = Array.from(new Set(cells.map((c) => String(c[0]))));
     return ids.sort((a, b) => a.localeCompare(b));
   }, [evalState.data?.ripple_cells]);
+
+  // Map optimization result flows by id for quick lookup
+  const optFlowById = useMemo(() => {
+    const mp = new Map<number, (AutomaticRateAdjustmentResponse["flows"][number])>();
+    for (const f of (optState.data?.flows || [])) {
+      mp.set(Number(f.flow_id), f);
+    }
+    return mp;
+  }, [optState.data?.flows]);
+
+  // Memoized per-flow ripple score maps for sorting
+  const rippleScoreByFlowId = useMemo(() => {
+    const scores = new Map<number, Record<string, number>>();
+    const vFrom = hhmmToMinutesSafe(viewFrom);
+    const vTo = hhmmToMinutesSafe(viewTo);
+    const flows = evalState.data?.flows || [];
+    for (const fl of flows) {
+      const flowId = Number(fl.flow_id);
+      const optFlow = optFlowById.get(flowId);
+      const preOcc = fl.ripple_occupancy || {};
+      const preDem = fl.ripple_demands || {};
+      const postOcc = optFlow?.ripple_occupancy_opt || {};
+      // Collect candidate ripple TV ids across occupancy/demand/post to ensure coverage
+      const tvIds = Array.from(new Set<string>([
+        ...Object.keys(preOcc || {}),
+        ...Object.keys(preDem || {}),
+        ...Object.keys(postOcc || {}),
+      ].map(String)));
+
+      const scoreByTv: Record<string, number> = {};
+      for (const tvId of tvIds) {
+        const pre = (preOcc?.[tvId] && Array.isArray(preOcc[tvId])) ? preOcc[tvId] : (preDem?.[tvId] || []);
+        const postRaw = postOcc?.[tvId];
+        const post = (postRaw && Array.isArray(postRaw)) ? postRaw : undefined;
+
+        let score = 0;
+        if (rippleSortMode === 'total') {
+          const series = Array.isArray(post) && post.length > 0 ? post : pre || [];
+          for (let i = 0; i < series.length; i++) {
+            const startMin = i * minutesPerBin;
+            if (startMin < vFrom || startMin > vTo) continue;
+            const v = Number(series[i] ?? 0);
+            score += Number.isFinite(v) ? v : 0;
+          }
+        } else {
+          // abs_change: sum |post - pre| over in-view bins; treat missing post as 0 change (post = pre)
+          const A = pre || [];
+          const B = Array.isArray(post) ? post : (pre || []);
+          const n = Math.min(A.length, B.length);
+          for (let i = 0; i < n; i++) {
+            const startMin = i * minutesPerBin;
+            if (startMin < vFrom || startMin > vTo) continue;
+            const a = Number(A[i] ?? 0);
+            const b = Number(B[i] ?? 0);
+            const aa = Number.isFinite(a) ? a : 0;
+            const bb = Number.isFinite(b) ? b : 0;
+            score += Math.abs(bb - aa);
+          }
+        }
+        scoreByTv[String(tvId)] = score;
+      }
+      scores.set(flowId, scoreByTv);
+    }
+    return scores;
+  }, [evalState.data?.flows, optFlowById, rippleSortMode, minutesPerBin, viewFrom, viewTo]);
+
+  // Memoized scores for Occupancy Pre-Post sorting
+  const occAllScoreByTv = useMemo(() => {
+    const d = occAllState.data;
+    const scores: Record<string, number> = {};
+    if (!d) return scores;
+    const minutes = Number(d.time_bin_minutes || minutesPerBin || 15);
+    const vFrom = hhmmToMinutesSafe(viewFrom);
+    const vTo = hhmmToMinutesSafe(viewTo);
+    const pre = d.pre_counts || {};
+    const post = d.post_counts || {};
+    const capacities = d.capacity || {};
+    const tvIds = Array.from(new Set<string>([
+      ...Object.keys(pre || {}),
+      ...Object.keys(post || {}),
+      ...Object.keys(capacities || {}),
+    ]));
+    for (const tvId of tvIds) {
+      const A = pre?.[tvId] || [];
+      const B = post?.[tvId] || [];
+      const C = capacities?.[tvId] || [];
+      let score = 0;
+      if (occAllSortMode === 'total') {
+        const S = (Array.isArray(B) && B.length > 0) ? B : A;
+        for (let i = 0; i < S.length; i++) {
+          const startMin = i * minutes;
+          if (startMin < vFrom || startMin > vTo) continue;
+          const v = Number(S[i] ?? 0);
+          score += Number.isFinite(v) ? v : 0;
+        }
+      } else if (occAllSortMode === 'abs_change') {
+        const n = Math.min(A.length, B.length);
+        for (let i = 0; i < n; i++) {
+          const startMin = i * minutes;
+          if (startMin < vFrom || startMin > vTo) continue;
+          const a = Number(A[i] ?? 0);
+          const b = Number(B[i] ?? 0);
+          const aa = Number.isFinite(a) ? a : 0;
+          const bb = Number.isFinite(b) ? b : 0;
+          score += Math.abs(bb - aa);
+        }
+      } else {
+        // exceedance: sum of positive (demand - capacity) over in-view bins using post if available else pre
+        const S = (Array.isArray(B) && B.length > 0) ? B : A;
+        const n = Math.min(S.length, C.length || S.length);
+        for (let i = 0; i < n; i++) {
+          const startMin = i * minutes;
+          if (startMin < vFrom || startMin > vTo) continue;
+          const dem = Number(S[i] ?? 0);
+          const cap = Number(C?.[i] ?? Number.POSITIVE_INFINITY);
+          const dd = Number.isFinite(dem) ? dem : 0;
+          const cc = Number.isFinite(cap) ? cap : Number.POSITIVE_INFINITY;
+          const ex = Math.max(0, dd - cc);
+          score += ex;
+        }
+      }
+      scores[String(tvId)] = score;
+    }
+    return scores;
+  }, [occAllState.data, occAllSortMode, viewFrom, viewTo, minutesPerBin]);
 
   const flowFlightCounts = useMemo(() => {
     const mp = new Map<number, number>();
@@ -864,7 +995,7 @@ function FlowEvaluationPageContent() {
 
 
           {/* Demand vs Occupancy toggle (adds Occupancy Pre-Post) */}
-          <div className="mt-3 flex items-center gap-2 mb-6">
+          <div className="mt-3 flex flex-wrap items-center gap-3 mb-6">
               <div className="text-[11px] uppercase tracking-wider text-white/60">Histogram Values</div>
               <div className="inline-flex rounded-md shadow-xs overflow-hidden" role="group" aria-label="Toggle view between Demand, Occupancy, Occupancy Flow/Total, and Occupancy Pre-Post">
                 <button
@@ -901,7 +1032,7 @@ function FlowEvaluationPageContent() {
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
                   }`}
                 >
-                  Occupancy Flow/Total
+                  Occupancy Flow/Total-Pre
                 </button>
                 <button
                   type="button"
@@ -916,6 +1047,60 @@ function FlowEvaluationPageContent() {
                   Occupancy Pre-Post
                 </button>
               </div>
+              {(seriesView === 'demand' || seriesView === 'occupancy') && (
+                <div className="ml-auto flex items-center gap-2">
+                  <div className="text-[11px] uppercase tracking-wider text-white/60">Ripple TV Sort</div>
+                  <select
+                    className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                    value={rippleSortMode}
+                    onChange={(e) => setRippleSortMode(e.currentTarget.value as 'total' | 'abs_change')}
+                  >
+                    <option value="total">Rank by Total</option>
+                    <option
+                      value="abs_change"
+                      disabled={!optState.data}
+                      title={!optState.data ? 'Run optimization to rank by changes.' : undefined}
+                    >
+                      Rank by Absolute Changes (Pre vs Post)
+                    </option>
+                  </select>
+                </div>
+              )}
+              {seriesView === 'occupancy_original' && (
+                <div className="ml-auto flex items-center gap-2">
+                  <div className="text-[11px] uppercase tracking-wider text-white/60">TV Sort</div>
+                  <select
+                    className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                    value={occOrigSortMode}
+                    onChange={(e) => setOccOrigSortMode(e.currentTarget.value as 'total' | 'flow_absolute' | 'flow_relative' | 'exceedance')}
+                  >
+                    <option value="total">Rank by Total</option>
+                    <option value="flow_absolute">Rank by Flow Absolute</option>
+                    <option value="flow_relative">Rank by Flow Relative</option>
+                    <option value="exceedance">By Exceedances</option>
+                  </select>
+                </div>
+              )}
+              {seriesView === 'occupancy_all' && (
+                <div className="ml-auto flex items-center gap-2">
+                  <div className="text-[11px] uppercase tracking-wider text-white/60">TV Sort</div>
+                  <select
+                    className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                    value={occAllSortMode}
+                    onChange={(e) => setOccAllSortMode(e.currentTarget.value as 'total' | 'abs_change' | 'exceedance')}
+                  >
+                    <option value="total">Rank by Total</option>
+                    <option
+                      value="abs_change"
+                      disabled={!occAllState.data?.post_counts}
+                      title={!occAllState.data?.post_counts ? 'Run optimization to get post counts for changes.' : undefined}
+                    >
+                      Rank by Absolute Changes (Pre vs Post)
+                    </option>
+                    <option value="exceedance">By Exceedances</option>
+                  </select>
+                </div>
+              )}
             </div>
 
           {seriesView === 'occupancy_original' && (
@@ -973,15 +1158,37 @@ function FlowEvaluationPageContent() {
                     if (!s || s.length === 0) continue;
                     perFlow[fid] = s.slice();
                   }
+                  // Rolling-hour transform to match capacity semantics
+                  const binsPerHour = Math.max(1, Math.round(60 / minutes));
+                  function rollingSum(arr: number[], k: number): number[] {
+                    const n = arr.length;
+                    const out = new Array(n).fill(0);
+                    let windowSum = 0;
+                    for (let i = 0; i < n; i++) {
+                      const v = Number(arr[i] ?? 0);
+                      windowSum += Number.isFinite(v) ? v : 0;
+                      if (i >= k) {
+                        const old = Number(arr[i - k] ?? 0);
+                        windowSum -= Number.isFinite(old) ? old : 0;
+                      }
+                      out[i] = windowSum;
+                    }
+                    return out;
+                  }
+                  const originalRolling = rollingSum(original, binsPerHour);
+                  const perFlowRolling: Record<number, number[]> = {};
+                  for (const [fidStr, arr] of Object.entries(perFlow)) {
+                    perFlowRolling[Number(fidStr)] = rollingSum(arr || [], binsPerHour);
+                  }
                   const T = Math.max(original.length, ...Object.values(perFlow).map(a => a.length));
                   const rows: Array<any> = new Array(T).fill(0).map((_, i) => {
                     const startMin = i * minutesPerBin;
-                    const total = Number(original?.[i] ?? 0) || 0;
+                    const total = Number(originalRolling?.[i] ?? 0) || 0;
                     const entry: any = { idx: i, startMin, total };
                     let sumFlows = 0;
                     for (const fidStr of Object.keys(perFlow)) {
                       const fid = Number(fidStr);
-                      const v = Number(perFlow[fid]?.[i] ?? 0) || 0;
+                      const v = Number(perFlowRolling[fid]?.[i] ?? 0) || 0;
                       entry[`f_${fid}`] = v;
                       sumFlows += v;
                     }
@@ -1007,20 +1214,54 @@ function FlowEvaluationPageContent() {
                   return { rows: filtered, flowTotals, hasOverlap, hasCapacity: capAvail };
                 }
 
-                // Determine TV order: controlled first; then by descending total original occupancy over view window
+                // Determine TV order: controlled first; then by selected metric within view window
                 const tvIds = Array.from(new Set<string>([...Object.keys(counts)]));
-                const totalsByTv: Record<string, number> = {};
+                type TvScore = { tv: string; total: number; flowAbs: number; flowRel: number; exceed: number };
+                const scores: Record<string, TvScore> = {};
                 for (const tv of tvIds) {
-                  const data = buildRowsForTv(tv);
-                  totalsByTv[tv] = data.rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+                  const built = buildRowsForTv(tv);
+                  const total = built.rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+                  const flowAbs = built.rows.reduce((s, r) => {
+                    // Sum contributions from all known flows at this TV
+                    let sum = 0;
+                    for (const t of built.flowTotals) {
+                      const v = Number(r[`f_${t.fid}`] ?? 0);
+                      sum += Number.isFinite(v) ? v : 0;
+                    }
+                    return s + sum;
+                  }, 0);
+                  const flowRel = total > 0 ? flowAbs / total : 0;
+                  // Exceedance using mentioned_capacity/capacity if present; otherwise 0
+                  const capSeries = capacities?.[tv];
+                  let exceed = 0;
+                  if (Array.isArray(capSeries) && capSeries.length > 0) {
+                    for (const r of built.rows) {
+                      const i = r.idx;
+                      const capVal = Number(capSeries?.[i]);
+                      const cc = Number.isFinite(capVal) ? capVal : Number.POSITIVE_INFINITY;
+                      const ex = Math.max(0, (Number(r.total) || 0) - cc);
+                      exceed += ex;
+                    }
+                  }
+                  scores[tv] = { tv, total, flowAbs, flowRel, exceed };
                 }
                 tvIds.sort((a, b) => {
                   const ac = controlled.has(a) ? 0 : 1;
                   const bc = controlled.has(b) ? 0 : 1;
                   if (ac !== bc) return ac - bc;
-                  const ta = totalsByTv[a] || 0;
-                  const tb = totalsByTv[b] || 0;
-                  if (ta !== tb) return tb - ta;
+                  const sa = (
+                    occOrigSortMode === 'total' ? scores[a].total :
+                    occOrigSortMode === 'flow_absolute' ? scores[a].flowAbs :
+                    occOrigSortMode === 'flow_relative' ? scores[a].flowRel :
+                    scores[a].exceed
+                  );
+                  const sb = (
+                    occOrigSortMode === 'total' ? scores[b].total :
+                    occOrigSortMode === 'flow_absolute' ? scores[b].flowAbs :
+                    occOrigSortMode === 'flow_relative' ? scores[b].flowRel :
+                    scores[b].exceed
+                  );
+                  if (sa !== sb) return sb - sa;
                   return a.localeCompare(b);
                 });
 
@@ -1160,7 +1401,20 @@ function FlowEvaluationPageContent() {
                     return startMin >= vFrom && startMin <= vTo;
                   });
                 };
-                const tvs = (d.tv_ids_order || []).filter(tv => (d.pre_counts?.[tv] || []).length > 0);
+                // Build TV list from union of available pre/post counts
+                const tvsUnion = Array.from(new Set<string>([
+                  ...(d.tv_ids_order || []),
+                  ...Object.keys(d.pre_counts || {}),
+                  ...Object.keys(d.post_counts || {}),
+                ]));
+                const tvs = tvsUnion
+                  .filter(tv => (d.pre_counts?.[tv] || []).length > 0 || (d.post_counts?.[tv] || []).length > 0)
+                  .sort((a, b) => {
+                    const sa = Number(occAllScoreByTv[a] ?? 0);
+                    const sb = Number(occAllScoreByTv[b] ?? 0);
+                    if (sa !== sb) return sb - sa;
+                    return a.localeCompare(b);
+                  });
                 if (tvs.length === 0) return <div className="text-xs text-gray-300">No aggregated occupancy available.</div>;
                 const LIMIT = 12;
                 const showAll = expandedOccAll;
@@ -1311,10 +1565,11 @@ function FlowEvaluationPageContent() {
                 if (sumA !== sumB) return sumB - sumA;
                 return a.localeCompare(b);
               });
+              const rippleScoreByTv = rippleScoreByFlowId.get(Number(flow.flow_id)) || {};
               const rippleTvIds = Object.keys(ripples).sort((a, b) => {
-                const sumA = (ripples[a] || []).reduce((s: number, v: number) => s + (Number(v) || 0), 0);
-                const sumB = (ripples[b] || []).reduce((s: number, v: number) => s + (Number(v) || 0), 0);
-                if (sumA !== sumB) return sumB - sumA;
+                const sa = Number(rippleScoreByTv[a] ?? 0);
+                const sb = Number(rippleScoreByTv[b] ?? 0);
+                if (sa !== sb) return sb - sa;
                 return a.localeCompare(b);
               });
 
