@@ -135,8 +135,9 @@ function FlowEvaluationPageContent() {
   const [expandedTargetCharts, setExpandedTargetCharts] = useState<Record<number, boolean>>({});
   const [expandedRippleCharts, setExpandedRippleCharts] = useState<Record<number, boolean>>({});
   const [expandedOccAll, setExpandedOccAll] = useState<boolean>(false);
+  const [expandedOccOriginal, setExpandedOccOriginal] = useState<boolean>(false);
   // View toggle UI only (logic wiring to be handled later)
-  const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all'>("demand");
+  const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all' | 'occupancy_original'>("demand");
 
   useEffect(() => {
     const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
@@ -181,8 +182,20 @@ function FlowEvaluationPageContent() {
   };
   const [occAllState, setOccAllState] = useState<{ loading: boolean; error: string | null; data: AutorateOccupancyResponse | null }>({ loading: false, error: null, data: null });
 
+  // Original counts state for Occupancy Flow/Total view
+  type CountsResponse = {
+    time_bin_minutes?: number;
+    counts?: Record<string, number[]>;
+    mentioned_counts?: Record<string, number[]>;
+    capacity?: Record<string, number[]>;
+    mentioned_capacity?: Record<string, number[]>;
+    metadata?: Record<string, any>;
+    timebins?: { labels?: string[]; start_bin?: number; end_bin?: number };
+  };
+  const [origCountsState, setOrigCountsState] = useState<{ loading: boolean; error: string | null; data: CountsResponse | null }>({ loading: false, error: null, data: null });
+
   const minutesPerBin = useMemo(() => {
-    // Prefer explicit minutes from Occupancy All response if present
+    // Prefer explicit minutes from Occupancy Pre-Post response if present
     if (occAllState.data?.time_bin_minutes && Number.isFinite(occAllState.data.time_bin_minutes)) {
       return Math.max(1, Math.round(occAllState.data.time_bin_minutes));
     }
@@ -237,9 +250,59 @@ function FlowEvaluationPageContent() {
       const occJson = (await occRes.json()) as AutorateOccupancyResponse;
       setOccAllState({ loading: false, error: null, data: occJson });
     } catch (e: any) {
-      setOccAllState({ loading: false, error: e?.message || 'Failed to fetch Occupancy All aggregation', data: null });
+      setOccAllState({ loading: false, error: e?.message || 'Failed to fetch Occupancy Pre-Post aggregation', data: null });
     }
   }
+
+  // Build union of TVs that appear in any flow's occupancy series (target or ripple)
+  const tvUnion = useMemo(() => {
+    const s = new Set<string>();
+    for (const fl of (evalState.data?.flows || [])) {
+      const t = fl.target_occupancy || {};
+      const r = fl.ripple_occupancy || {};
+      for (const k of Object.keys(t)) s.add(String(k));
+      for (const k of Object.keys(r)) s.add(String(k));
+    }
+    return s;
+  }, [evalState.data?.flows]);
+
+  // Fetch original counts when Occupancy Flow/Total is selected
+  const lastOrigKeyRef = useRef<string | null>(null);
+  async function handleSelectOccupancyOriginal() {
+    const ids = Array.from(tvUnion);
+    if (!ids || ids.length === 0) {
+      setOrigCountsState({ loading: false, error: null, data: null });
+      return;
+    }
+    try {
+      const key = JSON.stringify(ids.slice().sort());
+      if (lastOrigKeyRef.current === key && origCountsState.data) return;
+      setOrigCountsState({ loading: true, error: null, data: null });
+      const body = { traffic_volume_ids: ids, rolling_hour: false, rank_by: 'total_count' } as any;
+      const res = await (await import("@/lib/auth")).authFetch("/api/original_counts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `original_counts failed: ${res.status}`);
+      }
+      const json = (await res.json()) as CountsResponse;
+      setOrigCountsState({ loading: false, error: null, data: json });
+      lastOrigKeyRef.current = key;
+    } catch (e: any) {
+      setOrigCountsState({ loading: false, error: e?.message || 'Failed to fetch original counts', data: null });
+    }
+  }
+
+  // Auto-fetch when tab is active and inputs change
+  useEffect(() => {
+    if (seriesView === 'occupancy_original') {
+      void handleSelectOccupancyOriginal();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesView, tvUnion, evalState.data?.flows]);
 
   useEffect(() => {
     if (autostart && input && !evalState.data && !evalState.loading) {
@@ -318,7 +381,7 @@ function FlowEvaluationPageContent() {
       }
       const json = (await res.json()) as AutomaticRateAdjustmentResponse;
       setOptState({ loading: false, error: null, data: json });
-      // If user is currently viewing Occupancy All, switch back to Rate (Demand)
+      // If user is currently viewing Occupancy Pre-Post, switch back to Rate (Demand)
       // to avoid presenting stale aggregated occupancy (which updates only on tab switch).
       if (seriesView === 'occupancy_all') {
         setSeriesView('demand');
@@ -800,10 +863,10 @@ function FlowEvaluationPageContent() {
           )}
 
 
-          {/* Demand vs Occupancy toggle (adds Occupancy All) */}
+          {/* Demand vs Occupancy toggle (adds Occupancy Pre-Post) */}
           <div className="mt-3 flex items-center gap-2 mb-6">
               <div className="text-[11px] uppercase tracking-wider text-white/60">Histogram Values</div>
-              <div className="inline-flex rounded-md shadow-xs overflow-hidden" role="group" aria-label="Toggle view between Demand, Occupancy, and Occupancy All">
+              <div className="inline-flex rounded-md shadow-xs overflow-hidden" role="group" aria-label="Toggle view between Demand, Occupancy, Occupancy Flow/Total, and Occupancy Pre-Post">
                 <button
                   type="button"
                   aria-pressed={seriesView === 'demand'}
@@ -814,7 +877,7 @@ function FlowEvaluationPageContent() {
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
                   } rounded-l-md`}
                 >
-                  Rate (Demand)
+                  Rate (Demand) by Flow
                 </button>
                 <button
                   type="button"
@@ -826,7 +889,19 @@ function FlowEvaluationPageContent() {
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
                   }`}
                 >
-                  Occupancy
+                  Occupancy by Flow
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={seriesView === 'occupancy_original'}
+                  onClick={async () => { setSeriesView('occupancy_original'); await handleSelectOccupancyOriginal(); }}
+                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors -ml-px ${
+                    seriesView === 'occupancy_original'
+                      ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                      : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                  }`}
+                >
+                  Occupancy Flow/Total
                 </button>
                 <button
                   type="button"
@@ -838,10 +913,219 @@ function FlowEvaluationPageContent() {
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
                   } rounded-r-md`}
                 >
-                  Occupancy All
+                  Occupancy Pre-Post
                 </button>
               </div>
             </div>
+
+          {seriesView === 'occupancy_original' && (
+            <section className="mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[11px] uppercase tracking-wider text-white/60">Per-TV Occupancy Contributions vs Original</div>
+                {origCountsState.loading && <div className="text-xs text-white/70">Loading...</div>}
+              </div>
+              {origCountsState.error && (
+                <div className="text-xs text-rose-300 mb-2">{origCountsState.error}</div>
+              )}
+              {(() => {
+                const d = origCountsState.data;
+                const ids = Array.from(tvUnion);
+                if (!d && ids.length === 0 && !origCountsState.loading) {
+                  return <div className="text-xs text-gray-300">No TVs found in flow occupancy. Run evaluation first.</div>;
+                }
+                if (!d) return null;
+                const minutes = Number(d.time_bin_minutes || minutesPerBin || 15);
+                const mismatch = Number.isFinite(d.time_bin_minutes) && d.time_bin_minutes !== minutesPerBin;
+                const vFrom = hhmmToMinutesSafe(viewFrom);
+                const vTo = hhmmToMinutesSafe(viewTo);
+                const counts = d.mentioned_counts || d.counts || {};
+                const capacities = d.mentioned_capacity || d.capacity || {};
+
+                // Colors for flows
+                const allFlows = (evalState.data?.flows || []).map(f => f.flow_id).sort((a, b) => a - b);
+                const palette = ['#60a5fa','#f59e0b','#34d399','#a78bfa','#f472b6','#f87171','#22d3ee','#eab308','#4ade80','#f97316','#c084fc','#06b6d4','#84cc16','#ef4444','#10b981'];
+                const colorsByFlow: Record<number, string> = {};
+                allFlows.forEach((fid, i) => {
+                  const fromInput = input?.colorsByFlow?.[String(fid)] || null;
+                  colorsByFlow[fid] = fromInput || palette[i % palette.length];
+                });
+
+                // Controlled TVs set
+                const controlled = new Set<string>();
+                for (const fl of (evalState.data?.flows || [])) {
+                  if (fl.controlled_volume) controlled.add(String(fl.controlled_volume));
+                }
+
+                // Utility: build rows for one TV
+                function buildRowsForTv(tvId: string) {
+                  const original = counts[tvId] || [];
+                  const capSeries = capacities?.[tvId];
+                  const capAvail = Array.isArray(capSeries) && capSeries.some(v => Number.isFinite(v) && Number(v) >= 0);
+                  const perFlow: Record<number, number[]> = {};
+                  for (const fl of (evalState.data?.flows || [])) {
+                    const fid = fl.flow_id;
+                    let s: number[] | undefined = undefined;
+                    if (fl.target_occupancy && Object.prototype.hasOwnProperty.call(fl.target_occupancy, tvId)) {
+                      s = fl.target_occupancy[tvId];
+                    } else if (fl.ripple_occupancy && Object.prototype.hasOwnProperty.call(fl.ripple_occupancy, tvId)) {
+                      s = fl.ripple_occupancy[tvId];
+                    }
+                    if (!s || s.length === 0) continue;
+                    perFlow[fid] = s.slice();
+                  }
+                  const T = Math.max(original.length, ...Object.values(perFlow).map(a => a.length));
+                  const rows: Array<any> = new Array(T).fill(0).map((_, i) => {
+                    const startMin = i * minutesPerBin;
+                    const total = Number(original?.[i] ?? 0) || 0;
+                    const entry: any = { idx: i, startMin, total };
+                    let sumFlows = 0;
+                    for (const fidStr of Object.keys(perFlow)) {
+                      const fid = Number(fidStr);
+                      const v = Number(perFlow[fid]?.[i] ?? 0) || 0;
+                      entry[`f_${fid}`] = v;
+                      sumFlows += v;
+                    }
+                    entry.other = Math.max(0, total - sumFlows);
+                    if (capAvail) {
+                      const raw = capSeries?.[i];
+                      const capNum = Number(raw);
+                      entry.capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
+                    }
+                    return entry;
+                  });
+                  const filtered = rows.filter(r => r.startMin >= vFrom && r.startMin <= vTo);
+                  // Flow totals for ordering within this TV
+                  const flowTotals: Array<{ fid: number; total: number }> = (Object.keys(perFlow).map(k => Number(k))).map(fid => ({
+                    fid,
+                    total: filtered.reduce((s, r) => s + (Number(r[`f_${fid}`]) || 0), 0)
+                  }));
+                  flowTotals.sort((a, b) => b.total - a.total || a.fid - b.fid);
+                  const hasOverlap = filtered.some(r => {
+                    const flowsSum = flowTotals.reduce((s, f) => s + (Number(r[`f_${f.fid}`]) || 0), 0);
+                    return flowsSum > (Number(r.total) || 0);
+                  });
+                  return { rows: filtered, flowTotals, hasOverlap, hasCapacity: capAvail };
+                }
+
+                // Determine TV order: controlled first; then by descending total original occupancy over view window
+                const tvIds = Array.from(new Set<string>([...Object.keys(counts)]));
+                const totalsByTv: Record<string, number> = {};
+                for (const tv of tvIds) {
+                  const data = buildRowsForTv(tv);
+                  totalsByTv[tv] = data.rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+                }
+                tvIds.sort((a, b) => {
+                  const ac = controlled.has(a) ? 0 : 1;
+                  const bc = controlled.has(b) ? 0 : 1;
+                  if (ac !== bc) return ac - bc;
+                  const ta = totalsByTv[a] || 0;
+                  const tb = totalsByTv[b] || 0;
+                  if (ta !== tb) return tb - ta;
+                  return a.localeCompare(b);
+                });
+
+                if (tvIds.length === 0) return <div className="text-xs text-gray-300">No original counts available for selected TVs.</div>;
+
+                const LIMIT = 12;
+                const list = expandedOccOriginal ? tvIds : tvIds.slice(0, LIMIT);
+
+                const legendFlows = (evalState.data?.flows || []).map(f => f.flow_id).sort((a, b) => a - b);
+
+                return (
+                  <>
+                    {mismatch && (
+                      <div className="text-[11px] text-amber-300 mb-2">Warning: bin size mismatch between evaluation ({minutesPerBin}m) and original counts ({d.time_bin_minutes}m).</div>
+                    )}
+                    {/* Legend */}
+                    <div className="mb-2 flex flex-wrap gap-2 text-[12px] text-white/90">
+                      {legendFlows.map(fid => (
+                        <span key={`legend-${fid}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10">
+                          <span className="inline-block w-2 h-2 rounded-sm" style={{ background: colorsByFlow[fid] }} />
+                          <span>Flow {fid}</span>
+                        </span>
+                      ))}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10">
+                        <span className="inline-block w-2 h-2 rounded-sm" style={{ background: '#9ca3af' }} />
+                        <span>Other</span>
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
+                      {list.map(tvId => {
+                        const built = buildRowsForTv(tvId);
+                        const rows = built.rows;
+                        const flowOrder = built.flowTotals.map(t => t.fid);
+                        return (
+                          <div key={`occ-orig-${tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3 relative">
+                            {built.hasOverlap && (
+                              <div className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-400/60 text-rose-200">&gt;100%</div>
+                            )}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-sm font-semibold text-white flex items-center gap-2">
+                                {controlled.has(tvId) && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-400/60 text-rose-200">Controlled</span>
+                                )}
+                                <span>{tvId}</span>
+                              </div>
+                            </div>
+                            <div className="h-36">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <ComposedChart data={rows} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
+                                  <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
+                                  <XAxis
+                                    dataKey="idx"
+                                    tick={showLabels ? { fontSize: 10 } : false}
+                                    axisLine={true}
+                                    tickLine={true}
+                                    hide={false}
+                                    interval="preserveStartEnd"
+                                    tickFormatter={(value: any) => {
+                                      const i = Number(value ?? 0);
+                                      return binIndexToRangeLabel(i, minutesPerBin);
+                                    }}
+                                  />
+                                  <YAxis tick={{ fontSize: 10 }} axisLine={true} tickLine={true} width={32} />
+                                  <Tooltip
+                                    contentStyle={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
+                                    formatter={(value, name, ctx: any) => {
+                                      if (name === 'other') return [String(value), 'Other'];
+                                      if (name === 'capacity') return [String(value), 'Capacity'];
+                                      const m = String(name).match(/^f_(\d+)$/);
+                                      if (m) return [String(value), `Flow ${m[1]}`];
+                                      return [String(value), String(name)];
+                                    }}
+                                    labelFormatter={(label: any, payload: any) => {
+                                      const i = Number(label ?? 0);
+                                      const lbl = binIndexToRangeLabel(i, minutesPerBin);
+                                      const p = Array.isArray(payload) && payload.length > 0 ? payload[0].payload : null;
+                                      const total = p?.total ?? 0;
+                                      return `${lbl}  |  total: ${total}`;
+                                    }}
+                                  />
+                                  {flowOrder.map(fid => (
+                                    <Bar key={`bar-${tvId}-${fid}`} dataKey={`f_${fid}`} stackId="flows" name={`Flow ${fid}`} fill={colorsByFlow[fid]} />
+                                  ))}
+                                  <Bar dataKey="other" stackId="flows" name="Other" fill="#9ca3af" />
+                                  {built.hasCapacity && <Line type="stepAfter" dataKey="capacity" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />}
+                                </ComposedChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {tvIds.length > LIMIT && (
+                      <div className="mt-2">
+                        <button
+                          onClick={() => setExpandedOccOriginal((s) => !s)}
+                          className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
+                        >{expandedOccOriginal ? 'Show less' : 'Show more'}</button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </section>
+          )}
 
           {seriesView === 'occupancy_all' && (
             <section className="mb-8">
@@ -995,8 +1279,8 @@ function FlowEvaluationPageContent() {
             </section>
           )}
 
-          {/* Per-flow results (hidden when Occupancy All selected) */}
-          {seriesView !== 'occupancy_all' && (
+          {/* Per-flow results (hidden when aggregated views selected) */}
+          {seriesView !== 'occupancy_all' && seriesView !== 'occupancy_original' && (
           <section>
             {evalState.loading && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
