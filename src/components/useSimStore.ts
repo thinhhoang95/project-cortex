@@ -170,6 +170,9 @@ type State = {
   setViewOptionsMinimized: (minimized: boolean) => void;
   // Reset all non-function state back to defaults
   resetAll: () => void;
+  // Auth
+  login: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  logout: () => void;
   // Target Cells (Traffic Volume + Time Period)
   targetCells: Array<{ id: string; trafficVolume: string; from: string; to: string; createdAt: number }>;
   addTargetCell: (trafficVolume: string, from: string, to: string) => string; // returns id (existing or new)
@@ -305,6 +308,31 @@ const defaultState: Pick<State,
 export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((set, get) => ({
   ...defaultState,
   setUser: (user) => set({ user }),
+  login: async (email: string, password: string) => {
+    try {
+      const res = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username: email, password }).toString(),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        const message = String((data as any)?.error || 'Invalid email or password');
+        return { ok: false as const, error: message };
+      }
+      const token = String((data as any)?.access_token || '');
+      if (!token) {
+        return { ok: false as const, error: 'Malformed response from server' };
+      }
+      set({ user: { email, signInDate: new Date().toISOString(), token, renewToken: '' } });
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: 'Unable to sign in. Please try again.' };
+    }
+  },
+  logout: () => {
+    set({ user: null });
+  },
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
@@ -410,7 +438,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setDeltaMin: (delta) => set({ deltaMin: delta }),
   setViewOptionsMinimized: (minimized) => set({ viewOptionsMinimized: minimized }),
   // Reset all stateful values back to defaults (used on page navigation)
-  resetAll: () => set(() => ({ ...defaultState }))
+  resetAll: () => set((state) => ({ ...defaultState, user: state.user }))
   ,
   // Target Cells actions
   addTargetCell: (trafficVolume: string, from: string, to: string) => {

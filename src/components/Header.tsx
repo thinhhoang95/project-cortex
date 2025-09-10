@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 import { loadSectors } from '@/lib/airspace';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
 
 export default function Header() {
@@ -16,7 +16,8 @@ export default function Header() {
   const [searchResults, setSearchResults] = useState<Array<{id: string, type: 'flight' | 'traffic_volume', flight?: any, trafficVolume?: any}>>([]);
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
   
-  const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume } = useSimStore();
+  const router = useRouter();
+  const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout } = useSimStore();
   const pathname = usePathname();
 
   // Load traffic volumes data on component mount
@@ -273,7 +274,11 @@ export default function Header() {
                   Clear Cache
                 </button>
                 <button 
-                  onClick={() => setShowDropdown(false)}
+                  onClick={() => {
+                    setShowDropdown(false);
+                    logout();
+                    router.push('/login');
+                  }}
                   className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
                 >
                   Sign Out
