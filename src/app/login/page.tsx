@@ -83,7 +83,7 @@ export default function LoginPage() {
             Visit Kitchen's Blog
           </Link>
           <span className="text-sm text-white/40 mx-2">·</span>
-          <span className="text-sm text-white/50">See what we learned about solving DCBs.</span>
+          <span className="text-sm text-white/50">Proudly made in Toulouse.</span>
         </div>
       </section>
     </main>
