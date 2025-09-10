@@ -27,7 +27,7 @@ interface RankedFlightsResponse {
 type RegulationFlightListLeftPanel2Props = { embedded?: boolean };
 
 export default function RegulationFlightListLeftPanel2({ embedded = false }: RegulationFlightListLeftPanel2Props) {
-	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds, setFlowPreviewFlightId } = useSimStore();
+	const { selectedTrafficVolume, t, flights, regulationTimeWindow, regulationTargetFlightIds, addRegulationTargetFlight, setRegulationVisibleFlightIds, setRegulationListedFlightIds, setFlowPreviewFlightId } = useSimStore();
 	const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -126,6 +126,12 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 		setRegulationVisibleFlightIds(ids);
 	}, [visibleRows, setRegulationVisibleFlightIds]);
 
+	// Publish the full (un-sliced) list for flow extraction decoupled from UI expansion
+	useEffect(() => {
+		const allIds = rows.map(r => String(r.flightId));
+		setRegulationListedFlightIds(allIds);
+	}, [rows, setRegulationListedFlightIds]);
+
   // Reset expansion when the dataset changes
   useEffect(() => {
     setExpanded(false);
@@ -217,7 +223,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                     onClick={() => setExpanded(!expanded)}
                   >
                     <td
-                      className="p-2 text-center text-cyan-300 font-semibold"
+                      className="p-2 text-center italic opacity-80"
                       colSpan={rankingData ? 5 : 4}
                     >
                       {expanded ? 'Show less…' : `See more… (${rows.length - MAX_VISIBLE} more)`}

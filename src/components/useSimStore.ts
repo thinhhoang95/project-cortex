@@ -88,6 +88,7 @@ type State = {
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationVisibleFlightIds: string[];
+  regulationListedFlightIds: string[]; // full list (not limited by UI expansion)
   regulationTimeWindow: [number, number];
   regulationRate: number;
   regulations: Regulation[];
@@ -105,6 +106,7 @@ type State = {
   // View options control (global minimized state so other UI can react)
   viewOptionsMinimized: boolean;
   setRegulationVisibleFlightIds: (ids: string[]) => void;
+  setRegulationListedFlightIds: (ids: string[]) => void;
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
@@ -223,6 +225,7 @@ const defaultState: Pick<State,
   | 'flowPreviewFlightId'
   | 'regulationTargetFlightIds'
   | 'regulationVisibleFlightIds'
+  | 'regulationListedFlightIds'
   | 'regulationTimeWindow'
   | 'regulationRate'
   | 'regulations'
@@ -269,6 +272,7 @@ const defaultState: Pick<State,
   flowPreviewFlightId: null,
   regulationTargetFlightIds: new Set<string>(),
   regulationVisibleFlightIds: [],
+  regulationListedFlightIds: [],
   regulationTimeWindow: [0, 0],
   regulationRate: 0,
   regulations: [],
@@ -327,6 +331,7 @@ export const useSimStore = create<State>((set, get) => ({
   setFlowPreviewFlightId: (flightId) => set({ flowPreviewFlightId: flightId }),
   setFlowColorByCommunity: (m) => set({ flowColorByCommunity: m }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
+  setRegulationListedFlightIds: (ids) => set({ regulationListedFlightIds: ids }),
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });
     try {

@@ -19,6 +19,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     regulationTargetFlightIds,
     regulationVisibleFlightIds,
     setRegulationVisibleFlightIds,
+    regulationListedFlightIds,
+    setRegulationListedFlightIds,
     addRegulationTargetFlight,
     removeRegulationTargetFlight,
     clearRegulationTargetFlights,
@@ -322,6 +324,12 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setRegulationVisibleFlightIds(ids);
   }, [visibleRows, setRegulationVisibleFlightIds]);
 
+  // Publish full list (not limited by UI expansion) for flow extraction
+  useEffect(() => {
+    const allIds = flightTableData.map(r => String(r.flightId));
+    setRegulationListedFlightIds(allIds);
+  }, [flightTableData, setRegulationListedFlightIds]);
+
   // Reset expansion when dataset changes
   useEffect(() => {
     setExpanded(false);
@@ -411,9 +419,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   // Flow Control: request community assignments for visible arrivals
   async function requestFlowExtraction() {
     if (!selectedTrafficVolume) return;
-    const ids = Array.isArray(regulationVisibleFlightIds) ? regulationVisibleFlightIds : [];
+    const ids = Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : [];
     if (ids.length === 0) {
-      setFlowError('No flights visible in the list to extract flows.');
+      setFlowError('No flights available to extract flows.');
       return;
     }
     setFlowLoading(true);
@@ -449,7 +457,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     if (!flowViewEnabled) return;
     requestFlowExtraction();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationVisibleFlightIds]);
+  }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationListedFlightIds]);
 
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
   useEffect(() => {

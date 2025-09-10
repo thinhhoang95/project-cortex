@@ -18,6 +18,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setT,
     regulationTargetFlightIds,
     regulationVisibleFlightIds,
+    regulationListedFlightIds,
     addRegulationTargetFlight,
     removeRegulationTargetFlight,
     clearRegulationTargetFlights,
@@ -328,9 +329,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   // Flow Control: request community assignments for visible arrivals
   async function requestFlowExtraction() {
     if (!selectedTrafficVolume) return;
-    const ids = Array.isArray(regulationVisibleFlightIds) ? regulationVisibleFlightIds : [];
+    const ids = Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : [];
     if (ids.length === 0) {
-      setFlowError('No flights visible in the list to extract flows.');
+      setFlowError('No flights available to extract flows.');
       return;
     }
     setFlowLoading(true);
@@ -366,7 +367,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     if (!flowViewEnabled) return;
     requestFlowExtraction();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationVisibleFlightIds]);
+  }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationListedFlightIds]);
 
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
   useEffect(() => {
