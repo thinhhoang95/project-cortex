@@ -302,7 +302,7 @@ const defaultState: Pick<State,
   user: null,
 };
 
-export const useSimStore = create(persist<State>((set, get) => ({
+export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((set, get) => ({
   ...defaultState,
   setUser: (user) => set({ user }),
   setRange: (r, t = get().t) => set({ range: r, t }),
