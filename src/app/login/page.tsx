@@ -48,7 +48,7 @@ export default function LoginPage() {
             />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-slate-900/30 to-transparent" />
             <div className="absolute bottom-2 right-2 text-xs text-white/30">
-              Portrait of Thinh Hoang
+              OpenAI Sora
             </div>
           </div>
 
