@@ -13,7 +13,8 @@ export default function FlowCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups } = useSimStore();
+  const lastUpdateRef = useRef<number>(performance.now());
+  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -239,24 +240,21 @@ export default function FlowCanvas() {
         const b = new maplibregl.LngLatBounds();
         lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
         if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+        // Ensure first render after sources are fully ready
+        map.once("idle", () => {
+          try {
+            updateFlightLineFilters(mapRef.current);
+            updateFlowRendering(mapRef.current);
+          } catch (e) {
+            console.error("Error during initial updates:", e);
+          }
+        });
       } catch (err) {
         console.error('Failed to load base data', err);
       } finally {
         setBaseDataLoading(false);
       }
     });
-
-    // RAF loop (time progression + layer updates)
-    const loop = () => {
-      const now = performance.now();
-      const dt = now - lastTs.current;
-      lastTs.current = now;
-      tick(dt);
-      updateFlightLineFilters(mapRef.current);
-      updateFlowRendering(mapRef.current);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
 
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -265,11 +263,51 @@ export default function FlowCanvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // on t change from UI (drag), update filters immediately
-  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [t]);
+  // Control RAF loop based on playing; throttle to ~30 FPS
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (playing) {
+      lastTs.current = performance.now();
+      lastUpdateRef.current = lastTs.current;
+      const targetFrameMs = 1000 / 30;
+      const loop = () => {
+        const now = performance.now();
+        const dt = now - lastTs.current;
+        lastTs.current = now;
+        const sinceUpdate = now - lastUpdateRef.current;
+        if (sinceUpdate >= targetFrameMs) {
+          tick(dt);
+          updateFlightLineFilters(mapRef.current);
+          lastUpdateRef.current = now;
+        }
+        rafRef.current = requestAnimationFrame(loop);
+      };
+      rafRef.current = requestAnimationFrame(loop);
+      return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    } else {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = undefined; }
+      // Render once when pausing to ensure view is up to date
+      updateFlightLineFilters(mapRef.current);
+    }
+  }, [playing, tick]);
+
+  // on t change from UI (drag), update filters immediately when paused
+  useEffect(() => { if (!playing) updateFlightLineFilters(mapRef.current); }, [t, playing]);
+
+  // When a single-flight or group preview is toggled via hover, update filters immediately
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId]);
+
+  // Also react to group preview changes from FlowRegulationPanel header hover
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewGroupId]);
+
+  // Refresh filters on focus/visibility/selection changes
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
 
   // When flow view state changes, update rendering
   useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
+
+  // Ensure filters also react to flow mapping toggles (e.g., Flow Basket eye button)
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
 
   // on showFlightLineLabels change, toggle visibility
   useEffect(() => {
@@ -393,7 +431,17 @@ export default function FlowCanvas() {
 }
 
 function updateFlightLineFilters(map: maplibregl.Map | null) {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map){
+    return;
+  }
+  if (!map.isStyleLoaded()){
+    try {
+      map.once("idle", () => {
+        try { updateFlightLineFilters(map); } catch (e) { console.error("Deferred updateFlightLineFilters error:", e); }
+      });
+    } catch {}
+    return;
+  }
   const sim = useSimStore.getState();
   const tracks = (map as any).__trajectories as any[] | undefined;
   if (!tracks) return;
@@ -430,20 +478,27 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
   }
 
-  const filterExpr: any = [
-    "match",
-    ["to-string", ["get", "flightId"]],
-    lineIdsToShow,
-    true,
-    false
-  ];
+  let filterExpr: any;
+  if (lineIdsToShow.length === 0) {
+    filterExpr = ["==", 1, 0];
+  } else {
+    filterExpr = [
+      "in",
+      ["to-string", ["get", "flightId"]],
+      ["literal", lineIdsToShow]
+    ];
+  }
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume;
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
     const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
-    const lineOpacity = sim.flowViewEnabled ? 0.8 : baseOpacity;
-    map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
+    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
+    const prevOpacity = (map as any).__prevLineOpacity;
+    if (prevOpacity !== lineOpacity) {
+      map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
+      (map as any).__prevLineOpacity = lineOpacity;
+    }
   }
   if (map.getLayer("flight-line-labels")) {
     map.setFilter("flight-line-labels", filterExpr as any);
