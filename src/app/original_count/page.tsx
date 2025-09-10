@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from 'next/navigation';
+import { useSimStore } from '@/components/useSimStore';
 import Header from "@/components/Header";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -39,6 +41,9 @@ type CountsResponse = {
 };
 
 export default function OriginalCountPage() {
+  const router = useRouter();
+  const user = useSimStore((state) => state.user);
+  const [hydrated, setHydrated] = useState(false);
   const [options, setOptions] = useState<ChipOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [selectedTVs, setSelectedTVs] = useState<string[]>([]);
@@ -54,6 +59,20 @@ export default function OriginalCountPage() {
   const [viewToTime, setViewToTime] = useState<string>("23:59");
   const [showRequest, setShowRequest] = useState<boolean>(false);
   const [showResponse, setShowResponse] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
+    setHydrated(useSimStore.persist.hasHydrated());
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hydrated && !user) {
+      router.push('/login');
+    }
+  }, [hydrated, user, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +110,10 @@ export default function OriginalCountPage() {
     load();
     return () => { cancelled = true; };
   }, []);
+
+  if (!hydrated || !user) {
+    return null;
+  }
 
   const valid = useMemo(() => {
     const from = hhmmToSec(fromTime);
