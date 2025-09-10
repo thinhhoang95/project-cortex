@@ -111,10 +111,6 @@ export default function OriginalCountPage() {
     return () => { cancelled = true; };
   }, []);
 
-  if (!hydrated || !user) {
-    return null;
-  }
-
   const valid = useMemo(() => {
     const from = hhmmToSec(fromTime);
     const to = hhmmToSec(toTime);
@@ -188,6 +184,11 @@ export default function OriginalCountPage() {
     const ids = order && order.length > 0 ? order.filter((id) => counts[id]) : Object.keys(counts);
     return ids.map((tv) => ({ tvId: tv, series: counts[tv] || [], capacitySeries: capacity[tv] || [], labels }));
   }, [data]);
+
+  // Ensure hooks are always called before any early return
+  if (!hydrated || !user) {
+    return null;
+  }
 
   return (
     <main className="min-h-screen w-screen overflow-x-hidden bg-slate-900 relative">
