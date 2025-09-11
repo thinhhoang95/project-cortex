@@ -2,6 +2,7 @@
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import { useEffect, useRef } from "react";
+import VerticalProfileChart from "@/components/VerticalProfileChart";
 
 interface FlightDetailsPopupProps {
   flight: Trajectory | null;
@@ -132,6 +133,17 @@ export default function FlightDetailsPopup({ flight, position, onClose }: Flight
             <div className="flex justify-between">
               <span className="opacity-80">Elapsed Time:</span>
               <span className="font-medium">{formatTime(elapsedTime)}</span>
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <div className="rounded-lg bg-white/10 border border-white/20 p-2">
+              <VerticalProfileChart flight={flight} currentTime={t} height={140} />
+              <div className="mt-1 flex items-center justify-between text-[11px] opacity-80">
+                <span>T+0</span>
+                <span>Flight Level</span>
+                <span>T+{formatTime(Math.max(0, flight.t1 - flight.t0))}</span>
+              </div>
             </div>
           </div>
         </div>
