@@ -15,7 +15,7 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
@@ -545,6 +545,34 @@ export default function MapCanvas() {
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume]);
 
+  // Weather overlay integration (Surface Precipitation)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // If overlay is disabled, hide any existing precip layers
+    if (weatherOverlay !== 'surface-precip') {
+      hideTpLayers(map);
+      (map as any).__tpCurrentId = undefined;
+      return;
+    }
+
+    const apply = () => {
+      try {
+        const hh = isoHourFrom(date, t);
+        ensureTpHour(map, hh);
+      } catch (e) {
+        // no-op
+      }
+    };
+
+    if (!map.isStyleLoaded()) {
+      try { map.once('idle', apply); } catch {}
+    } else {
+      apply();
+    }
+  }, [weatherOverlay, t, date]);
+
   // on showFlightLineLabels change, update layer visibility
   useEffect(() => {
     if (mapRef.current && mapRef.current.getLayer("flight-line-labels")) {
@@ -970,4 +998,77 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       (map as any).__prevLineOpacity = lineOpacity;
     }
   }
+}
+
+// --- Weather overlay helpers ---
+function isoHourFrom(dateStr: string, t: number): string {
+  // dateStr is DD/MM/YYYY
+  const [ddStr, mmStr, yyyyStr] = String(dateStr || '').split('/') as [string, string, string];
+  const dd = Number(ddStr || '1');
+  const mm = Number(mmStr || '1');
+  const yyyy = Number(yyyyStr || '1970');
+  const hour = Math.max(0, Math.min(23, Math.floor((t || 0) / 3600)));
+  const y = String(yyyy).padStart(4, '0');
+  const m = String(mm).padStart(2, '0');
+  const d = String(dd).padStart(2, '0');
+  const h = String(hour).padStart(2, '0');
+  return `${y}-${m}-${d}T${h}`;
+}
+
+function tpTile(urlEncodedCog: string): string {
+  const titiler = "http://localhost:8001";
+  return `${titiler}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${urlEncodedCog}`;
+}
+
+function ensureTpHour(map: maplibregl.Map, isoHour: string) {
+  if (!map || !map.isStyleLoaded()) return;
+  const id = 'era5_tp';
+  const prevHour: string | undefined = (map as any).__tpHour;
+  if (prevHour === isoHour && map.getLayer(id)) {
+    // Already showing this hour
+    try { map.setPaintProperty(id, 'raster-opacity', 0.65); } catch {}
+    return;
+  }
+
+  const cog = encodeURIComponent(`http://localhost:9000/era5_tp_${isoHour}.tif`);
+  const tiles = [rasterTile(cog, { rescale: [0, 5], colormap_name: 'viridis' })];
+
+  // If a previous source/layer exists, remove to force refetch with new tiles
+  if (map.getLayer(id)) {
+    try { map.removeLayer(id); } catch {}
+  }
+  if (map.getSource(id)) {
+    try { map.removeSource(id); } catch {}
+  }
+
+  map.addSource(id, {
+    type: 'raster',
+    tiles,
+    tileSize: 256,
+    attribution: 'ECMWF/Copernicus'
+  } as any);
+
+  // Insert below flight lines if present
+  const beforeId = map.getLayer('flight-lines') ? 'flight-lines' : undefined;
+  const layer: any = { id, type: 'raster', source: id, paint: { 'raster-opacity': 0.65 } };
+  // @ts-ignore second param optional
+  map.addLayer(layer, beforeId);
+
+  (map as any).__tpHour = isoHour;
+}
+
+function hideTpLayers(map: maplibregl.Map) {
+  if (!map || !map.isStyleLoaded()) return;
+  try {
+    const id = 'era5_tp';
+    if (map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', 0);
+  } catch {}
+}
+
+function rasterTile(urlEncodedCog: string, params?: { rescale?: [number, number]; colormap_name?: string }): string {
+  const titiler = "http://localhost:8001";
+  const qp: string[] = [`url=${urlEncodedCog}`];
+  if (params?.rescale) qp.push(`rescale=${params.rescale[0]},${params.rescale[1]}`);
+  if (params?.colormap_name) qp.push(`colormap_name=${params.colormap_name}`);
+  return `${titiler}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?${qp.join('&')}`;
 }

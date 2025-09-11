@@ -15,8 +15,8 @@ export default function ViewOptionsControl({ embedded = false, className }: View
     t,
     setT,
     date,
-    speed,
-    setSpeed,
+    weatherOverlay,
+    setWeatherOverlay,
     showFlightLineLabels,
     setShowFlightLineLabels,
     showCallsigns,
@@ -125,16 +125,34 @@ export default function ViewOptionsControl({ embedded = false, className }: View
           </div>
           <div className="h-6 w-px bg-white/30" />
           <div className="flex items-center gap-2">
-            <span className="text-xs opacity-80">Speed</span>
-            <select
-              className="rounded-full bg-white/50 text-slate-900 px-2 py-1 text-xs focus:outline-none"
-              value={speed}
-              onChange={(e) => setSpeed(Number(e.currentTarget.value))}
-            >
-              {[0.5, 1, 2, 5, 10].map((x) => (
-                <option key={x} value={x}>{x}×</option>
-              ))}
-            </select>
+            {/* Weather icon */}
+            <svg className="w-5 h-5 text-white/90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 17.58A5 5 0 0018 8h-1.26A8 8 0 104 16.25" />
+              <path d="M8 19v2" />
+              <path d="M12 19v2" />
+              <path d="M16 19v2" />
+            </svg>
+            {/* Sleek dropdown: no border, custom chevron */}
+            <div className="relative inline-flex items-center">
+              <select
+                className="appearance-none bg-transparent border-0 text-white/90 hover:text-white pr-6 pl-1 py-1 text-xs focus:outline-none focus:ring-0"
+                value={weatherOverlay}
+                onChange={(e) => setWeatherOverlay(e.currentTarget.value as any)}
+                aria-label="Weather Overlay"
+                title="Weather Overlay"
+              >
+                <option className="bg-slate-800 text-white" value="none">No Weather Overlay</option>
+                <option className="bg-slate-800 text-white" value="surface-precip">Surface Precipitation</option>
+              </select>
+              <svg
+                className="pointer-events-none absolute right-0 mr-0.5 w-4 h-4 text-white/70"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.25 8.29a.75.75 0 01-.02-1.08z" clipRule="evenodd" />
+              </svg>
+            </div>
           </div>
         </div>
 
@@ -277,5 +295,3 @@ function formatDateParts(dateStr: string) {
     return { dow: "MON", month: "JANUARY", day: "01" };
   }
 }
-
-
