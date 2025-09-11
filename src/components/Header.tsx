@@ -135,7 +135,7 @@ export default function Header() {
         <div className="flex items-center space-x-8">
           <nav className="flex items-center space-x-6">
             <Link href="/" className={`${pathname === '/' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
-              Predictions
+              Monitoring
             </Link>
             <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
               Regulations

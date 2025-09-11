@@ -612,6 +612,11 @@ export default function MapCanvas() {
     }
   }, [flLowerBound, flUpperBound]);
 
+  // Also refresh plane positions and line/icon filters when FL range changes
+  useEffect(() => {
+    updatePlanePositions(mapRef.current);
+  }, [flLowerBound, flUpperBound]);
+
   // Update highlight layer when highlighted traffic volume changes
   useEffect(() => {
     if (mapRef.current) {
@@ -879,6 +884,7 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
   const planesFC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
   const activeFlightIds: string[] = [];
+  const insideRangeActiveSet = new Set<string>();
 
   for (const tr of tracks) {
     if (sim.t < tr.t0 || sim.t > tr.t1) continue;
@@ -900,6 +906,11 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     const flightLevel = Math.round(alt / 100);
     const altitudeLabel = `FL${flightLevel.toString().padStart(3, '0')}`;
 
+    // Filter by current flight level range
+    if (!(flightLevel >= sim.flLowerBound && flightLevel <= sim.flUpperBound)) {
+      continue;
+    }
+
     planesFC.features.push({
       type: "Feature",
       geometry: { type: "Point", coordinates: [lon, lat] },
@@ -913,6 +924,7 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     });
 
     activeFlightIds.push(tr.flightId);
+    insideRangeActiveSet.add(String(tr.flightId));
   }
 
   const src = map.getSource("planes") as maplibregl.GeoJSONSource | undefined;
@@ -922,10 +934,15 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
   let lineIdsToShow: string[];
   if (sim.flowPreviewFlightId) {
-    // Hover preview takes precedence over other filters and shows the full trajectory regardless of current time
-    lineIdsToShow = [String(sim.flowPreviewFlightId)];
+    const pid = String(sim.flowPreviewFlightId);
+    // Only show if currently active and within FL range
+    lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
+  } else if (sim.focusMode) {
+    lineIdsToShow = Array.from(sim.focusFlightIds)
+      .map(String)
+      .filter((id) => insideRangeActiveSet.has(id));
   } else {
-    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+    lineIdsToShow = Array.from(insideRangeActiveSet);
   }
 
   let filterExpr: any;
