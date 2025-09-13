@@ -7,19 +7,9 @@ import ShimmeringText from "@/components/ShimmeringText";
 import { BaseEvaluationResponse, AutomaticRateAdjustmentResponse } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-  Cell,
-  PieChart,
-  Pie,
-} from "recharts";
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie } from "recharts";
+import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
+import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
 
 type FlowInputPayload = {
   flows: Record<string | number, string[]>;
@@ -61,27 +51,6 @@ function encodePayloadParam(obj: any): string {
   }
 }
 
-function hhmmToMinutesSafe(hhmm?: string): number {
-  if (!hhmm) return 0;
-  const [h, m] = String(hhmm).split(":").map((x) => Number(x));
-  const hh = Number.isFinite(h) ? h : 0;
-  const mm = Number.isFinite(m) ? m : 0;
-  const total = Math.max(0, Math.min(1439, hh * 60 + mm));
-  return total;
-}
-
-function minutesToHHMM(totalMinutes: number): string {
-  const m = Math.max(0, Math.min(1439, Math.floor(totalMinutes)));
-  const hh = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-}
-
-function binIndexToRangeLabel(binIdx: number, minutesPerBin: number): string {
-  const startMin = binIdx * minutesPerBin;
-  const endMin = startMin + minutesPerBin;
-  return `${minutesToHHMM(startMin)}-${minutesToHHMM(endMin)}`;
-}
 
 function parseViewParam(v: string | null): { from: string; to: string } | null {
   if (!v) return null;
@@ -128,7 +97,7 @@ function FlowEvaluationPageContent() {
   const [showResponse, setShowResponse] = useState<boolean>(false);
   const [showOptResponse, setShowOptResponse] = useState<boolean>(false);
   const [weightsOverride, setWeightsOverride] = useState<Record<string, number> | null>(null);
-  const [showLabels, setShowLabels] = useState<boolean>(false);
+  const showLabels = true;
   const [showWeightDetails, setShowWeightDetails] = useState<boolean>(false);
   const [saParamsOverride, setSaParamsOverride] = useState<Record<string, number> | null>(null);
   const [rippleSummaryExpanded, setRippleSummaryExpanded] = useState<boolean>(false);
@@ -865,10 +834,6 @@ function FlowEvaluationPageContent() {
 
             {/* Debug toggles */}
             <div className="mt-3 flex items-center gap-3 text-[12px]">
-              <label className="inline-flex items-center gap-2 text-white/90">
-                <input type="checkbox" className="accent-blue-500" checked={showLabels} onChange={(e) => setShowLabels(e.currentTarget.checked)} />
-                Show labels on charts
-              </label>
               <button
                 onClick={() => setShowDebug((s) => !s)}
                 className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
@@ -1370,119 +1335,21 @@ function FlowEvaluationPageContent() {
 
           {seriesView === 'occupancy_all' && (
             <section className="mb-8">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[11px] uppercase tracking-wider text-white/60">Aggregated Occupancy Across Flows</div>
-                {occAllState.loading && <div className="text-xs text-white/70">Loading...</div>}
-              </div>
-              {occAllState.error && (
-                <div className="text-xs text-rose-300 mb-2">{occAllState.error}</div>
-              )}
-              {occAllState.data && (() => {
-                const d = occAllState.data!;
-                const minutes = Number(d.time_bin_minutes || 15);
-                const vFrom = hhmmToMinutesSafe(viewFrom);
-                const vTo = hhmmToMinutesSafe(viewTo);
-                const buildRows = (pre: number[], post: number[], capacitySeries?: number[]) => {
-                  const n = Math.min(pre.length, post.length);
-                  const rows: Array<{ idx: number; base: number; inc: number; dec: number; pre: number; post: number; capacity?: number | null }>
-                    = new Array(n).fill(0).map((_, i) => {
-                      const p0 = Number(pre[i] ?? 0);
-                      const p1 = Number(post[i] ?? 0);
-                      const base = Math.min(p0, p1);
-                      const inc = Math.max(0, p1 - p0);
-                      const dec = Math.max(0, p0 - p1);
-                      const rawCap = capacitySeries?.[i];
-                      const capNum = Number(rawCap);
-                      const capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
-                      return { idx: i, base, inc, dec, pre: p0, post: p1, capacity };
-                    });
-                  return rows.filter(r => {
-                    const startMin = r.idx * minutes;
-                    return startMin >= vFrom && startMin <= vTo;
-                  });
-                };
-                // Build TV list from union of available pre/post counts
-                const tvsUnion = Array.from(new Set<string>([
-                  ...(d.tv_ids_order || []),
-                  ...Object.keys(d.pre_counts || {}),
-                  ...Object.keys(d.post_counts || {}),
-                ]));
-                const tvs = tvsUnion
-                  .filter(tv => (d.pre_counts?.[tv] || []).length > 0 || (d.post_counts?.[tv] || []).length > 0)
-                  .sort((a, b) => {
-                    const sa = Number(occAllScoreByTv[a] ?? 0);
-                    const sb = Number(occAllScoreByTv[b] ?? 0);
-                    if (sa !== sb) return sb - sa;
-                    return a.localeCompare(b);
-                  });
-                if (tvs.length === 0) return <div className="text-xs text-gray-300">No aggregated occupancy available.</div>;
-                const LIMIT = 12;
-                const showAll = expandedOccAll;
-                const list = showAll ? tvs : tvs.slice(0, LIMIT);
-                return (
-                  <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
-                    {list.map(tvId => {
-                      const pre = d.pre_counts?.[tvId] || [];
-                      const post = d.post_counts?.[tvId] || [];
-                      const cap = d.capacity?.[tvId] || [];
-                      const data = buildRows(pre, post, cap);
-                      return (
-                        <div key={`occ-all-${tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="text-sm font-semibold text-white">{tvId}</div>
-                          </div>
-                          <div className="h-36">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <ComposedChart data={data} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
-                                <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-                                <XAxis
-                                  dataKey="idx"
-                                  tick={false}
-                                  axisLine={false}
-                                  tickLine={false}
-                                />
-                                <YAxis tick={false} axisLine={false} tickLine={false} width={0} />
-                                <Tooltip
-                                  contentStyle={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
-                                  formatter={(value, name, ctx: any) => {
-                                    if (name === 'inc') return [`+${value}`, 'Post-Pre'];
-                                    if (name === 'dec') return [`-${value}`, 'Pre-Post'];
-                                    if (name === 'base') return [String(value), 'Base'];
-                                    if (name === 'capacity') return [String(value), 'Capacity'];
-                                    return [String(value), String(name)];
-                                  }}
-                                  labelFormatter={(label, payload: any) => {
-                                    const p = Array.isArray(payload) && payload.length > 0 ? payload[0].payload : null;
-                                    const preV = p?.pre ?? 0;
-                                    const postV = p?.post ?? 0;
-                                    const capV = p?.capacity;
-                                    const labelText = binIndexToRangeLabel(Number(label ?? 0), minutes);
-                                    return `${labelText}  |  pre: ${preV}  post: ${postV}${Number.isFinite(capV) ? `  cap: ${capV}` : ''}`;
-                                  }}
-                                />
-                                <Bar dataKey="base" stackId="a" fill="#0f468a" name="base" />
-                                <Bar dataKey="inc" stackId="a" fill="#f87171" name="inc" />
-                                <Bar dataKey="dec" stackId="a" fill="#34d399" name="dec" />
-                                <Line type="stepAfter" dataKey="capacity" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
-                              </ComposedChart>
-                            </ResponsiveContainer>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {tvs.length > LIMIT && (
-                    <div className="mt-2">
-                      <button
-                        onClick={() => setExpandedOccAll((s) => !s)}
-                        className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
-                      >{expandedOccAll ? 'Show less' : 'Show more'}</button>
-                    </div>
-                  )}
-                  </>
-                );
-              })()}
+              <OccupancyPrePostPanel
+                title="Aggregated Occupancy Across Flows"
+                postCounts={occAllState.data?.post_counts || {}}
+                preCounts={occAllState.data?.pre_counts || {}}
+                capacity={occAllState.data?.capacity || undefined}
+                tvOrder={occAllState.data?.tv_ids_order || []}
+                binMinutes={minutesPerBin}
+                viewFrom={viewFrom}
+                viewTo={viewTo}
+                sortMode={occAllSortMode}
+                onSortModeChange={(m) => setOccAllSortMode(m)}
+                initialLimit={12}
+                loading={occAllState.loading}
+                error={occAllState.error}
+              />
             </section>
           )}
 

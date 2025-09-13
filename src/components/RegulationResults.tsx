@@ -1,17 +1,12 @@
 "use client";
-import { useMemo } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid
-} from "recharts";
+import { useEffect, useMemo, useState } from "react";
+// charts are handled by OccupancyPrePostPanel
 import { RegulationPlanSimulationResponse } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import ModalDialog from "./ModalDialog";
+import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
+import TimeScaleControl from "@/components/TimeScaleControl";
+import { minutesToHHMM } from "@/lib/time";
 
 interface RegulationResultsProps {
   open: boolean;
@@ -28,19 +23,7 @@ function formatSecondsToHMM(totalSeconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
-function formatMinutesToHHMM(totalMinutes: number): string {
-  const minutesInDay = 24 * 60;
-  const m = ((Math.floor(totalMinutes) % minutesInDay) + minutesInDay) % minutesInDay;
-  const hh = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-}
-
-function binIndexToRangeLabel(binIdx: number, minutesPerBin: number): string {
-  const startMin = binIdx * minutesPerBin;
-  const endMin = startMin + minutesPerBin;
-  return `${formatMinutesToHHMM(startMin)} - ${formatMinutesToHHMM(endMin)}`;
-}
+// removed bin-to-label util (handled in component)
 
 function parseTimeToSeconds(t: string | null | undefined): number {
   if (!t) return Number.POSITIVE_INFINITY;
@@ -66,42 +49,26 @@ function parseTimeToSeconds(t: string | null | undefined): number {
 
 export default function RegulationResults({ open, result, onClose }: RegulationResultsProps) {
   const flights = useSimStore(s => s.flights);
-  const items = useMemo(() => {
-    const tvs = result?.rolling_top_tvs ?? [];
-    return tvs.slice(0, 50).map((tv) => {
-      const pre = tv.pre_rolling_counts || [];
-      const post = tv.post_rolling_counts || [];
-      const n = Math.min(pre.length, post.length);
-      const fullData: Array<{ idx: number; base: number; inc: number; dec: number; pre: number; post: number; cap?: number }>
-        = new Array(n).fill(0).map((_, i) => {
-          const p0 = Number(pre[i] ?? 0);
-          const p1 = Number(post[i] ?? 0);
-          const base = Math.min(p0, p1);
-          const inc = Math.max(0, p1 - p0);
-          const dec = Math.max(0, p0 - p1);
-          const cap = Number((tv.capacity_per_bin || [])[i] ?? undefined);
-          return { idx: i, base, inc, dec, pre: p0, post: p1, cap: Number.isFinite(cap) ? cap : undefined };
-        });
-      // Determine minimal contiguous range [startIdx, endIdx] containing all changes (inc or dec)
-      let startIdx = -1;
-      for (let i = 0; i < fullData.length; i++) {
-        const d = fullData[i];
-        if ((d.inc ?? 0) > 0 || (d.dec ?? 0) > 0) { startIdx = i; break; }
-      }
-      let endIdx = -1;
-      for (let i = fullData.length - 1; i >= 0; i--) {
-        const d = fullData[i];
-        if ((d.inc ?? 0) > 0 || (d.dec ?? 0) > 0) { endIdx = i; break; }
-      }
-      const hasChanges = startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx;
-      if (!hasChanges) {
-        startIdx = 0;
-        endIdx = Math.max(0, fullData.length - 1);
-      }
-      const data = hasChanges ? fullData.slice(startIdx, endIdx + 1) : fullData;
-      return { tvId: tv.traffic_volume_id, data, startIdx, endIdx };
-    });
-  }, [result]);
+  const regulations = useSimStore(s => s.regulations);
+  const [viewFrom, setViewFrom] = useState<string>("00:00");
+  const [viewTo, setViewTo] = useState<string>("23:59");
+  const [sortMode, setSortMode] = useState<'total' | 'abs_change' | 'exceedance'>("abs_change");
+
+  // Initialize default view window when modal opens based on plan regulations
+  useEffect(() => {
+    if (!open) return;
+    const fromVals = regulations.map(r => Number(r.activeTimeWindowFrom)).filter(v => Number.isFinite(v) && v >= 0) as number[];
+    const toVals = regulations.map(r => Number(r.activeTimeWindowTo)).filter(v => Number.isFinite(v) && v >= 0) as number[];
+    if (fromVals.length > 0 && toVals.length > 0) {
+      const minFrom = Math.min(...fromVals);
+      const maxTo = Math.max(...toVals);
+      setViewFrom(minutesToHHMM(Math.floor(minFrom / 60)));
+      setViewTo(minutesToHHMM(Math.min(1439, Math.floor(maxTo / 60))));
+    } else {
+      setViewFrom("00:00");
+      setViewTo("23:59");
+    }
+  }, [open, regulations]);
 
   const delayRows = useMemo(() => {
     const byFlight = result?.delays_by_flight || {};
@@ -109,11 +76,13 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
       const delaySeconds = Number(delaySecondsRaw) || 0;
       const f = flights.find(ff => String(ff.flightId) === String(flightId));
       const callsign = f?.callSign ? String(f?.callSign) : String(flightId);
+      const origin = f?.origin ? String(f.origin) : '-';
+      const destination = f?.destination ? String(f.destination) : '-';
       const ctx = result?.pre_flight_context?.[String(flightId)];
       const takeoffTime = ctx?.takeoff_time || '-';
       const tvArrivalTime = ctx?.tv_arrival_time || '-';
       const tvArrivalSeconds = parseTimeToSeconds(ctx?.tv_arrival_time);
-      return { flightId: String(flightId), callsign, delaySeconds, takeoffTime, tvArrivalTime, tvArrivalSeconds };
+      return { flightId: String(flightId), callsign, origin, destination, delaySeconds, takeoffTime, tvArrivalTime, tvArrivalSeconds };
     });
     rows.sort((a, b) => {
       const da = a.tvArrivalSeconds;
@@ -144,53 +113,72 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
           </div>
         </div>
 
-        {/* 10x5 grid charts */}
+        {/* Rolling-hour Occupancy Diff with time control and sort */}
         <div>
-          <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Rolling-hour Occupancy Diff (Post vs Pre)</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-            {items.map(({ tvId, data, startIdx, endIdx }) => (
-              <div key={tvId} className="bg-white/5 border border-white/10 rounded-xl p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm font-semibold">{tvId}</div>
-                </div>
-                <div className="h-36">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
-                      <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-                      <XAxis dataKey="idx" tick={false} axisLine={false} tickLine={false} />
-                      <YAxis tick={false} axisLine={false} tickLine={false} width={0} />
-                      <Tooltip
-                        contentStyle={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
-                        formatter={(value, name, ctx: any) => {
-                          const i = ctx?.payload?.idx ?? 0;
-                          const pre = ctx?.payload?.pre ?? 0;
-                          const post = ctx?.payload?.post ?? 0;
-                          const cap = ctx?.payload?.cap;
-                          if (name === 'inc') return [`+${value}`, 'Post-Pre'];
-                          if (name === 'dec') return [`-${value}`, 'Pre-Post'];
-                          if (name === 'base') return [String(value), 'Base'];
-                          return [String(value), String(name)];
-                        }}
-                        labelFormatter={(label, payload: any) => {
-                          const p = Array.isArray(payload) && payload.length > 0 ? payload[0].payload : null;
-                          const pre = p?.pre ?? 0;
-                          const post = p?.post ?? 0;
-                          const cap = p?.cap;
-                          const minutesPerBin = Number(result?.metadata?.time_bin_minutes ?? 15);
-                          const labelText = binIndexToRangeLabel(Number(label ?? 0), minutesPerBin);
-                          return `${labelText}  |  pre: ${pre}  post: ${post}${Number.isFinite(cap) ? `  cap: ${cap}` : ''}`;
-                        }}
-                      />
-                      <Bar dataKey="base" stackId="a" fill="#60a5fa" name="base" />
-                      <Bar dataKey="inc" stackId="a" fill="#ef4444" name="inc" />
-                      <Bar dataKey="dec" stackId="a" fill="#22c55e" name="dec" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                
-              </div>
-            ))}
+          <div className="flex flex-wrap items-center gap-3 mb-2">
+            <div className="text-sm uppercase tracking-wider text-gray-300">Rolling-hour Occupancy Diff (Post vs Pre)</div>
+            <div className="ml-auto flex items-center gap-2">
+              <div className="text-[11px] uppercase tracking-wider text-white/60">TV Sort</div>
+              {(() => {
+                const tvs = (result as any)?.rolling_changed_tvs ?? result?.rolling_top_tvs ?? [];
+                const hasBoth = tvs.some((tv: any) => Array.isArray(tv?.pre_rolling_counts) && Array.isArray(tv?.post_rolling_counts));
+                const hasCap = tvs.some((tv: any) => Array.isArray(tv?.capacity_per_bin) && tv.capacity_per_bin.length > 0);
+                return (
+                  <select
+                    className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                    value={sortMode}
+                    onChange={(e) => setSortMode(e.currentTarget.value as any)}
+                  >
+                    <option value="total">Rank by Total</option>
+                    <option value="abs_change" disabled={!hasBoth}>Rank by Absolute Changes</option>
+                    <option value="exceedance" disabled={!hasCap}>By Exceedances</option>
+                  </select>
+                );
+              })()}
+            </div>
           </div>
+          <TimeScaleControl
+            time_from={viewFrom}
+            time_to={viewTo}
+            onChange={(f, t) => { setViewFrom(f); setViewTo(t); }}
+            className="mb-3"
+          />
+          {(() => {
+            const tvs = (result as any)?.rolling_changed_tvs ?? result?.rolling_top_tvs ?? [];
+            const preCounts: Record<string, number[]> = {};
+            const postCounts: Record<string, number[]> = {};
+            const capacity: Record<string, number[]> = {};
+            for (const tv of tvs) {
+              const id = String(tv.traffic_volume_id);
+              preCounts[id] = Array.isArray(tv.pre_rolling_counts) ? tv.pre_rolling_counts : [];
+              postCounts[id] = Array.isArray(tv.post_rolling_counts) ? tv.post_rolling_counts : [];
+              if (Array.isArray(tv.capacity_per_bin)) capacity[id] = tv.capacity_per_bin;
+            }
+            const binMinutes = Number(result?.metadata?.time_bin_minutes ?? 15);
+            const tvOrder = Object.keys(postCounts).sort((a, b) => {
+              const na = Math.min((preCounts[a] || []).length, (postCounts[a] || []).length);
+              let sa = 0; for (let i = 0; i < na; i++) sa += Math.abs((postCounts[a][i] || 0) - (preCounts[a][i] || 0));
+              const nb = Math.min((preCounts[b] || []).length, (postCounts[b] || []).length);
+              let sb = 0; for (let i = 0; i < nb; i++) sb += Math.abs((postCounts[b][i] || 0) - (preCounts[b][i] || 0));
+              if (sa !== sb) return sb - sa;
+              return a.localeCompare(b);
+            });
+            return (
+              <OccupancyPrePostPanel
+                postCounts={postCounts}
+                preCounts={preCounts}
+                capacity={Object.keys(capacity).length > 0 ? capacity : undefined}
+                tvOrder={tvOrder}
+                binMinutes={binMinutes}
+                viewFrom={viewFrom}
+                viewTo={viewTo}
+                sortMode={sortMode}
+                defaultSortMode="abs_change"
+                initialLimit={12}
+                compact
+              />
+            );
+          })()}
         </div>
 
 
@@ -199,11 +187,13 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
           <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Delay Assignment</div>
           {delayRows.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[720px] whitespace-nowrap">
+              <table className="w-full text-xs min-w-[900px] whitespace-nowrap">
                 <thead>
                   <tr className="text-left border-b border-white/10">
                     <th className="p-2 font-semibold">Flight ID</th>
                     <th className="p-2 font-semibold">Callsign</th>
+                    <th className="p-2 font-semibold">Origin</th>
+                    <th className="p-2 font-semibold">Destination</th>
                     <th className="p-2 font-semibold">Takeoff</th>
                     <th className="p-2 font-semibold">TV Arrival</th>
                     <th className="p-2 font-semibold">Delay (m)</th>
@@ -214,6 +204,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                     <tr key={r.flightId} className="border-b border-white/10 hover:bg-white/5">
                       <td className="p-2 font-mono">{r.flightId}</td>
                       <td className="p-2 font-mono">{r.callsign}</td>
+                      <td className="p-2 font-mono">{r.origin}</td>
+                      <td className="p-2 font-mono">{r.destination}</td>
                       <td className="p-2 font-mono">{r.takeoffTime}</td>
                       <td className="p-2 font-mono">{r.tvArrivalTime}</td>
                       <td className="p-2 font-mono">{Math.round(r.delaySeconds).toLocaleString()}</td>
@@ -241,5 +233,3 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
     </div>
   );
 }
-
-

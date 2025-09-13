@@ -89,6 +89,7 @@ export interface RegulationPlanSimulationResponse {
   delay_stats: RegulationPlanDelayStats;
   objective: number;
   objective_components: RegulationPlanObjectiveComponents;
+  rolling_changed_tvs?: RegulationPlanRollingTv[]; // new preferred field
   rolling_top_tvs: RegulationPlanRollingTv[];
   excess_vector_stats?: { sum: number; max: number; mean: number; count: number };
   metadata: RegulationPlanMetadata;
@@ -142,4 +143,15 @@ export interface AutomaticRateAdjustmentResponse {
   improvement: { absolute: number; percent: number };
   weights_used?: Record<string, number>;
   sa_params_used?: Record<string, number>;
+}
+
+// Shared occupancy types
+export type OccupancySeriesByTv = Record<string, number[]>;
+
+export interface PrePostOccupancyData {
+  time_bin_minutes: number;
+  pre_counts?: OccupancySeriesByTv;
+  post_counts: OccupancySeriesByTv;
+  capacity?: OccupancySeriesByTv;
+  tv_ids_order?: string[];
 }

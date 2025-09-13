@@ -1,15 +1,36 @@
-export function parseCompactHMS(s: string): number {
-  // "754" -> 00:07:54, "50007" -> 05:00:07
-  const p = s.trim();
-  const sec = parseInt(p.slice(-2) || "0", 10);
-  const min = parseInt(p.slice(-4, -2) || "0", 10);
-  const hr  = parseInt(p.slice(0, -4) || "0", 10);
-  return hr * 3600 + min * 60 + sec;
+export function hhmmToMinutesSafe(hhmm?: string): number {
+  if (!hhmm) return 0;
+  const [h, m] = String(hhmm).split(":").map((x) => Number(x));
+  const hh = Number.isFinite(h) ? h : 0;
+  const mm = Number.isFinite(m) ? m : 0;
+  const total = Math.max(0, Math.min(1439, hh * 60 + mm));
+  return total;
 }
 
-export function parseYYMMDD(d: string): Date {
-  const y = 2000 + parseInt(d.slice(0, 2), 10);
-  const m = parseInt(d.slice(2, 4), 10) - 1;
-  const day = parseInt(d.slice(4, 6), 10);
-  return new Date(Date.UTC(y, m, day));
+export function minutesToHHMM(totalMinutes: number): string {
+  const m = Math.max(0, Math.min(1439, Math.floor(totalMinutes)));
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+export function binIndexToRangeLabel(binIdx: number, minutesPerBin: number): string {
+  const startMin = binIdx * minutesPerBin;
+  const endMin = startMin + minutesPerBin;
+  return `${minutesToHHMM(startMin)}-${minutesToHHMM(endMin)}`;
+}
+
+// Parse compact HMS strings like "754" => 00:07:54, "50007" => 05:00:07
+export function parseCompactHMS(s: string): number {
+  const str = String(s || "").trim();
+  if (!/^\d+$/.test(str)) return 0;
+  const len = str.length;
+  const ss = Number(str.slice(-2));
+  const mm = len > 2 ? Number(str.slice(-4, -2) || 0) : 0;
+  const hh = len > 4 ? Number(str.slice(0, -4) || 0) : 0;
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const H = clamp(Number.isFinite(hh) ? hh : 0, 0, 99);
+  const M = clamp(Number.isFinite(mm) ? mm : 0, 0, 59);
+  const S = clamp(Number.isFinite(ss) ? ss : 0, 0, 59);
+  return H * 3600 + M * 60 + S;
 }
