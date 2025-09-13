@@ -165,20 +165,26 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                     </tr>
                   </thead>
                   <tbody>
-                    {displayedHotspots.map((hotspot, index) => (
-                      <tr 
-                        key={`${hotspot.traffic_volume_id}-${hotspot.time_bin}`} 
-                        className={`border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white/2' : ''}`}
-                        onClick={() => handleHotspotRowClick(hotspot)}
-                        title="Click to set time and pan to traffic volume"
-                      >
-                        <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
-                        <td className="p-2 font-mono text-xs">{hotspot.time_bin}</td>
-                        <td className="p-2 font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
-                        <td className="p-2 font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
-                        <td className="p-2 font-mono">{(hotspot.hourly_occupancy - hotspot.hourly_capacity).toFixed(0)}</td>
-                      </tr>
-                    ))}
+                    {displayedHotspots.map((hotspot, index) => {
+                      const [from, to] = String(hotspot.time_bin || '').split('-');
+                      return (
+                        <tr 
+                          key={`${hotspot.traffic_volume_id}-${hotspot.time_bin}`} 
+                          className={`border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white/2' : ''}`}
+                          onClick={() => handleHotspotRowClick(hotspot)}
+                          title="Click to set time and pan to traffic volume"
+                        >
+                          <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
+                          <td className="p-2 font-mono text-xs leading-tight">
+                            <div>{from?.trim()}</div>
+                            <div>{to?.trim()}</div>
+                          </td>
+                          <td className="p-2 font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
+                          <td className="p-2 font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
+                          <td className="p-2 font-mono">{(hotspot.hourly_occupancy - hotspot.hourly_capacity).toFixed(0)}</td>
+                        </tr>
+                      );
+                    })}
                     {!showAllHotspots && sortedHotspots.length > 20 && (
                       <tr 
                         className="border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
