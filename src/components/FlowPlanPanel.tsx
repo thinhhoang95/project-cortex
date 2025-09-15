@@ -447,9 +447,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         <table className="w-full text-[11px]">
                           <thead>
                             <tr className="bg-blue-900 text-white">
-                              <th className="text-left p-2 font-semibold">Callsign</th>
-                              <th className="text-left p-2 font-semibold">Origin</th>
-                              <th className="text-left p-2 font-semibold">Destination</th>
+                              <th className="text-left p-2 font-semibold">CS</th>
+                              <th className="text-left p-2 font-semibold">Ori.</th>
+                              <th className="text-left p-2 font-semibold">Des.</th>
                               <th className="text-left p-2 font-semibold">Requested Bin</th>
                               <th className="text-left p-2 font-semibold">Earliest Crossing</th>
                               <th className="text-left p-2 font-semibold">Actions</th>

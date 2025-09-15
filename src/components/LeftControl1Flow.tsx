@@ -153,24 +153,25 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
             </div>
             
             {hotspots.length > 0 && !hotspotsLoading ? (
-              <div className={embedded ? "overflow-x-auto" : "flex-1 overflow-y-auto no-scrollbar overflow-x-auto"}>
-                <table className="w-full text-xs min-w-max whitespace-nowrap">
-                  <thead className="sticky top-0">
-                    <tr className="bg-red-900 text-white select-none">
+              <div className="rounded-lg border border-white/10 overflow-hidden flex flex-col">
+                <div className={embedded ? "overflow-x-auto" : "flex-1 overflow-y-auto no-scrollbar overflow-x-auto"}>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-white/10 select-none">
                       <SortableTh label="TV" active={sortBy === 'tv'} dir={sortDir} onClick={() => handleHeaderClick('tv')} />
                       <SortableTh label="Time" active={sortBy === 'time'} dir={sortDir} onClick={() => handleHeaderClick('time')} />
                       <SortableTh label="Occ." active={sortBy === 'occ'} dir={sortDir} onClick={() => handleHeaderClick('occ')} />
                       <SortableTh label="Cap." active={sortBy === 'cap'} dir={sortDir} onClick={() => handleHeaderClick('cap')} />
                       <SortableTh label="Ex." active={sortBy === 'ex'} dir={sortDir} onClick={() => handleHeaderClick('ex')} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedHotspots.map((hotspot, index) => {
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedHotspots.map((hotspot, index) => {
                       const [from, to] = String(hotspot.time_bin || '').split('-');
                       return (
                         <tr 
                           key={`${hotspot.traffic_volume_id}-${hotspot.time_bin}`} 
-                          className={`border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white/2' : ''}`}
+                          className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer transition-colors`}
                           onClick={() => handleHotspotRowClick(hotspot)}
                           title="Click to set time and pan to traffic volume"
                         >
@@ -179,15 +180,15 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                             <div>{from?.trim()}</div>
                             <div>{to?.trim()}</div>
                           </td>
-                          <td className="p-2 font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
-                          <td className="p-2 font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
-                          <td className="p-2 font-mono">{(hotspot.hourly_occupancy - hotspot.hourly_capacity).toFixed(0)}</td>
+                          <td className="p-2 text-right font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
+                          <td className="p-2 text-right font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
+                          <td className="p-2 text-right font-mono">{(hotspot.hourly_occupancy - hotspot.hourly_capacity).toFixed(0)}</td>
                         </tr>
                       );
                     })}
                     {!showAllHotspots && sortedHotspots.length > 20 && (
                       <tr 
-                        className="border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
+                        className="border-t border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
                         onClick={() => setShowAllHotspots(true)}
                         title="Show the remaining hotspots"
                       >
@@ -196,7 +197,7 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                     )}
                     {showAllHotspots && sortedHotspots.length > 20 && (
                       <tr 
-                        className="border-b border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
+                        className="border-t border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
                         onClick={() => setShowAllHotspots(false)}
                         title="Collapse the list"
                       >
@@ -205,6 +206,7 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                     )}
                   </tbody>
                 </table>
+                </div>
               </div>
             ) : !hotspotsLoading ? (
               <p className="text-xs opacity-70 text-center py-4">No hotspots found</p>
@@ -255,5 +257,3 @@ function fmt(sec: number) {
   const s = Math.floor(sec%60).toString().padStart(2,"0");
   return `${h}:${m}:${s}`;
 }
-
-

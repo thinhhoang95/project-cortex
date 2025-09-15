@@ -191,11 +191,11 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                 <thead>
                   <tr className="text-left border-b border-white/10">
                     <th className="p-2 font-semibold">Flight ID</th>
-                    <th className="p-2 font-semibold">Callsign</th>
-                    <th className="p-2 font-semibold">Origin</th>
-                    <th className="p-2 font-semibold">Destination</th>
-                    <th className="p-2 font-semibold">Takeoff</th>
-                    <th className="p-2 font-semibold">TV Arrival</th>
+                    <th className="p-2 font-semibold">CS</th>
+                    <th className="p-2 font-semibold">Ori.</th>
+                    <th className="p-2 font-semibold">Des.</th>
+                    <th className="p-2 font-semibold">T/O</th>
+                    <th className="p-2 font-semibold">TV Arr.</th>
                     <th className="p-2 font-semibold">Delay (m)</th>
                   </tr>
                 </thead>

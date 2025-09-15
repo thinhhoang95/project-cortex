@@ -609,52 +609,54 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
           {flightTableData.length > 0 && !flightListLoading && (
             <>
-              <table className="w-full text-xs">
-                <thead className="sticky top-0">
-                  <tr className="bg-blue-900 text-white">
-                    <th className="text-left p-2 font-semibold">Callsign</th>
-                    <th className="text-left p-2 font-semibold">Origin</th>
-                    <th className="text-left p-2 font-semibold">Destination</th>
-                    <th className="text-left p-2 font-semibold">Takeoff</th>
-                    {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arrival</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRows.map((flight, index) => (
-                    <tr
-                      key={String(flight.flightId)}
-                      className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${index % 2 === 0 ? 'bg-white/2' : ''}`}
-                      onMouseEnter={() => setFlowPreviewFlightId(String(flight.flightId))}
-                      onMouseLeave={() => setFlowPreviewFlightId(null)}
-                      onClick={() => {
-                        const fullFlight = flights.find(f => String(f.flightId) === String(flight.flightId));
-                        if (fullFlight) {
-                          window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: fullFlight } }));
-                        }
-                      }}
-                    >
-                      <td className="p-2 font-mono">{flight.callsign}</td>
-                      <td className="p-2">{flight.origin}</td>
-                      <td className="p-2">{flight.destination}</td>
-                      <td className="p-2 font-mono">{flight.takeoffTime}</td>
-                      {orderedFlightsData && <td className="p-2 font-mono">{flight.arrivalTime}</td>}
+              <div className="rounded-lg border border-white/10 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-white/10">
+                      <th className="text-left p-2 font-semibold">CS</th>
+                      <th className="text-left p-2 font-semibold">Ori.</th>
+                      <th className="text-left p-2 font-semibold">Des.</th>
+                      <th className="text-left p-2 font-semibold">T/O</th>
+                      {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arr.</th>}
                     </tr>
-                  ))}
-                  {flightTableData.length > MAX_VISIBLE && (
-                    <tr
-                      className="border-b border-white/10 cursor-pointer hover:bg-white/5"
-                      onClick={() => setExpanded(!expanded)}
-                    >
-                      <td
-                        className="p-2 text-center italic opacity-80"
-                        colSpan={orderedFlightsData ? 5 : 4}
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((flight, index) => (
+                      <tr
+                        key={String(flight.flightId)}
+                        className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
+                        onMouseEnter={() => setFlowPreviewFlightId(String(flight.flightId))}
+                        onMouseLeave={() => setFlowPreviewFlightId(null)}
+                        onClick={() => {
+                          const fullFlight = flights.find(f => String(f.flightId) === String(flight.flightId));
+                          if (fullFlight) {
+                            window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: fullFlight } }));
+                          }
+                        }}
                       >
-                        {expanded ? 'Show less…' : `See more… (${flightTableData.length - MAX_VISIBLE} more)`}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                        <td className="p-2 font-mono">{flight.callsign}</td>
+                        <td className="p-2">{flight.origin}</td>
+                        <td className="p-2">{flight.destination}</td>
+                        <td className="p-2 text-right font-mono">{flight.takeoffTime}</td>
+                        {orderedFlightsData && <td className="p-2 text-right font-mono">{flight.arrivalTime}</td>}
+                      </tr>
+                    ))}
+                    {flightTableData.length > MAX_VISIBLE && (
+                      <tr
+                        className="border-t border-white/10 cursor-pointer hover:bg-white/10"
+                        onClick={() => setExpanded(!expanded)}
+                      >
+                        <td
+                          className="p-2 text-center italic opacity-80"
+                          colSpan={orderedFlightsData ? 5 : 4}
+                        >
+                          {expanded ? 'Show less…' : `See more… (${flightTableData.length - MAX_VISIBLE} more)`}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
               {flightTableData.length === 500 && (
                 <p className="text-xs opacity-70 text-center mt-2">Showing first 500 flights</p>
               )}
