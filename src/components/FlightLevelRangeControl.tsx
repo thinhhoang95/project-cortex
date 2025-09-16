@@ -51,7 +51,13 @@ export default function FlightLevelRangeControl({
   const rightPct = useMemo(() => toPct(to), [to, toPct]);
 
   type DragMode = null | "left" | "right" | "range";
-  const dragState = useRef<{ mode: DragMode; startX: number; startFrom: number; startTo: number; didDrag?: boolean } | null>(null);
+  const dragState = useRef<{
+    mode: DragMode;
+    startX: number;
+    startFrom: number;
+    startTo: number;
+    didDrag: boolean;
+  }>({ mode: null, startX: 0, startFrom: 0, startTo: 0, didDrag: false });
 
   const flPerPx = useCallback(() => {
     const el = containerRef.current;
@@ -73,7 +79,7 @@ export default function FlightLevelRangeControl({
 
   const onPointerMove = (e: React.PointerEvent) => {
     const st = dragState.current;
-    if (!st || !st.mode) return;
+    if (!st.mode) return;
     const fpp = flPerPx();
     const dx = e.clientX - st.startX;
     const dRaw = dx * fpp;
@@ -99,14 +105,19 @@ export default function FlightLevelRangeControl({
 
   const endDrag = () => {
     const st = dragState.current;
-    if (!st || !st.mode) return;
-    dragState.current = null;
+    if (!st.mode) return;
+    st.mode = null;
+    st.startFrom = from;
+    st.startTo = to;
     onCommit?.(from, to);
   };
 
   const onTrackClick = (e: React.MouseEvent) => {
     const st = dragState.current;
-    if (st?.didDrag) { dragState.current = null; return; }
+    if (st.didDrag) {
+      st.didDrag = false;
+      return;
+    }
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
