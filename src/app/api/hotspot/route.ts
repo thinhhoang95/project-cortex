@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/app/api/_utils';
+import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +15,10 @@ export async function GET(request: NextRequest) {
       method: 'GET',
       headers: withAuth(request, { 'Content-Type': 'application/json' }),
     });
-    
+
+    const unauthorized = await maybeHandleUnauthorized(response);
+    if (unauthorized) return unauthorized;
+
     if (!response.ok) {
       throw new Error(`Backend API error: ${response.status} ${response.statusText}`);
     }

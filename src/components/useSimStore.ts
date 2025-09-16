@@ -387,10 +387,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   fetchHotspots: async (threshold: number = 0.0) => {
     set({ hotspotsLoading: true });
     try {
-      const token = get().user?.token;
-      const response = await fetch(`/api/hotspot?threshold=${threshold}` , {
-        headers: token ? { Authorization: `Bearer ${token}` } as any : undefined,
-      });
+      const { authFetch } = await import("@/lib/auth");
+      const response = await authFetch(`/api/hotspot?threshold=${threshold}`);
       if (!response.ok) {
         throw new Error(`Failed to fetch hotspots: ${response.statusText}`);
       }

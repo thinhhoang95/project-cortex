@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/app/api/_utils';
+import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
 // Proxy to backend `/base_evaluation` with JSON POST body
 export async function POST(request: NextRequest) {
@@ -12,6 +12,9 @@ export async function POST(request: NextRequest) {
       headers: withAuth(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
+
+    const unauthorized = await maybeHandleUnauthorized(resp);
+    if (unauthorized) return unauthorized;
 
     if (!resp.ok) {
       const text = await resp.text();

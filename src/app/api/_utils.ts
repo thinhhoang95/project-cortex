@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 
 // Merge base headers with Authorization bearer from the incoming request
 export function withAuth(request: NextRequest, base?: HeadersInit): HeadersInit {
@@ -18,5 +19,36 @@ export function withAuth(request: NextRequest, base?: HeadersInit): HeadersInit 
     merged['Authorization'] = auth;
   }
   return merged;
+}
+
+// Normalize upstream 401 responses so the client can react (e.g. clear token / redirect)
+export async function maybeHandleUnauthorized(
+  resp: Response,
+  fallbackMessage = 'Unauthorized'
+): Promise<NextResponse | null> {
+  if (resp.status !== 401) return null;
+
+  let message = fallbackMessage;
+  try {
+    const raw = await resp.text();
+    const text = raw?.trim();
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        const detail = parsed?.detail ?? parsed?.error ?? parsed?.message ?? parsed?.msg;
+        if (detail) {
+          message = String(detail);
+        } else {
+          message = text;
+        }
+      } catch {
+        message = text;
+      }
+    }
+  } catch {
+    // ignore body parsing errors; fall back to generic message
+  }
+
+  return NextResponse.json({ error: message }, { status: 401 });
 }
 
