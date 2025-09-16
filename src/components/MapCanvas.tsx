@@ -34,7 +34,7 @@ export default function MapCanvas() {
           "raster-tiles": {
             type: "raster",
             tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
+            tileSize: 512,
             attribution: "© OpenStreetMap contributors"
           },
           "countries": {
@@ -1030,8 +1030,8 @@ function ensureTpHour(map: maplibregl.Map, isoHour: string) {
     return;
   }
 
-  const cog = encodeURIComponent(`http://localhost:9000/era5_tp_${isoHour}.tif`);
-  const tiles = [rasterTile(cog, { rescale: [0, 5], colormap_name: 'viridis' })];
+  const cog = encodeURIComponent(`https://wxtiles.tailwind-api.intuelle.com/cogs/era5_tp_${isoHour}.tif`);
+  const tiles = [rasterTile(cog, { rescale: [0, 5], colormap_name: 'viridis', resampling_method: 'bilinear' })];
 
   // If a previous source/layer exists, remove to force refetch with new tiles
   if (map.getLayer(id)) {
@@ -1048,8 +1048,20 @@ function ensureTpHour(map: maplibregl.Map, isoHour: string) {
     attribution: 'ECMWF/Copernicus'
   } as any);
 
-  // Insert below flight lines if present
-  const beforeId = map.getLayer('flight-lines') ? 'flight-lines' : undefined;
+  // Insert below airspace/traffic volume layers so they stay above weather (fallback to flight lines)
+  const layerOrderPreference = [
+    'sector-fill',
+    'sector-outline',
+    'sector-labels',
+    'sector-highlight',
+    'sector-highlight-outline',
+    'sector-hover',
+    'sector-hover-outline',
+    'sector-hotspot',
+    'sector-hotspot-outline',
+    'flight-lines'
+  ];
+  const beforeId = layerOrderPreference.find((layerId) => map.getLayer(layerId));
   const layer: any = { id, type: 'raster', source: id, paint: { 'raster-opacity': 0.65 } };
   // @ts-ignore second param optional
   map.addLayer(layer, beforeId);
@@ -1065,10 +1077,12 @@ function hideTpLayers(map: maplibregl.Map) {
   } catch {}
 }
 
-function rasterTile(urlEncodedCog: string, params?: { rescale?: [number, number]; colormap_name?: string }): string {
-  const titiler = "http://localhost:8001";
+function rasterTile(urlEncodedCog: string, params?: { rescale?: [number, number]; colormap_name?: string; resampling_method?: string; nodata?: number }): string {
+  const titiler = "https://wxtiles.tailwind-api.intuelle.com";
   const qp: string[] = [`url=${urlEncodedCog}`];
   if (params?.rescale) qp.push(`rescale=${params.rescale[0]},${params.rescale[1]}`);
   if (params?.colormap_name) qp.push(`colormap_name=${params.colormap_name}`);
+  if (params?.resampling_method) qp.push(`resampling_method=${params.resampling_method}`);
+  if (params?.nodata !== undefined) qp.push(`nodata=${params.nodata}`);
   return `${titiler}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?${qp.join('&')}`;
 }
