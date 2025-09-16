@@ -444,67 +444,71 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         />
                       </div>
                       <div className="px-2 pb-2">
-                        <table className="w-full text-[11px]">
-                          <thead>
-                            <tr className="bg-blue-900 text-white">
-                              <th className="text-left p-2 font-semibold">CS</th>
-                              <th className="text-left p-2 font-semibold">Ori.</th>
-                              <th className="text-left p-2 font-semibold">Des.</th>
-                              <th className="text-left p-2 font-semibold">Requested Bin</th>
-                              <th className="text-left p-2 font-semibold">Earliest Crossing</th>
-                              <th className="text-left p-2 font-semibold">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(bf.items || []).map((it) => {
-                              const key = it.key;
-                              const f = resolveByKey(key);
-                              const callsign = f?.callSign || key;
-                              const origin = f?.origin || '—';
-                              const destination = f?.destination || '—';
-                              return (
-                                <tr
-                                  key={`${bf.id}-${key}`}
-                                  className="border-b border-white/10 hover:bg-white/10"
-                                  onMouseEnter={() => { if (f?.flightId) setFlowPreviewFlightId(String(f.flightId)); }}
-                                  onMouseLeave={() => setFlowPreviewFlightId(null)}
-                                >
-                                  <td className="p-2 font-mono">{callsign}</td>
-                                  <td className="p-2">{origin}</td>
-                                  <td className="p-2">{destination}</td>
-                                  <td className="p-2">{it.requestedBin != null ? String(it.requestedBin) : '—'}</td>
-                                  <td className="p-2">{it.earliestCrossing != null ? String(it.earliestCrossing) : '—'}</td>
-                                  <td className="p-2">
-                                    <div className="flex items-center gap-2">
-                                      {/* Move */}
-                                      <MoveFlightMenu
-                                        flows={flowBasket}
-                                        currentFlowId={bf.id}
-                                        onMove={(toId) => moveFlightBetweenBasketFlows(bf.id, toId, key)}
-                                      />
-                                      {/* Delete */}
-                                      <button
-                                        className="p-1 text-white/70 hover:text-red-200"
-                                        title="Remove from this flow"
-                                        onClick={() => removeFlightFromBasketFlow(bf.id, key)}
-                                      >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
-                                      </button>
-                                    </div>
-                                  </td>
+                        <div className="rounded-lg border border-white/10 overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-[11px]">
+                              <thead>
+                                <tr className="bg-white/10">
+                                  <th className="text-left p-2 font-semibold">CS</th>
+                                  <th className="text-left p-2 font-semibold">Ori.</th>
+                                  <th className="text-left p-2 font-semibold">Des.</th>
+                                  <th className="text-left p-2 font-semibold">Requested Bin</th>
+                                  <th className="text-left p-2 font-semibold">Earliest Crossing</th>
+                                  <th className="text-right p-2 font-semibold">Actions</th>
                                 </tr>
-                              );
-                            })}
-                            {/* New row */}
-                            <NewFlightRow
-                              onAdd={(token) => {
-                                const trimmed = String(token || '').trim();
-                                if (!trimmed) return;
-                                addFlightsToBasketFlow(bf.id, [trimmed]);
-                              }}
-                            />
-                          </tbody>
-                        </table>
+                              </thead>
+                              <tbody>
+                                {(bf.items || []).map((it, idx) => {
+                                  const key = it.key;
+                                  const f = resolveByKey(key);
+                                  const callsign = f?.callSign || key;
+                                  const origin = f?.origin || '—';
+                                  const destination = f?.destination || '—';
+                                  return (
+                                    <tr
+                                      key={`${bf.id}-${key}`}
+                                      className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10`}
+                                      onMouseEnter={() => { if (f?.flightId) setFlowPreviewFlightId(String(f.flightId)); }}
+                                      onMouseLeave={() => setFlowPreviewFlightId(null)}
+                                    >
+                                      <td className="p-2 font-mono">{callsign}</td>
+                                      <td className="p-2">{origin}</td>
+                                      <td className="p-2">{destination}</td>
+                                      <td className="p-2 text-right font-mono">{it.requestedBin != null ? String(it.requestedBin) : '—'}</td>
+                                      <td className="p-2 text-right font-mono">{it.earliestCrossing != null ? String(it.earliestCrossing) : '—'}</td>
+                                      <td className="p-2">
+                                        <div className="flex items-center justify-end gap-2">
+                                          {/* Move */}
+                                          <MoveFlightMenu
+                                            flows={flowBasket}
+                                            currentFlowId={bf.id}
+                                            onMove={(toId) => moveFlightBetweenBasketFlows(bf.id, toId, key)}
+                                          />
+                                          {/* Delete */}
+                                          <button
+                                            className="p-1 text-white/70 hover:text-red-200"
+                                            title="Remove from this flow"
+                                            onClick={() => removeFlightFromBasketFlow(bf.id, key)}
+                                          >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {/* New row */}
+                                <NewFlightRow
+                                  onAdd={(token) => {
+                                    const trimmed = String(token || '').trim();
+                                    if (!trimmed) return;
+                                    addFlightsToBasketFlow(bf.id, [trimmed]);
+                                  }}
+                                />
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );
@@ -599,8 +603,8 @@ function isValidTimeRange(from: string, to: string): boolean {
 function NewFlightRow({ onAdd }: { onAdd: (token: string) => void }) {
   const [value, setValue] = useState("");
   return (
-    <tr className="bg-white/5">
-      <td className="p-2" colSpan={4}>
+    <tr className="border-t border-white/10 bg-white/5">
+      <td className="p-2" colSpan={5}>
         <input
           value={value}
           onChange={(e) => setValue(e.currentTarget.value)}
@@ -608,7 +612,6 @@ function NewFlightRow({ onAdd }: { onAdd: (token: string) => void }) {
           className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white text-[11px] focus:outline-none"
         />
       </td>
-      <td className="p-2 text-right" colSpan={1}></td>
       <td className="p-2 text-right">
         <button
           onClick={() => { const v = value.trim(); if (!v) return; onAdd(v); setValue(""); }}

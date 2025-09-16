@@ -1639,14 +1639,14 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
         const shown = showAll ? list : list.slice(0, 25);
         const color = colors?.[String(fid)] || '#0f468a';
         return (
-          <div key={fid} className="text-sm text-white/90">
-            <div className="flex items-center justify-between mb-1">
+          <div key={fid} className="text-[12px] text-white/90">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: color }} />
-                <span>Flow {fid}</span>
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ background: color }} />
+                <span className="font-medium text-sm opacity-90">Flow {fid}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-white/70">{list.length} flights</span>
+              <div className="flex items-center gap-2 text-[11px] text-white/70">
+                <span>{list.length} flights</span>
                 {list.length > 25 && (
                   <button onClick={() => toggle(fid)} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15">
                     {showAll ? 'Show less' : 'Show all'}
@@ -1655,16 +1655,16 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
               </div>
             </div>
             {list.length > 0 ? (
-              <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
-                <div className="overflow-visible">
-                  <table className="w-full text-xs min-w-max whitespace-nowrap">
-                    <thead className="sticky top-0 z-10 bg-blue-900">
-                      <tr className="text-white">
+              <div className="rounded-lg border border-white/10 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-[11px]">
+                    <thead>
+                      <tr className="bg-white/10 text-white/80">
                         <th className="text-left p-2 font-semibold">Callsign</th>
                         <th className="text-left p-2 font-semibold">Origin</th>
                         <th className="text-left p-2 font-semibold">Destination</th>
-                        <th className="text-left p-2 font-semibold">Takeoff</th>
-                        <th className="text-left p-2 font-semibold">Delay (min)</th>
+                        <th className="text-right p-2 font-semibold">Takeoff</th>
+                        <th className="text-right p-2 font-semibold">Delay (min)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1681,12 +1681,15 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
                           return Number.isFinite(v) ? Number(v) : null;
                         })();
                         return (
-                          <tr key={`${fid}-${i}`} className={`border-b border-white/10 ${i % 2 === 0 ? 'bg-white/2' : ''}`}>
+                          <tr
+                            key={`${fid}-${i}`}
+                            className={`border-t border-white/10 ${i % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10`}
+                          >
                             <td className="p-2 font-mono">{callsign}</td>
                             <td className="p-2">{origin}</td>
                             <td className="p-2">{destination}</td>
-                            <td className="p-2 font-mono">{takeoff}</td>
-                            <td className="p-2 font-mono">{delayVal === null ? '—' : delayVal}</td>
+                            <td className="p-2 text-right font-mono">{takeoff}</td>
+                            <td className="p-2 text-right font-mono">{delayVal === null ? '—' : delayVal}</td>
                           </tr>
                         );
                       })}

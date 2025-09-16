@@ -10,6 +10,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
+import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -552,25 +553,39 @@ export default function MapCanvas() {
 
     // If overlay is disabled, hide any existing precip layers
     if (weatherOverlay !== 'surface-precip') {
-      hideTpLayers(map);
-      (map as any).__tpCurrentId = undefined;
+      hideSurfacePrecipLayer(map);
       return;
     }
 
+    const targetHour = isoHourFrom(date, t);
+
     const apply = () => {
       try {
-        const hh = isoHourFrom(date, t);
-        ensureTpHour(map, hh);
+        ensureSurfacePrecipHour(map, targetHour);
       } catch (e) {
         // no-op
       }
     };
 
-    if (!map.isStyleLoaded()) {
-      try { map.once('idle', apply); } catch {}
-    } else {
+    if (map.isStyleLoaded()) {
       apply();
+      return;
     }
+
+    // Fallback: wait for the next render tick where the style reports as loaded.
+    // Using 'idle' is unreliable while the RAF loop is active (map never becomes idle).
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      try { map.off('render', waitForReady); } catch {}
+      if (!cancelled) apply();
+    };
+
+    map.on('render', waitForReady);
+    return () => {
+      cancelled = true;
+      try { map.off('render', waitForReady); } catch {}
+    };
   }, [weatherOverlay, t, date]);
 
   // on showFlightLineLabels change, update layer visibility
@@ -1000,89 +1015,3 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   }
 }
 
-// --- Weather overlay helpers ---
-function isoHourFrom(dateStr: string, t: number): string {
-  // dateStr is DD/MM/YYYY
-  const [ddStr, mmStr, yyyyStr] = String(dateStr || '').split('/') as [string, string, string];
-  const dd = Number(ddStr || '1');
-  const mm = Number(mmStr || '1');
-  const yyyy = Number(yyyyStr || '1970');
-  const hour = Math.max(0, Math.min(23, Math.floor((t || 0) / 3600)));
-  const y = String(yyyy).padStart(4, '0');
-  const m = String(mm).padStart(2, '0');
-  const d = String(dd).padStart(2, '0');
-  const h = String(hour).padStart(2, '0');
-  return `${y}-${m}-${d}T${h}`;
-}
-
-function tpTile(urlEncodedCog: string): string {
-  const titiler = "http://localhost:8001";
-  return `${titiler}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${urlEncodedCog}`;
-}
-
-function ensureTpHour(map: maplibregl.Map, isoHour: string) {
-  if (!map || !map.isStyleLoaded()) return;
-  const id = 'era5_tp';
-  const prevHour: string | undefined = (map as any).__tpHour;
-  if (prevHour === isoHour && map.getLayer(id)) {
-    // Already showing this hour
-    try { map.setPaintProperty(id, 'raster-opacity', 0.65); } catch {}
-    return;
-  }
-
-  const cog = encodeURIComponent(`https://wxtiles.tailwind-api.intuelle.com/cogs/era5_tp_${isoHour}.tif`);
-  const tiles = [rasterTile(cog, { rescale: [0, 5], colormap_name: 'viridis', resampling_method: 'bilinear' })];
-
-  // If a previous source/layer exists, remove to force refetch with new tiles
-  if (map.getLayer(id)) {
-    try { map.removeLayer(id); } catch {}
-  }
-  if (map.getSource(id)) {
-    try { map.removeSource(id); } catch {}
-  }
-
-  map.addSource(id, {
-    type: 'raster',
-    tiles,
-    tileSize: 256,
-    attribution: 'ECMWF/Copernicus'
-  } as any);
-
-  // Insert below airspace/traffic volume layers so they stay above weather (fallback to flight lines)
-  const layerOrderPreference = [
-    'sector-fill',
-    'sector-outline',
-    'sector-labels',
-    'sector-highlight',
-    'sector-highlight-outline',
-    'sector-hover',
-    'sector-hover-outline',
-    'sector-hotspot',
-    'sector-hotspot-outline',
-    'flight-lines'
-  ];
-  const beforeId = layerOrderPreference.find((layerId) => map.getLayer(layerId));
-  const layer: any = { id, type: 'raster', source: id, paint: { 'raster-opacity': 0.65 } };
-  // @ts-ignore second param optional
-  map.addLayer(layer, beforeId);
-
-  (map as any).__tpHour = isoHour;
-}
-
-function hideTpLayers(map: maplibregl.Map) {
-  if (!map || !map.isStyleLoaded()) return;
-  try {
-    const id = 'era5_tp';
-    if (map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', 0);
-  } catch {}
-}
-
-function rasterTile(urlEncodedCog: string, params?: { rescale?: [number, number]; colormap_name?: string; resampling_method?: string; nodata?: number }): string {
-  const titiler = "https://wxtiles.tailwind-api.intuelle.com";
-  const qp: string[] = [`url=${urlEncodedCog}`];
-  if (params?.rescale) qp.push(`rescale=${params.rescale[0]},${params.rescale[1]}`);
-  if (params?.colormap_name) qp.push(`colormap_name=${params.colormap_name}`);
-  if (params?.resampling_method) qp.push(`resampling_method=${params.resampling_method}`);
-  if (params?.nodata !== undefined) qp.push(`nodata=${params.nodata}`);
-  return `${titiler}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?${qp.join('&')}`;
-}
