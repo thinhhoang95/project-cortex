@@ -27,6 +27,8 @@ function countTimesUpTo(sortedTimes: number[], value: number): number {
   return lo;
 }
 
+const DAY_SECONDS = 24 * 60 * 60;
+
 export default function Page() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
@@ -51,8 +53,18 @@ export default function Page() {
     }
 
     return flights
-      .map((flight) => flight.t1)
-      .filter((time) => Number.isFinite(time))
+      .map((flight) => {
+        const start = flight.t0;
+        const end = flight.t1;
+        if (!Number.isFinite(start) || !Number.isFinite(end)) {
+          return null;
+        }
+
+        // Flights crossing midnight report an end time earlier than start; shift
+        // those landings into the next day so they don't look landed immediately.
+        return end < start ? end + DAY_SECONDS : end;
+      })
+      .filter((time): time is number => typeof time === 'number' && Number.isFinite(time))
       .sort((a, b) => a - b);
   }, [flights]);
 
