@@ -57,15 +57,19 @@ const DEFAULT_HISTOGRAM: HistogramBin[] = [
 
 export default function NetworkStatusPanel({
   embedded = true,
-  flightsTotal = 1042,
-  flightsLanded = 612,
-  flightsAirborne = 430,
+  flightsTotal = 0,
+  flightsLanded = 0,
+  flightsAirborne = 0,
   averageDelayMinutes = 14,
   delayCauses = DEFAULT_DELAY_CAUSES,
   delayHistogram = DEFAULT_HISTOGRAM,
 }: NetworkStatusPanelProps) {
   // Local state for the expandable causes table
   const [showAllCauses, setShowAllCauses] = useState(false);
+
+  const flightsTotalDisplay = useMemo(() => formatFlightCount(flightsTotal), [flightsTotal]);
+  const flightsLandedDisplay = useMemo(() => formatFlightCount(flightsLanded), [flightsLanded]);
+  const flightsAirborneDisplay = useMemo(() => formatFlightCount(flightsAirborne), [flightsAirborne]);
 
   // Sort causes by count desc for table and pie accumulation
   const sortedCauses = useMemo(() => {
@@ -128,9 +132,9 @@ export default function NetworkStatusPanel({
         <div className="bg-white/5 rounded-lg p-4">
           <h2 className="font-semibold mb-3">Flights</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <MetricCard label="Total" value={flightsTotal.toLocaleString()} />
-            <MetricCard label="Landed" value={flightsLanded.toLocaleString()} />
-            <MetricCard label="Airborne" value={flightsAirborne.toLocaleString()} />
+            <MetricCard label="Total" value={flightsTotalDisplay} />
+            <MetricCard label="Landed" value={flightsLandedDisplay} />
+            <MetricCard label="Airborne" value={flightsAirborneDisplay} />
           </div>
         </div>
 
@@ -227,4 +231,26 @@ function MetricCard({ label, value, accent }: { label: string; value: string | n
       <div className="text-xl font-semibold leading-tight">{value}</div>
     </div>
   );
+}
+
+const compactNumberFormatter = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function formatFlightCount(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "0";
+  }
+
+  const safeValue = Math.max(0, Math.round(value));
+  if (safeValue === 0) {
+    return "0";
+  }
+
+  if (safeValue >= 1000) {
+    return compactNumberFormatter.format(safeValue).toLowerCase();
+  }
+
+  return safeValue.toLocaleString();
 }
