@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ModalDialog from "@/components/ModalDialog";
+import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import {
   SolutionSnapshot,
   loadSnapshots,
@@ -66,7 +67,7 @@ export default function SolutionComparisonPage() {
   const [tvScope, setTvScope] = useState<OccupancyScope>("aggregate");
   const [tvSort, setTvSort] = useState<TvSortMode>("exceedance");
   const [visibleTvCount, setVisibleTvCount] = useState(6);
-  const [tvFilter, setTvFilter] = useState("");
+  const [selectedTvFilters, setSelectedTvFilters] = useState<string[]>([]);
   const [flightSort, setFlightSort] = useState<FlightSortMode>("max");
   const [flightDelayedOnly, setFlightDelayedOnly] = useState(true);
   const [flightThreshold, setFlightThreshold] = useState(0);
@@ -342,6 +343,25 @@ export default function SolutionComparisonPage() {
     return Array.from(set);
   }, [alignedSnapshots, tvSeriesBySnapshot]);
 
+  const tvFilterOptions = useMemo<ChipOption[]>(() => {
+    return tvIdsUnion
+      .slice()
+      .sort((a, b) => a.localeCompare(b))
+      .map((id) => ({ id, label: id } as ChipOption));
+  }, [tvIdsUnion]);
+
+  useEffect(() => {
+    const valid = new Set(tvFilterOptions.map((opt) => opt.id));
+    setSelectedTvFilters((prev) => {
+      const next = prev.filter((id) => valid.has(id));
+      if (next.length === prev.length) return prev;
+      return next;
+    });
+  }, [tvFilterOptions]);
+
+  const selectedTvSet = useMemo(() => new Set(selectedTvFilters.map(String)), [selectedTvFilters]);
+  const hasTvFilter = selectedTvFilters.length > 0;
+
   const tvMetrics: TvMetrics[] = useMemo(() => {
     return tvIdsUnion.map((tvId) => {
       let maxExceedance = 0;
@@ -364,12 +384,12 @@ export default function SolutionComparisonPage() {
   }, [alignedSnapshots, tvIdsUnion, tvSeriesBySnapshot, capacityBySnapshot, minutesPerBin, viewFromMin, viewToMin]);
 
   const filteredTvIds = useMemo(() => {
-    const q = tvFilter.trim().toLowerCase();
     let list = tvMetrics;
-    if (q) {
-      list = list.filter((item) => item.tvId.toLowerCase().includes(q));
+    if (hasTvFilter) {
+      list = list.filter((item) => selectedTvSet.has(item.tvId));
     }
-    list.sort((a, b) => {
+    const sorted = [...list];
+    sorted.sort((a, b) => {
       if (tvSort === "alphabetical") {
         return a.tvId.localeCompare(b.tvId);
       }
@@ -380,8 +400,8 @@ export default function SolutionComparisonPage() {
       if (b.maxExceedance !== a.maxExceedance) return b.maxExceedance - a.maxExceedance;
       return b.maxPeak - a.maxPeak;
     });
-    return list.map((item) => item.tvId);
-  }, [tvMetrics, tvFilter, tvSort]);
+    return sorted.map((item) => item.tvId);
+  }, [tvMetrics, hasTvFilter, selectedTvSet, tvSort]);
 
   const visibleTvs = filteredTvIds.slice(0, visibleTvCount);
 
@@ -760,11 +780,11 @@ export default function SolutionComparisonPage() {
           <section className="bg-white/5 border border-white/10 rounded-xl p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <h2 className="text-lg font-semibold text-white">Traffic volume occupancy</h2>
-              <div className="flex flex-wrap items-center gap-3 text-[12px] text-white/70">
+              <div className="flex flex-wrap items-center gap-3 text-[12px] text-white/70 justify-end w-full sm:w-auto">
                 <select
                   value={tvScope}
                   onChange={(e) => { setTvScope(e.currentTarget.value as OccupancyScope); setVisibleTvCount(6); }}
-                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white"
+                  className="h-[42px] px-3 rounded-md bg-white/10 border border-white/20 text-white"
                 >
                   <option value="aggregate">Aggregate occupancy</option>
                   <option value="targets">Target TVs (post-opt)</option>
@@ -773,18 +793,20 @@ export default function SolutionComparisonPage() {
                 <select
                   value={tvSort}
                   onChange={(e) => setTvSort(e.currentTarget.value as TvSortMode)}
-                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white"
+                  className="h-[42px] px-3 rounded-md bg-white/10 border border-white/20 text-white"
                 >
                   <option value="exceedance">Sort by exceedance</option>
                   <option value="peak">Sort by peak</option>
                   <option value="alphabetical">Sort alphabetically</option>
                 </select>
-                <input
-                  value={tvFilter}
-                  onChange={(e) => { setTvFilter(e.currentTarget.value); setVisibleTvCount(6); }}
-                  placeholder="Filter TVs"
-                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white"
-                />
+                <div className="min-w-[220px] sm:min-w-[260px] w-full sm:w-[260px]">
+                  <MultiSelectWithChips
+                    options={tvFilterOptions}
+                    selectedIds={selectedTvFilters}
+                    onChange={(ids) => { setSelectedTvFilters(ids); setVisibleTvCount(6); }}
+                    placeholder="Filter traffic volumes"
+                  />
+                </div>
               </div>
             </div>
 

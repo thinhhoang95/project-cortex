@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "@/components/ModalDialog";
+import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import { BaseEvaluationResponse, AutomaticRateAdjustmentResponse } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
@@ -106,6 +107,7 @@ function FlowEvaluationPageContent() {
   const [expandedRippleCharts, setExpandedRippleCharts] = useState<Record<number, boolean>>({});
   const [expandedOccAll, setExpandedOccAll] = useState<boolean>(false);
   const [expandedOccOriginal, setExpandedOccOriginal] = useState<boolean>(false);
+  const [selectedTrafficVolumes, setSelectedTrafficVolumes] = useState<string[]>([]);
   // View toggle UI only (logic wiring to be handled later)
   const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all' | 'occupancy_original'>("demand");
   // Ripple TV sort mode (applies only to ripple TVs in Demand/Occupancy views)
@@ -184,6 +186,120 @@ function FlowEvaluationPageContent() {
   const snapshotSizeBytes = useMemo(() => estimateSnapshotsSize(snapshotList), [snapshotList]);
   const snapshotSizeWarn = snapshotSizeBytes > SNAPSHOT_SIZE_WARN_THRESHOLD;
   const snapshotSizeDisplayKb = Math.max(0, Math.round(snapshotSizeBytes / 1024));
+
+  const trafficVolumeOptions = useMemo<ChipOption[]>(() => {
+    const ids = new Set<string>();
+    const addFromRecord = (rec?: Record<string, unknown> | null) => {
+      if (!rec) return;
+      Object.keys(rec).forEach((key) => {
+        if (key) ids.add(String(key));
+      });
+    };
+    const addFromArray = (arr?: Array<string | number | null | undefined>) => {
+      if (!Array.isArray(arr)) return;
+      arr.forEach((value) => {
+        if (value !== null && value !== undefined && value !== "") {
+          ids.add(String(value));
+        }
+      });
+    };
+
+    for (const fl of (evalState.data?.flows || [])) {
+      addFromRecord(fl.target_demands);
+      addFromRecord(fl.target_occupancy);
+      addFromRecord(fl.ripple_demands);
+      addFromRecord(fl.ripple_occupancy);
+    }
+    for (const fl of (optState.data?.flows || [])) {
+      addFromRecord(fl.target_demands);
+      addFromRecord(fl.ripple_demands);
+      addFromRecord(fl.target_occupancy_opt);
+      addFromRecord(fl.ripple_occupancy_opt);
+    }
+    addFromArray(Object.keys(input?.targets || {}));
+    addFromArray(Object.keys(input?.ripples || {}));
+
+    if (occAllState.data) {
+      addFromRecord(occAllState.data.pre_counts as Record<string, unknown> | undefined);
+      addFromRecord(occAllState.data.post_counts as Record<string, unknown> | undefined);
+      addFromRecord(occAllState.data.capacity as Record<string, unknown> | undefined);
+      addFromArray(occAllState.data.tv_ids_order as string[] | undefined);
+    }
+    if (origCountsState.data) {
+      addFromRecord(origCountsState.data.counts);
+      addFromRecord(origCountsState.data.mentioned_counts);
+      addFromRecord(origCountsState.data.capacity);
+      addFromRecord(origCountsState.data.mentioned_capacity);
+    }
+
+    return Array.from(ids)
+      .sort((a, b) => a.localeCompare(b))
+      .map((id) => ({ id, label: id } as ChipOption));
+  }, [
+    evalState.data?.flows,
+    optState.data?.flows,
+    input?.targets,
+    input?.ripples,
+    occAllState.data,
+    origCountsState.data,
+  ]);
+
+  useEffect(() => {
+    const valid = new Set(trafficVolumeOptions.map((opt) => opt.id));
+    setSelectedTrafficVolumes((prev) => {
+      const next = prev.filter((id) => valid.has(id));
+      if (next.length === prev.length) return prev;
+      return next;
+    });
+  }, [trafficVolumeOptions]);
+
+  const selectedTvSet = useMemo(() => new Set(selectedTrafficVolumes.map(String)), [selectedTrafficVolumes]);
+  const hasTvFilter = selectedTrafficVolumes.length > 0;
+
+  const occAllPostCountsForView = useMemo<Record<string, number[]>>(() => {
+    const src = occAllState.data?.post_counts;
+    if (!src) return {};
+    if (!hasTvFilter) return src;
+    const filtered: Record<string, number[]> = {};
+    Object.entries(src).forEach(([tv, series]) => {
+      if (selectedTvSet.has(String(tv))) {
+        filtered[tv] = series;
+      }
+    });
+    return filtered;
+  }, [occAllState.data?.post_counts, hasTvFilter, selectedTvSet]);
+
+  const occAllPreCountsForView = useMemo<Record<string, number[]>>(() => {
+    const src = occAllState.data?.pre_counts;
+    if (!src) return {};
+    if (!hasTvFilter) return src;
+    const filtered: Record<string, number[]> = {};
+    Object.entries(src).forEach(([tv, series]) => {
+      if (selectedTvSet.has(String(tv))) {
+        filtered[tv] = series;
+      }
+    });
+    return filtered;
+  }, [occAllState.data?.pre_counts, hasTvFilter, selectedTvSet]);
+
+  const occAllCapacityForView = useMemo<Record<string, number[]> | undefined>(() => {
+    const src = occAllState.data?.capacity;
+    if (!src) return undefined;
+    if (!hasTvFilter) return src;
+    const filtered: Record<string, number[]> = {};
+    Object.entries(src).forEach(([tv, series]) => {
+      if (selectedTvSet.has(String(tv))) {
+        filtered[tv] = series;
+      }
+    });
+    return filtered;
+  }, [occAllState.data?.capacity, hasTvFilter, selectedTvSet]);
+
+  const occAllTvOrderForView = useMemo<string[]>(() => {
+    const order = occAllState.data?.tv_ids_order || [];
+    if (!hasTvFilter) return order;
+    return order.filter((tv) => selectedTvSet.has(String(tv)));
+  }, [occAllState.data?.tv_ids_order, hasTvFilter, selectedTvSet]);
 
   async function handleSelectOccupancyAll(force = false): Promise<AutorateOccupancyResponse | null> {
     if (!force && occAllState.data) {
@@ -724,7 +840,7 @@ function FlowEvaluationPageContent() {
                 <button
                   onClick={handleOpenSnapshotPrompt}
                   disabled={snapshotSaving}
-                  className={`px-3 py-1 rounded-lg border text-xs flex items-center gap-2 ${snapshotSaving ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100' : 'border-emerald-400/70 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25'}`}
+                  className={`ml-auto px-3 py-1 rounded-lg border text-xs flex items-center gap-2 ${snapshotSaving ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100' : 'border-emerald-400/70 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25'}`}
                 >
                   {snapshotSaving ? <ShimmeringText text="Saving…" /> : 'Add to Comparison'}
                   <span className={`px-2 py-0.5 rounded-full text-[11px] border ${snapshotSizeWarn ? 'border-red-300/70 bg-red-500/20 text-red-100' : 'border-emerald-300/70 bg-emerald-400/10 text-emerald-100'}`}>
@@ -1089,13 +1205,12 @@ function FlowEvaluationPageContent() {
 
           {/* Demand vs Occupancy toggle (adds Occupancy Pre-Post) */}
           <div className="mt-3 flex flex-wrap items-center gap-3 mb-6">
-              <div className="text-[11px] uppercase tracking-wider text-white/60">Histogram Values</div>
               <div className="inline-flex rounded-md shadow-xs overflow-hidden" role="group" aria-label="Toggle view between Demand, Occupancy, Occupancy Flow/Total, and Occupancy Pre-Post">
                 <button
                   type="button"
                   aria-pressed={seriesView === 'demand'}
                   onClick={() => setSeriesView('demand')}
-                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors ${
+                  className={`h-[42px] px-4 text-[12px] font-medium border transition-colors flex items-center justify-center whitespace-nowrap ${
                     seriesView === 'demand'
                       ? 'bg-blue-500/20 border-blue-400/60 text-white'
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
@@ -1107,7 +1222,7 @@ function FlowEvaluationPageContent() {
                   type="button"
                   aria-pressed={seriesView === 'occupancy'}
                   onClick={() => setSeriesView('occupancy')}
-                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors -ml-px ${
+                  className={`h-[42px] px-4 text-[12px] font-medium border transition-colors -ml-px flex items-center justify-center whitespace-nowrap ${
                     seriesView === 'occupancy'
                       ? 'bg-blue-500/20 border-blue-400/60 text-white'
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
@@ -1119,7 +1234,7 @@ function FlowEvaluationPageContent() {
                   type="button"
                   aria-pressed={seriesView === 'occupancy_original'}
                   onClick={async () => { setSeriesView('occupancy_original'); await handleSelectOccupancyOriginal(); }}
-                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors -ml-px ${
+                  className={`h-[42px] px-4 text-[12px] font-medium border transition-colors -ml-px flex items-center justify-center whitespace-nowrap ${
                     seriesView === 'occupancy_original'
                       ? 'bg-blue-500/20 border-blue-400/60 text-white'
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
@@ -1131,7 +1246,7 @@ function FlowEvaluationPageContent() {
                   type="button"
                   aria-pressed={seriesView === 'occupancy_all'}
                   onClick={async () => { setSeriesView('occupancy_all'); await handleSelectOccupancyAll(); }}
-                  className={`px-3 py-1.5 text-[12px] font-medium border transition-colors -ml-px ${
+                  className={`h-[42px] px-4 text-[12px] font-medium border transition-colors -ml-px flex items-center justify-center whitespace-nowrap ${
                     seriesView === 'occupancy_all'
                       ? 'bg-blue-500/20 border-blue-400/60 text-white'
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
@@ -1140,60 +1255,70 @@ function FlowEvaluationPageContent() {
                   Occupancy Pre-Post
                 </button>
               </div>
-              {(seriesView === 'demand' || seriesView === 'occupancy') && (
-                <div className="ml-auto flex items-center gap-2">
-                  <div className="text-[11px] uppercase tracking-wider text-white/60">Ripple TV Sort</div>
-                  <select
-                    className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
-                    value={rippleSortMode}
-                    onChange={(e) => setRippleSortMode(e.currentTarget.value as 'total' | 'abs_change')}
-                  >
-                    <option value="total">Rank by Total</option>
-                    <option
-                      value="abs_change"
-                      disabled={!optState.data}
-                      title={!optState.data ? 'Run optimization to rank by changes.' : undefined}
+              <div className="ml-auto flex flex-wrap items-center gap-3 justify-end w-full sm:w-auto">
+                {(seriesView === 'demand' || seriesView === 'occupancy') && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="h-[42px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                      value={rippleSortMode}
+                      aria-label="Ripple sort"
+                      onChange={(e) => setRippleSortMode(e.currentTarget.value as 'total' | 'abs_change')}
                     >
-                      Rank by Absolute Changes (Pre vs Post)
-                    </option>
-                  </select>
-                </div>
-              )}
-              {seriesView === 'occupancy_original' && (
-                <div className="ml-auto flex items-center gap-2">
-                  <div className="text-[11px] uppercase tracking-wider text-white/60">TV Sort</div>
-                  <select
-                    className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
-                    value={occOrigSortMode}
-                    onChange={(e) => setOccOrigSortMode(e.currentTarget.value as 'total' | 'flow_absolute' | 'flow_relative' | 'exceedance')}
-                  >
-                    <option value="total">Rank by Total</option>
-                    <option value="flow_absolute">Rank by Flow Absolute</option>
-                    <option value="flow_relative">Rank by Flow Relative</option>
-                    <option value="exceedance">By Exceedances</option>
-                  </select>
-                </div>
-              )}
-              {seriesView === 'occupancy_all' && (
-                <div className="ml-auto flex items-center gap-2">
-                  <div className="text-[11px] uppercase tracking-wider text-white/60">TV Sort</div>
-                  <select
-                    className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
-                    value={occAllSortMode}
-                    onChange={(e) => setOccAllSortMode(e.currentTarget.value as 'total' | 'abs_change' | 'exceedance')}
-                  >
-                    <option value="total">Rank by Total</option>
-                    <option
-                      value="abs_change"
-                      disabled={!occAllState.data?.post_counts}
-                      title={!occAllState.data?.post_counts ? 'Run optimization to get post counts for changes.' : undefined}
+                      <option value="total">Rank by Total</option>
+                      <option
+                        value="abs_change"
+                        disabled={!optState.data}
+                        title={!optState.data ? 'Run optimization to rank by changes.' : undefined}
+                      >
+                        Rank by Absolute Changes (Pre vs Post)
+                      </option>
+                    </select>
+                  </div>
+                )}
+                {seriesView === 'occupancy_original' && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="h-[42px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                      value={occOrigSortMode}
+                      aria-label="Occupancy original sort"
+                      onChange={(e) => setOccOrigSortMode(e.currentTarget.value as 'total' | 'flow_absolute' | 'flow_relative' | 'exceedance')}
                     >
-                      Rank by Absolute Changes (Pre vs Post)
-                    </option>
-                    <option value="exceedance">By Exceedances</option>
-                  </select>
+                      <option value="total">Rank by Total</option>
+                      <option value="flow_absolute">Rank by Flow Absolute</option>
+                      <option value="flow_relative">Rank by Flow Relative</option>
+                      <option value="exceedance">By Exceedances</option>
+                    </select>
+                  </div>
+                )}
+                {seriesView === 'occupancy_all' && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="h-[42px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                      value={occAllSortMode}
+                      aria-label="Occupancy pre-post sort"
+                      onChange={(e) => setOccAllSortMode(e.currentTarget.value as 'total' | 'abs_change' | 'exceedance')}
+                    >
+                      <option value="total">Rank by Total</option>
+                      <option
+                        value="abs_change"
+                        disabled={!occAllState.data?.post_counts}
+                        title={!occAllState.data?.post_counts ? 'Run optimization to get post counts for changes.' : undefined}
+                      >
+                        Rank by Absolute Changes (Pre vs Post)
+                      </option>
+                      <option value="exceedance">By Exceedances</option>
+                    </select>
+                  </div>
+                )}
+                <div className="min-w-[220px] sm:min-w-[260px] w-full sm:w-[260px]">
+                  <MultiSelectWithChips
+                    options={trafficVolumeOptions}
+                    selectedIds={selectedTrafficVolumes}
+                    onChange={setSelectedTrafficVolumes}
+                    placeholder="Filter traffic volumes"
+                  />
                 </div>
-              )}
+              </div>
             </div>
 
           {seriesView === 'occupancy_original' && (
@@ -1207,8 +1332,8 @@ function FlowEvaluationPageContent() {
               )}
               {(() => {
                 const d = origCountsState.data;
-                const ids = Array.from(tvUnion);
-                if (!d && ids.length === 0 && !origCountsState.loading) {
+                const unionIds = Array.from(tvUnion);
+                if (!d && unionIds.length === 0 && !origCountsState.loading) {
                   return <div className="text-xs text-gray-300">No TVs found in flow occupancy. Run evaluation first.</div>;
                 }
                 if (!d) return null;
@@ -1218,6 +1343,15 @@ function FlowEvaluationPageContent() {
                 const vTo = hhmmToMinutesSafe(viewTo);
                 const counts = d.mentioned_counts || d.counts || {};
                 const capacities = d.mentioned_capacity || d.capacity || {};
+                const allIds = Array.from(new Set<string>([
+                  ...unionIds,
+                  ...Object.keys(counts || {}),
+                  ...Object.keys(capacities || {}),
+                ]));
+                const tvIds = hasTvFilter ? allIds.filter((tv) => selectedTvSet.has(String(tv))) : allIds;
+                if (hasTvFilter && tvIds.length === 0) {
+                  return <div className="text-xs text-gray-300">No traffic volumes match the current filter.</div>;
+                }
 
                 // Colors for flows
                 const allFlows = (evalState.data?.flows || []).map(f => f.flow_id).sort((a, b) => a - b);
@@ -1308,7 +1442,6 @@ function FlowEvaluationPageContent() {
                 }
 
                 // Determine TV order: controlled first; then by selected metric within view window
-                const tvIds = Array.from(new Set<string>([...Object.keys(counts)]));
                 type TvScore = { tv: string; total: number; flowAbs: number; flowRel: number; exceed: number };
                 const scores: Record<string, TvScore> = {};
                 for (const tv of tvIds) {
@@ -1465,10 +1598,10 @@ function FlowEvaluationPageContent() {
             <section className="mb-8">
               <OccupancyPrePostPanel
                 title="Aggregated Occupancy Across Flows"
-                postCounts={occAllState.data?.post_counts || {}}
-                preCounts={occAllState.data?.pre_counts || {}}
-                capacity={occAllState.data?.capacity || undefined}
-                tvOrder={occAllState.data?.tv_ids_order || []}
+                postCounts={occAllPostCountsForView}
+                preCounts={occAllPreCountsForView}
+                capacity={occAllCapacityForView}
+                tvOrder={occAllTvOrderForView}
                 binMinutes={minutesPerBin}
                 viewFrom={viewFrom}
                 viewTo={viewTo}
@@ -1552,7 +1685,7 @@ function FlowEvaluationPageContent() {
               const optFlow = optState.data?.flows?.find(f => f.flow_id === flow.flow_id);
 
               // Sort by total demand descending; ensure controlled TV first for targets
-              const targetTvIds = Object.keys(targets).sort((a, b) => {
+              const sortedTargetTvIds = Object.keys(targets).sort((a, b) => {
                 if (controlledTv && a === controlledTv) return -1;
                 if (controlledTv && b === controlledTv) return 1;
                 const sumA = (targets[a] || []).reduce((s: number, v: number) => s + (Number(v) || 0), 0);
@@ -1560,13 +1693,23 @@ function FlowEvaluationPageContent() {
                 if (sumA !== sumB) return sumB - sumA;
                 return a.localeCompare(b);
               });
+              const targetTvIds = hasTvFilter
+                ? sortedTargetTvIds.filter((tvId) => selectedTvSet.has(String(tvId)))
+                : sortedTargetTvIds;
               const rippleScoreByTv = rippleScoreByFlowId.get(Number(flow.flow_id)) || {};
-              const rippleTvIds = Object.keys(ripples).sort((a, b) => {
+              const sortedRippleTvIds = Object.keys(ripples).sort((a, b) => {
                 const sa = Number(rippleScoreByTv[a] ?? 0);
                 const sb = Number(rippleScoreByTv[b] ?? 0);
                 if (sa !== sb) return sb - sa;
                 return a.localeCompare(b);
               });
+              const rippleTvIds = hasTvFilter
+                ? sortedRippleTvIds.filter((tvId) => selectedTvSet.has(String(tvId)))
+                : sortedRippleTvIds;
+
+              if (hasTvFilter && targetTvIds.length === 0 && rippleTvIds.length === 0) {
+                return null;
+              }
 
               return (
                 <div key={`flow-${idx}`} className="mb-8">
