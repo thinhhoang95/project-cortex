@@ -4,25 +4,26 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
+import ModalDialog from "@/components/ModalDialog";
 import { BaseEvaluationResponse, AutomaticRateAdjustmentResponse } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie } from "recharts";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
-
-type FlowInputPayload = {
-  flows: Record<string | number, string[]>;
-  targets: Record<string, { from: string; to: string }>;
-  ripples?: Record<string, { from: string; to: string }>;
-  auto_ripple_time_bins?: number;
-  indexer_path?: string;
-  flights_path?: string;
-  capacities_path?: string;
-  weights?: Record<string, number>;
-  // optional metadata for UI only
-  colorsByFlow?: Record<string, string>;
-};
+import { FlowInputPayload } from "@/lib/flow-input";
+import { AutorateOccupancyResponse } from "@/lib/autorate";
+import {
+  SolutionSnapshot,
+  loadSnapshots,
+  createSolutionSnapshot,
+  addSnapshot,
+  MAX_SNAPSHOTS,
+  SnapshotLimitError,
+  estimateSnapshotsSize,
+  SNAPSHOT_SIZE_WARN_THRESHOLD,
+  SNAPSHOT_STORAGE_KEY,
+} from "@/lib/comparison";
 
 type FetchState = { loading: boolean; error: string | null; data: BaseEvaluationResponse | null };
 type OptFetchState = { loading: boolean; error: string | null; data: AutomaticRateAdjustmentResponse | null };
@@ -113,6 +114,15 @@ function FlowEvaluationPageContent() {
   const [occOrigSortMode, setOccOrigSortMode] = useState<'total' | 'flow_absolute' | 'flow_relative' | 'exceedance'>("total");
   // Occupancy Pre-Post TV sort mode
   const [occAllSortMode, setOccAllSortMode] = useState<'total' | 'abs_change' | 'exceedance'>("total");
+  const [snapshotPromptOpen, setSnapshotPromptOpen] = useState(false);
+  const [snapshotDescription, setSnapshotDescription] = useState("");
+  const [snapshotSaving, setSnapshotSaving] = useState(false);
+  const [snapshotSaveError, setSnapshotSaveError] = useState<string | null>(null);
+  const [snapshotReplaceId, setSnapshotReplaceId] = useState<string | null>(null);
+  const [snapshotList, setSnapshotList] = useState<SolutionSnapshot[]>([]);
+  const [snapshotToast, setSnapshotToast] = useState<
+    { message: string; action?: { label: string; href: string }; kind?: 'info' | 'warning' } | null
+  >(null);
 
   useEffect(() => {
     const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
@@ -146,15 +156,6 @@ function FlowEvaluationPageContent() {
     didInitViewDefault.current = true;
   }, [input?.targets, viewParam]);
 
-  type AutorateOccupancyResponse = {
-    time_bin_minutes: number;
-    num_bins: number;
-    tv_ids_order: string[];
-    timebins?: { labels?: string[] };
-    pre_counts: Record<string, number[]>;
-    post_counts: Record<string, number[]>;
-    capacity?: Record<string, number[]>;
-  };
   const [occAllState, setOccAllState] = useState<{ loading: boolean; error: string | null; data: AutorateOccupancyResponse | null }>({ loading: false, error: null, data: null });
 
   // Original counts state for Occupancy Flow/Total view
@@ -179,11 +180,18 @@ function FlowEvaluationPageContent() {
     // Round to integer minutes per bin; tolerate non-divisible day
     return Math.max(1, Math.round(1440 / (T as number)));
   }, [occAllState.data?.time_bin_minutes, evalState.data?.num_time_bins, optState.data?.num_time_bins]);
+  const snapshotCount = snapshotList.length;
+  const snapshotSizeBytes = useMemo(() => estimateSnapshotsSize(snapshotList), [snapshotList]);
+  const snapshotSizeWarn = snapshotSizeBytes > SNAPSHOT_SIZE_WARN_THRESHOLD;
+  const snapshotSizeDisplayKb = Math.max(0, Math.round(snapshotSizeBytes / 1024));
 
-  async function handleSelectOccupancyAll() {
+  async function handleSelectOccupancyAll(force = false): Promise<AutorateOccupancyResponse | null> {
+    if (!force && occAllState.data) {
+      return occAllState.data;
+    }
     if (!input) {
       setOccAllState({ loading: false, error: 'No input payload provided.', data: null });
-      return;
+      return null;
     }
     try {
       setOccAllState({ loading: true, error: null, data: null });
@@ -224,8 +232,10 @@ function FlowEvaluationPageContent() {
       }
       const occJson = (await occRes.json()) as AutorateOccupancyResponse;
       setOccAllState({ loading: false, error: null, data: occJson });
+      return occJson;
     } catch (e: any) {
       setOccAllState({ loading: false, error: e?.message || 'Failed to fetch Occupancy Pre-Post aggregation', data: null });
+      return null;
     }
   }
 
@@ -285,6 +295,23 @@ function FlowEvaluationPageContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autostart, input]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSnapshotList(loadSnapshots());
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key && ev.key !== SNAPSHOT_STORAGE_KEY) return;
+      setSnapshotList(loadSnapshots());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  useEffect(() => {
+    if (!snapshotToast) return;
+    const id = window.setTimeout(() => setSnapshotToast(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [snapshotToast]);
 
   // Ensure flight metadata is available for tables (callsign, origin, destination, takeoff)
   useEffect(() => {
@@ -363,6 +390,95 @@ function FlowEvaluationPageContent() {
       }
     } catch (e: any) {
       setOptState({ loading: false, error: e?.message || "Failed to run optimization", data: null });
+    }
+  };
+
+  const handleOpenSnapshotPrompt = () => {
+    if (!optState.data || !input) return;
+    const existing = loadSnapshots();
+    setSnapshotList(existing);
+    const baseName = `Solution ${existing.length + 1}`;
+    setSnapshotDescription(baseName);
+    setSnapshotReplaceId(existing.length >= MAX_SNAPSHOTS ? existing[0]?.id ?? null : null);
+    setSnapshotSaveError(null);
+    setSnapshotPromptOpen(true);
+  };
+
+  const handleSaveSnapshot = async () => {
+    if (!input || !optState.data) return;
+    setSnapshotSaving(true);
+    setSnapshotSaveError(null);
+    try {
+      const occupancyData = await handleSelectOccupancyAll(true);
+      const payloadForSnapshot: FlowInputPayload = {
+        flows: { ...(input.flows || {}) },
+        targets: { ...(input.targets || {}) },
+      };
+      if (input.ripples) payloadForSnapshot.ripples = { ...input.ripples };
+      if (typeof input.auto_ripple_time_bins !== 'undefined') payloadForSnapshot.auto_ripple_time_bins = input.auto_ripple_time_bins;
+      if (input.indexer_path) payloadForSnapshot.indexer_path = input.indexer_path;
+      if (input.flights_path) payloadForSnapshot.flights_path = input.flights_path;
+      if (input.capacities_path) payloadForSnapshot.capacities_path = input.capacities_path;
+      if (input.colorsByFlow) payloadForSnapshot.colorsByFlow = { ...input.colorsByFlow };
+      const resolvedWeights = (() => {
+        if (weightsOverride && Object.keys(weightsOverride).length > 0) return { ...weightsOverride };
+        if (input.weights) return { ...input.weights };
+        return undefined;
+      })();
+      if (resolvedWeights) payloadForSnapshot.weights = resolvedWeights;
+
+      const snapshot = createSolutionSnapshot({
+        description: snapshotDescription.trim() || `Solution ${snapshotList.length + 1}`,
+        payload: payloadForSnapshot,
+        weightsOverride: weightsOverride || null,
+        weightsUsed: (optState.data?.weights_used as Record<string, number>)
+          || (evalState.data?.weights_used as Record<string, number>)
+          || null,
+        saParamsOverride: saParamsOverride || null,
+        saParamsUsed: (optState.data?.sa_params_used as Record<string, number>) || null,
+        evaluation: evalState.data,
+        optimization: optState.data,
+        occupancy: occupancyData,
+        minutesPerBin,
+        shareUrl: encodedShareUrl,
+      });
+
+      const updated = addSnapshot(
+        snapshot,
+        snapshotReplaceId ? { replaceId: snapshotReplaceId } : undefined,
+      );
+      setSnapshotList(updated);
+      setSnapshotPromptOpen(false);
+      setSnapshotDescription("");
+      setSnapshotReplaceId(null);
+      const bytes = estimateSnapshotsSize(updated);
+      const approxKb = Math.round(bytes / 1024);
+      const occupancyAvailable = !!occupancyData;
+      const baseMessage = snapshotReplaceId ? 'Snapshot replaced in comparison.' : 'Snapshot saved for comparison.';
+      const toastMessage = occupancyAvailable
+        ? baseMessage
+        : `${baseMessage} Occupancy charts will show a placeholder until data is fetched from the comparison page.`;
+      if (bytes > SNAPSHOT_SIZE_WARN_THRESHOLD) {
+        setSnapshotToast({
+          message: `${toastMessage} Storage is at ~${approxKb} KB; consider exporting or clearing soon.`,
+          action: { label: 'Open Comparison', href: '/solution-comparison' },
+          kind: 'warning',
+        });
+      } else {
+        setSnapshotToast({
+          message: toastMessage,
+          action: { label: 'Open Comparison', href: '/solution-comparison' },
+          kind: 'info',
+        });
+      }
+    } catch (err: any) {
+      if (err instanceof SnapshotLimitError) {
+        setSnapshotSaveError(`Limit reached (${MAX_SNAPSHOTS}). Choose a snapshot to replace.`);
+      } else {
+        setSnapshotSaveError(err?.message || 'Failed to save snapshot.');
+      }
+    } finally {
+      setSnapshotSaving(false);
     }
   };
 
@@ -604,6 +720,18 @@ function FlowEvaluationPageContent() {
               >
                 {optState.loading ? <ShimmeringText text="Playing in Boltzmann Realms..." /> : "Optimize Release Rates with Simulated Annealing"}
               </button>
+              {optState.data && (
+                <button
+                  onClick={handleOpenSnapshotPrompt}
+                  disabled={snapshotSaving}
+                  className={`px-3 py-1 rounded-lg border text-xs flex items-center gap-2 ${snapshotSaving ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100' : 'border-emerald-400/70 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25'}`}
+                >
+                  {snapshotSaving ? <ShimmeringText text="Saving…" /> : 'Add to Comparison'}
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] border ${snapshotSizeWarn ? 'border-red-300/70 bg-red-500/20 text-red-100' : 'border-emerald-300/70 bg-emerald-400/10 text-emerald-100'}`}>
+                    {snapshotCount}/{MAX_SNAPSHOTS}
+                  </span>
+                </button>
+              )}
               {optState.error && <div className="text-[11px] text-red-200">{optState.error}</div>}
               
               {evalState.error && <div className="text-[11px] text-red-200">{evalState.error}</div>}
@@ -1545,6 +1673,121 @@ function FlowEvaluationPageContent() {
           
         </div>
       </div>
+      <ModalDialog
+        open={snapshotPromptOpen}
+        onClose={() => { if (!snapshotSaving) setSnapshotPromptOpen(false); }}
+        title="Save Optimized Solution"
+        width="w-[min(520px,95vw)]"
+        height="h-auto max-h-[85vh]"
+      >
+        <div className="p-6 space-y-5 text-sm">
+          <div className="space-y-2">
+            <p className="text-white/80 text-[13px]">
+              Name this snapshot to compare it alongside other optimized runs. Aggregated occupancy data will be cached so the comparison page loads instantly.
+            </p>
+            <label className="block text-white/70 text-[12px] uppercase tracking-[0.08em]">Description</label>
+            <input
+              type="text"
+              value={snapshotDescription}
+              onChange={(e) => setSnapshotDescription(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !snapshotSaving) {
+                  e.preventDefault();
+                  void handleSaveSnapshot();
+                }
+              }}
+              autoFocus
+              placeholder="e.g., Alpha weights tweak"
+              className="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20 text-white focus:border-white/40 outline-none"
+            />
+          </div>
+
+          {snapshotCount >= MAX_SNAPSHOTS && (
+            <div className="space-y-2">
+              <div className="text-[12px] text-amber-200">
+                You already have {snapshotCount} snapshots. Select one to replace or cancel.
+              </div>
+              <select
+                value={snapshotReplaceId || ''}
+                onChange={(e) => setSnapshotReplaceId(e.currentTarget.value || null)}
+                className="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20 text-white focus:border-white/40 outline-none"
+              >
+                {snapshotList.map((snap) => (
+                  <option key={snap.id} value={snap.id}>
+                    {snap.description || 'Untitled'} · {new Date(snap.createdAt).toLocaleString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="text-[12px] text-white/60">
+            {occAllState.loading ? (
+              <span className="flex items-center gap-2">
+                <ShimmeringText text="Fetching aggregated occupancy…" />
+              </span>
+            ) : occAllState.data ? (
+              'Latest autorate occupancy already cached for this run.'
+            ) : (
+              'Aggregated occupancy will be requested once during save.'
+            )}
+          </div>
+
+          <div className="text-[12px] text-white/60">
+            Approximate storage used: ~{snapshotSizeDisplayKb} KB (limit {MAX_SNAPSHOTS} snapshots).
+          </div>
+
+          {snapshotSaveError && (
+            <div className="text-[12px] text-red-300">{snapshotSaveError}</div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              onClick={() => { if (!snapshotSaving) setSnapshotPromptOpen(false); }}
+              disabled={snapshotSaving}
+              className="px-3 py-1.5 rounded-md border border-white/20 bg-white/5 text-white/80 hover:bg-white/10 text-[13px] disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void handleSaveSnapshot()}
+              disabled={snapshotSaving || (snapshotCount >= MAX_SNAPSHOTS && !snapshotReplaceId)}
+              className="px-4 py-1.5 rounded-md border border-emerald-300 bg-emerald-500/30 text-emerald-50 hover:bg-emerald-500/40 text-[13px] font-medium disabled:opacity-60"
+            >
+              {snapshotSaving ? 'Saving…' : 'Save Snapshot'}
+            </button>
+          </div>
+        </div>
+      </ModalDialog>
+
+      {snapshotToast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm flex items-start gap-3 ${snapshotToast.kind === 'warning' ? 'bg-amber-500/15 border-amber-300/60 text-amber-100' : 'bg-emerald-500/15 border-emerald-300/60 text-emerald-100'}`}
+        >
+          <div className="flex-1 text-sm">
+            <div>{snapshotToast.message}</div>
+            {snapshotToast.action && (
+              <a
+                href={snapshotToast.action.href}
+                className="mt-1 inline-flex items-center gap-1 text-[12px] underline"
+              >
+                {snapshotToast.action.label}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14"></path>
+                  <path d="M12 5l7 7-7 7"></path>
+                </svg>
+              </a>
+            )}
+          </div>
+          <button
+            onClick={() => setSnapshotToast(null)}
+            className="text-[12px] text-white/70 hover:text-white"
+            aria-label="Dismiss notification"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </main>
   );
 }
