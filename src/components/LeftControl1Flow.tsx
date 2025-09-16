@@ -128,14 +128,24 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
           <div className="flex items-center justify-between flex-1">
             <label className="text-sm">Show Hotspots</label>
             <button
+              type="button"
+              role="switch"
+              aria-checked={showHotspots}
+              aria-label={showHotspots ? "Hide hotspots" : "Show hotspots"}
               onClick={() => setShowHotspots(!showHotspots)}
-              className={`px-3 py-1.5 rounded-xl border border-white/30 text-sm transition-colors ${
-                showHotspots 
-                  ? "bg-white/40 hover:bg-white/50" 
-                  : "bg-white/20 hover:bg-white/30"
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-200 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+                showHotspots
+                  ? "border-emerald-200/70 bg-emerald-400/80 hover:bg-emerald-400/90"
+                  : "border-white/30 bg-white/20 hover:bg-white/30"
               }`}
             >
-              {showHotspots ? "On" : "Off"}
+              <span className="sr-only">{showHotspots ? "Disable hotspots" : "Enable hotspots"}</span>
+              <span
+                aria-hidden="true"
+                className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out ${
+                  showHotspots ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
             </button>
           </div>
         </div>
