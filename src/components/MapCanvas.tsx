@@ -557,20 +557,35 @@ export default function MapCanvas() {
       return;
     }
 
+    const targetHour = isoHourFrom(date, t);
+
     const apply = () => {
       try {
-        const hh = isoHourFrom(date, t);
-        ensureTpHour(map, hh);
+        ensureTpHour(map, targetHour);
       } catch (e) {
         // no-op
       }
     };
 
-    if (!map.isStyleLoaded()) {
-      try { map.once('idle', apply); } catch {}
-    } else {
+    if (map.isStyleLoaded()) {
       apply();
+      return;
     }
+
+    // Fallback: wait for the next render tick where the style reports as loaded.
+    // Using 'idle' is unreliable while the RAF loop is active (map never becomes idle).
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      try { map.off('render', waitForReady); } catch {}
+      if (!cancelled) apply();
+    };
+
+    map.on('render', waitForReady);
+    return () => {
+      cancelled = true;
+      try { map.off('render', waitForReady); } catch {}
+    };
   }, [weatherOverlay, t, date]);
 
   // on showFlightLineLabels change, update layer visibility
