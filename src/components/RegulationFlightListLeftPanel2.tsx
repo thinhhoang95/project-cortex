@@ -174,68 +174,70 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 					</div>
 				) : error ? (
 					<div className="bg-red-500/20 border border-red-500/30 rounded-lg p-2 mb-3 text-xs">{error}</div>
-				) : rows.length > 0 ? (
-					<table className="w-full text-xs min-w-max whitespace-nowrap">
-						<thead className="sticky top-0 z-20 bg-blue-900">
-							<tr className="bg-blue-900 text-white">
-								<th className="text-center p-2 font-semibold w-6">✓</th>
-								<th className="text-left p-2 font-semibold">Callsign</th>
-								<th className="text-left p-2 font-semibold">Origin</th>
-								<th className="text-left p-2 font-semibold">Destination</th>
-								{rankingData && (
-									<th className="text-left p-2 font-semibold">TV Arrival</th>
-								)}
-								{/* Score/components columns removed (API no longer returns them) */}
-							</tr>
-						</thead>
-						<tbody>
-							{visibleRows.map((row, idx) => {
-								const isTargeted = regulationTargetFlightIds.has(String(row.flightId));
-								return (
-									<tr
-										key={row.flightId}
-										className={`border-b border-white/10 cursor-pointer ${idx % 2 === 0 ? 'bg-white/2' : ''} ${isTargeted ? 'bg-emerald-500/10 hover:bg-emerald-500/15' : 'hover:bg-white/5'}`}
-										onMouseEnter={() => setFlowPreviewFlightId(String(row.flightId))}
-										onMouseLeave={() => setFlowPreviewFlightId(null)}
-										onClick={() => {
-											const full = flights.find(f => String(f.flightId) === String(row.flightId));
-											if (full) {
-												// Pan/zoom to flight on the map (shared behavior with search)
-												window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: full } }));
-												// Also add to regulation target list
-												addRegulationTargetFlight(String(full.flightId));
-											}
-										}}
-									>
-										<td className="p-2 text-center w-6">{isTargeted ? '✓' : ''}</td>
-										<td className="p-2 font-mono">{row.callsign}</td>
-										<td className="p-2">{row.origin}</td>
-										<td className="p-2">{row.destination}</td>
-										{rankingData && (
-											<td className="p-2 font-mono">{row.arrivalTime}</td>
-										)}
-									{/* Score/components cells removed */}
-									</tr>
-								);
-							})}
-                {rows.length > MAX_VISIBLE && (
-                  <tr
-                    className="border-b border-white/10 cursor-pointer hover:bg-white/5"
-                    onClick={() => setExpanded(!expanded)}
-                  >
-                    <td
-                      className="p-2 text-center italic opacity-80"
-                      colSpan={rankingData ? 5 : 4}
-                    >
-                      {expanded ? 'Show less…' : `See more… (${rows.length - MAX_VISIBLE} more)`}
-                    </td>
-                  </tr>
+                ) : rows.length > 0 ? (
+                  <div className="rounded-lg border border-white/10 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-white/10">
+                          <th className="text-center p-2 font-semibold w-6">✓</th>
+                          <th className="text-left p-2 font-semibold">CS</th>
+                          <th className="text-left p-2 font-semibold">Ori.</th>
+                          <th className="text-left p-2 font-semibold">Des.</th>
+                          {rankingData && (
+                            <th className="text-left p-2 font-semibold">TV Arr.</th>
+                          )}
+                          {/* Score/components columns removed (API no longer returns them) */}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleRows.map((row, idx) => {
+                          const isTargeted = regulationTargetFlightIds.has(String(row.flightId));
+                          return (
+                            <tr
+                              key={row.flightId}
+                              className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} cursor-pointer ${isTargeted ? 'bg-emerald-500/10 hover:bg-emerald-500/15' : 'hover:bg-white/10'}`}
+                              onMouseEnter={() => setFlowPreviewFlightId(String(row.flightId))}
+                              onMouseLeave={() => setFlowPreviewFlightId(null)}
+                              onClick={() => {
+                                const full = flights.find(f => String(f.flightId) === String(row.flightId));
+                                if (full) {
+                                  // Pan/zoom to flight on the map (shared behavior with search)
+                                  window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: full } }));
+                                  // Also add to regulation target list
+                                  addRegulationTargetFlight(String(full.flightId));
+                                }
+                              }}
+                            >
+                              <td className="p-2 text-center w-6">{isTargeted ? '✓' : ''}</td>
+                              <td className="p-2 font-mono">{row.callsign}</td>
+                              <td className="p-2">{row.origin}</td>
+                              <td className="p-2">{row.destination}</td>
+                              {rankingData && (
+                                <td className="p-2 text-right font-mono">{row.arrivalTime}</td>
+                              )}
+                              {/* Score/components cells removed */}
+                            </tr>
+                          );
+                        })}
+                        {rows.length > MAX_VISIBLE && (
+                          <tr
+                            className="border-t border-white/10 cursor-pointer hover:bg-white/10"
+                            onClick={() => setExpanded(!expanded)}
+                          >
+                            <td
+                              className="p-2 text-center italic opacity-80"
+                              colSpan={rankingData ? 5 : 4}
+                            >
+                              {expanded ? 'Show less…' : `See more… (${rows.length - MAX_VISIBLE} more)`}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs opacity-70 text-center py-4">No flights found for this time window</p>
                 )}
-						</tbody>
-					</table>
-				) : (
-					<p className="text-xs opacity-70 text-center py-4">No flights found for this time window</p>
-				)}
 			</div>
 		</div>
 	);

@@ -574,9 +574,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               <table className="w-full text-xs">
                 <thead className="sticky top-0">
                   <tr className="bg-blue-900 text-white">
-                    <th className="text-left p-2 font-semibold">Callsign</th>
-                    <th className="text-left p-2 font-semibold">Origin</th>
-                    <th className="text-left p-2 font-semibold">Destination</th>
+                    <th className="text-left p-2 font-semibold">CS</th>
+                    <th className="text-left p-2 font-semibold">Ori.</th>
+                    <th className="text-left p-2 font-semibold">Des.</th>
                     <th className="text-left p-2 font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -761,34 +761,36 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
               />
             </div>
             <div className={embedded ? "" : "max-h-40 overflow-y-auto no-scrollbar"}>
-              <table className="w-full text-[11px]">
-                <thead className="sticky top-0">
-                  <tr className="bg-blue-900 text-white">
-                    <th className="text-left p-2 font-semibold">Callsign</th>
-                    <th className="text-left p-2 font-semibold">Origin</th>
-                    <th className="text-left p-2 font-semibold">Destination</th>
-                    <th className="text-left p-2 font-semibold">TV Arrival</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {g.ids.slice(0, 50).map((fid) => {
+              <div className="rounded-lg border border-white/10 overflow-hidden">
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="bg-white/10">
+                      <th className="text-left p-2 font-semibold">CS</th>
+                      <th className="text-left p-2 font-semibold">Ori.</th>
+                      <th className="text-left p-2 font-semibold">Des.</th>
+                      <th className="text-left p-2 font-semibold">TV Arr.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.ids.slice(0, 50).map((fid, idx) => {
                     const f = flightById.get(String(fid));
                     return (
                       <tr
                         key={String(fid)}
-                        className="border-b border-white/10 hover:bg-white/5 cursor-pointer"
+                        className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
                         onMouseEnter={() => setFlowPreviewFlightId(String(fid))}
                         onMouseLeave={() => setFlowPreviewFlightId(null)}
                       >
                         <td className="p-2 font-mono">{f?.callSign || fid}</td>
                         <td className="p-2">{f?.origin || 'N/A'}</td>
                         <td className="p-2">{f?.destination || 'N/A'}</td>
-                        <td className="p-2 font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
+                        <td className="p-2 text-right font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
                       </tr>
                     );
                   })}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ))}

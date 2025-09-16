@@ -1,19 +1,91 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSimStore } from "@/components/useSimStore";
 import MapCanvas from "@/components/MapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
+import NetworkStatusPanel from "@/components/NetworkStatusPanel";
 import RightControl1 from "@/components/RightControl1";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
 
+function countTimesUpTo(sortedTimes: number[], value: number): number {
+  let lo = 0;
+  let hi = sortedTimes.length;
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (sortedTimes[mid] <= value) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+
+  return lo;
+}
+
+const DAY_SECONDS = 24 * 60 * 60;
+
 export default function Page() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
+  const flights = useSimStore((state) => state.flights);
+  const t = useSimStore((state) => state.t);
   const [hydrated, setHydrated] = useState(false);
+
+  const sortedStartTimes = useMemo(() => {
+    if (!flights || flights.length === 0) {
+      return [] as number[];
+    }
+
+    return flights
+      .map((flight) => flight.t0)
+      .filter((time) => Number.isFinite(time))
+      .sort((a, b) => a - b);
+  }, [flights]);
+
+  const sortedEndTimes = useMemo(() => {
+    if (!flights || flights.length === 0) {
+      return [] as number[];
+    }
+
+    return flights
+      .map((flight) => {
+        const start = flight.t0;
+        const end = flight.t1;
+        if (!Number.isFinite(start) || !Number.isFinite(end)) {
+          return null;
+        }
+
+        // Flights crossing midnight report an end time earlier than start; shift
+        // those landings into the next day so they don't look landed immediately.
+        return end < start ? end + DAY_SECONDS : end;
+      })
+      .filter((time): time is number => typeof time === 'number' && Number.isFinite(time))
+      .sort((a, b) => a - b);
+  }, [flights]);
+
+  const { total: flightsTotal, landed: flightsLanded, airborne: flightsAirborne } = useMemo(() => {
+    const total = flights?.length ?? 0;
+    if (total === 0) {
+      return { total: 0, landed: 0, airborne: 0 };
+    }
+
+    const startedCount = Math.min(total, countTimesUpTo(sortedStartTimes, t));
+    const landedCount = Math.min(total, countTimesUpTo(sortedEndTimes, t));
+    const inFlight = startedCount - landedCount;
+    const remaining = Math.max(0, total - landedCount);
+    const airborneCount = Math.max(0, Math.min(inFlight, remaining));
+
+    return {
+      total,
+      landed: landedCount,
+      airborne: airborneCount,
+    };
+  }, [flights, sortedStartTimes, sortedEndTimes, t]);
 
   useEffect(() => {
     const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
@@ -41,6 +113,12 @@ export default function Page() {
       {/* Left-side wrapper: full-height, scrolls; panel inside does not */}
       <div className="absolute top-0 left-4 z-40 w-[360px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4">
         <LeftControl1 embedded />
+        <NetworkStatusPanel
+          embedded
+          flightsTotal={flightsTotal}
+          flightsLanded={flightsLanded}
+          flightsAirborne={flightsAirborne}
+        />
       </div>
       {/* Right-side wrapper: full-height scroll for the panel */}
       <div className="absolute top-0 right-4 z-40 w-[384px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">

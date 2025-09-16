@@ -370,18 +370,19 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                     />
                   </div>
                   <div className="px-2 pb-2">
-                    <table className="w-full text-[11px]">
-                      <thead>
-                        <tr className="bg-blue-900 text-white">
-                          <th className="text-left p-2 font-semibold">Callsign</th>
-                          <th className="text-left p-2 font-semibold">Origin</th>
-                          <th className="text-left p-2 font-semibold">Destination</th>
-                          <th className="text-left p-2 font-semibold">Requested Bin</th>
-                          <th className="text-left p-2 font-semibold">Earliest Crossing</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(flow.flights || []).map((fl) => {
+                    <div className="rounded-lg border border-white/10 overflow-hidden">
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="bg-white/10">
+                            <th className="text-left p-2 font-semibold">CS</th>
+                            <th className="text-left p-2 font-semibold">Ori.</th>
+                            <th className="text-left p-2 font-semibold">Des.</th>
+                            <th className="text-left p-2 font-semibold">Requested Bin</th>
+                            <th className="text-left p-2 font-semibold">Earliest Crossing</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(flow.flights || []).map((fl, idx) => {
                           const full = flights?.find((ff: any) => String(ff.flightId) === String(fl.flight_id));
                           const callsign = full?.callSign || String(fl.flight_id);
                           const origin = full?.origin || 'N/A';
@@ -390,20 +391,21 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                           return (
                             <tr
                               key={`${flow.flow_id}-${fl.flight_id}`}
-                              className="border-b border-white/10 hover:bg-white/10 cursor-pointer"
+                              className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
                               onMouseEnter={() => setFlowPreviewFlightId(String(fl.flight_id))}
                               onMouseLeave={() => setFlowPreviewFlightId(null)}
                             >
                               <td className="p-2 font-mono">{callsign}</td>
                               <td className="p-2">{origin}</td>
                               <td className="p-2">{destination}</td>
-                              <td className="p-2">{fl.requested_bin}</td>
-                              <td className="p-2 font-mono">{earliest}</td>
+                              <td className="p-2 text-right font-mono">{fl.requested_bin}</td>
+                              <td className="p-2 text-right font-mono">{earliest}</td>
                             </tr>
                           );
                         })}
-                      </tbody>
-                    </table>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               );})}

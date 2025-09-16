@@ -545,7 +545,7 @@ export default function AirspaceInfo() {
 
               {/* Histogram */}
               <div className="bg-white/5 rounded-lg p-4">
-                <h4 className="font-medium text-sm mb-3 opacity-90">Rolling Hour Entrances & Capacity</h4>
+                <h4 className="font-medium text-sm mb-3 opacity-90">Rolling Hour Occupancy & Capacity</h4>
                 <div style={{ width: '100%', height: 200 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={displayChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
@@ -608,7 +608,7 @@ export default function AirspaceInfo() {
                 <div className="flex items-center justify-center space-x-4 mt-2 text-xs opacity-70">
                   <div className="flex items-center">
                     <div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div>
-                    <span>Entrances</span>
+                    <span>Occupancy</span>
                   </div>
                   <div className="flex items-center">
                     <div className="w-3 h-0.5 bg-yellow-400 mr-1"></div>
@@ -647,22 +647,22 @@ export default function AirspaceInfo() {
             )}
 
             {displayFlightTableData.length > 0 && !flightListLoading && (
-              <div>
+              <div className="rounded-lg border border-white/10 overflow-hidden">
                 <table className="w-full text-xs">
-                  <thead className="sticky top-0">
-                    <tr className="bg-blue-900 text-white">
-                      <th className="text-left p-2 font-semibold">Callsign</th>
-                      <th className="text-left p-2 font-semibold">Origin</th>
-                      <th className="text-left p-2 font-semibold">Destination</th>
-                      <th className="text-left p-2 font-semibold">Takeoff</th>
-                      {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arrival</th>}
+                  <thead>
+                    <tr className="bg-white/10">
+                      <th className="text-left p-2 font-semibold">CS</th>
+                      <th className="text-left p-2 font-semibold">Ori.</th>
+                      <th className="text-left p-2 font-semibold">Des.</th>
+                      <th className="text-left p-2 font-semibold">T/O</th>
+                      {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arr.</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {visibleFlightTableData.map((flight, index) => (
                       <tr 
                         key={flight.flightId} 
-                        className={`border-b border-white/10 hover:bg-white/5 cursor-pointer ${index % 2 === 0 ? 'bg-white/2' : ''}`}
+                        className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
                         onMouseEnter={() => setFlowPreviewFlightId(String(flight.flightId))}
                         onMouseLeave={() => setFlowPreviewFlightId(null)}
                         onClick={() => {
@@ -679,13 +679,13 @@ export default function AirspaceInfo() {
                         <td className="p-2 font-mono">{flight.callsign}</td>
                         <td className="p-2">{flight.origin}</td>
                         <td className="p-2">{flight.destination}</td>
-                        <td className="p-2 font-mono">{flight.takeoffTime}</td>
-                        {orderedFlightsData && <td className="p-2 font-mono">{flight.arrivalTime}</td>}
+                        <td className="p-2 text-right font-mono">{flight.takeoffTime}</td>
+                        {orderedFlightsData && <td className="p-2 text-right font-mono">{flight.arrivalTime}</td>}
                       </tr>
                     ))}
                     {displayFlightTableData.length > MAX_VISIBLE && (
                       <tr
-                        className="border-b border-white/10 cursor-pointer hover:bg-white/5"
+                        className="border-t border-white/10 cursor-pointer hover:bg-white/10"
                         onClick={() => setExpanded(!expanded)}
                       >
                         <td

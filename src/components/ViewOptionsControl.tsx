@@ -50,7 +50,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
         title="Expand View Options"
         aria-label="Expand View Options"
         onClick={() => { setMinimized(false); setViewOptionsMinimized(false); }}
-        className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 w-8 h-8 rounded-full border border-white/30 bg-white/10 backdrop-blur-md text-white/80 hover:text-white hover:bg-white/15 flex items-center justify-center shadow-md"
+        className="fixed bottom-3 left-1/2 -translate-x-1/2 z-30 w-8 h-8 rounded-full border border-white/30 bg-white/10 backdrop-blur-md text-white/80 hover:text-white hover:bg-white/15 flex items-center justify-center shadow-md"
       >
         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           {/* Clock Icon */}
@@ -64,7 +64,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
   return (
     <div
       className={
-        `${embedded ? "" : "fixed bottom-6 left-1/2 -translate-x-1/2 z-50"} ` +
+        `${embedded ? "" : "fixed bottom-6 left-1/2 -translate-x-1/2 z-30"} ` +
         "rounded-2xl border border-white/10 bg-white/10 backdrop-blur-md shadow-xl text-white w-max " +
         (className ?? "")
       }
