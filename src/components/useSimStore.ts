@@ -69,6 +69,8 @@ type State = {
   speed: number;
   playing: boolean;
   date: string;            // operation date in DD/MM/YYYY
+  // Weather overlay selection
+  weatherOverlay: 'none' | 'surface-precip';
   showFlightLineLabels: boolean;
   showCallsigns: boolean;
   showFlightLines: boolean;
@@ -123,6 +125,7 @@ type State = {
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
   setDate: (date: string) => void;
+  setWeatherOverlay: (overlay: 'none' | 'surface-precip') => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
   setShowFlightLines: (show: boolean) => void;
@@ -215,6 +218,7 @@ const defaultState: Pick<State,
   | 'playing'
   | 'speed'
   | 'date'
+  | 'weatherOverlay'
   | 'showFlightLineLabels'
   | 'showCallsigns'
   | 'showFlightLines'
@@ -263,6 +267,7 @@ const defaultState: Pick<State,
   playing: false,
   speed: 1,
   date: '01/08/2023',
+  weatherOverlay: 'none',
   showFlightLineLabels: false,
   showCallsigns: false,
   showFlightLines: true,
@@ -341,6 +346,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
   setDate: (date) => set({ date }),
+  setWeatherOverlay: (overlay) => set({ weatherOverlay: overlay }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
   setShowFlightLines: (show) => set({ showFlightLines: show }),
