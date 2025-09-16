@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/app/api/_utils';
+import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
 const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
     const response = await fetch(endpoint, {
       headers: withAuth(request, { 'Content-Type': 'application/json' }),
     });
+
+    const unauthorized = await maybeHandleUnauthorized(response);
+    if (unauthorized) return unauthorized;
 
     if (!response.ok) {
       throw new Error(`API responded with status: ${response.status}`);

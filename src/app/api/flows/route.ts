@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/app/api/_utils';
+import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
 // Proxies to backend flows endpoint
 export async function GET(request: NextRequest) {
@@ -74,6 +74,10 @@ export async function GET(request: NextRequest) {
 
     const url = `${backendUrl}/flows?${params.toString()}`;
     const resp = await fetch(url, { headers: withAuth(request, { 'Content-Type': 'application/json' }) });
+
+    const unauthorized = await maybeHandleUnauthorized(resp);
+    if (unauthorized) return unauthorized;
+
     if (!resp.ok) {
       const text = await resp.text();
       return NextResponse.json(
