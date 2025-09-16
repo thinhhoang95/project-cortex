@@ -10,13 +10,14 @@ import { Trajectory } from "@/lib/models";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import RegulationResults from "@/components/RegulationResults";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
+import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -349,6 +350,45 @@ export default function RegulationCanvas() {
 
   // Update regulation highlight when target ids change
   useEffect(() => { updateRegulationHighlight(mapRef.current); }, [regulationTargetFlightIds, flowViewEnabled]);
+
+  // Weather overlay integration (Surface Precipitation)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (weatherOverlay !== "surface-precip") {
+      hideSurfacePrecipLayer(map);
+      return;
+    }
+
+    const targetHour = isoHourFrom(date, t);
+
+    const apply = () => {
+      try {
+        ensureSurfacePrecipHour(map, targetHour);
+      } catch (e) {
+        // no-op
+      }
+    };
+
+    if (map.isStyleLoaded()) {
+      apply();
+      return;
+    }
+
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      try { map.off("render", waitForReady); } catch {}
+      if (!cancelled) apply();
+    };
+
+    map.on("render", waitForReady);
+    return () => {
+      cancelled = true;
+      try { map.off("render", waitForReady); } catch {}
+    };
+  }, [weatherOverlay, t, date]);
 
   // on showFlightLineLabels change, toggle visibility
   useEffect(() => {

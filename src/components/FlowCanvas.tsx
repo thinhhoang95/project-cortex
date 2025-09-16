@@ -6,15 +6,15 @@ import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
-import { Trajectory } from "@/lib/models";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
+import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 
 export default function FlowCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -308,6 +308,45 @@ export default function FlowCanvas() {
 
   // Ensure filters also react to flow mapping toggles (e.g., Flow Basket eye button)
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
+
+  // Weather overlay integration (Surface Precipitation)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (weatherOverlay !== "surface-precip") {
+      hideSurfacePrecipLayer(map);
+      return;
+    }
+
+    const targetHour = isoHourFrom(date, t);
+
+    const apply = () => {
+      try {
+        ensureSurfacePrecipHour(map, targetHour);
+      } catch (e) {
+        // no-op
+      }
+    };
+
+    if (map.isStyleLoaded()) {
+      apply();
+      return;
+    }
+
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      try { map.off("render", waitForReady); } catch {}
+      if (!cancelled) apply();
+    };
+
+    map.on("render", waitForReady);
+    return () => {
+      cancelled = true;
+      try { map.off("render", waitForReady); } catch {}
+    };
+  }, [weatherOverlay, t, date]);
 
   // on showFlightLineLabels change, toggle visibility
   useEffect(() => {
