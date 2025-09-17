@@ -12,6 +12,12 @@ import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SlackViewControl from "@/components/SlackViewControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
+import {
+  loadRegSnapshots,
+  estimateRegSnapshotsSize,
+  REG_SNAPSHOT_SIZE_WARN_THRESHOLD,
+  REG_SNAPSHOT_STORAGE_KEY,
+} from '@/lib/reg-comparison';
 
 export default function RegulationsPage() {
   const router = useRouter();
@@ -19,6 +25,11 @@ export default function RegulationsPage() {
   const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
+  const [regComparisonToast, setRegComparisonToast] = useState<{
+    message: string;
+    action?: { label: string; href: string };
+    kind?: 'info' | 'warning';
+  } | null>(null);
 
   useEffect(() => {
     const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
@@ -33,6 +44,52 @@ export default function RegulationsPage() {
       router.push('/login');
     }
   }, [hydrated, user, router]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateToast = () => {
+      const snapshots = loadRegSnapshots();
+      if (!snapshots || snapshots.length === 0) {
+        setRegComparisonToast(null);
+        return;
+      }
+      const bytes = estimateRegSnapshotsSize(snapshots);
+      const approxKb = Math.max(0, Math.round(bytes / 1024));
+      const baseMessage =
+        snapshots.length === 1
+          ? '1 regulation snapshot ready for comparison.'
+          : `${snapshots.length} regulation snapshots ready for comparison.`;
+      const isWarning = bytes > REG_SNAPSHOT_SIZE_WARN_THRESHOLD;
+      setRegComparisonToast({
+        message: isWarning
+          ? `${baseMessage} Storage is at ~${approxKb} KB; consider exporting or clearing soon.`
+          : baseMessage,
+        action: { label: 'Open Comparison', href: '/regulation-comparison' },
+        kind: isWarning ? 'warning' : 'info',
+      });
+    };
+
+    updateToast();
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key && ev.key !== REG_SNAPSHOT_STORAGE_KEY) return;
+      updateToast();
+    };
+    const onCustom: EventListener = () => updateToast();
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('reg-snapshot-changed', onCustom);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('reg-snapshot-changed', onCustom);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!regComparisonToast) return;
+    const id = window.setTimeout(() => setRegComparisonToast(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [regComparisonToast]);
 
   if (!hydrated || !user) {
     return null;
@@ -78,6 +135,35 @@ export default function RegulationsPage() {
       </div>
       <SlackViewControl />
       <ViewOptionsControl />
+      {regComparisonToast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm flex items-start gap-3 ${
+            regComparisonToast.kind === 'warning'
+              ? 'bg-amber-500/15 border-amber-300/60 text-amber-100'
+              : 'bg-emerald-500/15 border-emerald-300/60 text-emerald-100'
+          }`}
+        >
+          <div className="flex-1 text-sm">
+            <div>{regComparisonToast.message}</div>
+            {regComparisonToast.action && (
+              <a href={regComparisonToast.action.href} className="mt-1 inline-flex items-center gap-1 text-[12px] underline">
+                {regComparisonToast.action.label}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14"></path>
+                  <path d="M12 5l7 7-7 7"></path>
+                </svg>
+              </a>
+            )}
+          </div>
+          <button
+            onClick={() => setRegComparisonToast(null)}
+            className="text-[12px] text-white/70 hover:text-white"
+            aria-label="Dismiss notification"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </main>
   );
 }

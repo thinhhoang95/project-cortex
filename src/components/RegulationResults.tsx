@@ -376,6 +376,9 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
         message: `Saved "${snapshot.description}" for comparison.`,
         action: { label: "Open Comparison", href: "/regulation-comparison" },
       });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("reg-snapshot-changed"));
+      }
     } catch (err: any) {
       if (err instanceof RegSnapshotLimitError) {
         setRegSnapshotSaveError(`Only ${err.limit} snapshots can be stored. Select one to replace or remove an existing snapshot.`);
