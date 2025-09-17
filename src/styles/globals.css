@@ -5,6 +5,23 @@
 :root {
   --background: #0f172a;
   --foreground: #f8fafc;
+  --panel-bg: rgba(255, 255, 255, 0.18);
+  --panel-bg-strong: rgba(255, 255, 255, 0.28);
+  --panel-bg-muted: rgba(255, 255, 255, 0.08);
+  --panel-border: rgba(255, 255, 255, 0.22);
+  --panel-divider: rgba(255, 255, 255, 0.18);
+  --panel-text-primary: #f8fafc;
+  --panel-text-muted: rgba(226, 232, 240, 0.72);
+  --panel-shadow: 0 22px 45px -24px rgba(15, 23, 42, 0.55);
+  --menu-bg: rgba(255, 255, 255, 0.85);
+  --menu-hover-bg: rgba(255, 255, 255, 0.95);
+  --menu-border: rgba(148, 163, 184, 0.4);
+  --menu-text: #1e293b;
+  --menu-text-muted: rgba(71, 85, 105, 0.75);
+  --input-bg: rgba(255, 255, 255, 0.12);
+  --input-border: rgba(255, 255, 255, 0.25);
+  --input-placeholder: rgba(248, 250, 252, 0.65);
+  --analytics-background: linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.65) 100%);
 }
 
 body {
@@ -31,6 +48,79 @@ a {
   text-decoration: none;
 }
 
+.glass-panel {
+  background-color: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.glass-panel-strong {
+  background-color: var(--panel-bg-strong);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.glass-panel-muted {
+  background-color: var(--panel-bg-muted);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.glass-divider {
+  background-color: var(--panel-divider);
+  border-color: var(--panel-divider);
+}
+
+.glass-input {
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--panel-text-primary);
+}
+
+.glass-input::placeholder {
+  color: var(--input-placeholder);
+}
+
+.glass-menu {
+  background-color: var(--menu-bg);
+  border: 1px solid var(--menu-border);
+  color: var(--menu-text);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--panel-shadow);
+}
+
+.glass-menu-muted {
+  color: var(--menu-text-muted);
+}
+
+.glass-menu-divider {
+  border-top: 1px solid var(--menu-border);
+}
+
+.analytics-surface {
+  background: var(--analytics-background);
+}
+
+[data-theme='dark'] .bg-white\/20 { background-color: rgba(15, 23, 42, 0.78) !important; }
+[data-theme='dark'] .bg-white\/10 { background-color: rgba(15, 23, 42, 0.65) !important; }
+[data-theme='dark'] .bg-white\/5 { background-color: rgba(15, 23, 42, 0.52) !important; }
+[data-theme='dark'] .bg-white\/0 { background-color: rgba(15, 23, 42, 0.4) !important; }
+[data-theme='dark'] .border-white\/10,
+[data-theme='dark'] .border-white\/15,
+[data-theme='dark'] .border-white\/20,
+[data-theme='dark'] .border-white\/30,
+[data-theme='dark'] .border-white\/40 { border-color: rgba(94, 106, 134, 0.45) !important; }
+[data-theme='dark'] .text-slate-700,
+[data-theme='dark'] .text-slate-600,
+[data-theme='dark'] .text-slate-900 { color: var(--panel-text-primary) !important; }
+[data-theme='dark'] .text-white\/60 { color: var(--panel-text-muted) !important; }
+
 /* Fix MapLibre GL positioning issue */
 .maplibregl-map {
   position: absolute !important;
@@ -38,10 +128,10 @@ a {
 
 /* Hide scrollbars while keeping scroll functionality */
 .no-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .no-scrollbar::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Opera */
+  display: none;
 }
