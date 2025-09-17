@@ -19,7 +19,7 @@ export default function RegulationCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, showTrafficVolumes, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isRegulationPanelOpen, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -98,6 +98,8 @@ export default function RegulationCanvas() {
       // Add hotspot layers for traffic volumes
       map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.1 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
       map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+
+      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
 
       // --- Flight lines (static geometry) ---
       const lineFC: GeoJSON.FeatureCollection = {
@@ -310,7 +312,7 @@ export default function RegulationCanvas() {
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
 
   // When flow view state changes, update rendering
-  useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
+  useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes]);
 
   // Update regulation highlight when target ids change
   useEffect(() => { updateRegulationHighlight(mapRef.current); }, [regulationTargetFlightIds, flowViewEnabled]);
@@ -478,6 +480,7 @@ export default function RegulationCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    if (!showTrafficVolumes) { hideSlackOverlay(map); return; }
     if (!selectedTrafficVolume || !highlightedTrafficVolume) { hideSlackOverlay(map); setSlackMode('off'); return; }
     const refStr = formatSecondsToHHMM(t);
     const key = `${selectedTrafficVolume}|${refStr}|${slackSign}|${deltaMin}`;
@@ -485,18 +488,18 @@ export default function RegulationCanvas() {
     lastSlackKeyRef.current = key;
     const showNow = slackMode !== 'off';
     fetchAndApplySlack(map, selectedTrafficVolume, refStr, slackSign, deltaMin, setIsFetchingSlack, setSlackMetaByTv, showNow);
-  }, [selectedTrafficVolume, highlightedTrafficVolume, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack]);
+  }, [selectedTrafficVolume, highlightedTrafficVolume, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack, showTrafficVolumes]);
 
   // Show/hide slack overlay based on mode (Off/Minus/Plus)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (slackMode === 'off') {
+    if (!showTrafficVolumes || slackMode === 'off') {
       hideSlackOverlay(map);
     } else if (map.getLayer('sector-slack')) {
       map.setLayoutProperty('sector-slack', 'visibility', 'visible');
     }
-  }, [slackMode]);
+  }, [slackMode, showTrafficVolumes]);
 
   return (
     <>
@@ -683,6 +686,14 @@ function updateFlowRendering(map: maplibregl.Map | null) {
     map.setLayoutProperty('reg-target-lines', 'visibility', vis);
   }
 
+  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
+  if (!sim.showTrafficVolumes) {
+    if (map.getLayer('sector-slack')) {
+      map.setLayoutProperty('sector-slack', 'visibility', 'none');
+    }
+    return;
+  }
+
   // Dim/Hide traffic volume backgrounds when Flow View is enabled
   // Goal: make non-selected/non-hotspot sectors disappear to declutter the map
   const sectorFillId = 'sector-fill';
@@ -777,7 +788,8 @@ async function fetchAndApplySlack(
     }
     setSlackMetaByTv(metaRecord);
     applySlackOverlay(map, slackByTv);
-    if (showImmediately) {
+    const showTraffic = useSimStore.getState().showTrafficVolumes;
+    if (showImmediately && showTraffic) {
       if (map.getLayer('sector-slack')) {
         map.setLayoutProperty('sector-slack', 'visibility', 'visible');
       }
@@ -846,5 +858,29 @@ function hideSlackOverlay(map: maplibregl.Map) {
   if (!map || !map.isStyleLoaded()) return;
   if (map.getLayer('sector-slack')) {
     map.setLayoutProperty('sector-slack', 'visibility', 'none');
+  }
+}
+
+function applyTrafficVolumeVisibility(map: maplibregl.Map, visible: boolean) {
+  const visibility = visible ? 'visible' : 'none';
+  const layerIds = [
+    'sector-fill',
+    'sector-outline',
+    'sector-labels',
+    'sector-highlight',
+    'sector-highlight-outline',
+    'sector-hover',
+    'sector-hover-outline',
+    'sector-hotspot',
+    'sector-hotspot-outline',
+  ];
+
+  for (const layerId of layerIds) {
+    if (!map.getLayer(layerId)) continue;
+    try {
+      map.setLayoutProperty(layerId, 'visibility', visibility);
+    } catch (err) {
+      console.warn(`Unable to update visibility for layer ${layerId}`, err);
+    }
   }
 }

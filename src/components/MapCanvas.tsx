@@ -18,7 +18,7 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
@@ -161,6 +161,8 @@ export default function MapCanvas() {
         },
         filter: ["==", ["get", "traffic_volume_id"], ""]
       });
+
+      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
 
       // --- Flight lines (static geometry) ---
       const lineFC: GeoJSON.FeatureCollection = {
@@ -558,6 +560,38 @@ export default function MapCanvas() {
     }
   }, [showCallsigns]);
 
+  // on traffic volume visibility change, toggle sector layers once map is ready
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      try {
+        applyTrafficVolumeVisibility(map, showTrafficVolumes);
+      } catch (err) {
+        console.error("Failed to update traffic volume visibility", err);
+      }
+    };
+
+    if (map.isStyleLoaded()) {
+      apply();
+      return;
+    }
+
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      try { map.off("render", waitForReady); } catch {}
+      if (!cancelled) apply();
+    };
+
+    map.on("render", waitForReady);
+    return () => {
+      cancelled = true;
+      try { map.off("render", waitForReady); } catch {}
+    };
+  }, [showTrafficVolumes]);
+
   // on showWaypoints change, toggle waypoint visibility via paint properties
   useEffect(() => {
     if (mapRef.current) {
@@ -818,6 +852,30 @@ export default function MapCanvas() {
       </div> */}
     </>
   );
+}
+
+function applyTrafficVolumeVisibility(map: maplibregl.Map, visible: boolean) {
+  const visibility = visible ? "visible" : "none";
+  const layerIds = [
+    "sector-fill",
+    "sector-outline",
+    "sector-labels",
+    "sector-highlight",
+    "sector-highlight-outline",
+    "sector-hover",
+    "sector-hover-outline",
+    "sector-hotspot",
+    "sector-hotspot-outline",
+  ];
+
+  for (const layerId of layerIds) {
+    if (!map.getLayer(layerId)) continue;
+    try {
+      map.setLayoutProperty(layerId, "visibility", visibility);
+    } catch (err) {
+      console.warn(`Unable to update visibility for layer ${layerId}`, err);
+    }
+  }
 }
 
 function emptyFC(): GeoJSON.FeatureCollection { return { type: "FeatureCollection", features: [] }; }

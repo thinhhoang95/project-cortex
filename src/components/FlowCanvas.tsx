@@ -16,7 +16,7 @@ export default function FlowCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showTrafficVolumes, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
 
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -84,6 +84,8 @@ export default function FlowCanvas() {
         // Add hotspot layers for traffic volumes
         map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.1 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
         map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
+
+        applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
 
         // --- Flight lines (static geometry) ---
         const lineFC: GeoJSON.FeatureCollection = {
@@ -268,7 +270,7 @@ export default function FlowCanvas() {
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
 
   // When flow view state changes, update rendering
-  useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
+  useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes]);
 
   // Ensure filters also react to flow mapping toggles (e.g., Flow Basket eye button)
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
@@ -557,6 +559,11 @@ function updateFlowRendering(map: maplibregl.Map | null) {
 
   // (No regulation overlay in FlowCanvas)
 
+  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
+  if (!sim.showTrafficVolumes) {
+    return;
+  }
+
   // Dim/Hide traffic volume backgrounds when Flow View is enabled
   // Goal: make non-selected/non-hotspot sectors disappear to declutter the map
   const sectorFillId = 'sector-fill';
@@ -609,3 +616,27 @@ function updateFlowRendering(map: maplibregl.Map | null) {
 }
 
 // (Slack overlay and helpers removed in FlowCanvas)
+
+function applyTrafficVolumeVisibility(map: maplibregl.Map, visible: boolean) {
+  const visibility = visible ? 'visible' : 'none';
+  const layerIds = [
+    'sector-fill',
+    'sector-outline',
+    'sector-labels',
+    'sector-highlight',
+    'sector-highlight-outline',
+    'sector-hover',
+    'sector-hover-outline',
+    'sector-hotspot',
+    'sector-hotspot-outline',
+  ];
+
+  for (const layerId of layerIds) {
+    if (!map.getLayer(layerId)) continue;
+    try {
+      map.setLayoutProperty(layerId, 'visibility', visibility);
+    } catch (err) {
+      console.warn(`Unable to update visibility for layer ${layerId}`, err);
+    }
+  }
+}
