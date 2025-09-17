@@ -2043,6 +2043,27 @@ type AirportDelayChartRow = {
   total: number;
 };
 
+const toTrimmedString = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (value == null) {
+    return '';
+  }
+  try {
+    return String(value).trim();
+  } catch {
+    return '';
+  }
+};
+
+const stringWithFallback = (value: unknown, fallback: string): string => {
+  const trimmed = toTrimmedString(value);
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const normalizeAirportLabel = (value: unknown): string => stringWithFallback(value, 'Unknown');
+
 function AirportDelayAttributionView({
   delays,
   flights,
@@ -2082,8 +2103,8 @@ function AirportDelayAttributionView({
     const depMap = new Map<string, Accumulator>();
     const arrMap = new Map<string, Accumulator>();
 
-    const updateMap = (map: Map<string, Accumulator>, airport: string, delay: number) => {
-      const key = airport.trim() || 'Unknown';
+    const updateMap = (map: Map<string, Accumulator>, airport: unknown, delay: number) => {
+      const key = normalizeAirportLabel(airport);
       const existing = map.get(key);
       if (!existing) {
         map.set(key, { total: delay, count: 1, max: delay, min: delay });
@@ -2109,9 +2130,10 @@ function AirportDelayAttributionView({
       if (!flight) {
         flight = flightsByCallsign.get(String(flightKey));
       }
-      const origin = (flight?.origin || '').trim() || 'Unknown';
-      const destination = (flight?.destination || '').trim() || 'Unknown';
-      const callSign = (flight?.callSign || '').trim() || String(flightKey);
+      const origin = normalizeAirportLabel(flight?.origin);
+      const destination = normalizeAirportLabel(flight?.destination);
+      const fallbackCallSign = toTrimmedString(flightKey) || 'Unknown';
+      const callSign = stringWithFallback(flight?.callSign ?? flightKey, fallbackCallSign);
 
       updateMap(depMap, origin, delay);
       updateMap(arrMap, destination, delay);

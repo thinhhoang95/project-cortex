@@ -1,6 +1,7 @@
 export type ThemeName = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "theme-preference";
+export const THEME_COOKIE_KEY = "theme-preference";
 
 type ThemeVariables = Record<string, string>;
 
@@ -50,6 +51,10 @@ export const THEMES: Record<ThemeName, ThemeVariables> = {
 };
 
 export const DEFAULT_THEME: ThemeName = "light";
+
+export function isThemeName(value: unknown): value is ThemeName {
+  return typeof value === "string" && value in THEMES;
+}
 
 export function applyTheme(theme: ThemeName) {
   if (typeof document === "undefined") return;
