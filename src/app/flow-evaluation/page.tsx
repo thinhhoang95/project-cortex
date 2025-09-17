@@ -1383,6 +1383,7 @@ function FlowEvaluationPageContent() {
                 }
                 if (!d) return null;
                 const minutes = Number(d.time_bin_minutes || minutesPerBin || 15);
+                const exceedanceNormalization = minutes > 0 ? minutes / 60 : 1;
                 const mismatch = Number.isFinite(d.time_bin_minutes) && d.time_bin_minutes !== minutesPerBin;
                 const vFrom = hhmmToMinutesSafe(viewFrom);
                 const vTo = hhmmToMinutesSafe(viewTo);
