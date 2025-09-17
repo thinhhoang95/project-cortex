@@ -6,12 +6,13 @@ import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
+import { useThemeStore } from "@/components/useThemeStore";
 import { Trajectory } from "@/lib/models";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import RegulationResults from "@/components/RegulationResults";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
-import { createFuturisticMapStyle } from "@/lib/mapStyle";
+import { createMapStyle } from "@/lib/mapStyle";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -27,11 +28,13 @@ export default function RegulationCanvas() {
   const [hoverLabelPoint, setHoverLabelPoint] = useState<{ x: number; y: number } | null>(null);
   const lastSlackKeyRef = useRef<string | null>(null);
 
+  const theme = useThemeStore((state) => state.theme);
+
   // init map
   useEffect(() => {
     const map = new maplibregl.Map({
       container: "map",
-      style: createFuturisticMapStyle(256),
+      style: createMapStyle(theme, 256),
       center: [3, 45],
       zoom: 4
     });
@@ -259,11 +262,15 @@ export default function RegulationCanvas() {
     });
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = undefined;
+      }
       map.remove();
+      mapRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {

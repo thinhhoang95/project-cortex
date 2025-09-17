@@ -7,11 +7,12 @@ import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
+import { useThemeStore } from "@/components/useThemeStore";
 import { Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
-import { createFuturisticMapStyle } from "@/lib/mapStyle";
+import { createMapStyle } from "@/lib/mapStyle";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -19,6 +20,8 @@ export default function MapCanvas() {
   const lastTs = useRef<number>(performance.now());
   const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
+
+  const theme = useThemeStore((state) => state.theme);
   
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -30,7 +33,7 @@ export default function MapCanvas() {
   useEffect(() => {
     const map = new maplibregl.Map({
       container: "map",
-      style: createFuturisticMapStyle(512),
+      style: createMapStyle(theme, 512),
       center: [3, 45],
       zoom: 4
     });
@@ -449,11 +452,15 @@ export default function MapCanvas() {
     });
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = undefined;
+      }
       map.remove();
+      mapRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {

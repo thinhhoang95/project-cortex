@@ -1,4 +1,66 @@
 import type { StyleSpecification } from "maplibre-gl";
+import type { ThemeName } from "@/styles/theme";
+
+export function createClassicMapStyle(tileSize: number): StyleSpecification {
+  return {
+    version: 8,
+    sources: {
+      "raster-tiles": {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize,
+        attribution: "© OpenStreetMap contributors"
+      },
+      countries: {
+        type: "vector",
+        url: "https://demotiles.maplibre.org/tiles/tiles.json"
+      }
+    },
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    layers: [
+      {
+        id: "background",
+        type: "background",
+        paint: {
+          "background-color": "#1e293b"
+        }
+      },
+      {
+        id: "raster-layer",
+        type: "raster",
+        source: "raster-tiles",
+        paint: {
+          "raster-opacity": 0.4,
+          "raster-brightness-min": 0,
+          "raster-brightness-max": 0.3,
+          "raster-contrast": 0.3,
+          "raster-saturation": -0.7
+        }
+      },
+      {
+        id: "countries-fill",
+        type: "fill",
+        source: "countries",
+        "source-layer": "countries",
+        paint: {
+          "fill-color": "#334155",
+          "fill-opacity": 0.3
+        }
+      },
+      {
+        id: "countries-border",
+        type: "line",
+        source: "countries",
+        "source-layer": "countries",
+        paint: {
+          "line-color": "#64748b",
+          "line-width": 1.5,
+          "line-opacity": 0.8
+        }
+      }
+    ]
+  } satisfies StyleSpecification;
+}
 
 export function createFuturisticMapStyle(tileSize: number): StyleSpecification {
   return {
@@ -71,4 +133,10 @@ export function createFuturisticMapStyle(tileSize: number): StyleSpecification {
       }
     ]
   } satisfies StyleSpecification;
+}
+
+export function createMapStyle(theme: ThemeName, tileSize: number): StyleSpecification {
+  return theme === "dark"
+    ? createFuturisticMapStyle(tileSize)
+    : createClassicMapStyle(tileSize);
 }

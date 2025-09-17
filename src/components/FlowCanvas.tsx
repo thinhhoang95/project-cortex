@@ -6,9 +6,10 @@ import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
+import { useThemeStore } from "@/components/useThemeStore";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
-import { createFuturisticMapStyle } from "@/lib/mapStyle";
+import { createMapStyle } from "@/lib/mapStyle";
 
 export default function FlowCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -16,16 +17,18 @@ export default function FlowCanvas() {
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
   const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
-  
+
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
+
+  const theme = useThemeStore((state) => state.theme);
 
   // init map
   useEffect(() => {
     const map = new maplibregl.Map({
       container: "map",
-      style: createFuturisticMapStyle(256),
+      style: createMapStyle(theme, 256),
       center: [3, 45],
       zoom: 4
     });
@@ -214,11 +217,15 @@ export default function FlowCanvas() {
     });
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = undefined;
+      }
       map.remove();
+      mapRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
