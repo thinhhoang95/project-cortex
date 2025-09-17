@@ -8,6 +8,7 @@ import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
+import { createFuturisticMapStyle } from "@/lib/mapStyle";
 
 export default function FlowCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
@@ -24,51 +25,7 @@ export default function FlowCanvas() {
   useEffect(() => {
     const map = new maplibregl.Map({
       container: "map",
-      style: {
-        version: 8,
-        sources: {
-          "raster-tiles": {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors"
-          },
-          "countries": {
-            type: "vector",
-            url: "https://demotiles.maplibre.org/tiles/tiles.json"
-          }
-        },
-        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-        layers: [
-          { id: "background", type: "background", paint: { "background-color": "#1e293b" } },
-          {
-            id: "raster-layer",
-            type: "raster",
-            source: "raster-tiles",
-            paint: {
-              "raster-opacity": 0.4,
-              "raster-brightness-min": 0,
-              "raster-brightness-max": 0.3,
-              "raster-contrast": 0.3,
-              "raster-saturation": -0.7
-            }
-          },
-          {
-            id: "countries-fill",
-            type: "fill",
-            source: "countries",
-            "source-layer": "countries",
-            paint: { "fill-color": "#334155", "fill-opacity": 0.3 }
-          },
-          {
-            id: "countries-border",
-            type: "line",
-            source: "countries",
-            "source-layer": "countries",
-            paint: { "line-color": "#64748b", "line-width": 1.5, "line-opacity": 0.8 }
-          }
-        ]
-      },
+      style: createFuturisticMapStyle(256),
       center: [3, 45],
       zoom: 4
     });
