@@ -18,7 +18,7 @@ export default function LoginForm() {
     setLoading(true);
     try {
       const result = await login(email, password);
-      if (!result.ok) {
+      if ('error' in result) {
         setError(result.error);
         setLoading(false);
         return;

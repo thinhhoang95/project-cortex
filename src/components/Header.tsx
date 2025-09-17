@@ -283,6 +283,10 @@ export default function Header() {
                 >
                   Sign Out
                 </button>
+                <div className="mx-4 my-2 border-t border-white/30" />
+                <div className="px-4 pb-3 text-xs text-slate-600">
+                  Version 0.24.5 (summerbreeze)
+                </div>
               </div>
             )}
           </div>

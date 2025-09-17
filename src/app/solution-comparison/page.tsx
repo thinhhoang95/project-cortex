@@ -678,19 +678,7 @@ export default function SolutionComparisonPage() {
             </div>
           </section>
 
-          <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-white/70 text-sm">Time window</div>
-              <div className="text-[12px] text-white/60">Filtering charts and tables to {viewFrom} – {viewTo}</div>
-            </div>
-            <div className="mt-3">
-              <TimeScaleControl
-                time_from={viewFrom}
-                time_to={viewTo}
-                onCommit={(from, to) => { setViewFrom(from); setViewTo(to); }}
-              />
-            </div>
-          </section>
+          
 
           <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -882,6 +870,20 @@ export default function SolutionComparisonPage() {
             </div>
           </section>
 
+          <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-white/70 text-sm">Time window</div>
+              <div className="text-[12px] text-white/60">Filtering charts and tables to {viewFrom} – {viewTo}</div>
+            </div>
+            <div className="mt-3">
+              <TimeScaleControl
+                time_from={viewFrom}
+                time_to={viewTo}
+                onCommit={(from, to) => { setViewFrom(from); setViewTo(to); }}
+              />
+            </div>
+          </section>
+
           <section className="bg-white/5 border border-white/10 rounded-xl p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <h2 className="text-lg font-semibold text-white">Traffic volume occupancy</h2>
@@ -1063,7 +1065,35 @@ export default function SolutionComparisonPage() {
             onChange={(e) => setExportText(e.currentTarget.value)}
             className="w-full min-h-[320px] bg-black/40 border border-white/20 rounded-lg p-3 font-mono text-xs text-white"
           />
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => {
+                try {
+                  const data = exportText || "";
+                  const blob = new Blob([data], { type: "application/json;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const now = new Date();
+                  const pad = (n: number) => String(n).padStart(2, "0");
+                  const filename = `snapshots_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                } catch (e) {
+                  console.warn("Failed to download export JSON", e);
+                }
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-500/30 text-emerald-50 hover:bg-emerald-500/40"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path d="M9 3a1 1 0 0 1 2 0v8.586l2.293-2.293a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4A1 1 0 0 1 6.707 9.293L9 11.586V3z" />
+                <path d="M4 15a1 1 0 0 1 1-1h10a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1z" />
+              </svg>
+              <span>Download JSON</span>
+            </button>
             <button
               onClick={() => setExportOpen(false)}
               className="px-3 py-1.5 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
