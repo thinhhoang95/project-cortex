@@ -99,10 +99,10 @@ export function createRegulationSnapshot(params: {
 
   const delaysMinEntries = Object.entries(result.delays_by_flight || {});
   const delaysMin: Record<string, number> = {};
-  delaysMinEntries.forEach(([flightId, delaySeconds]) => {
-    const seconds = Number(delaySeconds);
-    if (!Number.isFinite(seconds)) return;
-    delaysMin[String(flightId)] = seconds / 60;
+  delaysMinEntries.forEach(([flightId, delayMinutes]) => {
+    const minutes = Number(delayMinutes);
+    if (!Number.isFinite(minutes)) return;
+    delaysMin[String(flightId)] = minutes;
   });
 
   const snapshot: RegulationSnapshot = {

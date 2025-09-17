@@ -74,7 +74,10 @@ type AirportDelayChartRow = {
   airport: string;
   departureDelay: number;
   arrivalDelay: number;
+  departureFlights: number;
+  arrivalFlights: number;
   total: number;
+  totalFlights: number;
 };
 
 type HeaviestDelayInfo = {
@@ -93,7 +96,6 @@ type SnapshotAirportStats = {
   averageDelay: number;
   heaviest: HeaviestDelayInfo | null;
   combinedTotals: AirportDelayChartRow[];
-  chartTotalCount: number;
   uniqueAirports: number;
 };
 
@@ -163,6 +165,7 @@ export default function SolutionComparisonPage() {
   const [viewFrom, setViewFrom] = useState("00:00");
   const [viewTo, setViewTo] = useState("23:59");
   const [seriesView, setSeriesView] = useState<"flights" | "airports">("flights");
+  const [airportChartMetric, setAirportChartMetric] = useState<'delay' | 'flights'>('delay');
   const [tvScope, setTvScope] = useState<OccupancyScope>("aggregate");
   const [tvSort, setTvSort] = useState<TvSortMode>("exceedance");
   const [visibleTvCount, setVisibleTvCount] = useState(6);
@@ -434,29 +437,51 @@ export default function SolutionComparisonPage() {
       const departures = toRows(depMap);
       const arrivals = toRows(arrMap);
 
-      const combined = new Map<string, { airport: string; departureDelay: number; arrivalDelay: number }>();
+      const combined = new Map<
+        string,
+        {
+          airport: string;
+          departureDelay: number;
+          arrivalDelay: number;
+          departureFlights: number;
+          arrivalFlights: number;
+        }
+      >();
       const ensureCombined = (airport: string) => {
         const key = airport || "Unknown";
         let entry = combined.get(key);
         if (!entry) {
-          entry = { airport: key, departureDelay: 0, arrivalDelay: 0 };
+          entry = {
+            airport: key,
+            departureDelay: 0,
+            arrivalDelay: 0,
+            departureFlights: 0,
+            arrivalFlights: 0,
+          };
           combined.set(key, entry);
         }
         return entry;
       };
 
       departures.forEach((row) => {
-        ensureCombined(row.airport).departureDelay += row.totalDelay;
+        const target = ensureCombined(row.airport);
+        target.departureDelay += row.totalDelay;
+        target.departureFlights += row.flightCount;
       });
       arrivals.forEach((row) => {
-        ensureCombined(row.airport).arrivalDelay += row.totalDelay;
+        const target = ensureCombined(row.airport);
+        target.arrivalDelay += row.totalDelay;
+        target.arrivalFlights += row.flightCount;
       });
 
       const combinedTotals: AirportDelayChartRow[] = Array.from(combined.values()).map((entry) => ({
         airport: entry.airport,
         departureDelay: entry.departureDelay,
         arrivalDelay: entry.arrivalDelay,
+        departureFlights: entry.departureFlights,
+        arrivalFlights: entry.arrivalFlights,
         total: entry.departureDelay + entry.arrivalDelay,
+        totalFlights: entry.departureFlights + entry.arrivalFlights,
       }));
 
       combinedTotals.sort((a, b) => b.total - a.total);
@@ -469,7 +494,6 @@ export default function SolutionComparisonPage() {
         averageDelay: totalFlights > 0 ? totalDelay / totalFlights : 0,
         heaviest,
         combinedTotals,
-        chartTotalCount: combinedTotals.length,
         uniqueAirports: combinedTotals.length,
       });
     });
@@ -486,8 +510,15 @@ export default function SolutionComparisonPage() {
     [alignedSnapshots]
   );
 
+  type AirportComparisonChartEntry = {
+    airport: string;
+    combinedDelay: number;
+    combinedFlights: number;
+    perSnapshot: Record<string, { totalDelay: number; totalFlights: number }>;
+  };
+
   const airportComparisonChart = useMemo(() => {
-    const totals = new Map<string, { airport: string; combinedTotal: number; perSnapshot: Record<string, number> }>();
+    const totals = new Map<string, AirportComparisonChartEntry>();
     alignedSnapshots.forEach((snap) => {
       const stats = airportStatsBySnapshot.get(snap.id);
       if (!stats) return;
@@ -495,24 +526,21 @@ export default function SolutionComparisonPage() {
         const key = entry.airport;
         let record = totals.get(key);
         if (!record) {
-          record = { airport: key, combinedTotal: 0, perSnapshot: {} };
+          record = { airport: key, combinedDelay: 0, combinedFlights: 0, perSnapshot: {} };
           totals.set(key, record);
         }
-        record.perSnapshot[snap.id] = entry.total;
-        record.combinedTotal += entry.total;
+        record.perSnapshot[snap.id] = {
+          totalDelay: entry.total,
+          totalFlights: entry.totalFlights,
+        };
+        record.combinedDelay += entry.total;
+        record.combinedFlights += entry.totalFlights;
       });
     });
-    const entries = Array.from(totals.values());
-    entries.sort((a, b) => b.combinedTotal - a.combinedTotal);
-    const chartLimit = 10;
-    const data = entries.slice(0, chartLimit).map((entry) => {
-      const row: Record<string, number | string> = { airport: entry.airport };
-      alignedSnapshots.forEach((snap) => {
-        row[`total_${snap.id}`] = entry.perSnapshot[snap.id] ?? 0;
-      });
-      return row;
-    });
-    return { data, totalCount: entries.length };
+    return {
+      entries: Array.from(totals.values()),
+      totalCount: totals.size,
+    };
   }, [alignedSnapshots, airportStatsBySnapshot]);
 
   const airportChartSeries = useMemo(
@@ -521,7 +549,7 @@ export default function SolutionComparisonPage() {
         .filter((snap) => airportStatsBySnapshot.has(snap.id))
         .map((snap) => ({
           snapshot: snap,
-          key: `total_${snap.id}`,
+          key: `metric_${snap.id}`,
           label: snap.description || "Untitled",
           color: colorBySnapshotId.get(snap.id) || "#38bdf8",
         })),
@@ -535,6 +563,39 @@ export default function SolutionComparisonPage() {
     });
     return map;
   }, [airportChartSeries]);
+
+  const AIRPORT_CHART_LIMIT = 10;
+  const airportChartEntries = airportComparisonChart.entries;
+  const airportChartData = useMemo(() => {
+    if (airportChartEntries.length === 0) return [] as Array<Record<string, number | string>>;
+    const sorted = airportChartEntries.slice().sort((a, b) => {
+      if (airportChartMetric === 'flights') {
+        return b.combinedFlights - a.combinedFlights || a.airport.localeCompare(b.airport);
+      }
+      return b.combinedDelay - a.combinedDelay || a.airport.localeCompare(b.airport);
+    });
+    const top = sorted.slice(0, AIRPORT_CHART_LIMIT);
+    return top.map((entry) => {
+      const row: Record<string, number | string> = { airport: entry.airport };
+      alignedSnapshots.forEach((snap) => {
+        const metrics = entry.perSnapshot[snap.id] || { totalDelay: 0, totalFlights: 0 };
+        row[`metric_${snap.id}`] =
+          airportChartMetric === 'delay' ? metrics.totalDelay : metrics.totalFlights;
+      });
+      return row;
+    });
+  }, [airportChartEntries, airportChartMetric, alignedSnapshots]);
+  const airportChartTotalCount = airportComparisonChart.totalCount;
+  const airportChartMetricLabel = airportChartMetric === 'delay' ? 'combined delay' : 'delayed flights';
+  const airportChartSummaryText =
+    airportChartTotalCount === 0
+      ? 'No airports with delays yet'
+      : airportChartTotalCount > airportChartData.length
+        ? `Top ${airportChartData.length} of ${airportChartTotalCount} airports by ${airportChartMetricLabel}`
+        : `Airports by ${airportChartMetricLabel} (${airportChartTotalCount})`;
+  const formatAirportChartValue = (value: number) =>
+    airportChartMetric === 'delay' ? formatAdaptive(value, 1) : formatFlights(value);
+  const airportChartTooltipUnit = airportChartMetric === 'delay' ? 'min' : 'flights';
 
   const departureComparison = useMemo(() => {
     const map = new Map<string, AirportComparisonRow>();
@@ -1253,29 +1314,41 @@ export default function SolutionComparisonPage() {
                         );
                       })}
                     </div>
-                    {airportComparisonChart.data.length > 0 && airportChartSeries.length > 0 && (
+                    {airportChartData.length > 0 && airportChartSeries.length > 0 && (
                       <div className="bg-white/5 border border-white/10 rounded-lg p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                           <div className="text-[11px] uppercase tracking-wider text-white/60">Airport delay comparison</div>
-                          <div className="text-[11px] text-white/60">
-                            {airportComparisonChart.totalCount > airportComparisonChart.data.length
-                              ? `Top ${airportComparisonChart.data.length} of ${airportComparisonChart.totalCount} airports by combined delay`
-                              : `Airports by combined delay (${airportComparisonChart.totalCount})`}
+                          <div className="flex items-center gap-3 text-[11px] text-white/60">
+                            <select
+                              aria-label="Select airport comparison metric"
+                              className="h-8 px-3 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 transition-colors text-[12px]"
+                              value={airportChartMetric}
+                              onChange={(event) => setAirportChartMetric(event.currentTarget.value as 'delay' | 'flights')}
+                            >
+                              <option value="delay">Total delay (min)</option>
+                              <option value="flights">Delayed flights</option>
+                            </select>
+                            <div>{airportChartSummaryText}</div>
                           </div>
                         </div>
                         <div className="h-72">
                           <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={airportComparisonChart.data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                            <ComposedChart data={airportChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                               <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
                               <XAxis dataKey="airport" tick={{ fontSize: 11, fill: '#e2e8f0' }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={false} />
                               <YAxis
                                 tick={{ fontSize: 11, fill: '#e2e8f0' }}
-                                tickFormatter={(value: number) => formatAdaptive(value, 1)}
+                                tickFormatter={(value: number) => formatAirportChartValue(value)}
                                 axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
                                 tickLine={false}
+                                allowDecimals={airportChartMetric === 'delay'}
                               />
                               <Tooltip
-                                formatter={(value: number, name: string) => [`${formatAdaptive(value, 1)} min`, airportChartSeriesLookup.get(name) || name]}
+                                formatter={(value: number, name: string, entry) => {
+                                  const key = (entry && 'dataKey' in entry ? entry.dataKey : undefined) as string | undefined;
+                                  const label = (key && airportChartSeriesLookup.get(key)) || name;
+                                  return [`${formatAirportChartValue(value)} ${airportChartTooltipUnit}`, label];
+                                }}
                                 labelFormatter={(label) => `Airport ${label}`}
                                 contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'white' }}
                                 itemStyle={{ color: 'white' }}
@@ -1330,9 +1403,15 @@ export default function SolutionComparisonPage() {
                                           <td key={snap.id} className="px-3 py-2">
                                             {cell ? (
                                               <div className={`space-y-1 ${isBest ? 'text-emerald-200' : 'text-white/80'}`}>
-                                                <div className="font-mono text-[13px]">{formatAdaptive(cell.totalDelay, 1)} min</div>
+                                                <div className="font-mono text-[13px]">
+                                                  {airportChartMetric === 'flights'
+                                                    ? `${formatFlights(cell.flightCount)} flights`
+                                                    : `${formatAdaptive(cell.totalDelay, 1)} min`}
+                                                </div>
                                                 <div className="text-[11px] text-white/60">
-                                                  Flights {formatFlights(cell.flightCount)} · Avg {formatAverage(cell.averageDelay)} · Max {formatAdaptive(cell.maxDelay, 1)} · Min {formatAdaptive(cell.minDelay, 1)}
+                                                  {airportChartMetric === 'flights'
+                                                    ? `Delay ${formatAdaptive(cell.totalDelay, 1)} min · Avg ${formatAverage(cell.averageDelay)} · Max ${formatAdaptive(cell.maxDelay, 1)} · Min ${formatAdaptive(cell.minDelay, 1)}`
+                                                    : `Flights ${formatFlights(cell.flightCount)} · Avg ${formatAverage(cell.averageDelay)} · Max ${formatAdaptive(cell.maxDelay, 1)} · Min ${formatAdaptive(cell.minDelay, 1)}`}
                                                 </div>
                                               </div>
                                             ) : (
@@ -1393,9 +1472,15 @@ export default function SolutionComparisonPage() {
                                           <td key={snap.id} className="px-3 py-2">
                                             {cell ? (
                                               <div className={`space-y-1 ${isBest ? 'text-emerald-200' : 'text-white/80'}`}>
-                                                <div className="font-mono text-[13px]">{formatAdaptive(cell.totalDelay, 1)} min</div>
+                                                <div className="font-mono text-[13px]">
+                                                  {airportChartMetric === 'flights'
+                                                    ? `${formatFlights(cell.flightCount)} flights`
+                                                    : `${formatAdaptive(cell.totalDelay, 1)} min`}
+                                                </div>
                                                 <div className="text-[11px] text-white/60">
-                                                  Flights {formatFlights(cell.flightCount)} · Avg {formatAverage(cell.averageDelay)} · Max {formatAdaptive(cell.maxDelay, 1)} · Min {formatAdaptive(cell.minDelay, 1)}
+                                                  {airportChartMetric === 'flights'
+                                                    ? `Delay ${formatAdaptive(cell.totalDelay, 1)} min · Avg ${formatAverage(cell.averageDelay)} · Max ${formatAdaptive(cell.maxDelay, 1)} · Min ${formatAdaptive(cell.minDelay, 1)}`
+                                                    : `Flights ${formatFlights(cell.flightCount)} · Avg ${formatAverage(cell.averageDelay)} · Max ${formatAdaptive(cell.maxDelay, 1)} · Min ${formatAdaptive(cell.minDelay, 1)}`}
                                                 </div>
                                               </div>
                                             ) : (

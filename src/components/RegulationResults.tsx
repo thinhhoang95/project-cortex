@@ -173,8 +173,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
 
   const delayRows = useMemo(() => {
     const byFlight = result?.delays_by_flight || {};
-    const rows = Object.entries(byFlight).map(([flightId, delaySecondsRaw]) => {
-      const delaySeconds = Number(delaySecondsRaw) || 0;
+    const rows = Object.entries(byFlight).map(([flightId, delayMinutesRaw]) => {
+      const delayMinutes = Number(delayMinutesRaw) || 0;
       const f = flights.find(ff => String(ff.flightId) === String(flightId));
       const callsign = f?.callSign ? String(f?.callSign) : String(flightId);
       const origin = f?.origin ? String(f.origin) : '-';
@@ -183,12 +183,12 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
       const takeoffTime = ctx?.takeoff_time || '-';
       const tvArrivalTime = ctx?.tv_arrival_time || '-';
       const tvArrivalSeconds = parseTimeToSeconds(ctx?.tv_arrival_time);
-      return { flightId: String(flightId), callsign, origin, destination, delaySeconds, takeoffTime, tvArrivalTime, tvArrivalSeconds };
+      return { flightId: String(flightId), callsign, origin, destination, delayMinutes, takeoffTime, tvArrivalTime, tvArrivalSeconds };
     });
     rows.sort((a, b) => {
       const da = a.tvArrivalSeconds;
       const db = b.tvArrivalSeconds;
-      if (da === db) return a.delaySeconds - b.delaySeconds;
+      if (da === db) return a.delayMinutes - b.delayMinutes;
       return da - db; // earliest first; Infinity (unknown) pushed to end
     });
     return rows;
@@ -231,9 +231,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     let heaviest: HeaviestDelayInfo | null = null;
 
     for (const [flightKey, rawDelay] of entries) {
-      const delaySeconds = Number(rawDelay);
-      if (!Number.isFinite(delaySeconds)) continue;
-      const delayMinutes = delaySeconds / 60;
+      const delayMinutes = Number(rawDelay);
+      if (!Number.isFinite(delayMinutes)) continue;
       totalDelay += delayMinutes;
       totalFlights += 1;
 
@@ -698,7 +697,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                       <td className="p-2 font-mono">{r.destination}</td>
                       <td className="p-2 font-mono">{r.takeoffTime}</td>
                       <td className="p-2 font-mono">{r.tvArrivalTime}</td>
-                      <td className="p-2 font-mono">{Math.round(r.delaySeconds).toLocaleString()}</td>
+                      <td className="p-2 font-mono">{Math.round(r.delayMinutes).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
