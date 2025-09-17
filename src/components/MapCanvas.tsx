@@ -14,8 +14,6 @@ import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
 
-const createHideAllFilter = () => ["==", 1, 0] as any;
-
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map|null>(null);
   const rafRef = useRef<number | undefined>(undefined);
@@ -590,14 +588,13 @@ export default function MapCanvas() {
   // on FL range change, filter traffic volumes based on vertical intersection
   useEffect(() => {
     if (mapRef.current && mapRef.current.getSource("sectors")) {
-      const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
-      const filterExpression: any = shouldHideTrafficVolumes
-        ? createHideAllFilter()
-        : [
-            "all",
-            [">=", ["get", "max_fl"], flLowerBound],
-            ["<=", ["get", "min_fl"], flUpperBound]
-          ];
+      // Create filter expression to show only sectors that intersect with FL range
+      // A sector intersects if: max_fl >= flLowerBound AND min_fl <= flUpperBound
+      const filterExpression: any = [
+        "all",
+        [">=", ["get", "max_fl"], flLowerBound],
+        ["<=", ["get", "min_fl"], flUpperBound]
+      ];
 
       if (mapRef.current.getLayer("sector-fill")) {
         mapRef.current.setFilter("sector-fill", filterExpression);
@@ -619,12 +616,9 @@ export default function MapCanvas() {
   // Update highlight layer when highlighted traffic volume changes
   useEffect(() => {
     if (mapRef.current) {
-      const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
-      const highlightFilter = shouldHideTrafficVolumes
-        ? createHideAllFilter()
-        : highlightedTrafficVolume
-          ? ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume]
-          : ["==", ["get", "traffic_volume_id"], ""];
+      const highlightFilter = highlightedTrafficVolume 
+        ? ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume]
+        : ["==", ["get", "traffic_volume_id"], ""];
 
       if (mapRef.current.getLayer("sector-highlight")) {
         mapRef.current.setFilter("sector-highlight", highlightFilter as any);
@@ -633,17 +627,14 @@ export default function MapCanvas() {
         mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
       }
     }
-  }, [highlightedTrafficVolume, flLowerBound, flUpperBound]);
+  }, [highlightedTrafficVolume]);
 
   // Update hover layer when hovered traffic volume changes
   useEffect(() => {
     if (mapRef.current) {
-      const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
-      const hoverFilter = shouldHideTrafficVolumes
-        ? createHideAllFilter()
-        : hoveredTrafficVolume
-          ? ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume]
-          : ["==", ["get", "traffic_volume_id"], ""];
+      const hoverFilter = hoveredTrafficVolume 
+        ? ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume]
+        : ["==", ["get", "traffic_volume_id"], ""];
 
       if (mapRef.current.getLayer("sector-hover")) {
         mapRef.current.setFilter("sector-hover", hoverFilter as any);
@@ -652,7 +643,7 @@ export default function MapCanvas() {
         mapRef.current.setFilter("sector-hover-outline", hoverFilter as any);
       }
     }
-  }, [hoveredTrafficVolume, flLowerBound, flUpperBound]);
+  }, [hoveredTrafficVolume]);
 
   // Update hotspot layers when hotspots change, FL range changes, or time changes
   useEffect(() => {
@@ -661,17 +652,14 @@ export default function MapCanvas() {
       const activeHotspots = getActiveHotspots();
       const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
       
-      const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
-      const hotspotFilter = shouldHideTrafficVolumes
-        ? createHideAllFilter()
-        : hotspotTrafficVolumeIds.length > 0
-          ? [
-              "all",
-              ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]],
-              [">=", ["get", "max_fl"], flLowerBound],
-              ["<=", ["get", "min_fl"], flUpperBound]
-            ]
-          : ["==", ["get", "traffic_volume_id"], ""];
+      const hotspotFilter = hotspotTrafficVolumeIds.length > 0 
+        ? [
+            "all",
+            ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]],
+            [">=", ["get", "max_fl"], flLowerBound],
+            ["<=", ["get", "min_fl"], flUpperBound]
+          ]
+        : ["==", ["get", "traffic_volume_id"], ""];
 
       if (mapRef.current.getLayer("sector-hotspot")) {
         mapRef.current.setFilter("sector-hotspot", hotspotFilter as any);
