@@ -10,10 +10,12 @@ type ThemeState = {
   toggleTheme: () => void;
 };
 
+type ThemeStorageState = Pick<ThemeState, "theme">;
+
 const themeNames = Object.keys(THEMES) as ThemeName[];
 
 export const useThemeStore = create(
-  persist<ThemeState>(
+  persist<ThemeState, [], [], ThemeStorageState>(
     (set, get) => ({
       theme: DEFAULT_THEME,
       setTheme: (theme) => {
@@ -34,4 +36,3 @@ export const useThemeStore = create(
     }
   )
 );
-
