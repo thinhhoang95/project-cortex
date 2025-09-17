@@ -1606,6 +1606,7 @@ export default function SolutionComparisonPage() {
                   if (hasValue) chartData.push(entry);
                 }
 
+                const normalizationFactor = minutesPerBin > 0 ? minutesPerBin / 60 : 1;
                 const legendMetrics = alignedSnapshots.map((snap) => {
                   const series = tvSeriesBySnapshot.get(snap.id)?.[tvId] || [];
                   const capacity = capacityBySnapshot.get(snap.id)?.[tvId] || [];
@@ -1618,7 +1619,7 @@ export default function SolutionComparisonPage() {
                     if (val > peak) peak = val;
                     const cap = Number(capacity?.[i] ?? Number.POSITIVE_INFINITY);
                     if (Number.isFinite(cap)) {
-                      exceedance += Math.max(0, val - cap);
+                      exceedance += Math.max(0, val - cap) * normalizationFactor;
                     }
                   }
                   return { snap, peak, exceedance };

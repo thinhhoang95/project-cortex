@@ -708,6 +708,7 @@ function FlowEvaluationPageContent() {
     const scores: Record<string, number> = {};
     if (!d) return scores;
     const minutes = Number(d.time_bin_minutes || minutesPerBin || 15);
+    const exceedanceNormalization = minutes > 0 ? minutes / 60 : 1;
     const vFrom = hhmmToMinutesSafe(viewFrom);
     const vTo = hhmmToMinutesSafe(viewTo);
     const pre = d.pre_counts || {};
@@ -754,7 +755,7 @@ function FlowEvaluationPageContent() {
           const dd = Number.isFinite(dem) ? dem : 0;
           const cc = Number.isFinite(cap) ? cap : Number.POSITIVE_INFINITY;
           const ex = Math.max(0, dd - cc);
-          score += ex;
+          score += ex * exceedanceNormalization;
         }
       }
       scores[String(tvId)] = score;
@@ -1510,7 +1511,7 @@ function FlowEvaluationPageContent() {
                       const capVal = Number(capSeries?.[i]);
                       const cc = Number.isFinite(capVal) ? capVal : Number.POSITIVE_INFINITY;
                       const ex = Math.max(0, (Number(r.total) || 0) - cc);
-                      exceed += ex;
+                      exceed += ex * exceedanceNormalization;
                     }
                   }
                   scores[tv] = { tv, total, flowAbs, flowRel, exceed };

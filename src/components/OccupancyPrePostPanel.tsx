@@ -158,6 +158,8 @@ export default function OccupancyPrePostPanel({
     return map;
   }, [UNION_TVS, effectivePre, postCounts, effectiveCap, binMinutes, vFrom, vTo]);
 
+  const exceedanceNormalization = useMemo(() => (binMinutes > 0 ? binMinutes / 60 : 1), [binMinutes]);
+
   // Compute sort scores
   const scoresByTv = useMemo(() => {
     const s: Record<string, number> = {};
@@ -178,12 +180,12 @@ export default function OccupancyPrePostPanel({
         s[tv] = rows.reduce((acc, r) => {
           const d = preferPost ? (r.post || 0) : (r.pre || 0);
           const c = Number.isFinite(r.cap as number) && (r.cap as number) >= 0 ? (r.cap as number) : Number.POSITIVE_INFINITY;
-          return acc + Math.max(0, d - c);
+          return acc + Math.max(0, d - c) * exceedanceNormalization;
         }, 0);
       }
     }
     return s;
-  }, [UNION_TVS, rowsByTv, postCounts, effectivePre, effectiveSort]);
+  }, [UNION_TVS, rowsByTv, postCounts, effectivePre, effectiveSort, exceedanceNormalization]);
 
   // Sorted TVs with stable tie-breakers
   const sortedTvs = useMemo(() => {
