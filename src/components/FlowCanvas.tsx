@@ -1,7 +1,7 @@
 "use client";
 import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import * as turf from "@turf/turf";
@@ -25,87 +25,6 @@ export default function FlowCanvas() {
   const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   const theme = useThemeStore((state) => state.theme);
-
-  const updateTrafficVolumeLayers = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
-    const hiddenFilter = createHideAllFilter();
-    const baseFilter: any = shouldHideTrafficVolumes
-      ? hiddenFilter
-      : [
-          "all",
-          [">=", ["get", "max_fl"], flLowerBound],
-          ["<=", ["get", "min_fl"], flUpperBound]
-        ];
-
-    const applyLayerState = (layerId: string, filter: any) => {
-      if (!map.getLayer(layerId)) return;
-      const visibility = shouldHideTrafficVolumes ? "none" : "visible";
-      map.setLayoutProperty(layerId, "visibility", visibility);
-      map.setFilter(layerId, filter);
-    };
-
-    applyLayerState("sector-fill", baseFilter);
-    applyLayerState("sector-outline", baseFilter);
-    applyLayerState("sector-labels", baseFilter);
-
-    const highlightFilter: any = shouldHideTrafficVolumes
-      ? hiddenFilter
-      : highlightedTrafficVolume
-        ? [
-            "all",
-            ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume],
-            [">=", ["get", "max_fl"], flLowerBound],
-            ["<=", ["get", "min_fl"], flUpperBound]
-          ]
-        : hiddenFilter;
-
-    applyLayerState("sector-highlight", highlightFilter);
-    applyLayerState("sector-highlight-outline", highlightFilter);
-
-    const hoverFilter: any = shouldHideTrafficVolumes
-      ? hiddenFilter
-      : hoveredTrafficVolume
-        ? [
-            "all",
-            ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume],
-            [">=", ["get", "max_fl"], flLowerBound],
-            ["<=", ["get", "min_fl"], flUpperBound]
-          ]
-        : hiddenFilter;
-
-    applyLayerState("sector-hover", hoverFilter);
-    applyLayerState("sector-hover-outline", hoverFilter);
-
-    const activeHotspots = getActiveHotspots();
-    const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
-    const hotspotFilter: any = shouldHideTrafficVolumes
-      ? hiddenFilter
-      : hotspotTrafficVolumeIds.length > 0
-        ? [
-            "all",
-            ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]],
-            [">=", ["get", "max_fl"], flLowerBound],
-            ["<=", ["get", "min_fl"], flUpperBound]
-          ]
-        : hiddenFilter;
-
-    applyLayerState("sector-hotspot", hotspotFilter);
-    applyLayerState("sector-hotspot-outline", hotspotFilter);
-  }, [flLowerBound, flUpperBound, highlightedTrafficVolume, hoveredTrafficVolume, getActiveHotspots]);
-
-  const updateTrafficVolumeLayersRef = useRef<() => void>(() => {});
-
-  useEffect(() => {
-    updateTrafficVolumeLayersRef.current = updateTrafficVolumeLayers;
-  }, [updateTrafficVolumeLayers]);
-
-  // Keep traffic volume layers in sync with FL range, highlight, and hotspot state
-  useEffect(() => {
-    updateTrafficVolumeLayers();
-  }, [updateTrafficVolumeLayers, showHotspots, hotspots, t]);
 
   // init map
   useEffect(() => {
@@ -167,8 +86,6 @@ export default function FlowCanvas() {
         // Add hotspot layers for traffic volumes
         map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.1 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
         map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-
-        updateTrafficVolumeLayersRef.current();
 
         // --- Flight lines (static geometry) ---
         const lineFC: GeoJSON.FeatureCollection = {
@@ -405,6 +322,79 @@ export default function FlowCanvas() {
     }
   }, [showFlightLineLabels]);
 
+  // on FL range change, filter traffic volumes
+  useEffect(() => {
+    if (mapRef.current && mapRef.current.getSource("sectors")) {
+      const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
+      const hiddenFilter = createHideAllFilter();
+      const filterExpression: any = shouldHideTrafficVolumes
+        ? hiddenFilter
+        : [
+            "all",
+            [">=", ["get", "max_fl"], flLowerBound],
+            ["<=", ["get", "min_fl"], flUpperBound]
+          ];
+      if (mapRef.current.getLayer("sector-fill")) mapRef.current.setFilter("sector-fill", filterExpression);
+      if (mapRef.current.getLayer("sector-outline")) mapRef.current.setFilter("sector-outline", filterExpression);
+      if (mapRef.current.getLayer("sector-labels")) mapRef.current.setFilter("sector-labels", filterExpression);
+      // (Slack layer removed) no sector-slack filter
+      // Ensure highlight and hover layers are also absolutely filtered by FL range
+      const hlFilter: any = shouldHideTrafficVolumes
+        ? hiddenFilter
+        : highlightedTrafficVolume
+          ? ["all", ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+          : hiddenFilter;
+      const hvFilter: any = shouldHideTrafficVolumes
+        ? hiddenFilter
+        : hoveredTrafficVolume
+          ? ["all", ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+          : hiddenFilter;
+      if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", hlFilter as any);
+      if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", hlFilter as any);
+      if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hvFilter as any);
+      if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hvFilter as any);
+    }
+  }, [flLowerBound, flUpperBound]);
+
+  // Update highlight/hover layers when state changes
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
+    const highlightFilter = shouldHideTrafficVolumes
+      ? createHideAllFilter()
+      : highlightedTrafficVolume
+        ? ["all", ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+        : createHideAllFilter();
+    if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", highlightFilter as any);
+    if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
+  }, [highlightedTrafficVolume, flLowerBound, flUpperBound]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
+    const hoverFilter = shouldHideTrafficVolumes
+      ? createHideAllFilter()
+      : hoveredTrafficVolume
+        ? ["all", ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
+        : createHideAllFilter();
+    if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hoverFilter as any);
+    if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hoverFilter as any);
+  }, [hoveredTrafficVolume, flLowerBound, flUpperBound]);
+
+  // Update hotspot layers when hotspots/time/FL range changes
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const activeHotspots = getActiveHotspots();
+    const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
+    const shouldHideTrafficVolumes = flUpperBound <= flLowerBound;
+    const hotspotFilter = shouldHideTrafficVolumes
+      ? createHideAllFilter()
+      : hotspotTrafficVolumeIds.length > 0
+        ? [ "all", ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound] ]
+        : createHideAllFilter();
+    if (mapRef.current.getLayer("sector-hotspot")) mapRef.current.setFilter("sector-hotspot", hotspotFilter as any);
+    if (mapRef.current.getLayer("sector-hotspot-outline")) mapRef.current.setFilter("sector-hotspot-outline", hotspotFilter as any);
+  }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
 
   // Listen for dialog close events to clear highlighting
   useEffect(() => {
