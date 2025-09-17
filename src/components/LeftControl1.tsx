@@ -162,7 +162,7 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
               <h4 className="font-medium text-sm opacity-90">Hotspots</h4>
               {hotspotsLoading && (
                 <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-3 w-3 border border-white/20 border-t-white"></div>
+                  <div className="animate-spin rounded-full h-3 w-3 border border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
                   <ShimmeringText text="Loading..." className="ml-1 text-xs opacity-70" />
                 </div>
               )}

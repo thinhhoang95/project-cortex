@@ -169,7 +169,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 				)}
 				{loading ? (
 					<div className="flex items-center justify-center py-4">
-						<div className="animate-spin rounded-full h-4 w-4 border-2 border-white/20 border-t-white"></div>
+                                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
 						<ShimmeringText text="Loading..." className="ml-2 text-xs opacity-70" />
 					</div>
 				) : error ? (
