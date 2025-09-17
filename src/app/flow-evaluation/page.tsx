@@ -6,10 +6,28 @@ import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "@/components/ModalDialog";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
-import { BaseEvaluationResponse, AutomaticRateAdjustmentResponse } from "@/lib/models";
+import {
+  BaseEvaluationResponse,
+  AutomaticRateAdjustmentResponse,
+  type Trajectory,
+} from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
-import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie } from "recharts";
+import {
+  ComposedChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Cell,
+  PieChart,
+  Pie,
+  BarChart,
+  Legend,
+} from "recharts";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
 import { FlowInputPayload } from "@/lib/flow-input";
@@ -109,7 +127,7 @@ function FlowEvaluationPageContent() {
   const [expandedOccOriginal, setExpandedOccOriginal] = useState<boolean>(false);
   const [selectedTrafficVolumes, setSelectedTrafficVolumes] = useState<string[]>([]);
   // View toggle UI only (logic wiring to be handled later)
-  const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all' | 'occupancy_original'>("demand");
+  const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all' | 'occupancy_original' | 'airports_delay'>("demand");
   // Ripple TV sort mode (applies only to ripple TVs in Demand/Occupancy views)
   const [rippleSortMode, setRippleSortMode] = useState<'total' | 'abs_change'>("total");
   // Occupancy Flow/Total-Pre TV sort mode
@@ -1250,9 +1268,21 @@ function FlowEvaluationPageContent() {
                     seriesView === 'occupancy_all'
                       ? 'bg-blue-500/20 border-blue-400/60 text-white'
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
-                  } rounded-r-md`}
+                  }`}
                 >
                   Occupancy Pre-Post
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={seriesView === 'airports_delay'}
+                  onClick={() => setSeriesView('airports_delay')}
+                  className={`h-[42px] px-4 text-[12px] font-medium border transition-colors -ml-px flex items-center justify-center whitespace-nowrap ${
+                    seriesView === 'airports_delay'
+                      ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                      : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                  } rounded-r-md`}
+                >
+                  Airports Delay Attributions
                 </button>
               </div>
               <div className="ml-auto flex flex-wrap items-center gap-3 justify-end w-full sm:w-auto">
@@ -1275,7 +1305,8 @@ function FlowEvaluationPageContent() {
                     </select>
                   </div>
                 )}
-                {seriesView === 'occupancy_original' && (
+
+          {seriesView === 'occupancy_original' && (
                   <div className="flex items-center gap-2">
                     <select
                       className="h-[42px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
@@ -1310,16 +1341,29 @@ function FlowEvaluationPageContent() {
                     </select>
                   </div>
                 )}
-                <div className="min-w-[220px] sm:min-w-[260px] w-full sm:w-[260px]">
-                  <MultiSelectWithChips
-                    options={trafficVolumeOptions}
-                    selectedIds={selectedTrafficVolumes}
-                    onChange={setSelectedTrafficVolumes}
-                    placeholder="Filter traffic volumes"
-                  />
-                </div>
+                {seriesView !== 'airports_delay' && (
+                  <div className="min-w-[220px] sm:min-w-[260px] w-full sm:w-[260px]">
+                    <MultiSelectWithChips
+                      options={trafficVolumeOptions}
+                      selectedIds={selectedTrafficVolumes}
+                      onChange={setSelectedTrafficVolumes}
+                      placeholder="Filter traffic volumes"
+                    />
+                  </div>
+                )}
               </div>
             </div>
+
+          {seriesView === 'airports_delay' && (
+            <section className="mb-8">
+              <AirportDelayAttributionView
+                delays={optState.data?.delays_min || null}
+                flights={flights}
+                loading={optState.loading}
+                error={optState.error}
+              />
+            </section>
+          )}
 
           {seriesView === 'occupancy_original' && (
             <section className="mb-8">
@@ -1662,7 +1706,7 @@ function FlowEvaluationPageContent() {
           )}
 
           {/* Per-flow results (hidden when aggregated views selected) */}
-          {seriesView !== 'occupancy_all' && seriesView !== 'occupancy_original' && (
+          {(seriesView === 'demand' || seriesView === 'occupancy') && (
           <section>
             {evalState.loading && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1971,6 +2015,361 @@ function WeightsAddRow({ onAdd }: { onAdd: (key: string, val: number) => void })
         </div>
       </td>
     </tr>
+  );
+}
+
+
+type AirportDelayRow = {
+  airport: string;
+  flightCount: number;
+  totalDelay: number;
+  averageDelay: number;
+  maxDelay: number;
+  minDelay: number;
+};
+
+type HeaviestDelayInfo = {
+  flightId: string;
+  callSign: string;
+  origin: string;
+  destination: string;
+  delay: number;
+};
+
+type AirportDelayChartRow = {
+  airport: string;
+  departureDelay: number;
+  arrivalDelay: number;
+  total: number;
+};
+
+function AirportDelayAttributionView({
+  delays,
+  flights,
+  loading,
+  error,
+}: {
+  delays: Record<string, number> | null | undefined;
+  flights: Trajectory[];
+  loading: boolean;
+  error: string | null;
+}) {
+  const stats = useMemo<{
+    departures: AirportDelayRow[];
+    arrivals: AirportDelayRow[];
+    totalFlights: number;
+    totalDelay: number;
+    averageDelay: number;
+    heaviest: HeaviestDelayInfo | null;
+    chartData: AirportDelayChartRow[];
+    chartTotalCount: number;
+    uniqueAirports: number;
+  } | null>(() => {
+    if (!delays) return null;
+    const entries = Object.entries(delays);
+    if (entries.length === 0) return null;
+
+    const flightsById = new Map<string, Trajectory>();
+    const flightsByCallsign = new Map<string, Trajectory>();
+    for (const flight of flights) {
+      flightsById.set(String(flight.flightId), flight);
+      if (flight.callSign) {
+        flightsByCallsign.set(String(flight.callSign), flight);
+      }
+    }
+
+    type Accumulator = { total: number; count: number; max: number; min: number };
+    const depMap = new Map<string, Accumulator>();
+    const arrMap = new Map<string, Accumulator>();
+
+    const updateMap = (map: Map<string, Accumulator>, airport: string, delay: number) => {
+      const key = airport.trim() || 'Unknown';
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { total: delay, count: 1, max: delay, min: delay });
+      } else {
+        existing.total += delay;
+        existing.count += 1;
+        existing.max = Math.max(existing.max, delay);
+        existing.min = Math.min(existing.min, delay);
+      }
+    };
+
+    let totalDelay = 0;
+    let totalFlights = 0;
+    let heaviest: HeaviestDelayInfo | null = null;
+
+    for (const [flightKey, rawDelay] of entries) {
+      const delay = Number(rawDelay);
+      if (!Number.isFinite(delay)) continue;
+      totalDelay += delay;
+      totalFlights += 1;
+
+      let flight = flightsById.get(String(flightKey));
+      if (!flight) {
+        flight = flightsByCallsign.get(String(flightKey));
+      }
+      const origin = (flight?.origin || '').trim() || 'Unknown';
+      const destination = (flight?.destination || '').trim() || 'Unknown';
+      const callSign = (flight?.callSign || '').trim() || String(flightKey);
+
+      updateMap(depMap, origin, delay);
+      updateMap(arrMap, destination, delay);
+
+      if (!heaviest || delay > heaviest.delay) {
+        heaviest = {
+          flightId: String(flightKey),
+          callSign,
+          origin,
+          destination,
+          delay,
+        };
+      }
+    }
+
+    if (totalFlights === 0) return null;
+
+    const toRows = (map: Map<string, Accumulator>): AirportDelayRow[] =>
+      Array.from(map.entries())
+        .map(([airport, stats]) => ({
+          airport,
+          flightCount: stats.count,
+          totalDelay: stats.total,
+          averageDelay: stats.total / stats.count,
+          maxDelay: stats.max,
+          minDelay: stats.min,
+        }))
+        .sort((a, b) => b.totalDelay - a.totalDelay);
+
+    const departures = toRows(depMap);
+    const arrivals = toRows(arrMap);
+
+    const combined = new Map<string, { airport: string; departureDelay: number; arrivalDelay: number }>();
+    const ensureCombined = (airport: string) => {
+      const key = airport || 'Unknown';
+      let entry = combined.get(key);
+      if (!entry) {
+        entry = { airport: key, departureDelay: 0, arrivalDelay: 0 };
+        combined.set(key, entry);
+      }
+      return entry;
+    };
+
+    for (const row of departures) {
+      ensureCombined(row.airport).departureDelay += row.totalDelay;
+    }
+    for (const row of arrivals) {
+      ensureCombined(row.airport).arrivalDelay += row.totalDelay;
+    }
+
+    const combinedEntries: AirportDelayChartRow[] = Array.from(combined.values()).map((entry) => ({
+      airport: entry.airport,
+      departureDelay: entry.departureDelay,
+      arrivalDelay: entry.arrivalDelay,
+      total: entry.departureDelay + entry.arrivalDelay,
+    }));
+    combinedEntries.sort((a, b) => b.total - a.total);
+    const chartLimit = 10;
+    const chartData = combinedEntries.slice(0, chartLimit);
+
+    return {
+      departures,
+      arrivals,
+      totalFlights,
+      totalDelay,
+      averageDelay: totalDelay / totalFlights,
+      heaviest,
+      chartData,
+      chartTotalCount: combinedEntries.length,
+      uniqueAirports: combinedEntries.length,
+    };
+  }, [delays, flights]);
+
+  if (!stats) {
+    if (loading) {
+      return (
+        <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-sm text-white/70">
+          <ShimmeringText text="Fetching delay data..." />
+        </div>
+      );
+    }
+    return (
+      <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-sm">
+        {error ? (
+          <span className="text-rose-300">Failed to load delay data: {error}</span>
+        ) : (
+          <span className="text-white/70">Run an optimization to generate delay assignments and revisit this view.</span>
+        )}
+      </div>
+    );
+  }
+
+  const TABLE_LIMIT = 15;
+  const departureRows = stats.departures.slice(0, TABLE_LIMIT);
+  const arrivalRows = stats.arrivals.slice(0, TABLE_LIMIT);
+
+  const formatAdaptive = (value: number, fractionDigits = 1) => {
+    if (!Number.isFinite(value)) return '—';
+    const isInt = Math.abs(value - Math.round(value)) < 1e-6;
+    const digits = isInt ? 0 : fractionDigits;
+    return value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  };
+
+  const formatAverage = (value: number) =>
+    Number.isFinite(value) ? value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
+
+  const formatFlights = (value: number) => (Number.isFinite(value) ? Math.round(value).toLocaleString() : '0');
+
+  const heaviest = stats.heaviest;
+
+  return (
+    <div className="space-y-6">
+      {error && !loading && (
+        <div className="text-[12px] text-amber-200">
+          Latest optimization request error: {error}
+        </div>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Flights with delay</div>
+          <div className="text-2xl font-semibold text-white">{formatFlights(stats.totalFlights)}</div>
+          <div className="text-[12px] text-white/60 mt-1">{stats.uniqueAirports} airports observed</div>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Average delay per flight</div>
+          <div className="text-2xl font-semibold text-white">{formatAverage(stats.averageDelay)} min</div>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Total delay minutes</div>
+          <div className="text-2xl font-semibold text-white">{formatAdaptive(stats.totalDelay, 1)} min</div>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Heaviest delay</div>
+          <div className="text-2xl font-semibold text-white">
+            {heaviest ? `${formatAdaptive(heaviest.delay, 1)} min` : '—'}
+          </div>
+          {heaviest && (
+            <div className="text-[12px] text-white/60 mt-1">
+              {heaviest.origin} → {heaviest.destination} ({heaviest.callSign})
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="text-[11px] uppercase tracking-wider text-white/60">Airport delay comparison</div>
+          <div className="text-[11px] text-white/60">
+            {stats.chartTotalCount > stats.chartData.length
+              ? `Top ${stats.chartData.length} of ${stats.chartTotalCount} airports by total delay`
+              : `Airports by total delay (${stats.chartTotalCount})`}
+          </div>
+        </div>
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stats.chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+              <XAxis dataKey="airport" tick={{ fontSize: 11, fill: '#e2e8f0' }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#e2e8f0' }}
+                tickFormatter={(value: number) => formatAdaptive(value, 1)}
+                axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                tickLine={false}
+              />
+              <Tooltip
+                formatter={(value: number, name: string) => [
+                  `${formatAdaptive(value, 1)} min`,
+                  name === 'departureDelay' ? 'Departure delay' : 'Arrival delay',
+                ]}
+                contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'white' }}
+                itemStyle={{ color: 'white' }}
+                labelStyle={{ color: 'white' }}
+              />
+              <Legend wrapperStyle={{ color: '#f8fafc' }} />
+              <Bar dataKey="departureDelay" name="Departure delay" fill="#60a5fa" />
+              <Bar dataKey="arrivalDelay" name="Arrival delay" fill="#f472b6" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Delays by departure airport</div>
+          <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+            <table className="w-full text-sm text-white/90">
+              <thead className="bg-white/5 text-white/70">
+                <tr>
+                  <th className="text-left px-3 py-2">Airport</th>
+                  <th className="text-right px-3 py-2">Flights</th>
+                  <th className="text-right px-3 py-2">Total Delay (min)</th>
+                  <th className="text-right px-3 py-2">Avg (min)</th>
+                  <th className="text-right px-3 py-2">Max (min)</th>
+                  <th className="text-right px-3 py-2">Min (min)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {departureRows.map((row, idx) => (
+                  <tr
+                    key={`dep-${row.airport}-${idx}`}
+                    className={`border-t border-white/10 ${idx % 2 === 1 ? 'bg-white/5' : 'bg-white/0'} hover:bg-white/10`}
+                  >
+                    <td className="px-3 py-2 font-medium text-white">{row.airport}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatFlights(row.flightCount)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAdaptive(row.totalDelay, 1)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAverage(row.averageDelay)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAdaptive(row.maxDelay, 1)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAdaptive(row.minDelay, 1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {stats.departures.length > TABLE_LIMIT && (
+            <div className="mt-2 text-[11px] text-white/60">
+              Showing top {TABLE_LIMIT} of {stats.departures.length} airports.
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Delays by arrival airport</div>
+          <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+            <table className="w-full text-sm text-white/90">
+              <thead className="bg-white/5 text-white/70">
+                <tr>
+                  <th className="text-left px-3 py-2">Airport</th>
+                  <th className="text-right px-3 py-2">Flights</th>
+                  <th className="text-right px-3 py-2">Total Delay (min)</th>
+                  <th className="text-right px-3 py-2">Avg (min)</th>
+                  <th className="text-right px-3 py-2">Max (min)</th>
+                  <th className="text-right px-3 py-2">Min (min)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {arrivalRows.map((row, idx) => (
+                  <tr
+                    key={`arr-${row.airport}-${idx}`}
+                    className={`border-t border-white/10 ${idx % 2 === 1 ? 'bg-white/5' : 'bg-white/0'} hover:bg-white/10`}
+                  >
+                    <td className="px-3 py-2 font-medium text-white">{row.airport}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatFlights(row.flightCount)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAdaptive(row.totalDelay, 1)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAverage(row.averageDelay)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAdaptive(row.maxDelay, 1)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-white/90">{formatAdaptive(row.minDelay, 1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {stats.arrivals.length > TABLE_LIMIT && (
+            <div className="mt-2 text-[11px] text-white/60">
+              Showing top {TABLE_LIMIT} of {stats.arrivals.length} airports.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
