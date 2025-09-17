@@ -148,7 +148,7 @@ export default function Header() {
             <div className="relative">
               <button
                 onClick={() => setShowAnalyticsDropdown(!showAnalyticsDropdown)}
-                className={`${pathname?.includes('/original_count') || pathname?.includes('/flow-evaluation') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}
+                className={`${pathname?.includes('/original_count') || pathname?.includes('/flow-evaluation') || pathname?.includes('/regulation-comparison') || pathname?.includes('/solution-comparison') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}
               >
                 Analytics
               </button>
@@ -160,6 +160,20 @@ export default function Header() {
                     className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
                   >
                     Current Occupancy
+                  </Link>
+                  <Link
+                    href="/regulation-comparison"
+                    onClick={() => setShowAnalyticsDropdown(false)}
+                    className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                  >
+                    Compare Regulations Plans
+                  </Link>
+                  <Link
+                    href="/solution-comparison"
+                    onClick={() => setShowAnalyticsDropdown(false)}
+                    className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                  >
+                    Compare DeepFlow Plans
                   </Link>
                   {/* <Link
                     href="/flow-evaluation"
