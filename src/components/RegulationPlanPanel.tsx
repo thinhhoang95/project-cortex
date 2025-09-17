@@ -179,7 +179,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
         <div className="flex items-center justify-center gap-2">
           {isSimulating ? (
             <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow flex items-center gap-2 text-sm">
-              <ShimmeringText text="Thinking..." className="text-sm" />
+              <ShimmeringText text="Imagining..." className="text-sm" />
             </div>
           ) : (
             <>
