@@ -26,10 +26,15 @@ import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/ti
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 
 const PALETTE = ["#38bdf8", "#f472b6", "#facc15", "#34d399"];
+const ABS_CHANGE_PREFIX = "abs_change:" as const;
 
 type OccupancyScope = "aggregate" | "targets" | "ripples";
 type FlightSortMode = "max" | "diff" | "callsign";
-type TvSortMode = "exceedance" | "peak" | "alphabetical";
+type TvSortMode = "exceedance" | "peak" | "alphabetical" | `${typeof ABS_CHANGE_PREFIX}${string}`;
+
+function getAbsChangeSnapshotId(mode: TvSortMode): string | null {
+  return mode.startsWith(ABS_CHANGE_PREFIX) ? mode.slice(ABS_CHANGE_PREFIX.length) : null;
+}
 
 type FlightRow = {
   flightId: string;
@@ -46,6 +51,14 @@ type TvMetrics = {
   tvId: string;
   maxExceedance: number;
   maxPeak: number;
+};
+
+type AbsChangeSortOption = {
+  value: TvSortMode;
+  label: string;
+  disabled: boolean;
+  reason?: string;
+  snapshotId: string;
 };
 
 function formatNumber(val: number | null | undefined, digits = 2) {
@@ -383,15 +396,107 @@ export default function SolutionComparisonPage() {
     });
   }, [alignedSnapshots, tvIdsUnion, tvSeriesBySnapshot, capacityBySnapshot, minutesPerBin, viewFromMin, viewToMin]);
 
+  const tvAbsChangeBySnapshot = useMemo(() => {
+    const map = new Map<string, Record<string, number>>();
+    if (tvScope !== "aggregate") return map;
+    alignedSnapshots.forEach((snap) => {
+      const occ = snap.aggregatedOccupancy;
+      if (!occ) {
+        map.set(snap.id, {});
+        return;
+      }
+      const pre = occ.pre_counts || {};
+      const post = occ.post_counts || {};
+      const tvIds = new Set<string>([
+        ...Object.keys(pre || {}),
+        ...Object.keys(post || {}),
+      ]);
+      const entries: Record<string, number> = {};
+      if (tvIds.size === 0) {
+        map.set(snap.id, entries);
+        return;
+      }
+      const minutes = Number(occ.time_bin_minutes || minutesPerBin || snap.minutesPerBin || 15);
+      tvIds.forEach((tvId) => {
+        const preSeries = pre?.[tvId] || [];
+        const postSeries = post?.[tvId] || [];
+        const n = Math.min(preSeries.length, postSeries.length);
+        let score = 0;
+        for (let i = 0; i < n; i++) {
+          const start = i * minutes;
+          if (start < viewFromMin || start > viewToMin) continue;
+          const a = Number(preSeries[i] ?? 0);
+          const b = Number(postSeries[i] ?? 0);
+          const aa = Number.isFinite(a) ? a : 0;
+          const bb = Number.isFinite(b) ? b : 0;
+          score += Math.abs(bb - aa);
+        }
+        entries[tvId] = score;
+      });
+      map.set(snap.id, entries);
+    });
+    return map;
+  }, [alignedSnapshots, minutesPerBin, tvScope, viewFromMin, viewToMin]);
+
+  const absChangeSortOptions = useMemo<AbsChangeSortOption[]>(() => {
+    if (tvScope !== "aggregate") return [];
+    return alignedSnapshots.map((snap) => {
+      const occ = snap.aggregatedOccupancy;
+      const preCount = Object.keys(occ?.pre_counts || {}).length;
+      const postCount = Object.keys(occ?.post_counts || {}).length;
+      let disabled = false;
+      let reason: string | undefined;
+      if (!occ || (preCount === 0 && postCount === 0)) {
+        disabled = true;
+        reason = "Snapshot is missing aggregate occupancy data.";
+      } else if (preCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing baseline aggregate counts.";
+      } else if (postCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing post-optimization aggregate counts.";
+      }
+      return {
+        value: `${ABS_CHANGE_PREFIX}${snap.id}` as TvSortMode,
+        label: `Rank by Absolute Change (${snap.description || "Untitled"})`,
+        disabled,
+        reason,
+        snapshotId: snap.id,
+      };
+    });
+  }, [alignedSnapshots, tvScope]);
+
+  useEffect(() => {
+    const snapshotId = getAbsChangeSnapshotId(tvSort);
+    if (!snapshotId) return;
+    if (tvScope !== "aggregate") {
+      if (tvSort !== "exceedance") setTvSort("exceedance");
+      return;
+    }
+    const option = absChangeSortOptions.find((opt) => opt.snapshotId === snapshotId);
+    if (!option || option.disabled) {
+      if (tvSort !== "exceedance") setTvSort("exceedance");
+    }
+  }, [absChangeSortOptions, tvScope, tvSort]);
+
   const filteredTvIds = useMemo(() => {
     let list = tvMetrics;
     if (hasTvFilter) {
       list = list.filter((item) => selectedTvSet.has(item.tvId));
     }
+    const absChangeSnapshotId = getAbsChangeSnapshotId(tvSort);
+    const absScores = absChangeSnapshotId ? (tvAbsChangeBySnapshot.get(absChangeSnapshotId) || null) : null;
+    const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
     const sorted = [...list];
     sorted.sort((a, b) => {
+      if (absScores) {
+        const scoreA = absScores[a.tvId] ?? 0;
+        const scoreB = absScores[b.tvId] ?? 0;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return collator.compare(a.tvId, b.tvId);
+      }
       if (tvSort === "alphabetical") {
-        return a.tvId.localeCompare(b.tvId);
+        return collator.compare(a.tvId, b.tvId);
       }
       if (tvSort === "peak") {
         if (b.maxPeak !== a.maxPeak) return b.maxPeak - a.maxPeak;
@@ -401,7 +506,7 @@ export default function SolutionComparisonPage() {
       return b.maxPeak - a.maxPeak;
     });
     return sorted.map((item) => item.tvId);
-  }, [tvMetrics, hasTvFilter, selectedTvSet, tvSort]);
+  }, [tvMetrics, hasTvFilter, selectedTvSet, tvSort, tvAbsChangeBySnapshot]);
 
   const visibleTvs = filteredTvIds.slice(0, visibleTvCount);
 
@@ -798,6 +903,16 @@ export default function SolutionComparisonPage() {
                   <option value="exceedance">Sort by exceedance</option>
                   <option value="peak">Sort by peak</option>
                   <option value="alphabetical">Sort alphabetically</option>
+                  {absChangeSortOptions.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={option.disabled}
+                      title={option.reason}
+                    >
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
                 <div className="min-w-[220px] sm:min-w-[260px] w-full sm:w-[260px]">
                   <MultiSelectWithChips
