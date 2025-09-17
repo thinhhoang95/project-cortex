@@ -23,7 +23,7 @@ import {
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
-import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
+import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, Legend } from "recharts";
 
 const PALETTE = ["#38bdf8", "#f472b6", "#facc15", "#34d399"];
 const ABS_CHANGE_PREFIX = "abs_change:" as const;
@@ -61,10 +61,95 @@ type AbsChangeSortOption = {
   snapshotId: string;
 };
 
+type AirportDelayRow = {
+  airport: string;
+  flightCount: number;
+  totalDelay: number;
+  averageDelay: number;
+  maxDelay: number;
+  minDelay: number;
+};
+
+type AirportDelayChartRow = {
+  airport: string;
+  departureDelay: number;
+  arrivalDelay: number;
+  total: number;
+};
+
+type HeaviestDelayInfo = {
+  flightId: string;
+  callSign: string;
+  origin: string;
+  destination: string;
+  delay: number;
+};
+
+type SnapshotAirportStats = {
+  departures: AirportDelayRow[];
+  arrivals: AirportDelayRow[];
+  totalFlights: number;
+  totalDelay: number;
+  averageDelay: number;
+  heaviest: HeaviestDelayInfo | null;
+  combinedTotals: AirportDelayChartRow[];
+  chartTotalCount: number;
+  uniqueAirports: number;
+};
+
+type AirportComparisonRow = {
+  airport: string;
+  combinedTotal: number;
+  perSnapshot: Record<string, AirportDelayRow>;
+};
+
 function formatNumber(val: number | null | undefined, digits = 2) {
   if (val === null || val === undefined || Number.isNaN(val)) return "—";
   if (!Number.isFinite(val)) return "∞";
   return Number(val).toFixed(digits);
+}
+
+function toTrimmedString(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (value == null) {
+    return "";
+  }
+  try {
+    return String(value).trim();
+  } catch {
+    return "";
+  }
+}
+
+function stringWithFallback(value: unknown, fallback: string): string {
+  const trimmed = toTrimmedString(value);
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function normalizeAirportLabel(value: unknown): string {
+  return stringWithFallback(value, "Unknown");
+}
+
+function formatAdaptive(value: number, fractionDigits = 1): string {
+  if (!Number.isFinite(value)) return "—";
+  const isInt = Math.abs(value - Math.round(value)) < 1e-6;
+  const digits = isInt ? 0 : fractionDigits;
+  return Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+function formatAverage(value: number): string {
+  return Number.isFinite(value)
+    ? Number(value).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    : "—";
+}
+
+function formatFlights(value: number): string {
+  return Number.isFinite(value) ? Math.round(value).toLocaleString() : "0";
 }
 
 export default function SolutionComparisonPage() {
@@ -77,6 +162,7 @@ export default function SolutionComparisonPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewFrom, setViewFrom] = useState("00:00");
   const [viewTo, setViewTo] = useState("23:59");
+  const [seriesView, setSeriesView] = useState<"flights" | "airports">("flights");
   const [tvScope, setTvScope] = useState<OccupancyScope>("aggregate");
   const [tvSort, setTvSort] = useState<TvSortMode>("exceedance");
   const [visibleTvCount, setVisibleTvCount] = useState(6);
@@ -190,12 +276,14 @@ export default function SolutionComparisonPage() {
   const viewFromMin = hhmmToMinutesSafe(viewFrom);
   const viewToMin = hhmmToMinutesSafe(viewTo);
 
-  const flightsById = useMemo(() => {
-    const map = new Map<string, any>();
+  const { flightsById, flightsByCallsign } = useMemo(() => {
+    const byId = new Map<string, any>();
+    const byCallsign = new Map<string, any>();
     for (const fl of flights) {
-      if (fl?.flightId) map.set(String(fl.flightId), fl);
+      if (fl?.flightId) byId.set(String(fl.flightId), fl);
+      if (fl?.callSign) byCallsign.set(String(fl.callSign), fl);
     }
-    return map;
+    return { flightsById: byId, flightsByCallsign: byCallsign };
   }, [flights]);
 
   const flightRows: FlightRow[] = useMemo(() => {
@@ -270,6 +358,227 @@ export default function SolutionComparisonPage() {
     if (flightColumnStats.length === 0) return null;
     return Math.min(...flightColumnStats.map((s) => s.average));
   }, [flightColumnStats]);
+
+  const airportStatsBySnapshot = useMemo(() => {
+    const map = new Map<string, SnapshotAirportStats>();
+    alignedSnapshots.forEach((snap) => {
+      const delays = snap.delaysMin;
+      if (!delays) return;
+      const entries = Object.entries(delays);
+      if (entries.length === 0) return;
+
+      type Accumulator = { total: number; count: number; max: number; min: number };
+      const depMap = new Map<string, Accumulator>();
+      const arrMap = new Map<string, Accumulator>();
+
+      const updateMap = (target: Map<string, Accumulator>, airport: unknown, delay: number) => {
+        const key = normalizeAirportLabel(airport);
+        const existing = target.get(key);
+        if (!existing) {
+          target.set(key, { total: delay, count: 1, max: delay, min: delay });
+        } else {
+          existing.total += delay;
+          existing.count += 1;
+          existing.max = Math.max(existing.max, delay);
+          existing.min = Math.min(existing.min, delay);
+        }
+      };
+
+      let totalDelay = 0;
+      let totalFlights = 0;
+      let heaviest: HeaviestDelayInfo | null = null;
+
+      for (const [flightKey, rawDelay] of entries) {
+        const delay = Number(rawDelay);
+        if (!Number.isFinite(delay)) continue;
+        totalDelay += delay;
+        totalFlights += 1;
+
+        let flight = flightsById.get(String(flightKey));
+        if (!flight) {
+          flight = flightsByCallsign.get(String(flightKey));
+        }
+        const origin = normalizeAirportLabel(flight?.origin);
+        const destination = normalizeAirportLabel(flight?.destination);
+        const fallbackCallSign = toTrimmedString(flightKey) || "Unknown";
+        const callSign = stringWithFallback(flight?.callSign ?? flightKey, fallbackCallSign);
+
+        updateMap(depMap, origin, delay);
+        updateMap(arrMap, destination, delay);
+
+        if (!heaviest || delay > heaviest.delay) {
+          heaviest = {
+            flightId: String(flightKey),
+            callSign,
+            origin,
+            destination,
+            delay,
+          };
+        }
+      }
+
+      if (totalFlights === 0) return;
+
+      const toRows = (target: Map<string, Accumulator>): AirportDelayRow[] =>
+        Array.from(target.entries())
+          .map(([airport, stats]) => ({
+            airport,
+            flightCount: stats.count,
+            totalDelay: stats.total,
+            averageDelay: stats.count > 0 ? stats.total / stats.count : 0,
+            maxDelay: stats.max,
+            minDelay: stats.min,
+          }))
+          .sort((a, b) => b.totalDelay - a.totalDelay);
+
+      const departures = toRows(depMap);
+      const arrivals = toRows(arrMap);
+
+      const combined = new Map<string, { airport: string; departureDelay: number; arrivalDelay: number }>();
+      const ensureCombined = (airport: string) => {
+        const key = airport || "Unknown";
+        let entry = combined.get(key);
+        if (!entry) {
+          entry = { airport: key, departureDelay: 0, arrivalDelay: 0 };
+          combined.set(key, entry);
+        }
+        return entry;
+      };
+
+      departures.forEach((row) => {
+        ensureCombined(row.airport).departureDelay += row.totalDelay;
+      });
+      arrivals.forEach((row) => {
+        ensureCombined(row.airport).arrivalDelay += row.totalDelay;
+      });
+
+      const combinedTotals: AirportDelayChartRow[] = Array.from(combined.values()).map((entry) => ({
+        airport: entry.airport,
+        departureDelay: entry.departureDelay,
+        arrivalDelay: entry.arrivalDelay,
+        total: entry.departureDelay + entry.arrivalDelay,
+      }));
+
+      combinedTotals.sort((a, b) => b.total - a.total);
+
+      map.set(snap.id, {
+        departures,
+        arrivals,
+        totalFlights,
+        totalDelay,
+        averageDelay: totalFlights > 0 ? totalDelay / totalFlights : 0,
+        heaviest,
+        combinedTotals,
+        chartTotalCount: combinedTotals.length,
+        uniqueAirports: combinedTotals.length,
+      });
+    });
+    return map;
+  }, [alignedSnapshots, flightsByCallsign, flightsById]);
+
+  const snapshotsMissingDelayData = useMemo(
+    () =>
+      alignedSnapshots.filter((snap) => {
+        const delays = snap.delaysMin;
+        if (!delays) return true;
+        return Object.keys(delays).length === 0;
+      }),
+    [alignedSnapshots]
+  );
+
+  const airportComparisonChart = useMemo(() => {
+    const totals = new Map<string, { airport: string; combinedTotal: number; perSnapshot: Record<string, number> }>();
+    alignedSnapshots.forEach((snap) => {
+      const stats = airportStatsBySnapshot.get(snap.id);
+      if (!stats) return;
+      stats.combinedTotals.forEach((entry) => {
+        const key = entry.airport;
+        let record = totals.get(key);
+        if (!record) {
+          record = { airport: key, combinedTotal: 0, perSnapshot: {} };
+          totals.set(key, record);
+        }
+        record.perSnapshot[snap.id] = entry.total;
+        record.combinedTotal += entry.total;
+      });
+    });
+    const entries = Array.from(totals.values());
+    entries.sort((a, b) => b.combinedTotal - a.combinedTotal);
+    const chartLimit = 10;
+    const data = entries.slice(0, chartLimit).map((entry) => {
+      const row: Record<string, number | string> = { airport: entry.airport };
+      alignedSnapshots.forEach((snap) => {
+        row[`total_${snap.id}`] = entry.perSnapshot[snap.id] ?? 0;
+      });
+      return row;
+    });
+    return { data, totalCount: entries.length };
+  }, [alignedSnapshots, airportStatsBySnapshot]);
+
+  const airportChartSeries = useMemo(
+    () =>
+      alignedSnapshots
+        .filter((snap) => airportStatsBySnapshot.has(snap.id))
+        .map((snap) => ({
+          snapshot: snap,
+          key: `total_${snap.id}`,
+          label: snap.description || "Untitled",
+          color: colorBySnapshotId.get(snap.id) || "#38bdf8",
+        })),
+    [alignedSnapshots, airportStatsBySnapshot, colorBySnapshotId]
+  );
+
+  const airportChartSeriesLookup = useMemo(() => {
+    const map = new Map<string, string>();
+    airportChartSeries.forEach((item) => {
+      map.set(item.key, item.label);
+    });
+    return map;
+  }, [airportChartSeries]);
+
+  const departureComparison = useMemo(() => {
+    const map = new Map<string, AirportComparisonRow>();
+    alignedSnapshots.forEach((snap) => {
+      const stats = airportStatsBySnapshot.get(snap.id);
+      if (!stats) return;
+      stats.departures.forEach((row) => {
+        const key = row.airport;
+        let entry = map.get(key);
+        if (!entry) {
+          entry = { airport: key, combinedTotal: 0, perSnapshot: {} };
+          map.set(key, entry);
+        }
+        entry.perSnapshot[snap.id] = row;
+        entry.combinedTotal += row.totalDelay;
+      });
+    });
+    const rows = Array.from(map.values());
+    rows.sort((a, b) => b.combinedTotal - a.combinedTotal);
+    const TABLE_LIMIT = 15;
+    return { rows: rows.slice(0, TABLE_LIMIT), totalCount: rows.length };
+  }, [alignedSnapshots, airportStatsBySnapshot]);
+
+  const arrivalComparison = useMemo(() => {
+    const map = new Map<string, AirportComparisonRow>();
+    alignedSnapshots.forEach((snap) => {
+      const stats = airportStatsBySnapshot.get(snap.id);
+      if (!stats) return;
+      stats.arrivals.forEach((row) => {
+        const key = row.airport;
+        let entry = map.get(key);
+        if (!entry) {
+          entry = { airport: key, combinedTotal: 0, perSnapshot: {} };
+          map.set(key, entry);
+        }
+        entry.perSnapshot[snap.id] = row;
+        entry.combinedTotal += row.totalDelay;
+      });
+    });
+    const rows = Array.from(map.values());
+    rows.sort((a, b) => b.combinedTotal - a.combinedTotal);
+    const TABLE_LIMIT = 15;
+    return { rows: rows.slice(0, TABLE_LIMIT), totalCount: rows.length };
+  }, [alignedSnapshots, airportStatsBySnapshot]);
 
   const objectiveComponentKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -760,114 +1069,359 @@ export default function SolutionComparisonPage() {
 
           <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-white">Flight delay comparison</h2>
+              <h2 className="text-lg font-semibold text-white">Delay comparison</h2>
               <div className="flex flex-wrap items-center gap-3 text-[12px] text-white/70">
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={flightDelayedOnly} onChange={(e) => setFlightDelayedOnly(e.currentTarget.checked)} />
-                  Only delayed flights
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  Threshold ≥
-                  <input
-                    type="number"
-                    value={flightThreshold}
-                    onChange={(e) => setFlightThreshold(Math.max(0, Number(e.currentTarget.value) || 0))}
-                    className="w-16 px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white"
-                  />
-                  min
-                </label>
-                <select
-                  value={flightSort}
-                  onChange={(e) => setFlightSort(e.currentTarget.value as FlightSortMode)}
-                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white"
-                >
-                  <option value="max">Sort by max delay</option>
-                  <option value="diff">Sort by diff</option>
-                  <option value="callsign">Sort by callsign</option>
-                </select>
+                <div className="inline-flex rounded-md shadow-sm overflow-hidden">
+                  <button
+                    type="button"
+                    aria-pressed={seriesView === 'flights'}
+                    onClick={() => setSeriesView('flights')}
+                    className={`h-[36px] px-3 text-[12px] font-medium border transition-colors flex items-center justify-center whitespace-nowrap ${
+                      seriesView === 'flights'
+                        ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                        : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                    } rounded-l-md`}
+                  >
+                    By Flight
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={seriesView === 'airports'}
+                    onClick={() => setSeriesView('airports')}
+                    className={`h-[36px] px-3 text-[12px] font-medium border transition-colors -ml-px flex items-center justify-center whitespace-nowrap ${
+                      seriesView === 'airports'
+                        ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                        : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                    } rounded-r-md`}
+                  >
+                    By Airport
+                  </button>
+                </div>
+                {seriesView === 'flights' && (
+                  <>
+                    <label className="inline-flex items-center gap-2">
+                      <input type="checkbox" checked={flightDelayedOnly} onChange={(e) => setFlightDelayedOnly(e.currentTarget.checked)} />
+                      Only delayed flights
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      Threshold ≥
+                      <input
+                        type="number"
+                        value={flightThreshold}
+                        onChange={(e) => setFlightThreshold(Math.max(0, Number(e.currentTarget.value) || 0))}
+                        className="w-16 px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white"
+                      />
+                      min
+                    </label>
+                    <select
+                      value={flightSort}
+                      onChange={(e) => setFlightSort(e.currentTarget.value as FlightSortMode)}
+                      className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white"
+                    >
+                      <option value="max">Sort by max delay</option>
+                      <option value="diff">Sort by diff</option>
+                      <option value="callsign">Sort by callsign</option>
+                    </select>
+                  </>
+                )}
               </div>
             </div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-sm text-white/80">
-                <thead className="text-white/60 text-[12px] uppercase tracking-wider">
-                  <tr>
-                    <th className="text-left px-3 py-2">Flight</th>
-                    <th className="text-left px-3 py-2">Origin</th>
-                    <th className="text-left px-3 py-2">Destination</th>
-                    <th className="text-left px-3 py-2">Takeoff</th>
-                    {alignedSnapshots.map((snap) => (
-                      <th key={snap.id} className="text-right px-3 py-2">
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || '#fff' }} />
-                          <span>{snap.description || 'Untitled'}</span>
-                        </div>
-                      </th>
-                    ))}
-                    <th className="text-right px-3 py-2">Max</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {flightRows.length === 0 && (
+            {seriesView === 'flights' ? (
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-sm text-white/80">
+                  <thead className="text-white/60 text-[12px] uppercase tracking-wider">
                     <tr>
-                      <td colSpan={5 + alignedSnapshots.length} className="px-3 py-6 text-center text-white/50">
-                        No flights meet the current filters.
-                      </td>
+                      <th className="text-left px-3 py-2">Flight</th>
+                      <th className="text-left px-3 py-2">Origin</th>
+                      <th className="text-left px-3 py-2">Destination</th>
+                      <th className="text-left px-3 py-2">Takeoff</th>
+                      {alignedSnapshots.map((snap) => (
+                        <th key={snap.id} className="text-right px-3 py-2">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || '#fff' }} />
+                            <span>{snap.description || 'Untitled'}</span>
+                          </div>
+                        </th>
+                      ))}
+                      <th className="text-right px-3 py-2">Max</th>
                     </tr>
-                  )}
-                  {flightRows.map((row) => {
-                    const maxValueRaw = Math.max(...row.delays.map((d) => Number(d.value ?? 0)));
-                    const highlightValue = maxValueRaw > 0 ? maxValueRaw : null;
-                    return (
-                      <tr key={row.flightId} className="border-t border-white/10">
-                        <td className="px-3 py-2 font-mono text-[13px] text-white/90">{row.callsign}</td>
-                        <td className="px-3 py-2">{row.origin || '—'}</td>
-                        <td className="px-3 py-2">{row.destination || '—'}</td>
-                        <td className="px-3 py-2 font-mono text-[13px]">{row.takeoff || '—'}</td>
-                        {row.delays.map((delay) => (
-                          <td
-                            key={delay.snapshotId}
-                            className={`px-3 py-2 text-right font-mono text-[13px] ${highlightValue != null && delay.value != null && delay.value === highlightValue ? 'bg-white/10 text-white' : 'text-white/80'}`}
-                          >
-                            {formatNumber(delay.value, 1)}
-                          </td>
-                        ))}
-                        <td className="px-3 py-2 text-right font-mono text-[13px] text-white/90">{formatNumber(row.maxDelay, 1)}</td>
+                  </thead>
+                  <tbody>
+                    {flightRows.length === 0 && (
+                      <tr>
+                        <td colSpan={5 + alignedSnapshots.length} className="px-3 py-6 text-center text-white/50">
+                          No flights meet the current filters.
+                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-                {flightRows.length > 0 && (
-                  <tfoot className="border-t border-white/15 text-[12px] text-white/70">
-                    <tr>
-                      <td className="px-3 py-2" colSpan={4}>Total delay (minutes)</td>
+                    )}
+                    {flightRows.map((row) => {
+                      const maxValueRaw = Math.max(...row.delays.map((d) => Number(d.value ?? 0)));
+                      const highlightValue = maxValueRaw > 0 ? maxValueRaw : null;
+                      return (
+                        <tr key={row.flightId} className="border-t border-white/10">
+                          <td className="px-3 py-2 font-mono text-[13px] text-white/90">{row.callsign}</td>
+                          <td className="px-3 py-2">{row.origin || '—'}</td>
+                          <td className="px-3 py-2">{row.destination || '—'}</td>
+                          <td className="px-3 py-2 font-mono text-[13px]">{row.takeoff || '—'}</td>
+                          {row.delays.map((delay) => (
+                            <td
+                              key={delay.snapshotId}
+                              className={`px-3 py-2 text-right font-mono text-[13px] ${highlightValue != null && delay.value != null && delay.value === highlightValue ? 'bg-white/10 text-white' : 'text-white/80'}`}
+                            >
+                              {formatNumber(delay.value, 1)}
+                            </td>
+                          ))}
+                          <td className="px-3 py-2 text-right font-mono text-[13px] text-white/90">{formatNumber(row.maxDelay, 1)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {flightRows.length > 0 && (
+                    <tfoot className="border-t border-white/15 text-[12px] text-white/70">
+                      <tr>
+                        <td className="px-3 py-2" colSpan={4}>Total delay (minutes)</td>
+                        {alignedSnapshots.map((snap) => {
+                          const stat = flightColumnStats.find((s) => s.snapshotId === snap.id);
+                          const isBest = stat && bestFlightTotal != null && stat.total === bestFlightTotal;
+                          return (
+                            <td key={snap.id} className={`px-3 py-2 text-right font-mono text-[12px] ${isBest ? 'text-emerald-200' : 'text-white/70'}`}>
+                              {formatNumber(stat?.total ?? null, 1)}
+                            </td>
+                          );
+                        })}
+                        <td className="px-3 py-2 text-right">—</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2" colSpan={4}>Average per flight</td>
+                        {alignedSnapshots.map((snap) => {
+                          const stat = flightColumnStats.find((s) => s.snapshotId === snap.id);
+                          const isBest = stat && bestFlightAverage != null && stat.average === bestFlightAverage;
+                          return (
+                            <td key={`${snap.id}-avg`} className={`px-3 py-2 text-right font-mono text-[12px] ${isBest ? 'text-emerald-200' : 'text-white/70'}`}>
+                              {formatNumber(stat?.average ?? null, 2)}
+                            </td>
+                          );
+                        })}
+                        <td className="px-3 py-2 text-right">—</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-6">
+                {airportStatsBySnapshot.size === 0 ? (
+                  <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-sm text-white/70">
+                    No delay assignments found in the selected snapshots.
+                  </div>
+                ) : (
+                  <>
+                    {snapshotsMissingDelayData.length > 0 && (
+                      <div className="text-[12px] text-amber-200">
+                        {snapshotsMissingDelayData.length === 1
+                          ? `Snapshot ${snapshotsMissingDelayData[0].description || 'Untitled'} is missing delay assignments.`
+                          : `Snapshots ${snapshotsMissingDelayData.map((snap) => snap.description || 'Untitled').join(', ')} are missing delay assignments.`}
+                      </div>
+                    )}
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       {alignedSnapshots.map((snap) => {
-                        const stat = flightColumnStats.find((s) => s.snapshotId === snap.id);
-                        const isBest = stat && bestFlightTotal != null && stat.total === bestFlightTotal;
+                        const stats = airportStatsBySnapshot.get(snap.id);
+                        const color = colorBySnapshotId.get(snap.id) || '#fff';
                         return (
-                          <td key={snap.id} className={`px-3 py-2 text-right font-mono text-[12px] ${isBest ? 'text-emerald-200' : 'text-white/70'}`}>
-                            {formatNumber(stat?.total ?? null, 1)}
-                          </td>
+                          <div key={snap.id} className="bg-white/5 border border-white/10 rounded-lg p-4 text-white/80 space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
+                              <span>{snap.description || 'Untitled'}</span>
+                            </div>
+                            {stats ? (
+                              <>
+                                <div className="text-[11px] uppercase tracking-wider text-white/60">Flights with delay</div>
+                                <div className="text-2xl font-semibold text-white">{formatFlights(stats.totalFlights)}</div>
+                                <div className="text-[12px] text-white/60">Total delay {formatAdaptive(stats.totalDelay, 1)} min • Avg {formatAverage(stats.averageDelay)} min</div>
+                                <div className="text-[12px] text-white/60">Airports observed {stats.uniqueAirports}</div>
+                                <div className="text-[12px] text-white/60">
+                                  Heaviest delay:{' '}
+                                  {stats.heaviest
+                                    ? `${stats.heaviest.callSign} (${stats.heaviest.origin}→${stats.heaviest.destination}) ${formatAdaptive(stats.heaviest.delay, 1)} min`
+                                    : '—'}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-[12px] text-white/60">No delay assignments captured for this snapshot.</div>
+                            )}
+                          </div>
                         );
                       })}
-                      <td className="px-3 py-2 text-right">—</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2" colSpan={4}>Average per flight</td>
-                      {alignedSnapshots.map((snap) => {
-                        const stat = flightColumnStats.find((s) => s.snapshotId === snap.id);
-                        const isBest = stat && bestFlightAverage != null && stat.average === bestFlightAverage;
-                        return (
-                          <td key={`${snap.id}-avg`} className={`px-3 py-2 text-right font-mono text-[12px] ${isBest ? 'text-emerald-200' : 'text-white/70'}`}>
-                            {formatNumber(stat?.average ?? null, 2)}
-                          </td>
-                        );
-                      })}
-                      <td className="px-3 py-2 text-right">—</td>
-                    </tr>
-                  </tfoot>
+                    </div>
+                    {airportComparisonChart.data.length > 0 && airportChartSeries.length > 0 && (
+                      <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                          <div className="text-[11px] uppercase tracking-wider text-white/60">Airport delay comparison</div>
+                          <div className="text-[11px] text-white/60">
+                            {airportComparisonChart.totalCount > airportComparisonChart.data.length
+                              ? `Top ${airportComparisonChart.data.length} of ${airportComparisonChart.totalCount} airports by combined delay`
+                              : `Airports by combined delay (${airportComparisonChart.totalCount})`}
+                          </div>
+                        </div>
+                        <div className="h-72">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={airportComparisonChart.data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                              <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                              <XAxis dataKey="airport" tick={{ fontSize: 11, fill: '#e2e8f0' }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={false} />
+                              <YAxis
+                                tick={{ fontSize: 11, fill: '#e2e8f0' }}
+                                tickFormatter={(value: number) => formatAdaptive(value, 1)}
+                                axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
+                                tickLine={false}
+                              />
+                              <Tooltip
+                                formatter={(value: number, name: string) => [`${formatAdaptive(value, 1)} min`, airportChartSeriesLookup.get(name) || name]}
+                                labelFormatter={(label) => `Airport ${label}`}
+                                contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'white' }}
+                                itemStyle={{ color: 'white' }}
+                                labelStyle={{ color: 'white' }}
+                              />
+                              <Legend wrapperStyle={{ color: '#f8fafc' }} />
+                              {airportChartSeries.map((series) => (
+                                <Bar key={series.key} dataKey={series.key} name={series.label} fill={series.color} />
+                              ))}
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid gap-6 lg:grid-cols-2">
+                      <div>
+                        <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Departure airports</div>
+                        <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                          <table className="w-full text-sm text-white/90">
+                            <thead className="bg-white/5 text-white/70">
+                              <tr>
+                                <th className="text-left px-3 py-2">Airport</th>
+                                {alignedSnapshots.map((snap) => (
+                                  <th key={snap.id} className="text-left px-3 py-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || '#fff' }} />
+                                      <span>{snap.description || 'Untitled'}</span>
+                                    </div>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {departureComparison.rows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={1 + alignedSnapshots.length} className="px-3 py-4 text-center text-white/60">
+                                    No airports observed in the selected snapshots.
+                                  </td>
+                                </tr>
+                              ) : (
+                                departureComparison.rows.map((row) => {
+                                  const bestValue = Math.min(
+                                    ...alignedSnapshots.map((snap) => row.perSnapshot[snap.id]?.totalDelay ?? Number.POSITIVE_INFINITY)
+                                  );
+                                  return (
+                                    <tr key={`dep-${row.airport}`} className="border-t border-white/10 hover:bg-white/5">
+                                      <td className="px-3 py-2 font-medium text-white">{row.airport}</td>
+                                      {alignedSnapshots.map((snap) => {
+                                        const cell = row.perSnapshot[snap.id];
+                                        const isBest = cell && Number.isFinite(bestValue) && cell.totalDelay === bestValue;
+                                        return (
+                                          <td key={snap.id} className="px-3 py-2">
+                                            {cell ? (
+                                              <div className={`space-y-1 ${isBest ? 'text-emerald-200' : 'text-white/80'}`}>
+                                                <div className="font-mono text-[13px]">{formatAdaptive(cell.totalDelay, 1)} min</div>
+                                                <div className="text-[11px] text-white/60">
+                                                  Flights {formatFlights(cell.flightCount)} · Avg {formatAverage(cell.averageDelay)} · Max {formatAdaptive(cell.maxDelay, 1)} · Min {formatAdaptive(cell.minDelay, 1)}
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <div className="text-[11px] text-white/50 italic">—</div>
+                                            )}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        {departureComparison.totalCount > departureComparison.rows.length && (
+                          <div className="mt-2 text-[11px] text-white/60">
+                            Showing top {departureComparison.rows.length} of {departureComparison.totalCount} airports.
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Arrival airports</div>
+                        <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                          <table className="w-full text-sm text-white/90">
+                            <thead className="bg-white/5 text-white/70">
+                              <tr>
+                                <th className="text-left px-3 py-2">Airport</th>
+                                {alignedSnapshots.map((snap) => (
+                                  <th key={snap.id} className="text-left px-3 py-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || '#fff' }} />
+                                      <span>{snap.description || 'Untitled'}</span>
+                                    </div>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {arrivalComparison.rows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={1 + alignedSnapshots.length} className="px-3 py-4 text-center text-white/60">
+                                    No airports observed in the selected snapshots.
+                                  </td>
+                                </tr>
+                              ) : (
+                                arrivalComparison.rows.map((row) => {
+                                  const bestValue = Math.min(
+                                    ...alignedSnapshots.map((snap) => row.perSnapshot[snap.id]?.totalDelay ?? Number.POSITIVE_INFINITY)
+                                  );
+                                  return (
+                                    <tr key={`arr-${row.airport}`} className="border-t border-white/10 hover:bg-white/5">
+                                      <td className="px-3 py-2 font-medium text-white">{row.airport}</td>
+                                      {alignedSnapshots.map((snap) => {
+                                        const cell = row.perSnapshot[snap.id];
+                                        const isBest = cell && Number.isFinite(bestValue) && cell.totalDelay === bestValue;
+                                        return (
+                                          <td key={snap.id} className="px-3 py-2">
+                                            {cell ? (
+                                              <div className={`space-y-1 ${isBest ? 'text-emerald-200' : 'text-white/80'}`}>
+                                                <div className="font-mono text-[13px]">{formatAdaptive(cell.totalDelay, 1)} min</div>
+                                                <div className="text-[11px] text-white/60">
+                                                  Flights {formatFlights(cell.flightCount)} · Avg {formatAverage(cell.averageDelay)} · Max {formatAdaptive(cell.maxDelay, 1)} · Min {formatAdaptive(cell.minDelay, 1)}
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <div className="text-[11px] text-white/50 italic">—</div>
+                                            )}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        {arrivalComparison.totalCount > arrivalComparison.rows.length && (
+                          <div className="mt-2 text-[11px] text-white/60">
+                            Showing top {arrivalComparison.rows.length} of {arrivalComparison.totalCount} airports.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
                 )}
-              </table>
-            </div>
+              </div>
+            )}
           </section>
 
           <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
