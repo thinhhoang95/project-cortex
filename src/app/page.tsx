@@ -10,6 +10,7 @@ import RightControl1 from "@/components/RightControl1";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
+import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 
 function countTimesUpTo(sortedTimes: number[], value: number): number {
   let lo = 0;
@@ -28,9 +29,6 @@ function countTimesUpTo(sortedTimes: number[], value: number): number {
 }
 
 const DAY_SECONDS = 24 * 60 * 60;
-const LEFT_PANEL_WIDTH = 360;
-const RIGHT_PANEL_WIDTH = 384;
-
 export default function Page() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
@@ -114,30 +112,18 @@ export default function Page() {
       <StateResetOnPageLoad />
       <Header />
       <MapCanvas />
-      <button
-        type="button"
-        aria-label={leftPanelsMinimized ? "Expand left panels" : "Collapse left panels"}
-        title={leftPanelsMinimized ? "Expand left panels" : "Collapse left panels"}
-        onClick={() => setLeftPanelsMinimized((prev) => !prev)}
-        style={{ left: leftPanelsMinimized ? "0.75rem" : `calc(${LEFT_PANEL_WIDTH}px + 1.5rem)` }}
-        className="absolute top-1/2 -translate-y-1/2 z-50 w-9 h-9 rounded-full border border-white/20 bg-white/10 backdrop-blur-md text-white/80 hover:text-white hover:bg-white/20 transition-all duration-300 ease-in-out shadow-lg flex items-center justify-center"
-      >
-        <span className="text-lg font-semibold leading-none">
-          {leftPanelsMinimized ? ">" : "<"}
-        </span>
-      </button>
-      <button
-        type="button"
-        aria-label={rightPanelsMinimized ? "Expand right panels" : "Collapse right panels"}
-        title={rightPanelsMinimized ? "Expand right panels" : "Collapse right panels"}
-        onClick={() => setRightPanelsMinimized((prev) => !prev)}
-        style={{ right: rightPanelsMinimized ? "0.75rem" : `calc(${RIGHT_PANEL_WIDTH}px + 1.5rem)` }}
-        className="absolute top-1/2 -translate-y-1/2 z-50 w-9 h-9 rounded-full border border-white/20 bg-white/10 backdrop-blur-md text-white/80 hover:text-white hover:bg-white/20 transition-all duration-300 ease-in-out shadow-lg flex items-center justify-center"
-      >
-        <span className="text-lg font-semibold leading-none">
-          {rightPanelsMinimized ? "<" : ">"}
-        </span>
-      </button>
+      <SidePanelToggleButton
+        side="left"
+        minimized={leftPanelsMinimized}
+        onToggle={() => setLeftPanelsMinimized((prev) => !prev)}
+        panelGroupLabel="left panels"
+      />
+      <SidePanelToggleButton
+        side="right"
+        minimized={rightPanelsMinimized}
+        onToggle={() => setRightPanelsMinimized((prev) => !prev)}
+        panelGroupLabel="right panels"
+      />
       {/* Left-side wrapper: full-height, scrolls; panel inside does not */}
       <div
         style={{ transform: leftPanelsMinimized ? "translateX(calc(-100% - 1.5rem))" : "translateX(0)" }}
