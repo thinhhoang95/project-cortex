@@ -7,6 +7,18 @@ import ModalDialog from "./ModalDialog";
 import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import { minutesToHHMM } from "@/lib/time";
+import ShimmeringText from "./ShimmeringText";
+import {
+  RegulationSnapshot,
+  loadRegSnapshots,
+  createRegulationSnapshot,
+  addRegSnapshot,
+  MAX_REG_SNAPSHOTS,
+  estimateRegSnapshotsSize,
+  REG_SNAPSHOT_SIZE_WARN_THRESHOLD,
+  RegSnapshotLimitError,
+  REG_SNAPSHOT_STORAGE_KEY,
+} from "@/lib/reg-comparison";
 
 interface RegulationResultsProps {
   open: boolean;
@@ -53,6 +65,38 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
   const [viewFrom, setViewFrom] = useState<string>("00:00");
   const [viewTo, setViewTo] = useState<string>("23:59");
   const [sortMode, setSortMode] = useState<'total' | 'abs_change' | 'exceedance'>("abs_change");
+  const [regSnapshotPromptOpen, setRegSnapshotPromptOpen] = useState(false);
+  const [regSnapshotDescription, setRegSnapshotDescription] = useState("");
+  const [regSnapshotSaving, setRegSnapshotSaving] = useState(false);
+  const [regSnapshotSaveError, setRegSnapshotSaveError] = useState<string | null>(null);
+  const [regSnapshotReplaceId, setRegSnapshotReplaceId] = useState<string | null>(null);
+  const [regSnapshotList, setRegSnapshotList] = useState<RegulationSnapshot[]>([]);
+  const [regSnapshotToast, setRegSnapshotToast] = useState<{
+    kind: "success" | "warning";
+    message: string;
+    action?: { label: string; href: string };
+  } | null>(null);
+
+  const regSnapshotSizeBytes = useMemo(() => estimateRegSnapshotsSize(regSnapshotList), [regSnapshotList]);
+  const regSnapshotSizeWarn = regSnapshotSizeBytes > REG_SNAPSHOT_SIZE_WARN_THRESHOLD;
+  const regSnapshotSizeDisplayKb = Math.max(0, Math.round(regSnapshotSizeBytes / 1024));
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const current = loadRegSnapshots();
+    setRegSnapshotList(current);
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key && ev.key !== REG_SNAPSHOT_STORAGE_KEY) return;
+      setRegSnapshotList(loadRegSnapshots());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setRegSnapshotList(loadRegSnapshots());
+  }, [open]);
 
   // Initialize default view window when modal opens based on plan regulations
   useEffect(() => {
@@ -93,16 +137,82 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     return rows;
   }, [result, flights]);
 
+  const regSnapshotCount = regSnapshotList.length;
+
+  const handleOpenRegSnapshotPrompt = () => {
+    if (!result) return;
+    const current = loadRegSnapshots();
+    setRegSnapshotList(current);
+    const defaultDescription = `Regulation Plan ${current.length + 1}`;
+    setRegSnapshotDescription(defaultDescription);
+    if (current.length >= MAX_REG_SNAPSHOTS) {
+      setRegSnapshotReplaceId(current[0]?.id ?? null);
+    } else {
+      setRegSnapshotReplaceId(null);
+    }
+    setRegSnapshotSaveError(null);
+    setRegSnapshotPromptOpen(true);
+  };
+
+  const handleSaveRegSnapshot = () => {
+    if (!result) return;
+    if (regSnapshotList.length >= MAX_REG_SNAPSHOTS && !regSnapshotReplaceId) {
+      setRegSnapshotSaveError(`You already have ${MAX_REG_SNAPSHOTS} snapshots. Select one to replace or delete an existing snapshot.`);
+      return;
+    }
+    setRegSnapshotSaving(true);
+    setRegSnapshotSaveError(null);
+    try {
+      const description = regSnapshotDescription.trim() || `Regulation Plan ${regSnapshotList.length + 1}`;
+      const snapshot = createRegulationSnapshot({
+        description,
+        result,
+        sourceRoute: "regulations",
+      });
+      const next = addRegSnapshot(snapshot, { replaceId: regSnapshotReplaceId || undefined });
+      setRegSnapshotList(next);
+      setRegSnapshotPromptOpen(false);
+      setRegSnapshotReplaceId(null);
+      setRegSnapshotDescription(`Regulation Plan ${next.length + 1}`);
+      setRegSnapshotToast({
+        kind: "success",
+        message: `Saved "${snapshot.description}" for comparison.`,
+        action: { label: "Open Comparison", href: "/regulation-comparison" },
+      });
+    } catch (err: any) {
+      if (err instanceof RegSnapshotLimitError) {
+        setRegSnapshotSaveError(`Only ${err.limit} snapshots can be stored. Select one to replace or remove an existing snapshot.`);
+      } else {
+        setRegSnapshotSaveError(err?.message || "Failed to save snapshot.");
+      }
+    } finally {
+      setRegSnapshotSaving(false);
+    }
+  };
+
   if (!open || !result) return null;
 
   const ds = result.delay_stats;
 
   return (
-    <ModalDialog open={open} onClose={onClose} title="Simulation Results">
-      <div className="p-6 space-y-6">
+    <>
+      <ModalDialog open={open} onClose={onClose} title="Simulation Results">
+        <div className="p-6 space-y-6">
         {/* Delay stats */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-          <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Delay Stats</div>
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <div className="text-sm uppercase tracking-wider text-gray-300">Delay Stats</div>
+            <button
+              onClick={handleOpenRegSnapshotPrompt}
+              disabled={regSnapshotSaving}
+              className={`ml-auto px-3 py-1 rounded-lg border text-xs flex items-center gap-2 ${regSnapshotSaving ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100' : 'border-emerald-400/70 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25'}`}
+            >
+              {regSnapshotSaving ? <ShimmeringText text="Saving…" /> : "Add to Comparison"}
+              <span className={`px-2 py-0.5 rounded-full text-[11px] border ${regSnapshotSizeWarn ? 'border-amber-300/70 bg-amber-500/20 text-amber-100' : 'border-emerald-300/70 bg-emerald-400/10 text-emerald-100'}`}>
+                {regSnapshotCount}/{MAX_REG_SNAPSHOTS}
+              </span>
+            </button>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <Stat label="Total Delay" value={`${Math.round(ds.total_delay_seconds).toLocaleString()} s`} sub={formatSecondsToHMM(ds.total_delay_seconds)} />
             <Stat label="Mean Delay" value={`${Math.round(ds.mean_delay_seconds).toLocaleString()} s`} sub={formatSecondsToHMM(ds.mean_delay_seconds)} />
@@ -219,8 +329,113 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
           )}
         </div>
         
-      </div>
-    </ModalDialog>
+        </div>
+      </ModalDialog>
+
+      <ModalDialog
+        open={regSnapshotPromptOpen}
+        onClose={() => { if (!regSnapshotSaving) setRegSnapshotPromptOpen(false); }}
+        title="Save Regulation Snapshot"
+        width="w-[min(520px,95vw)]"
+        height="h-auto max-h-[85vh]"
+      >
+        <div className="p-6 space-y-4 text-sm">
+          <p className="text-white/80 text-[13px]">
+            Save rolling-hour occupancy, delay stats, and per-flight delays to compare across regulation plans later.
+          </p>
+          <div className="space-y-2">
+            <label className="block text-white/70 text-[12px] uppercase tracking-[0.08em]">Description</label>
+            <input
+              type="text"
+              value={regSnapshotDescription}
+              onChange={(e) => setRegSnapshotDescription(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !regSnapshotSaving) {
+                  e.preventDefault();
+                  handleSaveRegSnapshot();
+                }
+              }}
+              autoFocus
+              placeholder="e.g., Evening push mitigation"
+              className="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20 text-white focus:border-white/40 outline-none"
+            />
+          </div>
+
+          {regSnapshotCount >= MAX_REG_SNAPSHOTS && (
+            <div className="space-y-2">
+              <div className="text-[12px] text-amber-200">
+                You already have {regSnapshotCount} snapshots. Select one to replace or cancel.
+              </div>
+              <select
+                value={regSnapshotReplaceId ?? ""}
+                onChange={(e) => setRegSnapshotReplaceId(e.currentTarget.value || null)}
+                className="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20 text-white focus:border-white/40 outline-none"
+              >
+                {regSnapshotList.map((snap) => (
+                  <option key={snap.id} value={snap.id}>
+                    {snap.description || "Untitled"} · {new Date(snap.createdAt).toLocaleString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="text-[12px] text-white/60">
+            Approximate storage used: ~{regSnapshotSizeDisplayKb} KB (limit {MAX_REG_SNAPSHOTS} snapshots).
+          </div>
+
+          {regSnapshotSaveError && (
+            <div className="text-[12px] text-red-300">{regSnapshotSaveError}</div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              onClick={() => { if (!regSnapshotSaving) setRegSnapshotPromptOpen(false); }}
+              disabled={regSnapshotSaving}
+              className="px-3 py-1.5 rounded-md border border-white/20 bg-white/5 text-white/80 hover:bg-white/10 text-[13px] disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSaveRegSnapshot}
+              disabled={regSnapshotSaving || (regSnapshotCount >= MAX_REG_SNAPSHOTS && !regSnapshotReplaceId)}
+              className="px-4 py-1.5 rounded-md border border-emerald-300 bg-emerald-500/30 text-emerald-50 hover:bg-emerald-500/40 text-[13px] font-medium disabled:opacity-60"
+            >
+              {regSnapshotSaving ? "Saving…" : "Save Snapshot"}
+            </button>
+          </div>
+        </div>
+      </ModalDialog>
+
+      {regSnapshotToast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm flex items-start gap-3 ${regSnapshotToast.kind === 'warning' ? 'bg-amber-500/15 border-amber-300/60 text-amber-100' : 'bg-emerald-500/15 border-emerald-300/60 text-emerald-100'}`}
+        >
+          <div className="flex-1 text-sm">
+            <div>{regSnapshotToast.message}</div>
+            {regSnapshotToast.action && (
+              <a
+                href={regSnapshotToast.action.href}
+                className="mt-1 inline-flex items-center gap-1 text-[12px] underline"
+              >
+                {regSnapshotToast.action.label}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14"></path>
+                  <path d="M12 5l7 7-7 7"></path>
+                </svg>
+              </a>
+            )}
+          </div>
+          <button
+            onClick={() => setRegSnapshotToast(null)}
+            className="text-[12px] text-white/70 hover:text-white"
+            aria-label="Dismiss notification"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
