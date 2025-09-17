@@ -40,16 +40,6 @@ type CountsResponse = {
   };
 };
 
-type SortMode = "total" | "abs_change" | "exceedance";
-
-type ChartSeriesItem = {
-  tvId: string;
-  series: number[];
-  capacitySeries: number[];
-  labels: string[];
-  orderIndex: number;
-};
-
 export default function OriginalCountPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
@@ -60,7 +50,7 @@ export default function OriginalCountPage() {
   const [fromTime, setFromTime] = useState<string>("00:00");
   const [toTime, setToTime] = useState<string>("23:59");
   const [rollingHour, setRollingHour] = useState<boolean>(true);
-  const [sortMode, setSortMode] = useState<SortMode>("exceedance");
+  const [rankBy, setRankBy] = useState<string>("total_excess");
   const [querying, setQuerying] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CountsResponse | null>(null);
@@ -127,8 +117,6 @@ export default function OriginalCountPage() {
     return to >= from; // inclusive window allowed by backend
   }, [fromTime, toTime]);
 
-  const rankByParam = useMemo(() => getRankByParam(sortMode), [sortMode]);
-
   const handleQuery = async () => {
     setError(null);
     setQuerying(true);
@@ -140,7 +128,7 @@ export default function OriginalCountPage() {
         from_time_str: fromTime,
         to_time_str: toTime,
         rolling_hour: Boolean(rollingHour),
-        rank_by: rankByParam,
+        rank_by: rankBy,
       };
       const res = await (await import("@/lib/auth")).authFetch('/api/original_counts', {
         method: 'POST',
@@ -169,93 +157,33 @@ export default function OriginalCountPage() {
       from_time_str: fromTime,
       to_time_str: toTime,
       rolling_hour: Boolean(rollingHour),
-      rank_by: rankByParam,
+      rank_by: rankBy,
     };
     if (selectedTVs.length > 0) p.traffic_volume_ids = selectedTVs;
     return p;
-  }, [fromTime, toTime, rollingHour, selectedTVs, rankByParam]);
+  }, [fromTime, toTime, rollingHour, selectedTVs, rankBy]);
 
-  const mentionedItems = useMemo<ChartSeriesItem[]>(() => {
+  const mentionedItems = useMemo(() => {
     const mc = data?.mentioned_counts || {};
     const mcap = data?.mentioned_capacity || {};
     const cap = data?.capacity || {};
     const labels = data?.timebins?.labels || [];
     const ids = Object.keys(mc);
-    return ids.map((tv, idx) => {
+    return ids.map((tv) => {
       const series = mc[tv] || [];
       const capacitySeries = (mcap[tv] ?? cap[tv]) || [];
-      return { tvId: tv, series, labels, capacitySeries, orderIndex: idx };
+      return { tvId: tv, series, labels, capacitySeries };
     });
   }, [data]);
 
-  const topItems = useMemo<ChartSeriesItem[]>(() => {
+  const topItems = useMemo(() => {
     const counts = data?.counts || {};
     const capacity = data?.capacity || {};
     const labels = data?.timebins?.labels || [];
     const order = data?.metadata?.ranked_tv_ids;
     const ids = order && order.length > 0 ? order.filter((id) => counts[id]) : Object.keys(counts);
-    return ids.map((tv, idx) => ({
-      tvId: tv,
-      series: counts[tv] || [],
-      capacitySeries: capacity[tv] || [],
-      labels,
-      orderIndex: idx,
-    }));
+    return ids.map((tv) => ({ tvId: tv, series: counts[tv] || [], capacitySeries: capacity[tv] || [], labels }));
   }, [data]);
-
-  const minutesPerBin = Number(data?.time_bin_minutes ?? 15);
-  const viewFromMinutes = useMemo(() => Math.max(0, Math.floor(hhmmToSec(viewFromTime) / 60)), [viewFromTime]);
-  const viewToMinutes = useMemo(() => Math.min(24 * 60 - 1, Math.floor(hhmmToSec(viewToTime) / 60)), [viewToTime]);
-
-  const preparedMentionedItems = useMemo(
-    () => prepareSeriesItems(mentionedItems, minutesPerBin, viewFromMinutes, viewToMinutes),
-    [mentionedItems, minutesPerBin, viewFromMinutes, viewToMinutes]
-  );
-
-  const preparedTopItems = useMemo(
-    () => prepareSeriesItems(topItems, minutesPerBin, viewFromMinutes, viewToMinutes),
-    [topItems, minutesPerBin, viewFromMinutes, viewToMinutes]
-  );
-
-  const sortedMentionedItems = useMemo(
-    () => sortPreparedSeriesItems(preparedMentionedItems, sortMode),
-    [preparedMentionedItems, sortMode]
-  );
-
-  const sortedTopItems = useMemo(
-    () => sortPreparedSeriesItems(preparedTopItems, sortMode),
-    [preparedTopItems, sortMode]
-  );
-
-  const canAbsChange = useMemo(() => {
-    for (const item of preparedTopItems) {
-      if (item.metrics.hasAbsBaseline) return true;
-    }
-    for (const item of preparedMentionedItems) {
-      if (item.metrics.hasAbsBaseline) return true;
-    }
-    return false;
-  }, [preparedTopItems, preparedMentionedItems]);
-
-  const canExceed = useMemo(() => {
-    for (const item of preparedTopItems) {
-      if (item.metrics.hasCapacity) return true;
-    }
-    for (const item of preparedMentionedItems) {
-      if (item.metrics.hasCapacity) return true;
-    }
-    return false;
-  }, [preparedTopItems, preparedMentionedItems]);
-
-  useEffect(() => {
-    const hasAny = preparedTopItems.length > 0 || preparedMentionedItems.length > 0;
-    if (!hasAny) return;
-    if (!canAbsChange && sortMode === "abs_change") {
-      setSortMode(canExceed ? "exceedance" : "total");
-    } else if (!canExceed && sortMode === "exceedance") {
-      setSortMode(canAbsChange ? "abs_change" : "total");
-    }
-  }, [canAbsChange, canExceed, sortMode, preparedTopItems.length, preparedMentionedItems.length]);
 
   // Ensure hooks are always called before any early return
   if (!hydrated || !user) {
@@ -327,27 +255,14 @@ export default function OriginalCountPage() {
                 />
               </div>
               <div>
-                <div className="text-[11px] opacity-80 mb-1 text-white">TV Sort</div>
+                <div className="text-[11px] opacity-80 mb-1 text-white">Rank by</div>
                 <select
-                  value={sortMode}
-                  onChange={(e) => setSortMode(e.currentTarget.value as SortMode)}
+                  value={rankBy}
+                  onChange={(e) => setRankBy(e.currentTarget.value)}
                   className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
                 >
-                  <option value="total">Rank by Total</option>
-                  <option
-                    value="abs_change"
-                    disabled={!canAbsChange}
-                    title={!canAbsChange ? 'Requires capacity data or multiple in-view bins.' : undefined}
-                  >
-                    Rank by Absolute Changes
-                  </option>
-                  <option
-                    value="exceedance"
-                    disabled={!canExceed}
-                    title={!canExceed ? 'Requires capacity data.' : undefined}
-                  >
-                    By Exceedances
-                  </option>
+                  <option value="total_excess">Total Excess</option>
+                  <option value="total_count">Total Count</option>
                 </select>
               </div>
             </div>
@@ -402,17 +317,17 @@ export default function OriginalCountPage() {
             <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Mentioned Traffic Volumes</div>
             {data?.mentioned_counts && Object.keys(data.mentioned_counts).length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2">
-                {sortedMentionedItems.map(({ tvId, series, labels, capacitySeries }) => (
+                {mentionedItems.map(({ tvId, series, labels, capacitySeries }) => (
                   <ChartCard
                     key={`m-${tvId}`}
                     tvId={tvId}
                     series={series}
                     capacitySeries={capacitySeries}
                     labels={labels}
-                    minutesPerBin={minutesPerBin}
+                    minutesPerBin={data?.time_bin_minutes ?? 15}
                     showCapacity={rollingHour}
-                    viewFromMin={viewFromMinutes}
-                    viewToMin={viewToMinutes}
+                    viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
+                    viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
                   />
                 ))}
               </div>
@@ -426,17 +341,17 @@ export default function OriginalCountPage() {
             <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Top Traffic Volumes</div>
             {data?.counts && Object.keys(data.counts).length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
-                {sortedTopItems.map(({ tvId, series, labels, capacitySeries }) => (
+                {topItems.map(({ tvId, series, labels, capacitySeries }) => (
                   <ChartCard
                     key={`t-${tvId}`}
                     tvId={tvId}
                     series={series}
                     capacitySeries={capacitySeries}
                     labels={labels}
-                    minutesPerBin={minutesPerBin}
+                    minutesPerBin={data?.time_bin_minutes ?? 15}
                     showCapacity={rollingHour}
-                    viewFromMin={viewFromMinutes}
-                    viewToMin={viewToMinutes}
+                    viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
+                    viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
                   />
                 ))}
               </div>
@@ -450,128 +365,27 @@ export default function OriginalCountPage() {
   );
 }
 
-type ChartRow = { idx: number; value: number; capacity: number | null; startMin: number };
-
-type SeriesMetrics = {
-  total: number;
-  absChange: number;
-  exceedance: number;
-  hasCapacity: boolean;
-  hasAbsBaseline: boolean;
-};
-
-type PreparedSeriesItem = ChartSeriesItem & { metrics: SeriesMetrics };
-
-function prepareSeriesItems(
-  items: ChartSeriesItem[],
-  minutesPerBin: number,
-  viewFromMin: number,
-  viewToMin: number
-): PreparedSeriesItem[] {
-  return items.map((item) => {
-    const rows = buildChartRows(item.series, item.labels, item.capacitySeries, minutesPerBin, viewFromMin, viewToMin);
-    const metrics = computeSeriesMetrics(rows, minutesPerBin);
-    return { ...item, metrics };
-  });
-}
-
-function sortPreparedSeriesItems(items: PreparedSeriesItem[], mode: SortMode): PreparedSeriesItem[] {
-  const arr = items.slice();
-  arr.sort((a, b) => {
-    const sa = getScoreForSortMode(a.metrics, mode);
-    const sb = getScoreForSortMode(b.metrics, mode);
-    if (sa !== sb) return sb - sa;
-    if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
-    return a.tvId.localeCompare(b.tvId);
-  });
-  return arr;
-}
-
-function getScoreForSortMode(metrics: SeriesMetrics, mode: SortMode): number {
-  if (mode === "total") return metrics.total;
-  if (mode === "abs_change") return metrics.absChange;
-  return metrics.exceedance;
-}
-
-function computeSeriesMetrics(rows: ChartRow[], minutesPerBin: number): SeriesMetrics {
-  const normalization = minutesPerBin > 0 ? minutesPerBin / 60 : 1;
-  let total = 0;
-  let absChange = 0;
-  let exceedance = 0;
-  let hasCapacity = false;
-  let usedPrev = false;
-  let prevValue: number | null = null;
-  for (const row of rows) {
-    const valRaw = Number(row.value ?? 0);
-    const value = Number.isFinite(valRaw) ? valRaw : 0;
-    total += value;
-    const cap = row.capacity;
-    if (cap != null && Number.isFinite(cap)) {
-      hasCapacity = true;
-      absChange += Math.abs(value - cap);
-      exceedance += Math.max(0, value - cap) * normalization;
-    } else if (prevValue != null) {
-      absChange += Math.abs(value - prevValue);
-      usedPrev = true;
-    }
-    prevValue = value;
-  }
-  return {
-    total,
-    absChange,
-    exceedance,
-    hasCapacity,
-    hasAbsBaseline: hasCapacity || usedPrev,
-  };
-}
-
-function buildChartRows(
-  series: number[],
-  labels: string[],
-  capacitySeries: number[],
-  minutesPerBin: number,
-  viewFromMin: number,
-  viewToMin: number
-): ChartRow[] {
-  const seriesLength = Array.isArray(series) ? series.length : 0;
-  const labelCount = Array.isArray(labels) ? labels.length : 0;
-  const n = labelCount > 0 ? Math.min(seriesLength, labelCount) : seriesLength;
-  const safeMinutes = Number.isFinite(minutesPerBin) && minutesPerBin > 0 ? minutesPerBin : 1;
-  const arr: ChartRow[] = new Array(n).fill(0).map((_, i) => {
-    const rawCap = (capacitySeries || [])[i];
-    const capNum = Number(rawCap);
-    const capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
-    const rawVal = Number((series || [])[i] ?? 0);
-    const value = Number.isFinite(rawVal) ? rawVal : 0;
-    const label = String((labels || [])[i] || "");
-    let startLabel = label;
-    const dashIdx = label.indexOf("-");
-    if (dashIdx > 0) startLabel = label.slice(0, dashIdx);
-    const parsed = hhmmToMinutes(startLabel);
-    const startMin = Number.isFinite(parsed) ? parsed : i * safeMinutes;
-    return { idx: i, value, capacity, startMin };
-  });
-  const from = Math.max(0, Math.floor(viewFromMin));
-  const to = Math.min(24 * 60 - 1, Math.floor(viewToMin));
-  return arr.filter((r) => r.startMin >= from && r.startMin <= to);
-}
-
-function getRankByParam(mode: SortMode): string {
-  switch (mode) {
-    case "abs_change":
-      return "total_abs_change";
-    case "exceedance":
-      return "total_excess";
-    default:
-      return "total_count";
-  }
-}
-
 function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], showCapacity = false, viewFromMin, viewToMin }: { tvId: string; series: number[]; labels: string[]; minutesPerBin: number; capacitySeries?: number[]; showCapacity?: boolean; viewFromMin: number; viewToMin: number }) {
-  const rows = useMemo(
-    () => buildChartRows(series, labels, capacitySeries || [], minutesPerBin, viewFromMin, viewToMin),
-    [series, labels, capacitySeries, minutesPerBin, viewFromMin, viewToMin]
-  );
+  const rows = useMemo(() => {
+    const n = Math.min(series.length, labels.length);
+    const arr = new Array(n).fill(0).map((_, i) => {
+      const rawCap = capacitySeries[i];
+      const capNum = Number(rawCap);
+      const capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
+      const label = String(labels[i] || "");
+      // Try to parse start HH:MM from label; accept formats like "HH:MM" or "HH:MM-HH:MM"
+      let startLabel = label;
+      const dashIdx = label.indexOf("-");
+      if (dashIdx > 0) startLabel = label.slice(0, dashIdx);
+      const parsed = hhmmToMinutes(startLabel);
+      const startMin = Number.isFinite(parsed) ? parsed : i * minutesPerBin;
+      return { idx: i, value: Number(series[i] ?? 0), capacity, startMin };
+    });
+    // Filter by view window
+    const vFrom = Math.max(0, Math.floor(viewFromMin));
+    const vTo = Math.min(24 * 60 - 1, Math.floor(viewToMin));
+    return arr.filter((r) => r.startMin >= vFrom && r.startMin <= vTo);
+  }, [series, labels, capacitySeries, minutesPerBin, viewFromMin, viewToMin]);
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
