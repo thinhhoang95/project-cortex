@@ -90,7 +90,10 @@ type AirportDelayChartRow = {
   airport: string;
   departureDelay: number;
   arrivalDelay: number;
+  departureFlights: number;
+  arrivalFlights: number;
   total: number;
+  totalFlights: number;
 };
 
 const toTrimmedString = (value: unknown): string => {
@@ -276,33 +279,53 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     const departures = toRows(depMap);
     const arrivals = toRows(arrMap);
 
-    const combined = new Map<string, { airport: string; departureDelay: number; arrivalDelay: number }>();
+    const combined = new Map<
+      string,
+      {
+        airport: string;
+        departureDelay: number;
+        arrivalDelay: number;
+        departureFlights: number;
+        arrivalFlights: number;
+      }
+    >();
     const ensureCombined = (airport: string) => {
       const key = airport || "Unknown";
       let entry = combined.get(key);
       if (!entry) {
-        entry = { airport: key, departureDelay: 0, arrivalDelay: 0 };
+        entry = {
+          airport: key,
+          departureDelay: 0,
+          arrivalDelay: 0,
+          departureFlights: 0,
+          arrivalFlights: 0,
+        };
         combined.set(key, entry);
       }
       return entry;
     };
 
     for (const row of departures) {
-      ensureCombined(row.airport).departureDelay += row.totalDelay;
+      const target = ensureCombined(row.airport);
+      target.departureDelay += row.totalDelay;
+      target.departureFlights += row.flightCount;
     }
     for (const row of arrivals) {
-      ensureCombined(row.airport).arrivalDelay += row.totalDelay;
+      const target = ensureCombined(row.airport);
+      target.arrivalDelay += row.totalDelay;
+      target.arrivalFlights += row.flightCount;
     }
 
     const combinedEntries: AirportDelayChartRow[] = Array.from(combined.values()).map((entry) => ({
       airport: entry.airport,
       departureDelay: entry.departureDelay,
       arrivalDelay: entry.arrivalDelay,
+      departureFlights: entry.departureFlights,
+      arrivalFlights: entry.arrivalFlights,
       total: entry.departureDelay + entry.arrivalDelay,
+      totalFlights: entry.departureFlights + entry.arrivalFlights,
     }));
-    combinedEntries.sort((a, b) => b.total - a.total);
-    const chartLimit = 10;
-    const chartData = combinedEntries.slice(0, chartLimit);
+    combinedEntries.sort((a, b) => b.total - a.total || a.airport.localeCompare(b.airport));
 
     return {
       departures,
@@ -311,7 +334,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
       totalDelay,
       averageDelay: totalDelay / totalFlights,
       heaviest,
-      chartData,
+      combinedEntries,
       chartTotalCount: combinedEntries.length,
       uniqueAirports: combinedEntries.length,
     };
@@ -329,9 +352,45 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
 
   const formatFlights = (value: number) => (Number.isFinite(value) ? Math.round(value).toLocaleString() : "0");
 
+  const [airportChartMetric, setAirportChartMetric] = useState<'delay' | 'flights'>('delay');
+  const chartLimit = 10;
+  const chartData = useMemo(() => {
+    if (!airportDelayStats) return [] as AirportDelayChartRow[];
+    const entries = airportDelayStats.combinedEntries.slice();
+    entries.sort((a, b) => {
+      if (airportChartMetric === 'flights') {
+        return b.totalFlights - a.totalFlights || a.airport.localeCompare(b.airport);
+      }
+      return b.total - a.total || a.airport.localeCompare(b.airport);
+    });
+    return entries.slice(0, chartLimit);
+  }, [airportDelayStats, airportChartMetric]);
+  const chartTotalCount = airportDelayStats?.combinedEntries.length ?? 0;
+  const chartMetricLabel = airportChartMetric === 'delay' ? 'total delay' : 'delayed flights';
+
   const heaviestDelay = airportDelayStats?.heaviest ?? null;
   const departureRows = airportDelayStats ? airportDelayStats.departures.slice(0, AIRPORT_TABLE_LIMIT) : [];
   const arrivalRows = airportDelayStats ? airportDelayStats.arrivals.slice(0, AIRPORT_TABLE_LIMIT) : [];
+
+  const formatChartValue = (value: number) =>
+    airportChartMetric === 'delay' ? formatAdaptive(value, 1) : formatFlights(value);
+  const tooltipUnit = airportChartMetric === 'delay' ? 'min' : 'flights';
+  const barSeries =
+    airportChartMetric === 'delay'
+      ? [
+          { key: 'departureDelay' as const, name: 'Departure delay', color: '#60a5fa' },
+          { key: 'arrivalDelay' as const, name: 'Arrival delay', color: '#f472b6' },
+        ]
+      : [
+          { key: 'departureFlights' as const, name: 'Departure flights', color: '#60a5fa' },
+          { key: 'arrivalFlights' as const, name: 'Arrival flights', color: '#f472b6' },
+        ];
+  const chartSummaryText =
+    chartTotalCount === 0
+      ? 'No airports with delays yet'
+      : chartTotalCount > chartData.length
+        ? `Top ${chartData.length} of ${chartTotalCount} airports by ${chartMetricLabel}`
+        : `Airports by ${chartMetricLabel} (${chartTotalCount})`;
 
   const regSnapshotCount = regSnapshotList.length;
 
@@ -526,16 +585,23 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
               <div className="bg-white/5 border border-white/10 rounded-xl p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <div className="text-[11px] uppercase tracking-wider text-white/60">Airport delay comparison</div>
-                  <div className="text-[11px] text-white/60">
-                    {airportDelayStats.chartTotalCount > airportDelayStats.chartData.length
-                      ? `Top ${airportDelayStats.chartData.length} of ${airportDelayStats.chartTotalCount} airports by total delay`
-                      : `Airports by total delay (${airportDelayStats.chartTotalCount})`}
+                  <div className="flex items-center gap-3 text-[11px] text-white/60">
+                    <select
+                      aria-label="Select airport delay comparison metric"
+                      className="h-8 px-3 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 transition-colors text-[12px]"
+                      value={airportChartMetric}
+                      onChange={(event) => setAirportChartMetric(event.currentTarget.value as 'delay' | 'flights')}
+                    >
+                      <option value="delay">Total delay (min)</option>
+                      <option value="flights">Delayed flights</option>
+                    </select>
+                    <div>{chartSummaryText}</div>
                   </div>
                 </div>
-                {airportDelayStats.chartData.length > 0 ? (
+                {chartData.length > 0 ? (
                   <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={airportDelayStats.chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                      <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                         <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
                         <XAxis
                           dataKey="airport"
@@ -545,14 +611,23 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                         />
                         <YAxis
                           tick={{ fontSize: 11, fill: "#e2e8f0" }}
-                          tickFormatter={(value: number) => formatAdaptive(value, 1)}
+                          tickFormatter={(value: number) => formatChartValue(value)}
                           axisLine={{ stroke: "rgba(255,255,255,0.2)" }}
                           tickLine={false}
+                          allowDecimals={airportChartMetric === 'delay'}
                         />
                         <Tooltip
                           formatter={(value: number, name: string) => [
-                            `${formatAdaptive(Number(value), 1)} min`,
-                            name === "departureDelay" ? "Departure delay" : "Arrival delay",
+                            `${formatChartValue(Number(value))} ${tooltipUnit}`,
+                            name === 'departureDelay'
+                              ? 'Departure delay'
+                              : name === 'arrivalDelay'
+                                ? 'Arrival delay'
+                                : name === 'departureFlights'
+                                  ? 'Departure flights'
+                                  : name === 'arrivalFlights'
+                                    ? 'Arrival flights'
+                                    : name,
                           ]}
                           contentStyle={{
                             background: "rgba(15,23,42,0.95)",
@@ -564,8 +639,9 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                           labelStyle={{ color: "white" }}
                         />
                         <Legend wrapperStyle={{ color: "#f8fafc" }} />
-                        <Bar dataKey="departureDelay" name="Departure delay" fill="#60a5fa" />
-                        <Bar dataKey="arrivalDelay" name="Arrival delay" fill="#f472b6" />
+                        {barSeries.map((series) => (
+                          <Bar key={series.key} dataKey={series.key} name={series.name} fill={series.color} />
+                        ))}
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

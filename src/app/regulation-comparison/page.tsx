@@ -73,7 +73,10 @@ type AirportDelayChartRow = {
   airport: string;
   departureDelay: number;
   arrivalDelay: number;
+  departureFlights: number;
+  arrivalFlights: number;
   total: number;
+  totalFlights: number;
 };
 
 type HeaviestDelayInfo = {
@@ -91,7 +94,7 @@ type SnapshotAirportStats = {
   totalDelay: number;
   averageDelay: number;
   heaviest: HeaviestDelayInfo | null;
-  combinedTotals: AirportDelayChartRow[];
+  combinedEntries: AirportDelayChartRow[];
   chartTotalCount: number;
   uniqueAirports: number;
 };
@@ -171,6 +174,7 @@ export default function RegulationComparisonPage() {
   const [viewFrom, setViewFrom] = useState("00:00");
   const [viewTo, setViewTo] = useState("23:59");
   const [seriesView, setSeriesView] = useState<"flights" | "airports">("flights");
+  const [airportChartMetric, setAirportChartMetric] = useState<'delay' | 'flights'>('delay');
   const [tvSort, setTvSort] = useState<TvSortMode>("exceedance");
   const [visibleTvCount, setVisibleTvCount] = useState(6);
   const [selectedTvFilters, setSelectedTvFilters] = useState<string[]>([]);
@@ -459,32 +463,54 @@ export default function RegulationComparisonPage() {
       const departures = toRows(depMap);
       const arrivals = toRows(arrMap);
 
-      const combined = new Map<string, { airport: string; departureDelay: number; arrivalDelay: number }>();
+      const combined = new Map<
+        string,
+        {
+          airport: string;
+          departureDelay: number;
+          arrivalDelay: number;
+          departureFlights: number;
+          arrivalFlights: number;
+        }
+      >();
       const ensureCombined = (airport: string) => {
         const key = airport || "Unknown";
         let entry = combined.get(key);
         if (!entry) {
-          entry = { airport: key, departureDelay: 0, arrivalDelay: 0 };
+          entry = {
+            airport: key,
+            departureDelay: 0,
+            arrivalDelay: 0,
+            departureFlights: 0,
+            arrivalFlights: 0,
+          };
           combined.set(key, entry);
         }
         return entry;
       };
 
       departures.forEach((row) => {
-        ensureCombined(row.airport).departureDelay += row.totalDelay;
+        const target = ensureCombined(row.airport);
+        target.departureDelay += row.totalDelay;
+        target.departureFlights += row.flightCount;
       });
       arrivals.forEach((row) => {
-        ensureCombined(row.airport).arrivalDelay += row.totalDelay;
+        const target = ensureCombined(row.airport);
+        target.arrivalDelay += row.totalDelay;
+        target.arrivalFlights += row.flightCount;
       });
 
-      const combinedTotals: AirportDelayChartRow[] = Array.from(combined.values()).map((entry) => ({
+      const combinedEntries: AirportDelayChartRow[] = Array.from(combined.values()).map((entry) => ({
         airport: entry.airport,
         departureDelay: entry.departureDelay,
         arrivalDelay: entry.arrivalDelay,
+        departureFlights: entry.departureFlights,
+        arrivalFlights: entry.arrivalFlights,
         total: entry.departureDelay + entry.arrivalDelay,
+        totalFlights: entry.departureFlights + entry.arrivalFlights,
       }));
 
-      combinedTotals.sort((a, b) => b.total - a.total);
+      combinedEntries.sort((a, b) => b.total - a.total || a.airport.localeCompare(b.airport));
 
       map.set(snap.id, {
         departures,
@@ -493,9 +519,9 @@ export default function RegulationComparisonPage() {
         totalDelay,
         averageDelay: totalFlights > 0 ? totalDelay / totalFlights : 0,
         heaviest,
-        combinedTotals,
-        chartTotalCount: combinedTotals.length,
-        uniqueAirports: combinedTotals.length,
+        combinedEntries,
+        chartTotalCount: combinedEntries.length,
+        uniqueAirports: combinedEntries.length,
       });
     });
     return map;
@@ -512,33 +538,57 @@ export default function RegulationComparisonPage() {
   );
 
   const airportComparisonChart = useMemo(() => {
-    const totals = new Map<string, { airport: string; combinedTotal: number; perSnapshot: Record<string, number> }>();
+    const totals = new Map<
+      string,
+      {
+        airport: string;
+        combinedDelay: number;
+        combinedFlights: number;
+        perSnapshot: Record<string, { delay: number; flights: number }>;
+      }
+    >();
     alignedSnapshots.forEach((snap) => {
       const stats = airportStatsBySnapshot.get(snap.id);
       if (!stats) return;
-      stats.combinedTotals.forEach((entry) => {
+      stats.combinedEntries.forEach((entry) => {
         const key = entry.airport;
         let record = totals.get(key);
         if (!record) {
-          record = { airport: key, combinedTotal: 0, perSnapshot: {} };
+          record = {
+            airport: key,
+            combinedDelay: 0,
+            combinedFlights: 0,
+            perSnapshot: {},
+          };
           totals.set(key, record);
         }
-        record.perSnapshot[snap.id] = entry.total;
-        record.combinedTotal += entry.total;
+        const snapshotRecord = record.perSnapshot[snap.id] || { delay: 0, flights: 0 };
+        snapshotRecord.delay = entry.total;
+        snapshotRecord.flights = entry.totalFlights;
+        record.perSnapshot[snap.id] = snapshotRecord;
+        record.combinedDelay += entry.total;
+        record.combinedFlights += entry.totalFlights;
       });
     });
     const entries = Array.from(totals.values());
-    entries.sort((a, b) => b.combinedTotal - a.combinedTotal);
+    entries.sort((a, b) => {
+      if (airportChartMetric === 'flights') {
+        return b.combinedFlights - a.combinedFlights || a.airport.localeCompare(b.airport);
+      }
+      return b.combinedDelay - a.combinedDelay || a.airport.localeCompare(b.airport);
+    });
     const chartLimit = 10;
     const data = entries.slice(0, chartLimit).map((entry) => {
       const row: Record<string, number | string> = { airport: entry.airport };
       alignedSnapshots.forEach((snap) => {
-        row[`total_${snap.id}`] = entry.perSnapshot[snap.id] ?? 0;
+        const snapshotRecord = entry.perSnapshot[snap.id] || { delay: 0, flights: 0 };
+        row[`total_${snap.id}`] = snapshotRecord.delay;
+        row[`flights_${snap.id}`] = snapshotRecord.flights;
       });
       return row;
     });
     return { data, totalCount: entries.length };
-  }, [alignedSnapshots, airportStatsBySnapshot]);
+  }, [alignedSnapshots, airportStatsBySnapshot, airportChartMetric]);
 
   const airportChartSeries = useMemo(
     () =>
@@ -546,11 +596,11 @@ export default function RegulationComparisonPage() {
         .filter((snap) => airportStatsBySnapshot.has(snap.id))
         .map((snap) => ({
           snapshot: snap,
-          key: `total_${snap.id}`,
+          key: `${airportChartMetric === 'delay' ? 'total' : 'flights'}_${snap.id}`,
           label: snap.description || "Untitled",
           color: colorBySnapshotId.get(snap.id) || "#38bdf8",
         })),
-    [alignedSnapshots, airportStatsBySnapshot, colorBySnapshotId],
+    [alignedSnapshots, airportStatsBySnapshot, colorBySnapshotId, airportChartMetric],
   );
 
   const airportChartSeriesLookup = useMemo(() => {
@@ -560,6 +610,17 @@ export default function RegulationComparisonPage() {
     });
     return map;
   }, [airportChartSeries]);
+
+  const chartMetricLabel = airportChartMetric === 'delay' ? 'combined delay' : 'delayed flights';
+  const chartSummaryText =
+    airportComparisonChart.totalCount === 0
+      ? 'No airports to compare yet'
+      : airportComparisonChart.totalCount > airportComparisonChart.data.length
+        ? `Top ${airportComparisonChart.data.length} of ${airportComparisonChart.totalCount} airports by ${chartMetricLabel}`
+        : `Airports by ${chartMetricLabel} (${airportComparisonChart.totalCount})`;
+  const formatChartValue = (value: number) =>
+    airportChartMetric === 'delay' ? formatAdaptive(value, 1) : formatFlights(value);
+  const tooltipUnit = airportChartMetric === 'delay' ? 'min' : 'flights';
 
   const departureComparison = useMemo(() => {
     const map = new Map<string, AirportComparisonRow>();
@@ -1178,10 +1239,17 @@ export default function RegulationComparisonPage() {
                       <div className="bg-white/5 border border-white/10 rounded-lg p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                           <div className="text-[11px] uppercase tracking-wider text-white/60">Airport delay comparison</div>
-                          <div className="text-[11px] text-white/60">
-                            {airportComparisonChart.totalCount > airportComparisonChart.data.length
-                              ? `Top ${airportComparisonChart.data.length} of ${airportComparisonChart.totalCount} airports by combined delay`
-                              : `Airports by combined delay (${airportComparisonChart.totalCount})`}
+                          <div className="flex items-center gap-3 text-[11px] text-white/60">
+                            <select
+                              aria-label="Select airport delay comparison metric"
+                              className="h-8 px-3 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 transition-colors text-[12px]"
+                              value={airportChartMetric}
+                              onChange={(event) => setAirportChartMetric(event.currentTarget.value as 'delay' | 'flights')}
+                            >
+                              <option value="delay">Total delay (min)</option>
+                              <option value="flights">Delayed flights</option>
+                            </select>
+                            <div>{chartSummaryText}</div>
                           </div>
                         </div>
                         <div className="h-72">
@@ -1191,12 +1259,16 @@ export default function RegulationComparisonPage() {
                               <XAxis dataKey="airport" tick={{ fontSize: 11, fill: '#e2e8f0' }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={false} />
                               <YAxis
                                 tick={{ fontSize: 11, fill: '#e2e8f0' }}
-                                tickFormatter={(value: number) => formatAdaptive(value, 1)}
+                                tickFormatter={(value: number) => formatChartValue(value)}
                                 axisLine={{ stroke: 'rgba(255,255,255,0.2)' }}
                                 tickLine={false}
+                                allowDecimals={airportChartMetric === 'delay'}
                               />
                               <Tooltip
-                                formatter={(value: number, name: string) => [`${formatAdaptive(value, 1)} min`, airportChartSeriesLookup.get(name) || name]}
+                                formatter={(value: number, name: string) => [
+                                  `${formatChartValue(Number(value))} ${tooltipUnit}`,
+                                  airportChartSeriesLookup.get(name) || name,
+                                ]}
                                 labelFormatter={(label) => `Airport ${label}`}
                                 contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'white' }}
                                 itemStyle={{ color: 'white' }}
