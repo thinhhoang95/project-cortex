@@ -2,7 +2,6 @@
 
 import { useSimStore } from "@/components/useSimStore";
 import { ReactNode, useMemo, useState, useEffect } from "react";
-import TimeScaleControl from "@/components/TimeScaleControl";
 import FlightLevelRangeControl from "@/components/FlightLevelRangeControl";
 
 type ViewOptionsControlProps = {
@@ -29,12 +28,12 @@ export default function ViewOptionsControl({ embedded = false, className }: View
     flUpperBound,
     setFlRange,
     setViewOptionsMinimized,
+    viewOptionsMinimized,
   } = useSimStore();
 
   const { dow, month, day } = useMemo(() => formatDateParts(date), [date]);
 
   const [showTimeSeeker, setShowTimeSeeker] = useState(false);
-  const [minimized, setMinimized] = useState(false);
 
   const [localT, setLocalT] = useState(t);
   // Sync local state if global state changes (e.g., from playback)
@@ -42,29 +41,11 @@ export default function ViewOptionsControl({ embedded = false, className }: View
     setLocalT(t);
   }, [t]);
 
-  // If not embedded and minimized, render a small restore button near the bottom
-  if (!embedded && minimized) {
-    return (
-      <button
-        type="button"
-        title="Expand View Options"
-        aria-label="Expand View Options"
-        onClick={() => { setMinimized(false); setViewOptionsMinimized(false); }}
-        className="fixed bottom-3 left-1/2 -translate-x-1/2 z-30 w-8 h-8 rounded-full border border-white/30 bg-white/10 backdrop-blur-md text-white/80 hover:text-white hover:bg-white/15 flex items-center justify-center shadow-md"
-      >
-        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          {/* Clock Icon */}
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 6v6l4 2" />
-        </svg>
-      </button>
-    );
-  }
+  const minimized = embedded ? false : viewOptionsMinimized;
 
-  return (
+  const panelCard = (
     <div
       className={
-        `${embedded ? "" : "fixed bottom-6 left-1/2 -translate-x-1/2 z-30"} ` +
         "rounded-2xl border border-white/10 bg-white/10 backdrop-blur-md shadow-xl text-white w-max " +
         (className ?? "")
       }
@@ -217,26 +198,65 @@ export default function ViewOptionsControl({ embedded = false, className }: View
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </IconToggle>
-
-          {/* Minimize button (circular with thin border) */}
-          {!embedded && (
-            <button
-              type="button"
-              title="Minimize"
-              aria-label="Minimize"
-              onClick={() => { setMinimized(true); setViewOptionsMinimized(true); }}
-              className="w-9 h-9 mx-1 rounded-full border border-white/30 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white transition-colors flex items-center justify-center"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M5 12h14" />
-              </svg>
-            </button>
-          )}
         </div>
 
-        
+
       </div>
     </div>
+  );
+
+  if (embedded) {
+    return panelCard;
+  }
+
+  return (
+    <>
+      <div className="fixed left-1/2 bottom-0 -translate-x-1/2 z-40 pointer-events-none">
+        <div
+          className={`transform transition-all duration-300 ease-in-out ${
+            minimized
+              ? "translate-y-full opacity-0 pointer-events-none"
+              : "-translate-y-6 opacity-100 pointer-events-auto"
+          }`}
+        >
+          {panelCard}
+        </div>
+      </div>
+      <BottomPanelToggleButton
+        minimized={minimized}
+        onToggle={() => setViewOptionsMinimized(!minimized)}
+      />
+    </>
+  );
+}
+
+function BottomPanelToggleButton({ minimized, onToggle }: { minimized: boolean; onToggle: () => void }) {
+  const actionLabel = minimized ? "Expand view options" : "Collapse view options";
+  const iconRotationClass = minimized ? "-rotate-90" : "rotate-90";
+
+  return (
+    <button
+      type="button"
+      aria-label={actionLabel}
+      title={actionLabel}
+      onClick={onToggle}
+      className={`fixed left-1/2 bottom-0 z-50 -translate-x-1/2 translate-y-1/2 hover:translate-y-0 focus-visible:translate-y-0 active:translate-y-0 w-10 h-10 rounded-full border border-white/20 bg-white/10 backdrop-blur-md text-white/80 hover:text-white hover:bg-white/20 transition-all duration-300 ease-in-out shadow-lg flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900`}
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className={`h-4 w-4 transition-transform duration-300 ease-in-out ${iconRotationClass}`}
+        fill="none"
+      >
+        <path
+          d="M9 5l7 7-7 7"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 

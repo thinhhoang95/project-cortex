@@ -1285,7 +1285,7 @@ function FlowEvaluationPageContent() {
                   Airports Delay Attributions
                 </button>
               </div>
-              <div className="ml-auto flex flex-wrap items-center gap-3 justify-end w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-3 justify-start w-full sm:w-auto">
                 {(seriesView === 'demand' || seriesView === 'occupancy') && (
                   <div className="flex items-center gap-2">
                     <select
