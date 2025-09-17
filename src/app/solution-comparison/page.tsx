@@ -515,7 +515,7 @@ export default function SolutionComparisonPage() {
   }
 
   return (
-    <main className="min-h-screen w-screen overflow-x-hidden bg-slate-900 relative">
+    <main className="min-h-screen w-screen overflow-x-hidden analytics-surface relative">
       <Header />
       <div className="pt-16 pb-12 px-6">
         <div className="max-w-7xl mx-auto">

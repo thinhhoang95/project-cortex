@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
+import { useThemeStore } from '@/components/useThemeStore';
 import { loadSectors } from '@/lib/airspace';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -18,6 +19,7 @@ export default function Header() {
   
   const router = useRouter();
   const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout, user } = useSimStore();
+  const { theme, toggleTheme } = useThemeStore();
   const pathname = usePathname();
 
   // Load traffic volumes data on component mount
@@ -151,11 +153,11 @@ export default function Header() {
                 Analytics
               </button>
               {showAnalyticsDropdown && (
-                <div className="absolute left-0 top-full mt-2 w-48 bg-white/80 backdrop-blur-sm border border-white/20 rounded-lg shadow-xl z-50">
+                <div className="absolute left-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl z-50">
                   <Link
                     href="/original_count"
                     onClick={() => setShowAnalyticsDropdown(false)}
-                    className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
+                    className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
                   >
                     Current Occupancy
                   </Link>
@@ -181,23 +183,23 @@ export default function Header() {
               onKeyPress={handleSearchKeyPress}
               onBlur={handleSearchBlur}
               onFocus={() => searchQuery && setShowSearchResults(true)}
-              className="w-80 px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
+              className="w-80 px-4 py-2 glass-input backdrop-blur-sm rounded-full focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-[var(--panel-bg-muted)] transition-all"
             />
-            <svg 
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/60" 
-              fill="none" 
-              stroke="currentColor" 
+            <svg
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--panel-text-muted)]"
+              fill="none"
+              stroke="currentColor"
               viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             
             {showSearchResults && (
-              <div className="absolute top-full mt-2 w-full bg-white/80 backdrop-blur-sm border border-white/20 rounded-lg shadow-xl max-h-64 overflow-y-auto z-50">
+              <div className="absolute top-full mt-2 w-full glass-menu rounded-lg max-h-64 overflow-y-auto z-50">
                 {isSearching ? (
                   <div className="flex items-center justify-center py-4">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-slate-700"></div>
-                    <span className="ml-2 text-slate-700 text-sm">Searching...</span>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[color:var(--menu-text)]"></div>
+                    <span className="ml-2 text-sm text-[var(--menu-text-muted)]">Searching...</span>
                   </div>
                 ) : searchResults.length > 0 ? (
                   <div className="py-2">
@@ -205,30 +207,30 @@ export default function Header() {
                       <button
                         key={result.id}
                         onClick={() => result.type === 'flight' ? handleFlightSelect(result.flight) : handleTrafficVolumeSelect(result.trafficVolume)}
-                        className="w-full px-4 py-3 text-left hover:bg-white/20 transition-colors border-b border-white/10 last:border-b-0"
+                        className="w-full px-4 py-3 text-left transition-colors border-b border-[var(--menu-border)] last:border-b-0 hover:bg-[var(--menu-hover-bg)]"
                       >
                         {result.type === 'flight' ? (
                           <>
-                            <div className="text-sm font-medium text-slate-900">
+                            <div className="text-sm font-medium text-[var(--menu-text)]">
                               <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
                               {result.flight.flightId}
                             </div>
-                            <div className="text-xs text-slate-600">
+                            <div className="text-xs text-[var(--menu-text-muted)]">
                               {result.flight.callSign && `Callsign: ${result.flight.callSign}`}
-                              {result.flight.origin && result.flight.destination && 
+                              {result.flight.origin && result.flight.destination &&
                                 ` • ${result.flight.origin} → ${result.flight.destination}`
                               }
                             </div>
                           </>
                         ) : (
                           <>
-                            <div className="text-sm font-medium text-slate-900">
+                            <div className="text-sm font-medium text-[var(--menu-text)]">
                               <span className="inline-block w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
                               {result.trafficVolume.properties.traffic_volume_id}
                             </div>
-                            <div className="text-xs text-slate-600">
+                            <div className="text-xs text-[var(--menu-text-muted)]">
                               Traffic Volume • FL {result.trafficVolume.properties.min_fl}-{result.trafficVolume.properties.max_fl}
-                              {result.trafficVolume.properties.airspace_id && 
+                              {result.trafficVolume.properties.airspace_id &&
                                 ` • ${result.trafficVolume.properties.airspace_id}`
                               }
                             </div>
@@ -238,7 +240,7 @@ export default function Header() {
                     ))}
                   </div>
                 ) : (
-                  <div className="py-4 px-4 text-sm text-slate-600">
+                  <div className="py-4 px-4 text-sm text-[var(--menu-text-muted)]">
                     No flights or traffic volumes found matching "{searchQuery}"
                   </div>
                 )}
@@ -249,7 +251,7 @@ export default function Header() {
           <div className="relative">
             <button
               onClick={() => setShowDropdown(!showDropdown)}
-              className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+              className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--panel-bg-muted)] transition-colors"
             >
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                 <span className="text-white font-medium text-sm">NO</span>
@@ -261,30 +263,39 @@ export default function Header() {
             </button>
             
             {showDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-48 bg-white/80 backdrop-blur-sm border border-white/20 rounded-lg shadow-xl">
-                <button 
+              <div className="absolute right-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl">
+                <button
                   onClick={async () => {
                     await clearAppCache();
                     setShowDropdown(false);
                     // Give lightweight feedback; keep UX simple for now
                     alert('Cached data cleared');
                   }}
-                  className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
+                  className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
                 >
                   Clear Cache
                 </button>
-                <button 
+                <button
+                  onClick={() => {
+                    toggleTheme();
+                  }}
+                  className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)] flex items-center justify-between"
+                >
+                  <span>Appearance</span>
+                  <span className="text-xs uppercase glass-menu-muted">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+                </button>
+                <button
                   onClick={() => {
                     setShowDropdown(false);
                     logout();
                     router.push('/login');
                   }}
-                  className="w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
+                  className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
                 >
                   Sign Out
                 </button>
-                <div className="mx-4 my-2 border-t border-white/30" />
-                <div className="px-4 pb-3 text-xs text-slate-600">
+                <div className="mx-4 my-2 glass-menu-divider" />
+                <div className="px-4 pb-3 text-xs glass-menu-muted">
                   Version 0.24.5 (summerbreeze)
                 </div>
               </div>
