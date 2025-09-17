@@ -131,7 +131,7 @@ export default function Header() {
     <header className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black to-transparent">
       <div className="flex items-center justify-between px-6 py-1">
         <div className="flex items-center">
-          <h1 className="text-xl font-bold text-white">Flow's Kitchen</h1>
+          <h1 className="text-xl font-bold text-white">Flow&apos;s Kitchen</h1>
         </div>
         
         <div className="flex items-center space-x-8">
@@ -241,7 +241,7 @@ export default function Header() {
                   </div>
                 ) : (
                   <div className="py-4 px-4 text-sm text-[var(--menu-text-muted)]">
-                    No flights or traffic volumes found matching "{searchQuery}"
+                    No flights or traffic volumes found matching &ldquo;{searchQuery}&rdquo;
                   </div>
                 )}
               </div>

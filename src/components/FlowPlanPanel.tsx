@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Buffer } from "buffer";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import { loadSectors } from "@/lib/airspace";
@@ -663,7 +664,6 @@ function encodePayloadParam(obj: any): string {
   const json = JSON.stringify(obj);
   if (typeof window === 'undefined') {
     // Next.js server-side safety
-    // @ts-ignore
     const b = Buffer.from(json, 'utf-8').toString('base64');
     return b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
   }

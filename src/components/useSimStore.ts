@@ -467,7 +467,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   addTargetCells: (trafficVolumes: string[], from: string, to: string) => {
     const ids: string[] = [];
     const tvs = Array.from(new Set((trafficVolumes || []).map(v => String(v).trim()).filter(Boolean)));
-    let acc = get().targetCells.slice();
+    const acc = get().targetCells.slice();
     for (const tv of tvs) {
       const f = String(from).trim();
       const t = String(to).trim();

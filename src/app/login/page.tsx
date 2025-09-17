@@ -64,7 +64,7 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center">
           <Link href="https://www.intuelle.com" className="text-sm text-white/60 hover:text-white">
-            Visit the Kitchen's Blog
+            Visit the Kitchen&apos;s Blog
           </Link>
           <span className="text-sm text-white/40 mx-2">·</span>
           <span className="text-sm text-white/50">Proudly made in Toulouse.</span>
