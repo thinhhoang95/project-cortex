@@ -128,7 +128,7 @@ export default function Header() {
   };
 
   return (
-    <header className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black to-transparent">
+    <header className="absolute top-0 left-0 right-0 z-[2000] bg-gradient-to-b from-black to-transparent">
       <div className="flex items-center justify-between px-6 py-1">
         <div className="flex items-center">
           <h1 className="text-xl font-bold text-white">Flow&apos;s Kitchen</h1>
@@ -153,7 +153,7 @@ export default function Header() {
                 Analytics
               </button>
               {showAnalyticsDropdown && (
-                <div className="absolute left-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl z-50">
+                <div className="absolute left-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl z-[2100]">
                   <Link
                     href="/original_count"
                     onClick={() => setShowAnalyticsDropdown(false)}
@@ -209,7 +209,7 @@ export default function Header() {
             </svg>
             
             {showSearchResults && (
-              <div className="absolute top-full mt-2 w-full glass-menu rounded-lg max-h-64 overflow-y-auto z-50">
+              <div className="absolute top-full mt-2 w-full glass-menu rounded-lg max-h-64 overflow-y-auto z-[2100]">
                 {isSearching ? (
                   <div className="flex items-center justify-center py-4">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[color:var(--menu-text)]"></div>
@@ -277,7 +277,7 @@ export default function Header() {
             </button>
             
             {showDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl">
+              <div className="absolute right-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl z-[2100]">
                 <button
                   onClick={async () => {
                     await clearAppCache();
