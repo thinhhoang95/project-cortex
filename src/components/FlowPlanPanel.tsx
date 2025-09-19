@@ -8,6 +8,8 @@ import { loadSectors } from "@/lib/airspace";
 
 type FlowPlanPanelProps = { embedded?: boolean };
 
+const MAX_VISIBLE_FLIGHTS = 3;
+
 export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) {
   const {
     flights,
@@ -33,6 +35,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const [basketView, setBasketView] = useState(false);
   const [autoRippleEnabled, setAutoRippleEnabled] = useState(false);
   const [autoRippleBins, setAutoRippleBins] = useState<number>(2);
+  const [expandedFlows, setExpandedFlows] = useState<Record<string, boolean>>({});
 
   // Target Cells: local search + time prompt state
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
@@ -204,6 +207,17 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowCommunities(communities, groups, colorMap);
     setFlowViewEnabled(true);
   }, [basketView, flowBasket, flights]);
+
+  useEffect(() => {
+    setExpandedFlows((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const bf of flowBasket) {
+        const key = String(bf.id);
+        if (prev[key]) next[key] = true;
+      }
+      return next;
+    });
+  }, [flowBasket]);
 
   // Cleanup on unmount if basketView was active
   useEffect(() => {
@@ -391,6 +405,12 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
             ) : (
               <div className="space-y-3">
                 {flowBasket.map((bf) => {
+                  const flowItems = bf.items || [];
+                  const flowKey = String(bf.id);
+                  const expanded = !!expandedFlows[flowKey];
+                  const visibleItems = expanded ? flowItems : flowItems.slice(0, MAX_VISIBLE_FLIGHTS);
+                  const hasHiddenItems = flowItems.length > MAX_VISIBLE_FLIGHTS;
+                  const hiddenCount = Math.max(0, flowItems.length - MAX_VISIBLE_FLIGHTS);
                   const tempGroupId = `basket-${bf.id}`;
                   const handleFlowMouseEnter = () => {
                     // Save original (hover baseline)
@@ -400,7 +420,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     hoverOrigEnabledRef.current = st.flowViewEnabled;
                     hoverOrigColorsRef.current = st.flowColorByCommunity;
                     // Build temp mapping for this basket flow
-                    const ids = (bf.items || [])
+                    const ids = flowItems
                       .map(it => resolveByKey(it.key)?.flightId)
                       .filter(Boolean)
                       .map(String) as string[];
@@ -459,15 +479,15 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                                 </tr>
                               </thead>
                               <tbody>
-                                {(bf.items || []).map((it, idx) => {
-                                  const key = it.key;
-                                  const f = resolveByKey(key);
-                                  const callsign = f?.callSign || key;
+                                {visibleItems.map((it, idx) => {
+                                  const flightKey = it.key;
+                                  const f = resolveByKey(flightKey);
+                                  const callsign = f?.callSign || flightKey;
                                   const origin = f?.origin || '—';
                                   const destination = f?.destination || '—';
                                   return (
                                     <tr
-                                      key={`${bf.id}-${key}`}
+                                      key={`${bf.id}-${flightKey}`}
                                       className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10`}
                                       onMouseEnter={() => { if (f?.flightId) setFlowPreviewFlightId(String(f.flightId)); }}
                                       onMouseLeave={() => setFlowPreviewFlightId(null)}
@@ -483,13 +503,13 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                                           <MoveFlightMenu
                                             flows={flowBasket}
                                             currentFlowId={bf.id}
-                                            onMove={(toId) => moveFlightBetweenBasketFlows(bf.id, toId, key)}
+                                            onMove={(toId) => moveFlightBetweenBasketFlows(bf.id, toId, flightKey)}
                                           />
                                           {/* Delete */}
                                           <button
                                             className="p-1 text-white/70 hover:text-red-200"
                                             title="Remove from this flow"
-                                            onClick={() => removeFlightFromBasketFlow(bf.id, key)}
+                                            onClick={() => removeFlightFromBasketFlow(bf.id, flightKey)}
                                           >
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
                                           </button>
@@ -498,6 +518,22 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                                     </tr>
                                   );
                                 })}
+                                {hasHiddenItems && (
+                                  <tr
+                                    className="border-t border-white/10 cursor-pointer hover:bg-white/10"
+                                    onClick={() => {
+                                      setExpandedFlows((prev) => {
+                                        const next = { ...prev };
+                                        if (expanded) delete next[flowKey]; else next[flowKey] = true;
+                                        return next;
+                                      });
+                                    }}
+                                  >
+                                    <td className="p-2 text-center italic opacity-80" colSpan={6}>
+                                      {expanded ? 'Show less…' : `Show more… (${hiddenCount} more)`}
+                                    </td>
+                                  </tr>
+                                )}
                                 {/* New row */}
                                 <NewFlightRow
                                   onAdd={(token) => {
