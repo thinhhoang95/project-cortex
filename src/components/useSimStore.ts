@@ -356,7 +356,15 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setShowFlightLines: (show) => set({ showFlightLines: show }),
   setShowWaypoints: (show) => set({ showWaypoints: show }),
   setShowTrafficVolumes: (show) => set({ showTrafficVolumes: show }),
-  setSelectedTrafficVolume: (tv, tvData = null) => set({ selectedTrafficVolume: tv, selectedTrafficVolumeData: tvData }),
+  setSelectedTrafficVolume: (tv, tvData = null) => {
+    // Selecting a traffic volume should open the Regulation panel in Regulations view
+    // Clearing the selection should close it for consistency across views
+    set({
+      selectedTrafficVolume: tv,
+      selectedTrafficVolumeData: tvData,
+      isRegulationPanelOpen: !!tv,
+    });
+  },
   setFlLowerBound: (fl) => set({ flLowerBound: fl }),
   setFlUpperBound: (fl) => set({ flUpperBound: fl }),
   setFlRange: (lower, upper) => set({ flLowerBound: lower, flUpperBound: upper }),

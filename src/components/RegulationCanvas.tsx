@@ -537,9 +537,7 @@ export default function RegulationCanvas() {
         </div>
       )}
       
-      <div className="absolute bottom-4 left-4 bg-white-600/30 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-xs text-gray-400 pointer-events-none">
-        Regulation Design Mode
-      </div>
+      
     </>
   );
 }
