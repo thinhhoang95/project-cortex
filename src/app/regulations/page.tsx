@@ -24,6 +24,7 @@ export default function RegulationsPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
   const isRegulationPanelOpen = useSimStore((state) => state.isRegulationPanelOpen);
+  const selectedTrafficVolume = useSimStore((state) => state.selectedTrafficVolume);
   const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
@@ -97,6 +98,8 @@ export default function RegulationsPage() {
     return null;
   }
 
+  const showRegulationPanel = Boolean(isRegulationPanelOpen && selectedTrafficVolume);
+
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
       <StateResetOnPageLoad />
@@ -133,14 +136,16 @@ export default function RegulationsPage() {
       >
         <div className="w-[340px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
           <div className="pointer-events-auto">
-            <RegulationPlanPanel embedded isRegulationPanelOpen={isRegulationPanelOpen} />
+            <RegulationPlanPanel embedded isRegulationPanelOpen={showRegulationPanel} />
           </div>
         </div>
-        <div className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
-          <div className="pointer-events-auto">
-            <RegulationPanel embedded />
+        {showRegulationPanel && (
+          <div className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
+            <div className="pointer-events-auto">
+              <RegulationPanel embedded />
+            </div>
           </div>
-        </div>
+        )}
       </div>
       <SlackViewControl />
       <ViewOptionsControl />
