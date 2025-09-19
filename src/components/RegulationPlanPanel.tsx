@@ -6,9 +6,10 @@ import ShimmeringText from "@/components/ShimmeringText";
 
 interface RegulationPlanPanelProps {
   isRegulationPanelOpen: boolean;
+  embedded?: boolean;
 }
 
-export default function RegulationPlanPanel({ isRegulationPanelOpen }: RegulationPlanPanelProps) {
+export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = false }: RegulationPlanPanelProps) {
   const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen, flights, setT } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -45,12 +46,15 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
           <span className="text-sm font-semibold">{regulations.length}</span>
         </button>
       ) : (
-        <div 
-          className={`absolute top-16 z-[200] w-[340px] max-h-[calc(100vh-6rem)]
+        <div
+          className={embedded
+            ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col transition-all duration-300"
+            : `absolute top-16 z-[200] w-[340px] max-h-[calc(100vh-6rem)]
                       rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
                       shadow-xl text-white flex flex-col transition-all duration-300 ${
                         isRegulationPanelOpen ? 'right-[416px]' : 'right-4'
-                      }`}
+                      }`
+          }
         >
           <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
             <div>
@@ -72,7 +76,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen }: Regulatio
             </div>
           </div>
 
-          <div className="overflow-y-auto no-scrollbar p-4 flex-1 space-y-4">
+          <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 flex-1 space-y-4"}>
         {/* Regulations Table */}
         <div className="bg-white/5 border border-white/10 rounded-lg p-3">
           <div className="flex items-center justify-between mb-3">

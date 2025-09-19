@@ -7,6 +7,7 @@ import RegulationCanvas from "@/components/RegulationCanvas";
 import LeftControl1Regulation from "@/components/LeftControl1Regulation";
 import RegulationFlightListLeftPanel2 from "@/components/RegulationFlightListLeftPanel2";
 import RegulationPanel from "@/components/RegulationPanel";
+import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
@@ -22,6 +23,7 @@ import {
 export default function RegulationsPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
+  const isRegulationPanelOpen = useSimStore((state) => state.isRegulationPanelOpen);
   const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
@@ -124,13 +126,20 @@ export default function RegulationsPage() {
           <RegulationFlightListLeftPanel2 embedded />
         </div>
       </div>
-      {/* Right-side wrapper: full-height scroll for the panel */}
+      {/* Right-side wrapper group */}
       <div
         style={{ transform: rightPanelsMinimized ? "translateX(calc(100% + 1.5rem))" : "translateX(0)" }}
-        className={`absolute top-0 right-4 z-40 w-[384px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none transition-all duration-300 ease-in-out ${rightPanelsMinimized ? "opacity-0" : "opacity-100"}`}
+        className={`absolute top-0 right-4 z-40 h-screen min-h-0 pointer-events-none flex gap-4 transition-all duration-300 ease-in-out ${rightPanelsMinimized ? "opacity-0" : "opacity-100"}`}
       >
-        <div className="pointer-events-auto">
-          <RegulationPanel embedded />
+        <div className="w-[340px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
+          <div className="pointer-events-auto">
+            <RegulationPlanPanel embedded isRegulationPanelOpen={isRegulationPanelOpen} />
+          </div>
+        </div>
+        <div className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
+          <div className="pointer-events-auto">
+            <RegulationPanel embedded />
+          </div>
         </div>
       </div>
       <SlackViewControl />

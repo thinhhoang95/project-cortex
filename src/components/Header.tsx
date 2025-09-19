@@ -310,7 +310,7 @@ export default function Header() {
                 </button>
                 <div className="mx-4 my-2 glass-menu-divider" />
                 <div className="px-4 pb-3 text-xs glass-menu-muted">
-                  Version 25.09.17.1 (summerbreeze)
+                  Version 25.09.19.0 (summerbreeze)
                 </div>
               </div>
             )}
