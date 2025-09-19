@@ -4,6 +4,7 @@ import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import ShimmeringText from "@/components/ShimmeringText";
 import { authFetch } from "@/lib/auth";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 
 interface RankedFlight {
   flight_id: string;
@@ -121,6 +122,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
     if (!expanded && rows.length > MAX_VISIBLE) return rows.slice(0, MAX_VISIBLE);
     return rows;
   }, [rows, expanded]);
+  const hiddenRowCount = Math.max(0, rows.length - MAX_VISIBLE);
 
 	useEffect(() => {
 		const ids = visibleRows.map(r => String(r.flightId));
@@ -228,7 +230,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                               className="p-2 text-center italic opacity-80"
                               colSpan={rankingData ? 5 : 4}
                             >
-                              {expanded ? 'Show less…' : `See more… (${rows.length - MAX_VISIBLE} more)`}
+                              {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenRowCount)}
                             </td>
                           </tr>
                         )}

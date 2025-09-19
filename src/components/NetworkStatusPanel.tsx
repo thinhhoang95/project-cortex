@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -82,6 +83,7 @@ export default function NetworkStatusPanel({
     if (showAllCauses) return sortedCauses;
     return sortedCauses.slice(0, 5);
   }, [sortedCauses, showAllCauses]);
+  const hiddenCauseCount = Math.max(0, sortedCauses.length - displayedCauses.length);
 
   // Build pie chart slices to cover >= 90% as individual, rest as Others
   const pieSlices = useMemo(() => {
@@ -204,14 +206,14 @@ export default function NetworkStatusPanel({
                 {sortedCauses.length > 5 && !showAllCauses && (
                   <tr className="border-t border-white/10 hover:bg-white/10 cursor-pointer" onClick={() => setShowAllCauses(true)}>
                     <td className="p-2 text-center italic opacity-80" colSpan={2}>
-                      See more…
+                      {formatSeeMoreLabel(hiddenCauseCount)}
                     </td>
                   </tr>
                 )}
                 {sortedCauses.length > 5 && showAllCauses && (
                   <tr className="border-t border-white/10 hover:bg-white/10 cursor-pointer" onClick={() => setShowAllCauses(false)}>
                     <td className="p-2 text-center italic opacity-80" colSpan={2}>
-                      See less…
+                      {SEE_LESS_LABEL}
                     </td>
                   </tr>
                 )}

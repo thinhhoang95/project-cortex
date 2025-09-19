@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { FlowInputPayload } from "@/lib/flow-input";
 import { AutorateOccupancyResponse } from "@/lib/autorate";
 import {
@@ -914,6 +915,7 @@ function FlowEvaluationPageContent() {
                     if (rippleTvIdsFromResponse.length > 0) {
                       const list = rippleTvIdsFromResponse;
                       const shown = rippleSummaryExpanded ? list : list.slice(0, LIMIT);
+                      const hiddenCount = Math.max(0, list.length - LIMIT);
                       return (
                         <>
                           {shown.map((tv) => (
@@ -926,7 +928,7 @@ function FlowEvaluationPageContent() {
                             <button
                               onClick={() => setRippleSummaryExpanded((s) => !s)}
                               className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15"
-                            >{rippleSummaryExpanded ? 'Show less' : 'Show more'}</button>
+                            >{rippleSummaryExpanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}</button>
                           )}
                         </>
                       );
@@ -934,6 +936,7 @@ function FlowEvaluationPageContent() {
                     const entries = Object.entries(input?.ripples || {}).sort((a, b) => a[0].localeCompare(b[0]));
                     if (entries.length === 0) return <div className="text-xs text-white/70">None</div>;
                     const shown = rippleSummaryExpanded ? entries : entries.slice(0, LIMIT);
+                    const hiddenCount = Math.max(0, entries.length - LIMIT);
                     return (
                       <>
                         {shown.map(([tv, tw]) => (
@@ -947,7 +950,7 @@ function FlowEvaluationPageContent() {
                           <button
                             onClick={() => setRippleSummaryExpanded((s) => !s)}
                             className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15"
-                          >{rippleSummaryExpanded ? 'Show less' : 'Show more'}</button>
+                          >{rippleSummaryExpanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}</button>
                         )}
                       </>
                     );
@@ -1541,6 +1544,7 @@ function FlowEvaluationPageContent() {
 
                 const LIMIT = 12;
                 const list = expandedOccOriginal ? tvIds : tvIds.slice(0, LIMIT);
+                const hiddenCount = Math.max(0, tvIds.length - LIMIT);
 
                 const legendFlows = (evalState.data?.flows || []).map(f => f.flow_id).sort((a, b) => a - b);
 
@@ -1631,7 +1635,7 @@ function FlowEvaluationPageContent() {
                         <button
                           onClick={() => setExpandedOccOriginal((s) => !s)}
                           className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
-                        >{expandedOccOriginal ? 'Show less' : 'Show more'}</button>
+                        >{expandedOccOriginal ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}</button>
                       </div>
                     )}
                   </>
@@ -1771,41 +1775,48 @@ function FlowEvaluationPageContent() {
                     <div className="text-sm uppercase tracking-wider text-gray-300 mb-2">Targets</div>
                     {targetTvIds.length > 0 ? (
                       <>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
-                          {(() => {
-                            const LIMIT = 6;
-                            const showAll = !!expandedTargetCharts[flow.flow_id];
-                            const list = showAll ? targetTvIds : targetTvIds.slice(0, LIMIT);
-                          return list.map((tvId) => {
-                            const seriesOpt = seriesView === 'demand'
-                              ? (optFlow?.target_demands?.[tvId] || null)
-                              : (optFlow?.target_occupancy_opt?.[tvId] || null);
-                            return (
-                              <HistogramCard
-                                key={`t-${flow.flow_id}-${tvId}`}
-                                tvId={tvId}
-                                series={targets[tvId] || []}
-                                seriesB={seriesOpt}
-                                minutesPerBin={minutesPerBin}
-                                viewFrom={viewFrom}
-                                viewTo={viewTo}
-                                isControlled={controlledTv === tvId}
-                                showLabels={showLabels}
-                                attentionSet={targetHighlights}
-                                markerColor="#f59e0b"
-                              />
-                            );
-                          });
-                          })()}
-                        </div>
-                        {targetTvIds.length > 6 && (
-                          <div className="mt-2">
-                            <button
-                              onClick={() => setExpandedTargetCharts((prev) => ({ ...prev, [flow.flow_id]: !prev[flow.flow_id] }))}
-                              className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
-                            >{expandedTargetCharts[flow.flow_id] ? 'Show less' : 'Show more'}</button>
-                          </div>
-                        )}
+                        {(() => {
+                          const LIMIT = 6;
+                          const showAll = !!expandedTargetCharts[flow.flow_id];
+                          const targetList = showAll ? targetTvIds : targetTvIds.slice(0, LIMIT);
+                          const hiddenTargetCount = Math.max(0, targetTvIds.length - LIMIT);
+                          return (
+                            <>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
+                                {targetList.map((tvId) => {
+                                  const seriesOpt = seriesView === 'demand'
+                                    ? (optFlow?.target_demands?.[tvId] || null)
+                                    : (optFlow?.target_occupancy_opt?.[tvId] || null);
+                                  return (
+                                    <HistogramCard
+                                      key={`t-${flow.flow_id}-${tvId}`}
+                                      tvId={tvId}
+                                      series={targets[tvId] || []}
+                                      seriesB={seriesOpt}
+                                      minutesPerBin={minutesPerBin}
+                                      viewFrom={viewFrom}
+                                      viewTo={viewTo}
+                                      isControlled={controlledTv === tvId}
+                                      showLabels={showLabels}
+                                      attentionSet={targetHighlights}
+                                      markerColor="#f59e0b"
+                                    />
+                                  );
+                                })}
+                              </div>
+                              {targetTvIds.length > LIMIT && (
+                                <div className="mt-2">
+                                  <button
+                                    onClick={() => setExpandedTargetCharts((prev) => ({ ...prev, [flow.flow_id]: !prev[flow.flow_id] }))}
+                                    className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
+                                  >
+                                    {showAll ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenTargetCount)}
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </>
                     ) : (
                       <div className="text-xs text-gray-300">No target demands.</div>
@@ -1816,41 +1827,48 @@ function FlowEvaluationPageContent() {
                   {rippleTvIds.length > 0 && (
                     <div>
                       <div className="text-sm uppercase tracking-wider text-gray-300 mb-2">Ripples</div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
-                        {(() => {
-                          const LIMIT = 12;
-                          const showAll = !!expandedRippleCharts[flow.flow_id];
-                          const list = showAll ? rippleTvIds : rippleTvIds.slice(0, LIMIT);
-                          return list.map((tvId) => {
-                            const seriesOpt = seriesView === 'demand'
-                              ? (optFlow?.ripple_demands?.[tvId] || null)
-                              : (optFlow?.ripple_occupancy_opt?.[tvId] || null);
-                            return (
-                              <HistogramCard
-                                key={`r-${flow.flow_id}-${tvId}`}
-                                tvId={tvId}
-                                series={ripples[tvId] || []}
-                                seriesB={seriesOpt}
-                                minutesPerBin={minutesPerBin}
-                                viewFrom={viewFrom}
-                                viewTo={viewTo}
-                                isControlled={false}
-                                showLabels={showLabels}
-                                attentionSet={rippleHighlights}
-                                markerColor="#c084fc"
-                              />
-                            );
-                          });
-                          })()}
-                      </div>
-                      {rippleTvIds.length > 12 && (
-                        <div className="mt-2">
-                          <button
-                            onClick={() => setExpandedRippleCharts((prev) => ({ ...prev, [flow.flow_id]: !prev[flow.flow_id] }))}
-                            className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
-                          >{expandedRippleCharts[flow.flow_id] ? 'Show less' : 'Show more'}</button>
-                        </div>
-                      )}
+                      {(() => {
+                        const LIMIT = 12;
+                        const showAll = !!expandedRippleCharts[flow.flow_id];
+                        const rippleList = showAll ? rippleTvIds : rippleTvIds.slice(0, LIMIT);
+                        const hiddenRippleCount = Math.max(0, rippleTvIds.length - LIMIT);
+                        return (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3">
+                              {rippleList.map((tvId) => {
+                                const seriesOpt = seriesView === 'demand'
+                                  ? (optFlow?.ripple_demands?.[tvId] || null)
+                                  : (optFlow?.ripple_occupancy_opt?.[tvId] || null);
+                                return (
+                                  <HistogramCard
+                                    key={`r-${flow.flow_id}-${tvId}`}
+                                    tvId={tvId}
+                                    series={ripples[tvId] || []}
+                                    seriesB={seriesOpt}
+                                    minutesPerBin={minutesPerBin}
+                                    viewFrom={viewFrom}
+                                    viewTo={viewTo}
+                                    isControlled={false}
+                                    showLabels={showLabels}
+                                    attentionSet={rippleHighlights}
+                                    markerColor="#c084fc"
+                                  />
+                                );
+                              })}
+                            </div>
+                            {rippleTvIds.length > LIMIT && (
+                              <div className="mt-2">
+                                <button
+                                  onClick={() => setExpandedRippleCharts((prev) => ({ ...prev, [flow.flow_id]: !prev[flow.flow_id] }))}
+                                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
+                                >
+                                  {showAll ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenRippleCount)}
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -2507,7 +2525,9 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
       {entries.map(([fid, ids]) => {
         const list = ids || [];
         const showAll = !!expanded[fid];
-        const shown = showAll ? list : list.slice(0, 25);
+        const LIMIT = 25;
+        const shown = showAll ? list : list.slice(0, LIMIT);
+        const hiddenCount = Math.max(0, list.length - LIMIT);
         const color = colors?.[String(fid)] || '#0f468a';
         return (
           <div key={fid} className="text-[12px] text-white/90">
@@ -2520,7 +2540,7 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
                 <span>{list.length} flights</span>
                 {list.length > 25 && (
                   <button onClick={() => toggle(fid)} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15">
-                    {showAll ? 'Show less' : 'Show all'}
+                    {showAll ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}
                   </button>
                 )}
               </div>

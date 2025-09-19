@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line, LineChart } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import HourGlass from "@/components/HourGlass";
 
 // Use Next.js API route to avoid CORS issues
@@ -364,6 +365,7 @@ export default function AirspaceInfo() {
       filteredFlightIds 
     };
   }, [focusMode, occupancyData, chartData, flightTableData, interestWindowLength, t, flightIdentifiersData, orderedFlightsData, flights]);
+  const hiddenFlightCount = Math.max(0, displayFlightTableData.length - MAX_VISIBLE);
 
   // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
   const hourGlassData = useMemo(() => {
@@ -692,7 +694,7 @@ export default function AirspaceInfo() {
                           className="p-2 text-center italic opacity-80"
                           colSpan={orderedFlightsData ? 5 : 4}
                         >
-                          {expanded ? 'Show less…' : `See more… (${displayFlightTableData.length - MAX_VISIBLE} more)`}
+                          {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                         </td>
                       </tr>
                     )}

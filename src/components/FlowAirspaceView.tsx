@@ -4,6 +4,7 @@ import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Toolti
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import { authFetch } from "@/lib/auth";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
 
@@ -319,6 +320,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     if (!expanded && flightTableData.length > MAX_VISIBLE) return flightTableData.slice(0, MAX_VISIBLE);
     return flightTableData;
   }, [flightTableData, expanded]);
+  const hiddenFlightCount = Math.max(0, flightTableData.length - MAX_VISIBLE);
 
   useEffect(() => {
     const ids = visibleRows.map(r => String(r.flightId));
@@ -650,7 +652,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                           className="p-2 text-center italic opacity-80"
                           colSpan={orderedFlightsData ? 5 : 4}
                         >
-                          {expanded ? 'Show less…' : `See more… (${flightTableData.length - MAX_VISIBLE} more)`}
+                          {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                         </td>
                       </tr>
                     )}

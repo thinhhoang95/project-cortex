@@ -5,6 +5,7 @@ import { Buffer } from "buffer";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import { loadSectors } from "@/lib/airspace";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 
 type FlowPlanPanelProps = { embedded?: boolean };
 
@@ -530,7 +531,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                                     }}
                                   >
                                     <td className="p-2 text-center italic opacity-80" colSpan={6}>
-                                      {expanded ? 'Show less…' : `Show more… (${hiddenCount} more)`}
+                                      {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}
                                     </td>
                                   </tr>
                                 )}

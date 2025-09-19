@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Line } from "recharts";
 import { binIndexToRangeLabel, hhmmToMinutesSafe } from "@/lib/time";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { OccupancySeriesByTv } from "@/lib/models";
 
 type SortMode = "total" | "abs_change" | "exceedance";
@@ -207,6 +208,7 @@ export default function OccupancyPrePostPanel({
   // Pagination
   const [expanded, setExpanded] = useState<boolean>(false);
   const displayTvs = expanded ? sortedTvs : sortedTvs.slice(0, initialLimit);
+  const hiddenTvCount = Math.max(0, sortedTvs.length - initialLimit);
 
   const isLoading = Boolean(loading) || internalLoading;
   const err = error || internalError || null;
@@ -292,7 +294,7 @@ export default function OccupancyPrePostPanel({
           onClick={handleToggleExpand}
           disabled={sortedTvs.length <= initialLimit}
         >
-          {expanded ? 'Show less' : `Show more (${Math.max(0, sortedTvs.length - initialLimit)})`}
+          {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenTvCount)}
         </button>
       </div>
     </div>

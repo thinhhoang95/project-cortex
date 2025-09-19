@@ -23,6 +23,7 @@ import {
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
+import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, Legend } from "recharts";
 
 const PALETTE = ["#38bdf8", "#f472b6", "#facc15", "#34d399"];
@@ -842,6 +843,7 @@ export default function RegulationComparisonPage() {
   }, [tvMetrics, hasTvFilter, selectedTvSet, tvSort, tvAbsChangeBySnapshot]);
 
   const visibleTvs = filteredTvIds.slice(0, visibleTvCount);
+  const remainingTvCount = Math.max(0, filteredTvIds.length - visibleTvCount);
 
   if (!hydrated || !user) {
     return null;
@@ -1583,7 +1585,7 @@ export default function RegulationComparisonPage() {
                 <button
                   onClick={() => setVisibleTvCount((c) => Math.min(filteredTvIds.length, c + 6))}
                   className="px-3 py-1.5 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 text-sm"
-                >Show more</button>
+                >{formatSeeMoreLabel(remainingTvCount)}</button>
               </div>
             )}
 

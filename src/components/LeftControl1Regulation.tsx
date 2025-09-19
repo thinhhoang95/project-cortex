@@ -2,6 +2,7 @@
 import { useSimStore } from "@/components/useSimStore";
 import { useEffect, useMemo, useState } from "react";
 import ShimmeringText from "@/components/ShimmeringText";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 
 type LeftControl1RegulationProps = { embedded?: boolean };
 
@@ -77,6 +78,7 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
     if (showAllHotspots) return sortedHotspots;
     return sortedHotspots.slice(0, 20);
   }, [sortedHotspots, showAllHotspots]);
+  const hiddenHotspotCount = Math.max(0, sortedHotspots.length - displayedHotspots.length);
 
   const handleHeaderClick = (key: SortKey) => {
     if (key === sortBy) {
@@ -197,21 +199,21 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                       );
                     })}
                     {!showAllHotspots && sortedHotspots.length > 20 && (
-                      <tr 
+                      <tr
                         className="border-t border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
                         onClick={() => setShowAllHotspots(true)}
                         title="Show the remaining hotspots"
                       >
-                        <td className="p-2 text-center italic opacity-80" colSpan={5}>See more…</td>
+                        <td className="p-2 text-center italic opacity-80" colSpan={5}>{formatSeeMoreLabel(hiddenHotspotCount)}</td>
                       </tr>
                     )}
                     {showAllHotspots && sortedHotspots.length > 20 && (
-                      <tr 
+                      <tr
                         className="border-t border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
                         onClick={() => setShowAllHotspots(false)}
                         title="Collapse the list"
                       >
-                        <td className="p-2 text-center italic opacity-80" colSpan={5}>See less…</td>
+                        <td className="p-2 text-center italic opacity-80" colSpan={5}>{SEE_LESS_LABEL}</td>
                       </tr>
                     )}
                   </tbody>
