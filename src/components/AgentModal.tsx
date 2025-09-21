@@ -72,18 +72,20 @@ export default function AgentModal({ open, onClose }: AgentModalProps) {
             
 
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center space-y-2">
-                <div className="relative w-14 h-14 mx-auto rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="text-white/70">
-                    <path d="M12 2L2 7v10c0 5.55 3.84 10 9 10s9-4.45 9-10V7l-10-5z" />
-                    <path d="M12 8v8" />
-                    <path d="M8 12h8" />
-                  </svg>
-                  <div className="absolute -inset-2 rounded-2xl bg-gradient-to-r from-blue-500/30 to-purple-500/30 blur-xl opacity-30" />
+              <div className="text-center space-y-2 w-full">
+                <div className="relative w-24 h-24 mx-auto rounded-2xl flex items-center justify-center">
+                  <img 
+                    src="/sleeping-kitty.svg" 
+                    alt="Sleeping kitty" 
+                    width="128" 
+                    height="128"
+                    style={{ filter: '' }}
+                  />
+                  <div className="absolute -inset-5 rounded-2xl bg-gradient-to-r from-blue-500/30 to-purple-500/30 blur-xl opacity-30" />
                 </div>
-                <div className="text-base font-semibold text-white/85">Oops, Agent is still snoozing</div>
-                <div className="text-sm text-white/55 max-w-xl mx-auto px-4">
-                  When Agent has a new proposal for you, it will appear here.
+                <div className="text-base font-semibold text-white/85">Oops, Agent is still snoozing...</div>
+                <div className="text-sm text-white/55 px-4">
+                  When Agent has new proposals for you, they will appear here for you to compare and review.
                 </div>
               </div>
             </div>
