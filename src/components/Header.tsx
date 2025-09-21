@@ -7,6 +7,7 @@ import { loadSectors } from '@/lib/airspace';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
+import AgentModal from '@/components/AgentModal';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -16,6 +17,7 @@ export default function Header() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Array<{id: string, type: 'flight' | 'traffic_volume', flight?: any, trafficVolume?: any}>>([]);
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
+  const [showAgent, setShowAgent] = useState(false);
   
   const router = useRouter();
   const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout, user } = useSimStore();
@@ -128,6 +130,7 @@ export default function Header() {
   };
 
   return (
+    <>
     <header className="absolute top-0 left-0 right-0 z-[2000] bg-gradient-to-b from-black to-transparent">
       <div className="flex items-center justify-between px-6 py-1">
         <div className="flex items-center">
@@ -315,8 +318,25 @@ export default function Header() {
               </div>
             )}
           </div>
+
+          <div className="relative group">
+            <button
+              onClick={() => setShowAgent(true)}
+              className="text-white/90 hover:text-white focus:outline-none transition-colors"
+              aria-label="Ask Agent"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a4 4 0 0 1-4 4H7l-4 4V5a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>
+              </svg>
+            </button>
+            <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-2 px-2 py-1 text-xs rounded-md bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
+              Ask Agent
+            </div>
+          </div>
         </div>
       </div>
     </header>
+    <AgentModal open={showAgent} onClose={() => setShowAgent(false)} />
+    </>
   );
 }
