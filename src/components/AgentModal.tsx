@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import ModalDialog from './ModalDialog';
 
 interface AgentModalProps {
   open: boolean;
@@ -19,81 +18,146 @@ export default function AgentModal({ open, onClose }: AgentModalProps) {
     'Compare two regulation plans for Frankfurt TMA from 11:00 - 13:00',
   ];
 
+  if (!open) return null;
+
   return (
-    <ModalDialog open={open} onClose={onClose} title={
-      <div className="flex items-center gap-3">
-        <span>MCTS Agent</span>
-      </div>
-    }>
-      <div className="p-6 space-y-6">
-        <div className="relative rounded-2xl border border-white/10 bg-white/[0.06] backdrop-blur-md shadow-xl">
-          <div className="p-3">
-            <div className="group rounded-xl p-[1px] bg-gradient-to-r from-blue-400 via-purple-400 to-fuchsia-500 focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.25)] transition-all flex items-center">
-              <textarea
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                placeholder="Describe your preferred solutions in natural language for the MCTS Agent"
-                className="w-full h-28 resize-none rounded-[10px] px-4 py-3 bg-slate-900/80 border-0 outline-none placeholder-white/55 text-white/95 backdrop-blur-sm"
-              />
-            </div>
-            <div className="flex items-center justify-between mt-3">
-              <div className="text-xs text-white/50">
-                Tip: You can include time windows (e.g. 10:00-12:00), traffic volume IDs, and a simulation budget (e.g. 1024 sims).
+    <div className="fixed inset-0 z-[9999]">
+      <div
+        className="absolute inset-0 bg-slate-950/70 backdrop-blur-[18px]"
+        onClick={onClose}
+      />
+      <div className="absolute inset-0 overflow-y-auto">
+        <div className="min-h-full flex items-center justify-center px-4 py-12">
+          <div className="relative w-full max-w-6xl">
+            <div className="absolute inset-0 rounded-[36px] bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-fuchsia-500/10 blur-3xl" />
+            <div className="relative rounded-[32px] border border-white/10 bg-white/[0.04] backdrop-blur-2xl text-white shadow-[0_30px_120px_-40px_rgba(59,130,246,0.75)] overflow-hidden">
+              <div className="absolute -top-28 -right-20 w-80 h-80 bg-purple-500/20 blur-3xl" />
+              <div className="absolute -bottom-32 -left-24 w-[28rem] h-[28rem] bg-blue-500/15 blur-3xl" />
+              <div className="relative px-8 py-10 sm:px-12 sm:py-12">
+                <div className="flex items-start justify-between gap-6">
+                  <div className="space-y-3 max-w-2xl">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.35em] text-white/60">
+                      MCTS Agent
+                    </div>
+                    <h2 className="text-3xl font-semibold text-white">Strategize your next regulation plan</h2>
+                    <p className="text-sm text-white/60 leading-relaxed">
+                      Describe your goals and constraints for the agent. You can include time windows, traffic volume IDs, and
+                      simulation budgets to guide the proposals.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/70 transition hover:border-white/20 hover:bg-white/[0.12] hover:text-white"
+                    aria-label="Close agent modal"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 6L6 18" />
+                      <path d="M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="mt-12 grid gap-12 lg:grid-cols-[minmax(0,1.15fr),minmax(0,0.85fr)]">
+                  <div className="space-y-8">
+                    <div className="relative">
+                      <div className="absolute -inset-6 rounded-[36px] bg-gradient-to-br from-blue-500/20 via-purple-500/10 to-pink-500/20 opacity-60 blur-3xl" aria-hidden />
+                      <div className="relative rounded-[30px] bg-gradient-to-br from-blue-500/60 via-purple-500/60 to-fuchsia-500/60 p-[1.5px] shadow-[0_25px_65px_-30px_rgba(76,29,149,0.9)]">
+                        <div className="rounded-[30px] border border-white/15 bg-slate-950/65 px-7 py-8 backdrop-blur-[28px] shadow-inner shadow-black/20">
+                          <textarea
+                            value={promptText}
+                            onChange={(e) => setPromptText(e.target.value)}
+                            placeholder="Describe your preferred solutions in natural language for the MCTS Agent"
+                            className="h-40 w-full resize-none rounded-[20px] border border-white/5 bg-white/[0.02] px-5 py-4 text-lg leading-relaxed text-white placeholder:text-white/50 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-purple-400/40"
+                          />
+                          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-sm leading-relaxed text-white/60">
+                              Tip: Include time windows (e.g. 10:00-12:00), traffic volume IDs, and a simulation budget (e.g. 1024 sims).
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // TODO: Handle send action
+                                console.log('Sending prompt:', promptText);
+                              }}
+                              disabled={!promptText.trim()}
+                              className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-2.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 disabled:from-slate-600 disabled:to-slate-700 disabled:text-white/60 disabled:shadow-none disabled:cursor-not-allowed hover:from-blue-600 hover:to-purple-700 shadow-[0_12px_35px_-18px_rgba(59,130,246,0.8)]"
+                            >
+                              Send
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <div className="overflow-x-auto pr-10 -mr-10">
+                        <div className="flex min-w-max gap-3">
+                          {promptHints.map((hint) => (
+                            <button
+                              key={hint}
+                              type="button"
+                              onClick={() => setPromptText(hint)}
+                              className="whitespace-nowrap rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white/75 transition hover:border-white/25 hover:bg-white/[0.12] hover:text-white"
+                            >
+                              {hint}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="pointer-events-none absolute right-0 top-0 h-full w-20 bg-gradient-to-l from-slate-950 via-slate-950/60 to-transparent" />
+                    </div>
+
+                    <div className="inline-flex max-w-md items-center gap-2 rounded-[16px] border border-white/10 bg-white/[0.05] px-4 py-2 text-xs leading-relaxed text-white/65 shadow-inner shadow-black/20">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="text-white/50"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="4" />
+                        <path d="M8 9h8" />
+                        <path d="M8 13h6" />
+                      </svg>
+                      <span>Agent&apos;s proposals will appear here for you to compare and review.</span>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <div
+                      className="relative flex min-h-[420px] items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] px-8 py-12 text-center backdrop-blur-2xl shadow-[0_20px_60px_-30px_rgba(59,130,246,0.8)]"
+                      style={{
+                        backgroundImage:
+                          'radial-gradient(800px 400px at -10% -10%, rgba(59,130,246,0.18), transparent), radial-gradient(700px 500px at 110% 120%, rgba(168,85,247,0.18), transparent)',
+                      }}
+                    >
+                      <div className="absolute inset-0 opacity-10 pointer-events-none">
+                        <div className="absolute top-6 left-12 h-28 w-28 rounded-full bg-blue-400/40 blur-3xl animate-pulse" />
+                        <div className="absolute bottom-12 right-12 h-36 w-36 rounded-full bg-purple-400/40 blur-3xl animate-pulse [animation-delay:700ms]" />
+                      </div>
+                      <div className="relative z-10 flex flex-col items-center gap-4">
+                        <div className="relative flex h-28 w-28 items-center justify-center">
+                          <img src="/sleeping-kitty.svg" alt="Sleeping kitty" width="128" height="128" className="object-contain" />
+                          <div className="absolute -inset-5 rounded-2xl bg-gradient-to-r from-blue-500/40 to-purple-500/40 blur-xl opacity-40" />
+                        </div>
+                        <div className="text-base font-semibold text-white/85">Oops, Agent is still snoozing...</div>
+                        <div className="max-w-sm text-sm text-white/55">
+                          When Agent has new proposals for you, they will appear here for you to compare and review.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  // TODO: Handle send action
-                  console.log('Sending prompt:', promptText);
-                }}
-                disabled={!promptText.trim()}
-                className="ml-4 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-all duration-200 hover:shadow-lg hover:shadow-blue-500/25"
-              >
-                Send
-              </button>
             </div>
           </div>
-          <div className="pointer-events-none absolute -bottom-10 -right-6 w-36 h-36 bg-gradient-to-br from-blue-500/25 to-purple-600/25 rounded-full blur-3xl" />
-        </div>
-
-        <div className="relative p-[1px] rounded-2xl bg-gradient-to-br from-blue-400/20 to-purple-400/20">
-          <div
-            className="relative rounded-[14px] border border-white/10 bg-white/[0.04] backdrop-blur-md min-h-[480px] overflow-hidden"
-            style={{
-              backgroundImage:
-                'radial-gradient(800px 400px at -10% -10%, rgba(59,130,246,0.10), transparent), radial-gradient(700px 500px at 110% 120%, rgba(168,85,247,0.10), transparent)'
-            }}
-          >
-            <div className="absolute inset-0 opacity-10 pointer-events-none">
-              <div className="absolute top-6 left-10 w-28 h-28 bg-blue-400/30 rounded-full blur-3xl animate-pulse" />
-              <div className="absolute bottom-10 right-10 w-36 h-36 bg-purple-400/30 rounded-full blur-3xl animate-pulse [animation-delay:700ms]" />
-            </div>
-
-            
-
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center space-y-2 w-full">
-                <div className="relative w-24 h-24 mx-auto rounded-2xl flex items-center justify-center">
-                  <img 
-                    src="/sleeping-kitty.svg" 
-                    alt="Sleeping kitty" 
-                    width="128" 
-                    height="128"
-                    style={{ filter: '' }}
-                  />
-                  <div className="absolute -inset-5 rounded-2xl bg-gradient-to-r from-blue-500/30 to-purple-500/30 blur-xl opacity-30" />
-                </div>
-                <div className="text-base font-semibold text-white/85">Oops, Agent is still snoozing...</div>
-                <div className="text-sm text-white/55 px-4">
-                  When Agent has new proposals for you, they will appear here for you to compare and review.
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
-    </ModalDialog>
+    </div>
   );
 }
-
-
