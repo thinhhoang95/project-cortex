@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import ShimmeringText from "@/components/ShimmeringText";
 import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 
 interface RankedFlight {
   flight_id: string;
@@ -35,6 +37,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 	const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const MAX_VISIBLE = 20;
+  const [statsOpen, setStatsOpen] = useState(false);
 
 	// Compute seed flight identifiers from regulation targets (stored as callsigns)
 	const seedFlightIds = useMemo(() => {
@@ -152,7 +155,22 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 			? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
 			: "w-full max-h-[40vh] min-h-0 flex-shrink-0 rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col overflow-hidden"}>
 			<div className="flex items-center justify-between p-3 border-b border-white/20 flex-shrink-0">
-				<h3 className="font-semibold text-sm">Flight List ({rows.length})</h3>
+				<div className="flex items-center gap-2">
+					<h3 className="font-semibold text-sm">Flight List ({rows.length})</h3>
+					<button
+						type="button"
+						className="h-6 w-6 p-0 rounded hover:bg-white/10 border border-white/10 text-white/90 flex items-center justify-center"
+						onClick={() => setStatsOpen(true)}
+						aria-label="Open flight statistics"
+						title="Open flight statistics"
+					>
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+							<path d="M16.3891 8.11096L8.61091 15.8891" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+							<path d="M16.3891 8.11096L16.7426 12" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+							<path d="M16.3891 8.11096L12.5 7.75741" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					</button>
+				</div>
 				<span className="text-xs opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
 			</div>
 			<div className={embedded ? "px-3 pb-3 overflow-x-auto" : "px-3 pb-3 flex-1 min-h-0 overflow-y-auto overflow-x-auto"}>
@@ -241,6 +259,15 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                   <p className="text-xs opacity-70 text-center py-4">No flights found for this time window</p>
                 )}
 			</div>
+      {statsOpen && typeof window !== 'undefined' && createPortal(
+        <FlightStatisticsDialog
+          open={statsOpen}
+          onClose={() => setStatsOpen(false)}
+          flightIds={rows.map(r => String(r.flightId))}
+          fullScreen
+        />,
+        document.body
+      )}
 		</div>
 	);
 }

@@ -27,6 +27,7 @@ interface FlightStatisticsDialogProps {
   open: boolean;
   onClose: () => void;
   flightIds: string[];
+  fullScreen?: boolean;
 }
 
 type AirportSlice = {
@@ -88,6 +89,19 @@ type CountsResponse = {
   metadata?: Record<string, any> & { missing_flight_ids?: string[] };
 };
 
+// New integrated response for total vs flight list contribution counts
+type ContribCountsResponse = {
+  time_bin_minutes?: number;
+  timebins?: { labels?: string[]; start_bin?: number; end_bin?: number };
+  total_counts?: Record<string, number[]>;
+  flight_list_counts?: Record<string, number[]>;
+  capacity?: Record<string, number[]>;
+  metadata?: (Record<string, any> & {
+    ranked_tv_ids?: string[];
+    missing_flight_ids?: string[];
+  }) | null;
+};
+
 type TrafficVolumesState = {
   loading: boolean;
   error: string | null;
@@ -99,6 +113,12 @@ type CountsState = {
   loading: boolean;
   error: string | null;
   data: CountsResponse | null;
+};
+
+type ContribCountsState = {
+  loading: boolean;
+  error: string | null;
+  data: ContribCountsResponse | null;
 };
 
 type TvOccupancyRow = {
@@ -175,6 +195,7 @@ const PIE_COLORS = [
 
 const ORIGIN_BAR_COLOR = "#38bdf8";
 const DESTINATION_BAR_COLOR = "#f97316";
+const TV_PAGE_SIZE = 20;
 
 const EMPTY_ANALYSIS: Analysis = {
   selectedFlights: [],
@@ -197,7 +218,7 @@ const EMPTY_ANALYSIS: Analysis = {
   longestFlight: null,
 };
 
-export default function FlightStatisticsDialog({ open, onClose, flightIds }: FlightStatisticsDialogProps) {
+export default function FlightStatisticsDialog({ open, onClose, flightIds, fullScreen = false }: FlightStatisticsDialogProps) {
   const flights = useSimStore(state => state.flights);
 
   const analysis = useMemo<Analysis>(() => {
@@ -383,11 +404,11 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
     ids: [],
     metadata: null,
   });
-  const [overallCountsState, setOverallCountsState] = useState<CountsState>({ loading: false, error: null, data: null });
-  const [flightCountsState, setFlightCountsState] = useState<CountsState>({ loading: false, error: null, data: null });
+  const [contribCountsState, setContribCountsState] = useState<ContribCountsState>({ loading: false, error: null, data: null });
   const [selectedTrafficVolumes, setSelectedTrafficVolumes] = useState<string[]>([]);
   const [rankMode, setRankMode] = useState<"selected_total" | "selected_share" | "exceedance" | "peak_selected" | "total_peak">("selected_total");
   const [rankByParam, setRankByParam] = useState<"total_count" | "total_excess">("total_count");
+  const [visibleTvCount, setVisibleTvCount] = useState<number>(TV_PAGE_SIZE);
 
   const commonTrafficVolumes = useMemo(() => trafficState.ids, [trafficState.ids]);
   const trafficOptions = useMemo<ChipOption[]>(() => commonTrafficVolumes.map(id => ({ id, label: id })), [commonTrafficVolumes]);
@@ -396,8 +417,7 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
     if (!open) return;
     if (selectedFlightIds.length === 0) {
       setTrafficState({ loading: false, error: null, ids: [], metadata: null });
-      setOverallCountsState({ loading: false, error: null, data: null });
-      setFlightCountsState({ loading: false, error: null, data: null });
+      setContribCountsState({ loading: false, error: null, data: null });
       return;
     }
     let cancelled = false;
@@ -450,51 +470,24 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
   useEffect(() => {
     if (!open) return;
     if (selectedFlightIds.length === 0) return;
-    if (commonTrafficVolumes.length === 0) {
-      setOverallCountsState({ loading: false, error: null, data: null });
-      setFlightCountsState({ loading: false, error: null, data: null });
-      return;
-    }
 
     let cancelled = false;
-    const basePayload = {
-      traffic_volume_ids: commonTrafficVolumes,
-      rolling_hour: false,
+
+    const payload: Record<string, any> = {
+      flight_ids: selectedFlightIds,
       rank_by: rankByParam,
+      rolling_hour: true,
     };
+    // Optional focus filter: only include if user selected at least one TV
+    if (selectedTrafficVolumes.length > 0) {
+      payload.traffic_volume_ids = selectedTrafficVolumes;
+    }
 
-    setOverallCountsState(prev => ({ ...prev, loading: true, error: null }));
-    setFlightCountsState(prev => ({ ...prev, loading: true, error: null }));
-
-    (async () => {
-      try {
-        const res = await authFetch("/api/original_counts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(basePayload),
-        });
-        if (cancelled) return;
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || `Failed to fetch original counts (${res.status})`);
-        }
-        const json = await res.json();
-        if (cancelled) return;
-        setOverallCountsState({ loading: false, error: null, data: json as CountsResponse });
-      } catch (err: any) {
-        if (cancelled) return;
-        setOverallCountsState({
-          loading: false,
-          error: err?.message || "Failed to load occupancy totals",
-          data: null,
-        });
-      }
-    })();
+    setContribCountsState(prev => ({ ...prev, loading: true, error: null }));
 
     (async () => {
       try {
-        const payload = { ...basePayload, flight_ids: selectedFlightIds };
-        const res = await authFetch("/api/original_counts", {
+        const res = await authFetch("/api/original_flight_contrib_counts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -502,16 +495,16 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
         if (cancelled) return;
         if (!res.ok) {
           const text = await res.text();
-          throw new Error(text || `Failed to fetch filtered counts (${res.status})`);
+          throw new Error(text || `Failed to fetch contribution counts (${res.status})`);
         }
         const json = await res.json();
         if (cancelled) return;
-        setFlightCountsState({ loading: false, error: null, data: json as CountsResponse });
+        setContribCountsState({ loading: false, error: null, data: json as ContribCountsResponse });
       } catch (err: any) {
         if (cancelled) return;
-        setFlightCountsState({
+        setContribCountsState({
           loading: false,
-          error: err?.message || "Failed to load flight list occupancy",
+          error: err?.message || "Failed to load contribution occupancy",
           data: null,
         });
       }
@@ -520,60 +513,50 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
     return () => {
       cancelled = true;
     };
-  }, [open, selectedFlightIds, commonTrafficVolumes, rankByParam]);
+  }, [open, selectedFlightIds, selectedTrafficVolumes, rankByParam]);
 
-  const countsLoading = trafficState.loading || overallCountsState.loading || flightCountsState.loading;
-  const countsError = overallCountsState.error || flightCountsState.error;
+  const countsLoading = trafficState.loading || contribCountsState.loading;
+  const countsError = contribCountsState.error;
   const missingFlightIds = useMemo(() => (
-    Array.isArray(flightCountsState.data?.metadata?.missing_flight_ids)
-      ? (flightCountsState.data?.metadata?.missing_flight_ids as string[])
+    Array.isArray(contribCountsState.data?.metadata?.missing_flight_ids)
+      ? (contribCountsState.data?.metadata?.missing_flight_ids as string[])
       : []
-  ), [flightCountsState.data?.metadata?.missing_flight_ids]);
+  ), [contribCountsState.data?.metadata?.missing_flight_ids]);
 
   const occupancyComputation = useMemo<TvOccupancyComputation>(() => {
     const list: TvOccupancyCard[] = [];
     const map = new Map<string, TvOccupancyCard>();
-
-    const minutesAll = Number(overallCountsState.data?.time_bin_minutes);
-    const minutesSel = Number(flightCountsState.data?.time_bin_minutes);
-    const baseMinutes = Number.isFinite(minutesAll)
-      ? Number(minutesAll)
-      : Number.isFinite(minutesSel)
-        ? Number(minutesSel)
-        : 15;
-    const minutesPerBin = baseMinutes > 0 ? baseMinutes : 15;
-    const minutesMismatch = Number.isFinite(minutesAll) && Number.isFinite(minutesSel) && minutesAll !== minutesSel;
-    const startBin = Number(overallCountsState.data?.timebins?.start_bin ?? flightCountsState.data?.timebins?.start_bin ?? 0);
-    const labels = overallCountsState.data?.timebins?.labels ?? flightCountsState.data?.timebins?.labels ?? [];
+    const minutesPerBinRaw = Number(contribCountsState.data?.time_bin_minutes);
+    const minutesPerBin = Number.isFinite(minutesPerBinRaw) && minutesPerBinRaw > 0 ? minutesPerBinRaw : 15;
+    const startBin = Number(contribCountsState.data?.timebins?.start_bin ?? 0);
+    const labels = contribCountsState.data?.timebins?.labels ?? [];
     const labelCount = labels.length;
+    const minutesMismatch = false; // single integrated source
 
-    if (commonTrafficVolumes.length === 0) {
+    const totalCounts = contribCountsState.data?.total_counts ?? {};
+    const flightCounts = contribCountsState.data?.flight_list_counts ?? {};
+    const capacityMap = contribCountsState.data?.capacity ?? {};
+
+    const ranked = contribCountsState.data?.metadata?.ranked_tv_ids ?? Object.keys(totalCounts);
+    if (!Array.isArray(ranked) || ranked.length === 0) {
       return { list, map, minutesPerBin, startBin, labelCount, minutesMismatch };
     }
 
-    const countsAll = extractCounts(overallCountsState.data);
-    const countsSelected = extractCounts(flightCountsState.data);
-    const capacityMap = extractCapacities(overallCountsState.data);
-    const binsPerHour = Math.max(1, Math.round(60 / Math.max(1, minutesPerBin)));
-
-    for (const tvId of commonTrafficVolumes) {
-      const totalsRaw = countsAll[tvId] || [];
-      const selectedRaw = countsSelected[tvId] || [];
+    for (const tvId of ranked) {
+      const totalsRaw = totalCounts[tvId] || [];
+      const selectedRaw = flightCounts[tvId] || [];
       const capacityRaw = capacityMap?.[tvId] || [];
       const n = Math.max(labelCount, totalsRaw.length, selectedRaw.length, capacityRaw.length);
       if (n === 0) continue;
 
-      const totalSeries = new Array(n).fill(0).map((_, idx) => safeNumber(totalsRaw[idx]));
-      const selectedSeries = new Array(n).fill(0).map((_, idx) => safeNumber(selectedRaw[idx]));
+      const totalSeries = new Array(n).fill(0).map((_, idx) => clampNonNegative(totalsRaw[idx]));
+      const selectedSeries = new Array(n).fill(0).map((_, idx) => clampNonNegative(selectedRaw[idx]));
       const capacitySeries = new Array(n).fill(null).map((_, idx) => {
         const raw = capacityRaw[idx];
         if (raw === undefined || raw === null) return null;
         const num = Number(raw);
         return Number.isFinite(num) && num >= 0 ? num : null;
       });
-
-      const totalRolling = rollingSum(totalSeries, binsPerHour);
-      const selectedRolling = rollingSum(selectedSeries, binsPerHour);
 
       const rows: TvOccupancyRow[] = [];
       let totalSum = 0;
@@ -583,8 +566,8 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
       let peakSelected = 0;
 
       for (let i = 0; i < n; i++) {
-        const total = clampNonNegative(totalRolling[i]);
-        const selected = Math.min(total, clampNonNegative(selectedRolling[i]));
+        const total = clampNonNegative(totalSeries[i]);
+        const selected = Math.min(total, clampNonNegative(selectedSeries[i]));
         const other = Math.max(0, total - selected);
         const capacity = capacitySeries[i];
         if (capacity !== null) {
@@ -628,7 +611,7 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
     }
 
     return { list, map, minutesPerBin, startBin, labelCount, minutesMismatch };
-  }, [commonTrafficVolumes, overallCountsState.data, flightCountsState.data]);
+  }, [contribCountsState.data]);
 
   const occupancyCards = occupancyComputation.list;
   const occupancyMap = occupancyComputation.map;
@@ -687,6 +670,16 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
     return arr;
   }, [filteredCards, rankMode]);
 
+  // Reset pagination when filters/sort scope changes
+  useEffect(() => {
+    setVisibleTvCount(TV_PAGE_SIZE);
+  }, [selectedTrafficVolumes, rankMode, commonTrafficVolumes]);
+
+  const visibleRankedCards = useMemo(() => {
+    const limit = Math.max(0, Math.min(visibleTvCount, rankedCards.length));
+    return rankedCards.slice(0, limit);
+  }, [rankedCards, visibleTvCount]);
+
   const occupancySummary = useMemo(() => {
     if (rankedCards.length === 0) return null;
     return rankedCards.reduce(
@@ -720,7 +713,14 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
     : 0;
 
   return (
-    <ModalDialog open={open} onClose={onClose} title={title} description="Interactive insights for selected flights">
+    <ModalDialog
+      open={open}
+      onClose={onClose}
+      title={title}
+      description="Interactive insights for selected flights"
+      width={fullScreen ? "w-[calc(100vw-3rem)]" : undefined}
+      height={fullScreen ? "h-[calc(100vh-3rem)]" : undefined}
+    >
       <div className="p-6 space-y-6 text-white">
         {matchedCount === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
@@ -751,7 +751,7 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
               </div>
             )}
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
               {[
                 {
                   label: "Flights analyzed",
@@ -889,7 +889,7 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
                 )}
                 {occupancyMinutesMismatch && (
                   <div className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/40 rounded-lg px-3 py-2">
-                    Warning: bin size mismatch between total counts ({formatNumber(overallCountsState.data?.time_bin_minutes ?? NaN)} min) and filtered counts ({formatNumber(flightCountsState.data?.time_bin_minutes ?? NaN)} min).
+                    Warning: bin size mismatch detected in response.
                   </div>
                 )}
 
@@ -905,8 +905,9 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
                       : "No occupancy data available for the selected filters."}
                   </div>
                 ) : (
+                  <>
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {rankedCards.map(card => (
+                    {visibleRankedCards.map(card => (
                       <div key={`occupancy-${card.tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3">
                         <div className="flex items-start justify-between gap-2 mb-1.5">
                           <div className="text-sm font-semibold text-white truncate" title={card.tvId}>{card.tvId}</div>
@@ -985,6 +986,17 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
                       </div>
                     ))}
                   </div>
+                  {rankedCards.length > visibleRankedCards.length && (
+                    <div className="mt-2 flex justify-center">
+                      <button
+                        onClick={() => setVisibleTvCount(count => Math.min(count + TV_PAGE_SIZE, rankedCards.length))}
+                        className="px-3 py-1.5 text-sm rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white"
+                      >
+                        Show more
+                      </button>
+                    </div>
+                  )}
+                  </>
                 )}
               </div>
             </section>
