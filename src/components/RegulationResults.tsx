@@ -454,7 +454,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
 
   return (
     <>
-      <ModalDialog open={open} onClose={onClose} title="Simulation Results">
+      <ModalDialog open={open} onClose={onClose} title="Simulation Results" description="Post-regulation occupancy, delay stats, and per-flight details">
         <div className="p-6 space-y-6">
         {/* Delay stats */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-4">
@@ -791,6 +791,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
         open={regSnapshotPromptOpen}
         onClose={() => { if (!regSnapshotSaving) setRegSnapshotPromptOpen(false); }}
         title="Save Regulation Snapshot"
+        description="Store occupancy and delay details for side-by-side comparison"
         width="w-[min(520px,95vw)]"
         height="h-auto max-h-[85vh]"
       >

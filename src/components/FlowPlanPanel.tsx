@@ -5,6 +5,7 @@ import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import { loadSectors } from "@/lib/airspace";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import ModalDialog from "./ModalDialog";
 
 type FlowPlanPanelProps = { embedded?: boolean };
 
@@ -362,160 +363,132 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   return (
     <>
       {saveModalOpen && (
-        <div className="fixed inset-0 z-[500]">
-          <div
-            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
-            onClick={closeSaveModal}
-          />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="relative w-full max-w-md rounded-2xl border border-white/15 bg-slate-900/95 text-white shadow-[0_24px_80px_-32px_rgba(59,130,246,0.8)]">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <h2 className="text-lg font-semibold">Save Flow Plan</h2>
-                  <p className="text-xs text-white/60">Store the current Flow Basket locally.</p>
-                </div>
-                <button
-                  onClick={closeSaveModal}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"
-                  aria-label="Close save plan dialog"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-              </div>
-              <div className="space-y-4 px-5 py-5">
-                <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] uppercase tracking-wide text-white/60">Plan label</span>
-                  <input
-                    value={saveLabel}
-                    onChange={(e) => {
-                      setSaveLabel(e.currentTarget.value);
-                      setSaveError(null);
-                    }}
-                    className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                    placeholder="Morning regs for EDDF"
-                  />
-                </label>
-                {saveError && (
-                  <div className="text-[11px] text-red-200">{saveError}</div>
-                )}
-                <div className="text-[12px] text-white/70">
-                  {flowBasket.length} flow{flowBasket.length === 1 ? "" : "s"} • {totalFlights} flight{totalFlights === 1 ? "" : "s"} • {targetCells.length} target cell{targetCells.length === 1 ? "" : "s"}
-                </div>
-                <div className="text-[12px] text-white/60">
-                  Auto ripples: {autoRippleEnabled ? `On (${autoRippleBins} bin${autoRippleBins === 1 ? "" : "s"})` : "Off"}
-                </div>
-                <div className="text-[12px] text-white/50">
-                  Timestamp: {formatDateTime(saveTimestamp ?? Date.now())}
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-3 border-t border-white/10 px-5 py-4">
-                <button
-                  onClick={closeSaveModal}
-                  className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSavePlan}
-                  className="rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
-                >
-                  Save plan
-                </button>
-              </div>
+        <ModalDialog
+          open={saveModalOpen}
+          onClose={closeSaveModal}
+          title="Save Flow Plan"
+          description="Store the current Flow Basket locally."
+          width="w-[min(520px,95vw)]"
+          height="h-auto max-h-[85vh]"
+        >
+          <div className="space-y-4 px-5 py-5">
+            <label className="block text-sm">
+              <span className="mb-1 block text-[11px] uppercase tracking-wide text-white/60">Plan label</span>
+              <input
+                value={saveLabel}
+                onChange={(e) => {
+                  setSaveLabel(e.currentTarget.value);
+                  setSaveError(null);
+                }}
+                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                placeholder="Morning regs for EDDF"
+              />
+            </label>
+            {saveError && (
+              <div className="text-[11px] text-red-200">{saveError}</div>
+            )}
+            <div className="text-[12px] text-white/70">
+              {flowBasket.length} flow{flowBasket.length === 1 ? "" : "s"} • {totalFlights} flight{totalFlights === 1 ? "" : "s"} • {targetCells.length} target cell{targetCells.length === 1 ? "" : "s"}
+            </div>
+            <div className="text-[12px] text-white/60">
+              Auto ripples: {autoRippleEnabled ? `On (${autoRippleBins} bin${autoRippleBins === 1 ? "" : "s"})` : "Off"}
+            </div>
+            <div className="text-[12px] text-white/50">
+              Timestamp: {formatDateTime(saveTimestamp ?? Date.now())}
             </div>
           </div>
-        </div>
+          <div className="flex items-center justify-end gap-3 border-t border-white/10 px-5 py-4">
+            <button
+              onClick={closeSaveModal}
+              className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSavePlan}
+              className="rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
+            >
+              Save plan
+            </button>
+          </div>
+        </ModalDialog>
       )}
       {loadModalOpen && (
-        <div className="fixed inset-0 z-[500]">
-          <div
-            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
-            onClick={closeLoadModal}
-          />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="relative w-full max-w-3xl rounded-2xl border border-white/15 bg-slate-900/95 text-white shadow-[0_24px_80px_-32px_rgba(59,130,246,0.8)]">
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <h2 className="text-lg font-semibold">Load Flow Plan</h2>
-                  <p className="text-xs text-white/60">Pick a saved plan to restore it into the Flow Basket.</p>
-                </div>
-                <button
-                  onClick={closeLoadModal}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"
-                  aria-label="Close load plan dialog"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-              </div>
-              <div className="border-b border-white/10 px-5 py-4">
-                <div className="relative">
-                  <input
-                    value={loadSearch}
-                    onChange={(e) => setLoadSearch(e.currentTarget.value)}
-                    placeholder="Search saved plans..."
-                    className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                  />
-                  <svg
-                    className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" />
-                  </svg>
-                </div>
-              </div>
-              <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-4">
-                {filteredSavedPlans.length === 0 ? (
-                  <div className="text-xs text-white/60">
-                    {savedPlans.length === 0 ? "No plans saved yet. Save a Flow Basket to load it later." : "No saved plans match your search."}
-                  </div>
-                ) : (
-                  filteredSavedPlans.map((plan) => {
-                    const flowCount = plan.data.flowBasket?.length || 0;
-                    const flightCount = (plan.data.flowBasket || []).reduce((sum, flow) => sum + (flow.items?.length || 0), 0);
-                    const targetCount = plan.data.targetCells?.length || 0;
-                    return (
-                      <div key={plan.id} className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
-                        <div className="space-y-1">
-                          <div className="text-sm font-medium text-white">{plan.label}</div>
-                          <div className="text-[11px] text-white/60">Saved {formatDateTime(plan.savedAt)}</div>
-                          <div className="text-[11px] text-white/60">{flowCount} flow{flowCount === 1 ? "" : "s"} • {flightCount} flight{flightCount === 1 ? "" : "s"} • {targetCount} target cell{targetCount === 1 ? "" : "s"}</div>
-                          <div className="text-[11px] text-white/55">
-                            Auto ripples: {plan.data.autoRippleEnabled ? `On (${plan.data.autoRippleBins} bin${plan.data.autoRippleBins === 1 ? "" : "s"})` : "Off"}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleLoadPlan(plan)}
-                            className="rounded-lg border border-indigo-300/40 bg-indigo-500/30 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500/45"
-                          >
-                            Load
-                          </button>
-                          <button
-                            onClick={() => handleDeletePlan(plan)}
-                            className="rounded-lg border border-white/15 bg-white/5 p-2 text-white/70 transition hover:border-red-300/40 hover:bg-red-500/20 hover:text-red-100"
-                            title="Delete saved plan"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              <div className="flex items-center justify-end border-t border-white/10 px-5 py-4">
-                <button
-                  onClick={closeLoadModal}
-                  className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                >
-                  Close
-                </button>
-              </div>
+        <ModalDialog
+          open={loadModalOpen}
+          onClose={closeLoadModal}
+          title="Load Flow Plan"
+          description="Pick a saved plan to restore it into the Flow Basket."
+          width="w-[min(880px,95vw)]"
+          height="h-auto max-h-[85vh]"
+        >
+          <div className="border-b border-white/10 px-5 py-4">
+            <div className="relative">
+              <input
+                value={loadSearch}
+                onChange={(e) => setLoadSearch(e.currentTarget.value)}
+                placeholder="Search saved plans..."
+                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+              />
+              <svg
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" />
+              </svg>
             </div>
           </div>
-        </div>
+          <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-4">
+            {filteredSavedPlans.length === 0 ? (
+              <div className="text-xs text-white/60">
+                {savedPlans.length === 0 ? "No plans saved yet. Save a Flow Basket to load it later." : "No saved plans match your search."}
+              </div>
+            ) : (
+              filteredSavedPlans.map((plan) => {
+                const flowCount = plan.data.flowBasket?.length || 0;
+                const flightCount = (plan.data.flowBasket || []).reduce((sum, flow) => sum + (flow.items?.length || 0), 0);
+                const targetCount = plan.data.targetCells?.length || 0;
+                return (
+                  <div key={plan.id} className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-white">{plan.label}</div>
+                      <div className="text-[11px] text-white/60">Saved {formatDateTime(plan.savedAt)}</div>
+                      <div className="text-[11px] text-white/60">{flowCount} flow{flowCount === 1 ? "" : "s"} • {flightCount} flight{flightCount === 1 ? "" : "s"} • {targetCount} target cell{targetCount === 1 ? "" : "s"}</div>
+                      <div className="text-[11px] text-white/55">
+                        Auto ripples: {plan.data.autoRippleEnabled ? `On (${plan.data.autoRippleBins} bin${plan.data.autoRippleBins === 1 ? "" : "s"})` : "Off"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleLoadPlan(plan)}
+                        className="rounded-lg border border-indigo-300/40 bg-indigo-500/30 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500/45"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => handleDeletePlan(plan)}
+                        className="rounded-lg border border-white/15 bg-white/5 p-2 text-white/70 transition hover:border-red-300/40 hover:bg-red-500/20 hover:text-red-100"
+                        title="Delete saved plan"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <div className="flex items-center justify-end border-t border-white/10 px-5 py-4">
+            <button
+              onClick={closeLoadModal}
+              className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+            >
+              Close
+            </button>
+          </div>
+        </ModalDialog>
       )}
       {isMinimized ? (
         <button

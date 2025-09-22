@@ -1602,11 +1602,11 @@ export default function RegulationComparisonPage() {
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         title="Export snapshots"
+        description="Copy JSON to share or back up your saved regulation results"
         width="w-[min(720px,95vw)]"
         height="h-auto max-h-[80vh]"
       >
         <div className="p-6 space-y-4 text-sm">
-          <p className="text-white/70">Copy the JSON below to share or backup your saved regulation results.</p>
           <textarea
             value={exportText}
             onChange={(e) => setExportText(e.currentTarget.value)}
@@ -1653,11 +1653,11 @@ export default function RegulationComparisonPage() {
         open={importOpen}
         onClose={() => { setImportOpen(false); setImportError(null); }}
         title="Import snapshots"
+        description="Paste JSON exported from this tool; import replaces your current stored snapshots"
         width="w-[min(720px,95vw)]"
         height="h-auto max-h-[80vh]"
       >
         <div className="p-6 space-y-4 text-sm">
-          <p className="text-white/70">Paste snapshot JSON exported from this tool. Import replaces your current stored snapshots.</p>
           <textarea
             value={importText}
             onChange={(e) => setImportText(e.currentTarget.value)}

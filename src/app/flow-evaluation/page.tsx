@@ -1884,6 +1884,7 @@ function FlowEvaluationPageContent() {
         open={snapshotPromptOpen}
         onClose={() => { if (!snapshotSaving) setSnapshotPromptOpen(false); }}
         title="Save Optimized Solution"
+        description="Name this snapshot to compare it alongside other optimized runs"
         width="w-[min(520px,95vw)]"
         height="h-auto max-h-[85vh]"
       >

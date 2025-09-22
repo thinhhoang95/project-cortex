@@ -320,7 +320,7 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds }: Fli
     : 0;
 
   return (
-    <ModalDialog open={open} onClose={onClose} title={title}>
+    <ModalDialog open={open} onClose={onClose} title={title} description="Interactive insights for selected flights">
       <div className="p-6 space-y-6 text-white">
         {matchedCount === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
