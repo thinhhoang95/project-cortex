@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 
@@ -587,7 +588,13 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         {/* Flight List (like AirspaceInfo) */}
         <div className="bg-white/5 rounded-lg p-4">
           <div className="flex justify-between items-center mb-3">
-            <h4 className="font-medium text-sm opacity-90">Flight List ({flightTableData.length} flights)</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="font-medium text-sm opacity-90">Flight List ({flightTableData.length} flights)</h4>
+              <FlightStatisticsButton
+                flightIds={flightTableData.map((flight) => flight.flightId)}
+                buttonClassName="border-white/20 text-white/80"
+              />
+            </div>
             <span className="text-xs bg-blue-500/20 text-blue-200 px-2 py-1 rounded border border-blue-400/30">
               Window: {formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}
             </span>

@@ -5,6 +5,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import HourGlass from "@/components/HourGlass";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 
 // Use Next.js API route to avoid CORS issues
 
@@ -624,7 +625,13 @@ export default function AirspaceInfo() {
           {/* Flight List */}
           <div className="bg-white/5 rounded-lg p-4">
             <div className="flex justify-between items-center mb-3">
-              <h4 className="font-medium text-sm opacity-90">Flight List</h4>
+              <div className="flex items-center gap-2">
+                <h4 className="font-medium text-sm opacity-90">Flight List</h4>
+                <FlightStatisticsButton
+                  flightIds={displayFlightTableData.map((flight) => flight.flightId)}
+                  buttonClassName="border-white/20 text-white/80"
+                />
+              </div>
               {focusMode && (
                 <span className="text-xs bg-blue-500/20 text-blue-200 px-2 py-1 rounded border border-blue-400/30">
                   Focus Mode: {interestWindowLength}

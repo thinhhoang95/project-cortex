@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Buffer } from "buffer";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { loadSectors } from "@/lib/airspace";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import ModalDialog from "./ModalDialog";
@@ -694,6 +695,12 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
               <div className="space-y-3">
                 {flowBasket.map((bf) => {
                   const flowItems = bf.items || [];
+                  const statsFlightIds = flowItems
+                    .map((it) => {
+                      const resolved = resolveByKey(it.key);
+                      return resolved?.flightId ? String(resolved.flightId) : String(it.key);
+                    })
+                    .filter((id) => id && id !== "undefined" && id !== "null");
                   const flowKey = String(bf.id);
                   const expanded = !!expandedFlows[flowKey];
                   const visibleItems = expanded ? flowItems : flowItems.slice(0, MAX_VISIBLE_FLIGHTS);
@@ -735,6 +742,12 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] opacity-70">{bf.items?.length || 0} flights{bf.periodFrom && bf.periodTo ? ` • Period ${bf.periodFrom}–${bf.periodTo}` : ''}</span>
+                          <FlightStatisticsButton
+                            flightIds={statsFlightIds}
+                            buttonClassName="border-white/20 text-white/80"
+                            ariaLabel={`Open flight statistics for ${bf.name || bf.id}`}
+                            title="Open flight statistics"
+                          />
                           <button
                             className="p-1 text-white/80 hover:text-red-200"
                             title="Delete flow"

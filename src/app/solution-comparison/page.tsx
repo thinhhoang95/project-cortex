@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ModalDialog from "@/components/ModalDialog";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import {
   SolutionSnapshot,
   loadSnapshots,
@@ -1185,6 +1186,12 @@ export default function SolutionComparisonPage() {
                       <option value="diff">Sort by diff</option>
                       <option value="callsign">Sort by callsign</option>
                     </select>
+                    <FlightStatisticsButton
+                      flightIds={flightRows.map((row) => row.flightId)}
+                      buttonClassName="border-white/20 text-white/80"
+                      ariaLabel="Open flight statistics for flight comparison"
+                      title="Open flight statistics"
+                    />
                   </>
                 )}
               </div>

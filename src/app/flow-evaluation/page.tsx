@@ -6,6 +6,7 @@ import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "@/components/ModalDialog";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import {
   BaseEvaluationResponse,
   AutomaticRateAdjustmentResponse,
@@ -2530,6 +2531,12 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
         const shown = showAll ? list : list.slice(0, LIMIT);
         const hiddenCount = Math.max(0, list.length - LIMIT);
         const color = colors?.[String(fid)] || '#0f468a';
+        const statsFlightIds = list
+          .map((token) => {
+            const resolved = resolveFlight(String(token));
+            return resolved?.flightId ? String(resolved.flightId) : String(token);
+          })
+          .filter((id) => id && id !== 'undefined' && id !== 'null');
         return (
           <div key={fid} className="text-[12px] text-white/90">
             <div className="flex items-center justify-between mb-2">
@@ -2539,6 +2546,12 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
               </div>
               <div className="flex items-center gap-2 text-[11px] text-white/70">
                 <span>{list.length} flights</span>
+                <FlightStatisticsButton
+                  flightIds={statsFlightIds}
+                  buttonClassName="border-white/20 text-white/80"
+                  ariaLabel={`Open flight statistics for flow ${fid}`}
+                  title="Open flight statistics"
+                />
                 {list.length > 25 && (
                   <button onClick={() => toggle(fid)} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[11px] text-white/80 hover:bg-white/15">
                     {showAll ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}

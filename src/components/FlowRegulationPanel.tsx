@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/auth";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import HourGlass from "@/components/HourGlass";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
 
@@ -325,6 +326,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 const arrivalTimes = (flow.flights || [])
                   .map((fl) => extractTimeFromDateTime(fl.earliest_crossing_time))
                   .filter(Boolean) as string[];
+                const statsFlightIds = (flow.flights || []).map((fl) => String(fl.flight_id)).filter(Boolean);
                 const fromSec = hhmmToSec(fromTime);
                 const toSec = hhmmToSec(toTime);
                 const anyInRange = arrivalTimes.some((s) => {
@@ -332,46 +334,52 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                   return sec >= fromSec && sec <= toSec;
                 });
                 return (
-                <div key={flow.flow_id} className="border border-white/10 rounded-md">
-                  <div
-                    className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
-                    onMouseEnter={() => setFlowPreviewGroupId(String(flow.flow_id))}
-                    onMouseLeave={() => setFlowPreviewGroupId(null)}
-                  >
-                    <div className="flex items-center gap-2 text-xs">
-                      <span
-                        className="inline-block w-3 h-3 rounded-sm"
-                        style={{ backgroundColor: (flowColorByCommunity && (flowColorByCommunity as any)[String(flow.flow_id)]) || '#9ca3af' }}
-                        title={`Flow ${flow.flow_id}`}
-                      />
-                      <span className="opacity-80">Flow {flow.flow_id}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-[10px] opacity-70">
-                        {flow.flights?.length || 0} flights{flow.controlled_volume ? ` • TV ${flow.controlled_volume}` : ''}
+                  <div key={flow.flow_id} className="border border-white/10 rounded-md">
+                    <div
+                      className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
+                      onMouseEnter={() => setFlowPreviewGroupId(String(flow.flow_id))}
+                      onMouseLeave={() => setFlowPreviewGroupId(null)}
+                    >
+                      <div className="flex items-center gap-2 text-xs">
+                        <span
+                          className="inline-block w-3 h-3 rounded-sm"
+                          style={{ backgroundColor: (flowColorByCommunity && (flowColorByCommunity as any)[String(flow.flow_id)]) || '#9ca3af' }}
+                          title={`Flow ${flow.flow_id}`}
+                        />
+                        <span className="opacity-80">Flow {flow.flow_id}</span>
                       </div>
-                      <AddToBasketMenu
-                        flowId={String(flow.flow_id)}
-                        items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
-                        tvs={selectedTVs}
-                        periodFrom={fromTime}
-                        periodTo={toTime}
-                        openId={openAddMenuFor}
-                        setOpenId={setOpenAddMenuFor}
+                      <div className="flex items-center gap-2">
+                        <div className="text-[10px] opacity-70">
+                          {flow.flights?.length || 0} flights{flow.controlled_volume ? ` • TV ${flow.controlled_volume}` : ''}
+                        </div>
+                        <FlightStatisticsButton
+                          flightIds={statsFlightIds}
+                          buttonClassName="border-white/20 text-white/80"
+                          ariaLabel={`Open flight statistics for flow ${flow.flow_id}`}
+                          title="Open flight statistics"
+                        />
+                        <AddToBasketMenu
+                          flowId={String(flow.flow_id)}
+                          items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
+                          tvs={selectedTVs}
+                          periodFrom={fromTime}
+                          periodTo={toTime}
+                          openId={openAddMenuFor}
+                          setOpenId={setOpenAddMenuFor}
+                        />
+                      </div>
+                    </div>
+                    <div className="px-2 pt-2">
+                      <HourGlass
+                        data={arrivalTimes}
+                        range={anyInRange ? [fromTime, toTime] : undefined}
+                        height={12}
+                        className="w-full"
                       />
                     </div>
-                  </div>
-                  <div className="px-2 pt-2">
-                    <HourGlass
-                      data={arrivalTimes}
-                      range={anyInRange ? [fromTime, toTime] : undefined}
-                      height={12}
-                      className="w-full"
-                    />
-                  </div>
-                  <div className="px-2 pb-2">
-                    <div className="rounded-lg border border-white/10 overflow-hidden">
-                      <table className="w-full text-[11px]">
+                    <div className="px-2 pb-2">
+                      <div className="rounded-lg border border-white/10 overflow-hidden">
+                        <table className="w-full text-[11px]">
                         <thead>
                           <tr className="bg-white/10">
                             <th className="text-left p-2 font-semibold">CS</th>

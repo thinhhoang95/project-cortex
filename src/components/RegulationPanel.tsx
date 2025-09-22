@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { authFetch } from "@/lib/auth";
 
 type RegulationPanelProps = { embedded?: boolean };
@@ -562,7 +563,13 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         {/* Selected flights table */}
         <div className="bg-white/5 border border-white/10 rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="font-medium text-sm opacity-90">Targeted Flights ({selectedFlights.length})</div>
+            <div className="flex items-center gap-2">
+              <div className="font-medium text-sm opacity-90">Targeted Flights ({selectedFlights.length})</div>
+              <FlightStatisticsButton
+                flightIds={selectedFlights.map((flight) => flight.flightId)}
+                buttonClassName="border-white/20 text-white/80"
+              />
+            </div>
             {selectedFlights.length > 0 && (
               <button onClick={() => clearRegulationTargetFlights()} className="text-xs px-2 py-1 rounded border border-white/20 hover:bg-white/10">Clear</button>
             )}
@@ -722,47 +729,55 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
     <div className="bg-white/5 border border-white/10 rounded-lg p-3">
       <div className="font-medium text-sm opacity-90 mb-2">Top Communities</div>
       <div className={embedded ? "space-y-3" : "space-y-3 max-h-64 overflow-y-auto no-scrollbar"}>
-        {topGroups.map((g) => (
-          <div key={g.cid} className="border border-white/10 rounded-md">
-            <div
-              className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
-              onMouseEnter={() => setFlowPreviewGroupId(String(g.cid))}
-              onMouseLeave={() => setFlowPreviewGroupId(null)}
-            >
-              <div className="flex items-center gap-2 text-xs">
-                <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorMap.get(g.cid) || '#9ca3af' }} />
-                <span className="opacity-80">Community {g.cid}</span>
+        {topGroups.map((g) => {
+          const statsFlightIds = g.ids.map((fid) => String(fid)).filter(Boolean);
+          return (
+            <div key={g.cid} className="border border-white/10 rounded-md">
+              <div
+                className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
+                onMouseEnter={() => setFlowPreviewGroupId(String(g.cid))}
+                onMouseLeave={() => setFlowPreviewGroupId(null)}
+              >
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorMap.get(g.cid) || '#9ca3af' }} />
+                  <span className="opacity-80">Community {g.cid}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-[10px] opacity-70">{g.size} flights</div>
+                  <FlightStatisticsButton
+                    flightIds={statsFlightIds}
+                    buttonClassName="border-white/20 text-white/80"
+                    ariaLabel={`Open flight statistics for community ${g.cid}`}
+                    title="Open flight statistics"
+                  />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Bulk add this community's flights to the Target Regulation Flight List
+                      const next = new Set<string>(regulationTargetFlightIds);
+                      for (const fid of g.ids || []) {
+                        if (fid) next.add(String(fid));
+                      }
+                      if (!areSetsEqual(next, regulationTargetFlightIds)) setRegulationTargetFlightIds(next);
+                    }}
+                    className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1 text-[11px]"
+                    title="Add this community to Targeted Flights"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+                    <span className="hidden sm:inline">Add</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="text-[10px] opacity-70">{g.size} flights</div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Bulk add this community's flights to the Target Regulation Flight List
-                    const next = new Set<string>(regulationTargetFlightIds);
-                    for (const fid of g.ids || []) {
-                      if (fid) next.add(String(fid));
-                    }
-                    if (!areSetsEqual(next, regulationTargetFlightIds)) setRegulationTargetFlightIds(next);
-                  }}
-                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1 text-[11px]"
-                  title="Add this community to Targeted Flights"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
-                  <span className="hidden sm:inline">Add</span>
-                </button>
+              <div className="px-2 pt-2">
+                <HourGlass
+                  data={g.ids.map((fid) => arrivalTimeById.get(String(fid))).filter(Boolean) as string[]}
+                  range={[formatTime(regulationTimeWindow[0]), formatTime(regulationTimeWindow[1])]}
+                  height={12}
+                />
               </div>
-            </div>
-            <div className="px-2 pt-2">
-              <HourGlass
-                data={g.ids.map((fid) => arrivalTimeById.get(String(fid))).filter(Boolean) as string[]}
-                range={[formatTime(regulationTimeWindow[0]), formatTime(regulationTimeWindow[1])]}
-                height={12}
-              />
-            </div>
-            <div className={embedded ? "" : "max-h-40 overflow-y-auto no-scrollbar"}>
-              <div className="rounded-lg border border-white/10 overflow-hidden">
-                <table className="w-full text-[11px]">
+              <div className={embedded ? "" : "max-h-40 overflow-y-auto no-scrollbar"}>
+                <div className="rounded-lg border border-white/10 overflow-hidden">
+                  <table className="w-full text-[11px]">
                   <thead>
                     <tr className="bg-white/10">
                       <th className="text-left p-2 font-semibold">CS</th>
@@ -792,8 +807,9 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                 </table>
               </div>
             </div>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

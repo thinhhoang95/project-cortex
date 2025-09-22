@@ -6,6 +6,7 @@ import { useSimStore } from "@/components/useSimStore";
 import ModalDialog from "./ModalDialog";
 import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
 import TimeScaleControl from "@/components/TimeScaleControl";
+import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { minutesToHHMM } from "@/lib/time";
 import ShimmeringText from "./ShimmeringText";
 import {
@@ -749,7 +750,13 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
 
         {/* Delay assignment table */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-          <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Delay Assignment</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm uppercase tracking-wider text-gray-300">Delay Assignment</div>
+            <FlightStatisticsButton
+              flightIds={delayRows.map((row) => row.flightId)}
+              buttonClassName="border-white/20 text-white/80"
+            />
+          </div>
           {delayRows.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[900px] whitespace-nowrap">
