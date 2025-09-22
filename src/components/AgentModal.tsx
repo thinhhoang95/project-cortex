@@ -7,6 +7,21 @@ interface AgentModalProps {
   onClose: () => void;
 }
 
+/**
+ * Full-screen modal UI for composing prompts to the MCTS Agent.
+ *
+ * Renders a centered overlay with a prompt textarea, preset hint chips, a Send button,
+ * and a status panel. The component is controlled by the `open` prop; when `open` is false,
+ * it returns `null`.
+ *
+ * The backdrop and the header close button call `onClose`. Typing or selecting a hint updates
+ * the internal prompt text state. The Send button is disabled for empty/whitespace prompts;
+ * its handler currently logs the prompt to the console (TODO: send to agent).
+ *
+ * @param open - Whether the modal is visible.
+ * @param onClose - Callback invoked to close the modal (called on backdrop click and close button).
+ * @returns A JSX element representing the modal when open, otherwise `null`.
+ */
 export default function AgentModal({ open, onClose }: AgentModalProps) {
   const [promptText, setPromptText] = useState('');
 
