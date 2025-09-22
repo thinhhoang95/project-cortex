@@ -110,7 +110,7 @@ export default function TimeScrubberPopover({
         className="absolute pointer-events-auto"
         style={{ top: position.top, left: position.left }}
       >
-        <div className="transform -translate-x-1/2 -translate-y-full -mt-3 px-3 py-2 rounded-xl border border-white/20 bg-slate-900/95 backdrop-blur-md shadow-lg">
+        <div className="transform -translate-x-1/2 -translate-y-full -mt-3 px-3 py-2 rounded-xl border border-white/20 bg-white/[0.04] backdrop-blur-md shadow-lg">
           <div className="flex items-center gap-2">
             <input
               type="range"
