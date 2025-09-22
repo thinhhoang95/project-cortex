@@ -34,3 +34,11 @@ export function parseCompactHMS(s: string): number {
   const S = clamp(Number.isFinite(ss) ? ss : 0, 0, 59);
   return H * 3600 + M * 60 + S;
 }
+
+export function formatSecondsToHHMMSS(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.min(24 * 3600 - 1, Math.floor(totalSeconds)));
+  const hh = Math.floor(seconds / 3600);
+  const mm = Math.floor((seconds % 3600) / 60);
+  const ss = seconds % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}

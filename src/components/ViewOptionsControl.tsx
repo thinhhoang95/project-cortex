@@ -1,8 +1,10 @@
 "use client";
 
-import { useSimStore } from "@/components/useSimStore";
-import { ReactNode, useMemo, useState, useEffect } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import FlightLevelRangeControl from "@/components/FlightLevelRangeControl";
+import TimeScrubberPopover from "@/components/TimeScrubberPopover";
+import { useSimStore } from "@/components/useSimStore";
+import { formatSecondsToHHMMSS } from "@/lib/time";
 
 type ViewOptionsControlProps = {
   embedded?: boolean;
@@ -36,6 +38,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
   const { dow, month, day } = useMemo(() => formatDateParts(date), [date]);
 
   const [showTimeSeeker, setShowTimeSeeker] = useState(false);
+  const timeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [localT, setLocalT] = useState(t);
   // Sync local state if global state changes (e.g., from playback)
@@ -44,6 +47,12 @@ export default function ViewOptionsControl({ embedded = false, className }: View
   }, [t]);
 
   const minimized = embedded ? false : viewOptionsMinimized;
+
+  useEffect(() => {
+    if (minimized) {
+      setShowTimeSeeker(false);
+    }
+  }, [minimized]);
 
   const panelCard = (
     <div
@@ -64,7 +73,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
               onChange={(e) => setT(Number(e.currentTarget.value))}
               className="w-[240px] h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer"
             />
-            <span className="text-xs font-mono">{fmt(t)}</span>
+            <span className="text-xs font-mono">{formatSecondsToHHMMSS(t)}</span>
           </div>
         )}
         {/* Left: Date, Time, Speed */}
@@ -74,37 +83,21 @@ export default function ViewOptionsControl({ embedded = false, className }: View
             <div className="text-xl font-extrabold">{day}</div>
           </div>
           <div className="h-6 w-px bg-white/30" />
-          <div className="relative">
+          <div>
             <button
+              ref={timeButtonRef}
               type="button"
               className="leading-tight text-left"
-              onClick={() => setShowTimeSeeker(v => !v)}
+              onClick={() => setShowTimeSeeker((v) => !v)}
               aria-expanded={showTimeSeeker}
+              aria-haspopup="dialog"
               title="Click to toggle time seeker"
             >
               <div className="text-[10px] tracking-wider uppercase opacity-70">Operation Time</div>
               <div className="text-xl font-bold tabular-nums">
-                {fmt(t)} <span className="text-xs opacity-70 ml-1">UTC</span>
+                {formatSecondsToHHMMSS(t)} <span className="text-xs opacity-70 ml-1">UTC</span>
               </div>
             </button>
-            {showTimeSeeker && (
-              <div className="absolute left-1/2 -translate-x-1/2 -top-12 z-50 px-3 py-2 rounded-xl border border-white/20 bg-slate-900/95 backdrop-blur-md shadow-lg">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={24 * 3600 - 1}
-                    step={60}
-                    value={Math.floor(localT)}
-                    onChange={(e) => setLocalT(Number(e.currentTarget.value))}
-                    onMouseUp={() => setT(localT)}
-                    onTouchEnd={() => setT(localT)}
-                    className="w-[280px] h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <span className="text-xs font-mono">{fmt(localT)}</span>
-                </div>
-              </div>
-            )}
           </div>
           <div className="h-6 w-px bg-white/30" />
           <div className="flex items-center gap-2">
@@ -217,12 +210,31 @@ export default function ViewOptionsControl({ embedded = false, className }: View
     </div>
   );
 
+  const timeScrubberPopover = (
+    <TimeScrubberPopover
+      anchor={timeButtonRef.current}
+      open={showTimeSeeker}
+      value={localT}
+      onChange={setLocalT}
+      onCommit={(nextValue) => {
+        setLocalT(nextValue);
+        setT(nextValue);
+      }}
+    />
+  );
+
   if (embedded) {
-    return panelCard;
+    return (
+      <>
+        {panelCard}
+        {timeScrubberPopover}
+      </>
+    );
   }
 
   return (
     <>
+      {timeScrubberPopover}
       <div className="fixed left-1/2 bottom-0 -translate-x-1/2 z-40 pointer-events-none">
         <div
           className={`transform transition-all duration-300 ease-in-out ${
@@ -288,13 +300,6 @@ function IconToggle({ title, active, onClick, children }: { title: string; activ
       {children}
     </button>
   );
-}
-
-function fmt(sec: number) {
-  const h = Math.floor(sec / 3600).toString().padStart(2, "0");
-  const m = Math.floor((sec % 3600) / 60).toString().padStart(2, "0");
-  const s = Math.floor(sec % 60).toString().padStart(2, "0");
-  return `${h}:${m}:${s}`;
 }
 
 function formatDateParts(dateStr: string) {
