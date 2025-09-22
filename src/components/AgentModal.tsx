@@ -36,12 +36,10 @@ export default function AgentModal({ open, onClose }: AgentModalProps) {
               <div className="relative px-8 py-10 sm:px-12 sm:py-12">
                 <div className="flex items-start justify-between gap-6">
                   <div className="space-y-3 max-w-2xl">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.35em] text-white/60">
-                      MCTS Agent
-                    </div>
-                    <h2 className="text-3xl font-semibold text-white">Strategize your next regulation plan</h2>
+                    
+                    <h2 className="text-3xl font-semibold text-white">MCTS Agent</h2>
                     <p className="text-sm text-white/60 leading-relaxed">
-                      Describe your goals and constraints for the agent. You can include time windows, traffic volume IDs, and
+                      You can include time windows, traffic volume IDs, and
                       simulation budgets to guide the proposals.
                     </p>
                   </div>
@@ -91,7 +89,7 @@ export default function AgentModal({ open, onClose }: AgentModalProps) {
                     </div>
 
                     <div className="relative">
-                      <div className="overflow-x-auto pr-10 -mr-10">
+                      <div className="overflow-x-hidden pr-10">
                         <div className="flex min-w-max gap-3">
                           {promptHints.map((hint) => (
                             <button
@@ -108,29 +106,11 @@ export default function AgentModal({ open, onClose }: AgentModalProps) {
                       <div className="pointer-events-none absolute right-0 top-0 h-full w-20 bg-gradient-to-l from-slate-950 via-slate-950/60 to-transparent" />
                     </div>
 
-                    <div className="inline-flex max-w-md items-center gap-2 rounded-[16px] border border-white/10 bg-white/[0.05] px-4 py-2 text-xs leading-relaxed text-white/65 shadow-inner shadow-black/20">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="text-white/50"
-                      >
-                        <rect x="3" y="3" width="18" height="18" rx="4" />
-                        <path d="M8 9h8" />
-                        <path d="M8 13h6" />
-                      </svg>
-                      <span>Agent&apos;s proposals will appear here for you to compare and review.</span>
-                    </div>
                   </div>
 
                   <div className="relative">
                     <div
-                      className="relative flex min-h-[420px] items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] px-8 py-12 text-center backdrop-blur-2xl shadow-[0_20px_60px_-30px_rgba(59,130,246,0.8)]"
+                      className="relative flex min-h-[370px] items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] px-8 py-12 text-center backdrop-blur-2xl shadow-[0_20px_60px_-30px_rgba(59,130,246,0.8)]"
                       style={{
                         backgroundImage:
                           'radial-gradient(800px 400px at -10% -10%, rgba(59,130,246,0.18), transparent), radial-gradient(700px 500px at 110% 120%, rgba(168,85,247,0.18), transparent)',
