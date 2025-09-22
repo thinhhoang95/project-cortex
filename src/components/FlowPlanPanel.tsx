@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Buffer } from "buffer";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
@@ -10,6 +9,23 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 type FlowPlanPanelProps = { embedded?: boolean };
 
 const MAX_VISIBLE_FLIGHTS = 3;
+
+type FlowBasketState = ReturnType<typeof useSimStore.getState>["flowBasket"];
+type TargetCellsState = ReturnType<typeof useSimStore.getState>["targetCells"];
+
+type SavedFlowPlan = {
+  id: string;
+  label: string;
+  savedAt: number;
+  data: {
+    flowBasket: FlowBasketState;
+    targetCells: TargetCellsState;
+    autoRippleEnabled: boolean;
+    autoRippleBins: number;
+  };
+};
+
+const FLOW_PLAN_STORAGE_KEY = "flow-plan-saves";
 
 export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) {
   const {
@@ -37,6 +53,13 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const [autoRippleEnabled, setAutoRippleEnabled] = useState(false);
   const [autoRippleBins, setAutoRippleBins] = useState<number>(2);
   const [expandedFlows, setExpandedFlows] = useState<Record<string, boolean>>({});
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [loadModalOpen, setLoadModalOpen] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveTimestamp, setSaveTimestamp] = useState<number | null>(null);
+  const [loadSearch, setLoadSearch] = useState("");
+  const [savedPlans, setSavedPlans] = useState<SavedFlowPlan[]>([]);
 
   // Target Cells: local search + time prompt state
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
@@ -74,7 +97,11 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowPreviewFlightId(null);
   };
   const totalFlights = useMemo(() => flowBasket.reduce((sum, f) => sum + (f.items?.length || 0), 0), [flowBasket]);
-  const router = useRouter();
+  const filteredSavedPlans = useMemo(() => {
+    const query = loadSearch.trim().toLowerCase();
+    if (!query) return savedPlans;
+    return savedPlans.filter((plan) => plan.label.toLowerCase().includes(query));
+  }, [savedPlans, loadSearch]);
 
   // Build request body for Flow Impact Evaluation
   const buildBaselinePayload = () => {
@@ -172,6 +199,30 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    setSavedPlans(loadSavedPlansFromStorage());
+  }, []);
+
+  useEffect(() => {
+    if (saveModalOpen) {
+      const now = Date.now();
+      setSaveTimestamp(now);
+      setSaveError(null);
+      setSaveLabel((prev) => {
+        if (prev.trim()) return prev;
+        return `Plan ${formatDateTime(now)}`;
+      });
+    } else {
+      setSaveTimestamp(null);
+    }
+  }, [saveModalOpen]);
+
+  useEffect(() => {
+    if (loadModalOpen) {
+      setLoadSearch("");
+    }
+  }, [loadModalOpen]);
+
   // Filter TV search results
   const filteredTVs = useMemo(() => {
     const q = tvSearchQuery.trim().toLowerCase();
@@ -201,6 +252,89 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setTvSearchQuery("");
   };
 
+  const closeSaveModal = () => {
+    setSaveModalOpen(false);
+    setSaveError(null);
+    setSaveLabel("");
+  };
+
+  const closeLoadModal = () => {
+    setLoadModalOpen(false);
+    setLoadSearch("");
+  };
+
+  const handleSavePlan = () => {
+    setSaveError(null);
+    const trimmed = saveLabel.trim();
+    if (!trimmed) {
+      setSaveError("Label is required");
+      return;
+    }
+    const now = Date.now();
+    const planData = {
+      flowBasket: deepCopy(flowBasket),
+      targetCells: deepCopy(targetCells),
+      autoRippleEnabled,
+      autoRippleBins,
+    };
+    const existingIndex = savedPlans.findIndex((plan) => plan.label.toLowerCase() === trimmed.toLowerCase());
+    let nextPlans: SavedFlowPlan[];
+    if (existingIndex >= 0) {
+      const existing = savedPlans[existingIndex];
+      nextPlans = savedPlans.slice();
+      nextPlans[existingIndex] = {
+        ...existing,
+        label: trimmed,
+        savedAt: now,
+        data: planData,
+      };
+    } else {
+      const newPlan: SavedFlowPlan = {
+        id: `plan-${now}-${Math.floor(Math.random() * 1000)}`,
+        label: trimmed,
+        savedAt: now,
+        data: planData,
+      };
+      nextPlans = [...savedPlans, newPlan];
+    }
+    const sortedPlans = nextPlans.slice().sort((a, b) => b.savedAt - a.savedAt);
+    if (!persistSavedPlans(sortedPlans)) {
+      setSaveError("Failed to save plan to local storage. Check your browser settings.");
+      return;
+    }
+    setSavedPlans(sortedPlans);
+    closeSaveModal();
+  };
+
+  const handleLoadPlan = (plan: SavedFlowPlan) => {
+    try {
+      restoreFlowPreview();
+      const clonedFlows = deepCopy(plan.data.flowBasket || []);
+      const clonedTargets = deepCopy(plan.data.targetCells || []);
+      useSimStore.setState({
+        flowBasket: clonedFlows,
+        targetCells: clonedTargets,
+      });
+      const bins = Number(plan.data.autoRippleBins);
+      setAutoRippleBins(Number.isFinite(bins) && bins >= 1 ? Math.floor(bins) : 2);
+      setAutoRippleEnabled(!!plan.data.autoRippleEnabled);
+      setExpandedFlows({});
+      closeLoadModal();
+    } catch (err) {
+      console.warn("Failed to load saved flow plan", err);
+    }
+  };
+
+  const handleDeletePlan = (plan: SavedFlowPlan) => {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Delete saved plan "${plan.label}"?`);
+      if (!confirmed) return;
+    }
+    const next = savedPlans.filter((p) => p.id !== plan.id);
+    if (!persistSavedPlans(next)) return;
+    setSavedPlans(next);
+  };
+
   // Keep mapping in sync if basket changes while view is active
   useEffect(() => {
     if (!basketView) return;
@@ -227,6 +361,162 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
 
   return (
     <>
+      {saveModalOpen && (
+        <div className="fixed inset-0 z-[500]">
+          <div
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            onClick={closeSaveModal}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="relative w-full max-w-md rounded-2xl border border-white/15 bg-slate-900/95 text-white shadow-[0_24px_80px_-32px_rgba(59,130,246,0.8)]">
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Save Flow Plan</h2>
+                  <p className="text-xs text-white/60">Store the current Flow Basket locally.</p>
+                </div>
+                <button
+                  onClick={closeSaveModal}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"
+                  aria-label="Close save plan dialog"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              </div>
+              <div className="space-y-4 px-5 py-5">
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[11px] uppercase tracking-wide text-white/60">Plan label</span>
+                  <input
+                    value={saveLabel}
+                    onChange={(e) => {
+                      setSaveLabel(e.currentTarget.value);
+                      setSaveError(null);
+                    }}
+                    className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                    placeholder="Morning regs for EDDF"
+                  />
+                </label>
+                {saveError && (
+                  <div className="text-[11px] text-red-200">{saveError}</div>
+                )}
+                <div className="text-[12px] text-white/70">
+                  {flowBasket.length} flow{flowBasket.length === 1 ? "" : "s"} • {totalFlights} flight{totalFlights === 1 ? "" : "s"} • {targetCells.length} target cell{targetCells.length === 1 ? "" : "s"}
+                </div>
+                <div className="text-[12px] text-white/60">
+                  Auto ripples: {autoRippleEnabled ? `On (${autoRippleBins} bin${autoRippleBins === 1 ? "" : "s"})` : "Off"}
+                </div>
+                <div className="text-[12px] text-white/50">
+                  Timestamp: {formatDateTime(saveTimestamp ?? Date.now())}
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-3 border-t border-white/10 px-5 py-4">
+                <button
+                  onClick={closeSaveModal}
+                  className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSavePlan}
+                  className="rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
+                >
+                  Save plan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {loadModalOpen && (
+        <div className="fixed inset-0 z-[500]">
+          <div
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            onClick={closeLoadModal}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="relative w-full max-w-3xl rounded-2xl border border-white/15 bg-slate-900/95 text-white shadow-[0_24px_80px_-32px_rgba(59,130,246,0.8)]">
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Load Flow Plan</h2>
+                  <p className="text-xs text-white/60">Pick a saved plan to restore it into the Flow Basket.</p>
+                </div>
+                <button
+                  onClick={closeLoadModal}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"
+                  aria-label="Close load plan dialog"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              </div>
+              <div className="border-b border-white/10 px-5 py-4">
+                <div className="relative">
+                  <input
+                    value={loadSearch}
+                    onChange={(e) => setLoadSearch(e.currentTarget.value)}
+                    placeholder="Search saved plans..."
+                    className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                  />
+                  <svg
+                    className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" />
+                  </svg>
+                </div>
+              </div>
+              <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-4">
+                {filteredSavedPlans.length === 0 ? (
+                  <div className="text-xs text-white/60">
+                    {savedPlans.length === 0 ? "No plans saved yet. Save a Flow Basket to load it later." : "No saved plans match your search."}
+                  </div>
+                ) : (
+                  filteredSavedPlans.map((plan) => {
+                    const flowCount = plan.data.flowBasket?.length || 0;
+                    const flightCount = (plan.data.flowBasket || []).reduce((sum, flow) => sum + (flow.items?.length || 0), 0);
+                    const targetCount = plan.data.targetCells?.length || 0;
+                    return (
+                      <div key={plan.id} className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
+                        <div className="space-y-1">
+                          <div className="text-sm font-medium text-white">{plan.label}</div>
+                          <div className="text-[11px] text-white/60">Saved {formatDateTime(plan.savedAt)}</div>
+                          <div className="text-[11px] text-white/60">{flowCount} flow{flowCount === 1 ? "" : "s"} • {flightCount} flight{flightCount === 1 ? "" : "s"} • {targetCount} target cell{targetCount === 1 ? "" : "s"}</div>
+                          <div className="text-[11px] text-white/55">
+                            Auto ripples: {plan.data.autoRippleEnabled ? `On (${plan.data.autoRippleBins} bin${plan.data.autoRippleBins === 1 ? "" : "s"})` : "Off"}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleLoadPlan(plan)}
+                            className="rounded-lg border border-indigo-300/40 bg-indigo-500/30 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500/45"
+                          >
+                            Load
+                          </button>
+                          <button
+                            onClick={() => handleDeletePlan(plan)}
+                            className="rounded-lg border border-white/15 bg-white/5 p-2 text-white/70 transition hover:border-red-300/40 hover:bg-red-500/20 hover:text-red-100"
+                            title="Delete saved plan"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="flex items-center justify-end border-t border-white/10 px-5 py-4">
+                <button
+                  onClick={closeLoadModal}
+                  className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isMinimized ? (
         <button
           onClick={() => setIsMinimized(false)}
@@ -398,6 +688,30 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
                 New flow
               </button>
+            </div>
+
+            {/* Save / Load Plans */}
+            <div className="flex items-center justify-between">
+              <div className="text-sm opacity-80">
+                Saved plans
+                <span className="ml-2 text-[11px] opacity-60">({savedPlans.length})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setLoadModalOpen(true)}
+                  className="px-2 py-1 rounded-lg border border-white/20 bg-white/10 text-white text-xs shadow hover:bg-white/15"
+                  title="Load a saved flow plan"
+                >
+                  Load plan
+                </button>
+                <button
+                  onClick={() => setSaveModalOpen(true)}
+                  className="px-2 py-1 rounded-lg border border-indigo-300/40 bg-indigo-500/30 text-white text-xs shadow hover:bg-indigo-500/40"
+                  title="Save the current flow basket"
+                >
+                  Save plan
+                </button>
+              </div>
             </div>
 
             {/* Flow Basket */}
@@ -713,4 +1027,83 @@ function minutesToHHMM(mins: number): string {
   const hh = Math.floor(m / 60);
   const mm = m % 60;
   return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+
+function formatDateTime(ts: number): string {
+  if (!Number.isFinite(ts)) return "—";
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return "—";
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  } catch {
+    return date.toLocaleString();
+  }
+}
+
+function loadSavedPlansFromStorage(): SavedFlowPlan[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(FLOW_PLAN_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const normalized = parsed
+      .map((plan: any): SavedFlowPlan | null => {
+        if (!plan || typeof plan !== "object") return null;
+        const id = typeof plan.id === "string" ? plan.id : `plan-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+        const label = typeof plan.label === "string" && plan.label.trim() ? plan.label : "Untitled plan";
+        const savedAt = typeof plan.savedAt === "number" ? plan.savedAt : Date.now();
+        const data = plan.data && typeof plan.data === "object" ? plan.data : {};
+        const flowBasketRaw = Array.isArray(data.flowBasket) ? data.flowBasket : [];
+        const targetCellsRaw = Array.isArray(data.targetCells) ? data.targetCells : [];
+        const flowBasket = flowBasketRaw.map((flow: any) => ({
+          ...flow,
+          items: Array.isArray(flow?.items) ? flow.items.map((it: any) => ({ ...it })) : [],
+        }));
+        const targetCells = targetCellsRaw.map((cell: any) => ({ ...cell }));
+        const autoRippleEnabled = !!data.autoRippleEnabled;
+        const binsRaw = Number(data.autoRippleBins);
+        const autoRippleBins = Number.isFinite(binsRaw) && binsRaw >= 1 ? Math.floor(binsRaw) : 2;
+        return {
+          id,
+          label,
+          savedAt,
+          data: {
+            flowBasket: flowBasket as FlowBasketState,
+            targetCells: targetCells as TargetCellsState,
+            autoRippleEnabled,
+            autoRippleBins,
+          },
+        };
+      })
+      .filter((plan): plan is SavedFlowPlan => !!plan);
+    return normalized.sort((a, b) => b.savedAt - a.savedAt);
+  } catch (err) {
+    console.warn("Failed to load saved flow plans", err);
+    return [];
+  }
+}
+
+function persistSavedPlans(plans: SavedFlowPlan[]): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(FLOW_PLAN_STORAGE_KEY, JSON.stringify(plans));
+    return true;
+  } catch (err) {
+    console.warn("Failed to persist saved flow plans", err);
+    return false;
+  }
+}
+
+function deepCopy<T>(value: T): T {
+  try {
+    const maybeClone = (globalThis as any).structuredClone;
+    if (typeof maybeClone === "function") {
+      return maybeClone(value);
+    }
+  } catch {
+    // ignore and fall back
+  }
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value)) as T;
 }
