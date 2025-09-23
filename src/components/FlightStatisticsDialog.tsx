@@ -406,8 +406,12 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds, fullS
   });
   const [contribCountsState, setContribCountsState] = useState<ContribCountsState>({ loading: false, error: null, data: null });
   const [selectedTrafficVolumes, setSelectedTrafficVolumes] = useState<string[]>([]);
-  const [rankMode, setRankMode] = useState<"selected_total" | "selected_share" | "exceedance" | "peak_selected" | "total_peak">("selected_total");
-  const [rankByParam, setRankByParam] = useState<"total_count" | "total_excess">("total_count");
+  const [rankMode, setRankMode] = useState<
+    "flight_list_count" | "flight_list_relative" | "exceedance" | "peak_selected" | "total_peak"
+  >("flight_list_count");
+  const [rankByParam, setRankByParam] = useState<
+    "total_count" | "total_excess" | "flight_list_count" | "flight_list_relative"
+  >("total_count");
   const [visibleTvCount, setVisibleTvCount] = useState<number>(TV_PAGE_SIZE);
 
   const commonTrafficVolumes = useMemo(() => trafficState.ids, [trafficState.ids]);
@@ -637,7 +641,7 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds, fullS
       const am = a.metrics;
       const bm = b.metrics;
       switch (rankMode) {
-        case "selected_share": {
+        case "flight_list_relative": {
           if (bm.share !== am.share) return bm.share - am.share;
           if (bm.selectedSum !== am.selectedSum) return bm.selectedSum - am.selectedSum;
           break;
@@ -657,7 +661,7 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds, fullS
           if (bm.totalSum !== am.totalSum) return bm.totalSum - am.totalSum;
           break;
         }
-        case "selected_total":
+        case "flight_list_count":
         default: {
           if (bm.selectedSum !== am.selectedSum) return bm.selectedSum - am.selectedSum;
           if (bm.share !== am.share) return bm.share - am.share;
@@ -852,8 +856,8 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds, fullS
                       onChange={(e) => setRankMode(e.currentTarget.value as typeof rankMode)}
                       className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white/90 focus:outline-none"
                     >
-                      <option value="selected_total">Flight list total</option>
-                      <option value="selected_share">Flight list share</option>
+                      <option value="flight_list_count">Flight list count</option>
+                      <option value="flight_list_relative">Flight list relative share</option>
                       <option value="peak_selected">Flight list peak</option>
                       <option value="total_peak">Total peak</option>
                       <option value="exceedance">Capacity exceedance</option>
@@ -868,6 +872,8 @@ export default function FlightStatisticsDialog({ open, onClose, flightIds, fullS
                     >
                       <option value="total_count">Total count</option>
                       <option value="total_excess">Total excess</option>
+                      <option value="flight_list_count">Flight list count</option>
+                      <option value="flight_list_relative">Flight list relative share</option>
                     </select>
                   </div>
                 </div>
