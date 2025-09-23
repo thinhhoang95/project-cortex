@@ -509,7 +509,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
           <TimeScaleControl
             time_from={viewFrom}
             time_to={viewTo}
-            onChange={(f, t) => { setViewFrom(f); setViewTo(t); }}
+            onCommit={(f, t) => { setViewFrom(f); setViewTo(t); }}
             className="mb-3"
           />
           {(() => {
