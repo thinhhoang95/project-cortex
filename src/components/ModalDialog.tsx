@@ -1,4 +1,6 @@
+"use client";
 import React from "react";
+import { createPortal } from "react-dom";
 
 interface ModalDialogProps {
   open: boolean;
@@ -20,8 +22,7 @@ export default function ModalDialog({
   height = "h-[min(860px,92vh)]",
 }: ModalDialogProps) {
   if (!open) return null;
-
-  return (
+  const content = (
     <div className="fixed inset-0 z-[9999]">
       <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-6">
@@ -50,4 +51,7 @@ export default function ModalDialog({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }
