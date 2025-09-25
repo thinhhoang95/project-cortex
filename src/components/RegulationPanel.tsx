@@ -48,6 +48,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setFlowThreshold,
     setFlowResolution,
     setFlowCommunities,
+    setFlowColorByCommunity,
     setFlowLoading,
     setFlowError,
     setFlowPreviewFlightId,
@@ -241,6 +242,21 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   useEffect(() => {
     setRegulationPreviewActive(showTargetedOnly);
   }, [showTargetedOnly, setRegulationPreviewActive]);
+
+  useEffect(() => {
+    if (selectedTrafficVolume) return;
+    setShowOnlyTargeted(false);
+    setRegulationPreviewActive(false);
+    clearRegulationTargetFlights();
+    setFocusFlightIds(new Set());
+    setFocusMode(false);
+    setFlowViewEnabled(false);
+    setFlowCommunities(null, null);
+    setFlowColorByCommunity(null);
+    setFlowError(null);
+    setFlowPreviewFlightId(null);
+    setFlowPreviewGroupId(null);
+  }, [selectedTrafficVolume, setRegulationPreviewActive, clearRegulationTargetFlights, setFocusFlightIds, setFocusMode, setFlowViewEnabled, setFlowCommunities, setFlowColorByCommunity, setFlowError, setFlowPreviewFlightId, setFlowPreviewGroupId]);
 
   const toggleSeeOnlyTargeted = () => {
     if (!hasTargetedFlights) return;
@@ -460,9 +476,14 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             // Ensure Flow View is deactivated when panel closes
             setFlowViewEnabled(false);
             setFlowCommunities(null, null);
+            setFlowColorByCommunity(null);
             setFlowError(null);
             setFlowPreviewFlightId(null);
             setFlowPreviewGroupId(null);
+            clearRegulationTargetFlights();
+            setShowOnlyTargeted(false);
+            setRegulationPreviewActive(false);
+            setFlowColorByCommunity(null);
             window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
           }}
           className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
@@ -509,6 +530,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                 if (flowViewEnabled) {
                   setFlowViewEnabled(false);
                   setFlowCommunities(null, null);
+                  setFlowColorByCommunity(null);
                   setFlowError(null);
                   setFlowPreviewGroupId(null);
                   setFlowPreviewFlightId(null);
@@ -772,6 +794,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           }
           setMagicSearchOpen(false);
         }}
+        fullScreen
       />
     </div>
   );

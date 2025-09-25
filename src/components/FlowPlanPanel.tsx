@@ -713,7 +713,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     hoverOrigCommunitiesRef.current = st.flowCommunities;
                     hoverOrigGroupsRef.current = st.flowGroups;
                     hoverOrigEnabledRef.current = st.flowViewEnabled;
-                    hoverOrigColorsRef.current = st.flowColorByCommunity;
+    hoverOrigColorsRef.current = st.flowColorByCommunity;
                     // Build temp mapping for this basket flow
                     const ids = flowItems
                       .map(it => resolveByKey(it.key)?.flightId)

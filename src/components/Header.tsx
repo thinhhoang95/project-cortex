@@ -20,6 +20,7 @@ export default function Header() {
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
   const [showAgent, setShowAgent] = useState(false);
   const [showFlightQuery, setShowFlightQuery] = useState(false);
+const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
   
   const router = useRouter();
   const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout, user } = useSimStore();
@@ -207,6 +208,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => {
+                setFlightQueryInitialPrompt(searchQuery);
                 setShowFlightQuery(true);
                 setShowSearchResults(false);
               }}
@@ -362,7 +364,12 @@ export default function Header() {
       </div>
     </header>
     <AgentModal open={showAgent} onClose={() => setShowAgent(false)} />
-    <FlightQueryDialog open={showFlightQuery} onClose={() => setShowFlightQuery(false)} />
+    <FlightQueryDialog
+      open={showFlightQuery}
+      onClose={() => setShowFlightQuery(false)}
+      initialPrompt={flightQueryInitialPrompt}
+      fullScreen
+    />
     </>
   );
 }
