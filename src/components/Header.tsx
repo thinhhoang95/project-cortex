@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
 import AgentModal from '@/components/AgentModal';
+import FlightQueryDialog from '@/components/FlightQueryDialog';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -18,6 +19,7 @@ export default function Header() {
   const [searchResults, setSearchResults] = useState<Array<{id: string, type: 'flight' | 'traffic_volume', flight?: any, trafficVolume?: any}>>([]);
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
   const [showAgent, setShowAgent] = useState(false);
+  const [showFlightQuery, setShowFlightQuery] = useState(false);
   
   const router = useRouter();
   const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout, user } = useSimStore();
@@ -200,8 +202,31 @@ export default function Header() {
               onKeyPress={handleSearchKeyPress}
               onBlur={handleSearchBlur}
               onFocus={() => searchQuery && setShowSearchResults(true)}
-              className="w-80 px-4 py-2 glass-input backdrop-blur-sm rounded-full focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-[var(--panel-bg-muted)] transition-all"
+              className="w-80 pl-4 pr-14 py-2 glass-input backdrop-blur-sm rounded-full focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-[var(--panel-bg-muted)] transition-all"
             />
+            <button
+              type="button"
+              onClick={() => {
+                setShowFlightQuery(true);
+                setShowSearchResults(false);
+              }}
+              className="absolute right-10 top-1/2 flex -translate-y-1/2 items-center justify-center text-[var(--panel-text-muted)] hover:text-white focus:text-white focus:outline-none"
+              aria-label="Open flight query"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M7 17 17 7" />
+                <path d="M7 7h10v10" />
+              </svg>
+            </button>
             <svg
               className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--panel-text-muted)]"
               fill="none"
@@ -337,6 +362,7 @@ export default function Header() {
       </div>
     </header>
     <AgentModal open={showAgent} onClose={() => setShowAgent(false)} />
+    <FlightQueryDialog open={showFlightQuery} onClose={() => setShowFlightQuery(false)} />
     </>
   );
 }

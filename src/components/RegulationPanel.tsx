@@ -4,6 +4,7 @@ import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Toolti
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import FlightQueryDialog from "@/components/FlightQueryDialog";
 import { authFetch } from "@/lib/auth";
 
 type RegulationPanelProps = { embedded?: boolean };
@@ -61,7 +62,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<Record<string, string[]> | null>(null);
   const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
   const [flightListLoading, setFlightListLoading] = useState(false);
-  const [flightListError, setFlightListError] = useState<string | null>(null);
+  const [magicSearchOpen, setMagicSearchOpen] = useState(false);
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -104,7 +105,6 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     async function loadFlights() {
       if (!selectedTrafficVolume) { setFlightIdentifiersData(null); setOrderedFlightsData(null); return; }
       setFlightListLoading(true);
-      setFlightListError(null);
       try {
         const ref = formatTimeForAPI(t);
         const res = await authFetch(`/api/tv_flights?traffic_volume_id=${selectedTrafficVolume}&ref_time_str=${ref}`);
@@ -119,9 +119,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           setOrderedFlightsData(null);
         }
       } catch (e: any) {
-        if (!cancelled) setFlightListError(e?.message || 'Failed to fetch flight identifiers');
-        setFlightIdentifiersData(null);
-        setOrderedFlightsData(null);
+        if (!cancelled) { setFlightIdentifiersData(null); setOrderedFlightsData(null); }
       } finally {
         if (!cancelled) setFlightListLoading(false);
       }
@@ -545,18 +543,45 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           <div className="flex items-center justify-between mb-2">
             <div className="font-medium text-sm opacity-90">Predicate Syntax or Flight List</div>
           </div>
-          <div className="relative">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleEnter(); }}
-              placeholder="Enter callsign or flight id, then press Enter"
-              className="w-full px-4 py-2 pr-8 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
-            />
-            <button onClick={handleEnter} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/></svg>
-            </button>
+          <div className="relative flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleEnter(); }}
+                placeholder="Enter callsign or flight id, then press Enter"
+                className="w-full px-4 py-2 pr-16 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
+              />
+              <div className="absolute inset-y-0 right-2 flex items-center gap-2">
+                <button
+                  onClick={handleEnter}
+                  className="text-gray-300 hover:text-white"
+                  title="Add flight"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/></svg>
+                </button>
+                <button
+                  onClick={() => setMagicSearchOpen(true)}
+                  className="text-gray-300 hover:text-white"
+                  title="Magic Search"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M7 17 17 7" />
+                    <path d="M7 7h10v10" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -669,6 +694,19 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           </button>
         </div>
       </div>
+      <FlightQueryDialog
+        open={magicSearchOpen}
+        onClose={() => setMagicSearchOpen(false)}
+        flightIds={regulationListedFlightIds}
+        onSelectFlights={(ids) => {
+          const next = new Set<string>(regulationTargetFlightIds);
+          ids.forEach((id) => next.add(String(id)));
+          if (!areSetsEqual(next, regulationTargetFlightIds)) {
+            setRegulationTargetFlightIds(next);
+          }
+          setMagicSearchOpen(false);
+        }}
+      />
     </div>
   );
 }

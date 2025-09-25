@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useSimStore } from "./useSimStore";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import {
@@ -370,6 +370,8 @@ export function buildAnalysisForFlightIds(
   };
 }
 
+export default memo(FlightListStatistics);
+
 type MetadataItem = { label: string; value: string; helper?: string };
 
 function buildMetadataItems(metadata: Record<string, any> | null | undefined): MetadataItem[] {
@@ -377,13 +379,16 @@ function buildMetadataItems(metadata: Record<string, any> | null | undefined): M
   const items: MetadataItem[] = [];
 
   const totalMatches = metadata.total_matches ?? metadata.totalMatches;
-  if (Number.isFinite(totalMatches)) {
-    items.push({ label: "Total matches", value: formatCount(Number(totalMatches)) });
+  const totalMatchesNumber = Number(totalMatches);
+  const hasTotalMatches = Number.isFinite(totalMatchesNumber);
+  if (hasTotalMatches) {
+    items.push({ label: "Total matches", value: formatCount(totalMatchesNumber) });
   }
 
   const resultSize = metadata.result_size ?? metadata.resultSize;
-  if (Number.isFinite(resultSize)) {
-    items.push({ label: "Result size", value: formatCount(Number(resultSize)) });
+  const resultSizeNumber = Number(resultSize);
+  if (Number.isFinite(resultSizeNumber) && (!hasTotalMatches || resultSizeNumber !== totalMatchesNumber)) {
+    items.push({ label: "Result size", value: formatCount(resultSizeNumber) });
   }
 
   const evaluationMs = metadata.evaluation_ms ?? metadata.evaluationMs;
@@ -404,7 +409,7 @@ function buildMetadataItems(metadata: Record<string, any> | null | undefined): M
   return items;
 }
 
-export default function FlightListStatistics({
+function FlightListStatistics({
   flightIds,
   baselineFlightIds,
   metadata,
@@ -435,6 +440,15 @@ export default function FlightListStatistics({
   }, [baselineFlightIds, flights]);
 
   const metadataItems = useMemo(() => buildMetadataItems(metadata), [metadata]);
+  const metadataLine = useMemo(() => {
+    if (metadataItems.length === 0) return "";
+    return metadataItems
+      .map(item => {
+        const base = `${item.label}: ${item.value}`;
+        return item.helper ? `${base} (${item.helper})` : base;
+      })
+      .join(" · ");
+  }, [metadataItems]);
   const baselineCount = baselineAnalysis?.selectedFlights.length ?? 0;
   const baselineAvailable = Boolean(baselineAnalysis && baselineCount > 0);
   const baselineShare = baselineAvailable && baselineCount > 0 ? analysis.selectedFlights.length / baselineCount : null;
@@ -892,8 +906,9 @@ export default function FlightListStatistics({
   return (
     <div className={containerClassName}>
       <div className="flex flex-wrap items-start justify-between gap-6">
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <div className="text-xl font-semibold text-white">{title}</div>
+          {metadataLine && <div className="text-xs text-white/60">{metadataLine}</div>}
           <div className="text-sm text-white/60">{headerDescription}</div>
           {baselineAvailable && baselineShare !== null && (
             <div className="text-xs text-white/50">
@@ -901,20 +916,6 @@ export default function FlightListStatistics({
             </div>
           )}
         </div>
-        {metadataItems.length > 0 && (
-          <div className="grid w-full gap-2 text-xs text-white/70 sm:w-auto sm:grid-cols-2">
-            {metadataItems.map(item => (
-              <div
-                key={item.label}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 shadow-inner shadow-slate-900/40"
-              >
-                <div className="text-[11px] uppercase tracking-wider text-white/50">{item.label}</div>
-                <div className="font-mono text-sm text-white">{item.value}</div>
-                {item.helper && <div className="mt-1 text-[11px] text-white/60">{item.helper}</div>}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {analysis.missingCount > 0 && (
@@ -1151,10 +1152,10 @@ export default function FlightListStatistics({
                                 contentStyle={{ background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
                                 itemStyle={{ color: "white" }}
                               />
-                              <Bar dataKey="selected" stackId="count" fill="#38bdf8" name={highlightLabel} />
-                              <Bar dataKey="other" stackId="count" fill="#94a3b8" name={remainderLegendLabel} />
+                              <Bar dataKey="selected" stackId="count" fill="#38bdf8" name={highlightLabel} isAnimationActive={false} />
+                              <Bar dataKey="other" stackId="count" fill="#94a3b8" name={remainderLegendLabel} isAnimationActive={false} />
                               {card.hasCapacity && (
-                                <Line type="stepAfter" dataKey="capacity" stroke="#facc15" strokeWidth={1.5} dot={false} name="Capacity" />
+                                <Line type="stepAfter" dataKey="capacity" stroke="#facc15" strokeWidth={1.5} dot={false} name="Capacity" isAnimationActive={false} />
                               )}
                             </ComposedChart>
                           </ResponsiveContainer>
@@ -1213,6 +1214,7 @@ export default function FlightListStatistics({
                             innerRadius={50}
                             outerRadius={90}
                             paddingAngle={1.5}
+                            isAnimationActive={false}
                           >
                             {analysis.topOrigins.slices.map((slice, index) => (
                               <Cell
@@ -1300,6 +1302,7 @@ export default function FlightListStatistics({
                             innerRadius={50}
                             outerRadius={90}
                             paddingAngle={1.5}
+                            isAnimationActive={false}
                           >
                             {analysis.topDestinations.slices.map((slice, index) => (
                               <Cell
@@ -1380,7 +1383,7 @@ export default function FlightListStatistics({
                 {analysis.airportTotals.length > 0 ? (
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={analysis.airportTotals} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                        <BarChart data={analysis.airportTotals} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                         <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
                         <XAxis
                           dataKey="airport"
@@ -1409,8 +1412,8 @@ export default function FlightListStatistics({
                           labelStyle={{ color: "white" }}
                         />
                         <Legend wrapperStyle={{ color: "#f8fafc" }} />
-                        <Bar dataKey="originCount" name="Origins" fill={ORIGIN_BAR_COLOR} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="destinationCount" name="Destinations" fill={DESTINATION_BAR_COLOR} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="originCount" name="Origins" fill={ORIGIN_BAR_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                        <Bar dataKey="destinationCount" name="Destinations" fill={DESTINATION_BAR_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -1471,7 +1474,7 @@ export default function FlightListStatistics({
                           itemStyle={{ color: "white" }}
                           labelStyle={{ color: "white" }}
                         />
-                        <Bar dataKey="flights" name="Flights" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="flights" name="Flights" fill="#38bdf8" radius={[4, 4, 0, 0]} isAnimationActive={false} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
