@@ -620,7 +620,19 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 }
 
 function updateRegulationHighlight(map: maplibregl.Map | null) {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map) return;
+  if (!map.isStyleLoaded()) {
+    try {
+      map.once("idle", () => {
+        try {
+          updateRegulationHighlight(map);
+        } catch (err) {
+          console.error("Deferred updateRegulationHighlight error:", err);
+        }
+      });
+    } catch {}
+    return;
+  }
   const sim = useSimStore.getState();
   const ids = Array.from(sim.regulationTargetFlightIds).map(String);
   const filterExpr: any = ids.length > 0 ? ["in", ["to-string", ["get", "flightId"]], ["literal", ids]] : ["==", ["get", "flightId"], "__none__"];
