@@ -68,7 +68,7 @@ function buildFeatureCollection(flights: Trajectory[]): GeoJSON.FeatureCollectio
   const features: GeoJSON.Feature[] = [];
   for (const flight of flights) {
     if (!flight.coords || flight.coords.length < 2) continue;
-    const coords2d = flight.coords.map(([lon, lat]) => [lon, lat]);
+    const coords2d = flight.coords.map(([lon, lat]) => [lon, lat] as [number, number]);
     if (coords2d.length < 2) continue;
     features.push({
       type: "Feature",
