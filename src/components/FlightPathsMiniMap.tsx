@@ -258,7 +258,7 @@ export default function FlightPathsMiniMap({
     ensureLayers();
 
     if (hasFlights && bounds) {
-      const [[minLon, minLat], [maxLon, maxLat]] = bounds;
+      const [[minLon, minLat], [maxLon, maxLat]] = bounds as [[number, number], [number, number]];
       const deltaLon = Math.abs(maxLon - minLon);
       const deltaLat = Math.abs(maxLat - minLat);
       const singlePoint = deltaLon < 1e-4 && deltaLat < 1e-4;
