@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import ModalDialog from "./ModalDialog";
 import ShimmeringText from "./ShimmeringText";
 import FlightListStatistics from "./FlightListStatistics";
@@ -63,6 +64,7 @@ export default function FlightQueryDialog({
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<FlightQueryResponse | null>(null);
   const [resultFlightIds, setResultFlightIds] = useState<string[]>([]);
+  const [selectedFlightIdSet, setSelectedFlightIdSet] = useState<Set<string>>(new Set());
   const promptCardRef = useRef<HTMLDivElement | null>(null);
   const [promptCardHeight, setPromptCardHeight] = useState<number | null>(null);
 
@@ -78,6 +80,7 @@ export default function FlightQueryDialog({
       setResponse(null);
       setIsSubmitting(false);
       setError(null);
+      setSelectedFlightIdSet(new Set());
     }
   }, [open]);
 
@@ -92,6 +95,10 @@ export default function FlightQueryDialog({
       return baselineFlightIds;
     });
   }, [open, baselineFlightIds]);
+
+  useEffect(() => {
+    setSelectedFlightIdSet(new Set(resultFlightIds.map(id => String(id))));
+  }, [resultFlightIds]);
 
   const title = useMemo(() => {
     const matchedCount = resultFlightIds.length;
@@ -223,10 +230,33 @@ export default function FlightQueryDialog({
     [baselineFlightIds, resultFlightIds]
   );
 
+  const selectedFlightIds = useMemo(
+    () => resultFlightIds.filter(id => selectedFlightIdSet.has(String(id))),
+    [resultFlightIds, selectedFlightIdSet]
+  );
+
+  const allowFlightSelection = baselineFlightIds.length > 0 && !!onSelectFlights;
+
+  const toggleFlightSelection = useCallback(
+    (flightId: string) => {
+      if (!allowFlightSelection) return;
+      setSelectedFlightIdSet(prev => {
+        const next = new Set(prev);
+        if (next.has(flightId)) {
+          next.delete(flightId);
+        } else {
+          next.add(flightId);
+        }
+        return next;
+      });
+    },
+    [allowFlightSelection]
+  );
+
   const handleSelectFlights = useCallback(() => {
     if (!onSelectFlights) return;
-    onSelectFlights(resultFlightIds);
-  }, [onSelectFlights, resultFlightIds]);
+    onSelectFlights(selectedFlightIds);
+  }, [onSelectFlights, selectedFlightIds]);
 
   return (
     <ModalDialog
@@ -295,18 +325,67 @@ export default function FlightQueryDialog({
                               </tr>
                             </thead>
                             <tbody>
-                              {resultFlightRows.map((row, idx) => (
-                                <tr
-                                  key={`${row.flightId}-${idx}`}
-                                  className={`border-t border-white/10 ${idx % 2 === 0 ? "bg-white/0" : "bg-white/5"}`}
-                                >
-                                  <td className="p-2 text-center w-8 text-xs">{row.isBaseline ? "✓" : ""}</td>
-                                  <td className="p-2 font-mono text-sm text-white">{row.callSign}</td>
-                                  <td className="p-2 text-white/80">{row.origin}</td>
-                                  <td className="p-2 text-white/80">{row.destination}</td>
-                                  <td className="p-2 text-right font-mono text-white/70">{row.arrivalTime}</td>
-                                </tr>
-                              ))}
+                              {resultFlightRows.map((row, idx) => {
+                                const isSelected = selectedFlightIdSet.has(row.flightId);
+                                const rowIsInteractive = allowFlightSelection;
+                                const baseRowColor = idx % 2 === 0 ? "bg-white/0" : "bg-white/5";
+                                const selectedRowColor = isSelected ? "bg-blue-500/25" : baseRowColor;
+                                const handleRowClick = rowIsInteractive
+                                  ? () => toggleFlightSelection(row.flightId)
+                                  : undefined;
+                                const handleRowKeyDown = rowIsInteractive
+                                  ? (event: ReactKeyboardEvent<HTMLTableRowElement>) => {
+                                      if (event.key === " " || event.key === "Enter") {
+                                        event.preventDefault();
+                                        toggleFlightSelection(row.flightId);
+                                      }
+                                    }
+                                  : undefined;
+                                return (
+                                  <tr
+                                    key={`${row.flightId}-${idx}`}
+                                    className={`border-t border-white/10 ${selectedRowColor} ${
+                                      rowIsInteractive ? "cursor-pointer select-none transition hover:bg-blue-500/20" : ""
+                                    }`}
+                                    onClick={handleRowClick}
+                                    onKeyDown={handleRowKeyDown}
+                                    role={rowIsInteractive ? "button" : undefined}
+                                    tabIndex={rowIsInteractive ? 0 : undefined}
+                                  >
+                                    <td className="p-2 text-center w-8 text-xs">
+                                      {allowFlightSelection ? (
+                                        <span
+                                          className={`inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${
+                                            isSelected
+                                              ? "border-blue-300 bg-blue-400/60 text-slate-900"
+                                              : "border-white/30 bg-transparent text-transparent"
+                                          }`}
+                                          aria-hidden
+                                        >
+                                          ✓
+                                        </span>
+                                      ) : row.isBaseline ? (
+                                        "✓"
+                                      ) : (
+                                        ""
+                                      )}
+                                    </td>
+                                    <td className="p-2 font-mono text-sm text-white">
+                                      <div className="flex items-center gap-2">
+                                        <span>{row.callSign}</span>
+                                        {row.isBaseline && (
+                                          <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/70">
+                                            Baseline
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="p-2 text-white/80">{row.origin}</td>
+                                    <td className="p-2 text-white/80">{row.destination}</td>
+                                    <td className="p-2 text-right font-mono text-white/70">{row.arrivalTime}</td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -341,7 +420,7 @@ export default function FlightQueryDialog({
                 <button
                   type="button"
                   onClick={handleSelectFlights}
-                  disabled={resultFlightIds.length === 0 || isSubmitting}
+                  disabled={selectedFlightIds.length === 0 || isSubmitting}
                   className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-5 py-2 text-sm font-medium text-white/80 transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Select these flights
