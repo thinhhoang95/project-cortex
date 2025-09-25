@@ -326,10 +326,10 @@ export default function FlightQueryDialog({
                             </thead>
                             <tbody>
                               {resultFlightRows.map((row, idx) => {
-                                const isSelected = selectedFlightIdSet.has(row.flightId);
+                                const isAdmitted = selectedFlightIdSet.has(row.flightId);
                                 const rowIsInteractive = allowFlightSelection;
                                 const baseRowColor = idx % 2 === 0 ? "bg-white/0" : "bg-white/5";
-                                const selectedRowColor = isSelected ? "bg-blue-500/25" : baseRowColor;
+                                const selectedRowColor = isAdmitted ? baseRowColor : "bg-rose-500/15";
                                 const handleRowClick = rowIsInteractive
                                   ? () => toggleFlightSelection(row.flightId)
                                   : undefined;
@@ -345,7 +345,13 @@ export default function FlightQueryDialog({
                                   <tr
                                     key={`${row.flightId}-${idx}`}
                                     className={`border-t border-white/10 ${selectedRowColor} ${
-                                      rowIsInteractive ? "cursor-pointer select-none transition hover:bg-blue-500/20" : ""
+                                      rowIsInteractive
+                                        ? `cursor-pointer select-none transition ${
+                                            isAdmitted
+                                              ? "hover:bg-blue-500/20"
+                                              : "hover:bg-rose-500/25"
+                                          }`
+                                        : ""
                                     }`}
                                     onClick={handleRowClick}
                                     onKeyDown={handleRowKeyDown}
@@ -354,15 +360,19 @@ export default function FlightQueryDialog({
                                   >
                                     <td className="p-2 text-center w-8 text-xs">
                                       {allowFlightSelection ? (
-                                        <span
-                                          className={`inline-flex h-4 w-4 items-center justify-center rounded border text-[10px] ${
-                                            isSelected
-                                              ? "border-blue-300 bg-blue-400/60 text-slate-900"
-                                              : "border-white/30 bg-transparent text-transparent"
-                                          }`}
-                                          aria-hidden
-                                        >
-                                          ✓
+                                        <span className="inline-flex h-4 w-4 items-center justify-center">
+                                          <input
+                                            type="checkbox"
+                                            checked={isAdmitted}
+                                            onChange={() => toggleFlightSelection(row.flightId)}
+                                            onClick={event => event.stopPropagation()}
+                                            className="h-4 w-4 cursor-pointer rounded border border-white/40 bg-white/10 accent-blue-400"
+                                            aria-label={
+                                              isAdmitted
+                                                ? `Admitted flight ${row.callSign}`
+                                                : `Exclude flight ${row.callSign}`
+                                            }
+                                          />
                                         </span>
                                       ) : row.isBaseline ? (
                                         "✓"
@@ -372,7 +382,9 @@ export default function FlightQueryDialog({
                                     </td>
                                     <td className="p-2 font-mono text-sm text-white">
                                       <div className="flex items-center gap-2">
-                                        <span>{row.callSign}</span>
+                                        <span className={isAdmitted ? undefined : "text-white/60 line-through"}>
+                                          {row.callSign}
+                                        </span>
                                         {row.isBaseline && (
                                           <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/70">
                                             Baseline
@@ -380,9 +392,18 @@ export default function FlightQueryDialog({
                                         )}
                                       </div>
                                     </td>
-                                    <td className="p-2 text-white/80">{row.origin}</td>
-                                    <td className="p-2 text-white/80">{row.destination}</td>
-                                    <td className="p-2 text-right font-mono text-white/70">{row.arrivalTime}</td>
+                                    <td className={`p-2 ${isAdmitted ? "text-white/80" : "text-white/50 line-through"}`}>
+                                      {row.origin}
+                                    </td>
+                                    <td className={`p-2 ${isAdmitted ? "text-white/80" : "text-white/50 line-through"}`}>
+                                      {row.destination}
+                                    </td>
+                                    <td className={`p-2 text-right font-mono ${
+                                      isAdmitted ? "text-white/70" : "text-white/45 line-through"
+                                    }`}
+                                    >
+                                      {row.arrivalTime}
+                                    </td>
                                   </tr>
                                 );
                               })}
