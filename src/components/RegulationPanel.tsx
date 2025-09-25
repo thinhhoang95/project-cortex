@@ -63,6 +63,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
   const [flightListLoading, setFlightListLoading] = useState(false);
   const [magicSearchOpen, setMagicSearchOpen] = useState(false);
+  const [showOnlyTargeted, setShowOnlyTargeted] = useState(false);
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -210,20 +211,46 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     return set;
   }, [orderedFlightsData, flightIdentifiersData, regulationTimeWindow]);
 
-  // Apply focus mode and ids to filter map to only those flights
-  useEffect(() => {
-    if (!selectedTrafficVolume) return;
-    const currentIds = useSimStore.getState().focusFlightIds;
-    const same = areSetsEqual(currentIds, filteredFlightIds);
-    if (!same) setFocusFlightIds(filteredFlightIds);
-    if (!focusMode) setFocusMode(true);
-  }, [filteredFlightIds, selectedTrafficVolume, setFocusFlightIds, focusMode, setFocusMode]);
-
   // derive selected flights
   const selectedFlights = useMemo(() => {
     const idSet = regulationTargetFlightIds;
     return flights.filter(f => idSet.has(String(f.flightId)));
   }, [flights, regulationTargetFlightIds]);
+
+  const targetedFlightIdSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const flight of selectedFlights) {
+      if (flight?.flightId !== undefined && flight?.flightId !== null) {
+        set.add(String(flight.flightId));
+      }
+    }
+    return set;
+  }, [selectedFlights]);
+
+  const hasTargetedFlights = targetedFlightIdSet.size > 0;
+  const showTargetedOnly = showOnlyTargeted && hasTargetedFlights;
+
+  useEffect(() => {
+    if (showOnlyTargeted && !hasTargetedFlights) {
+      setShowOnlyTargeted(false);
+    }
+  }, [showOnlyTargeted, hasTargetedFlights]);
+
+  const toggleSeeOnlyTargeted = () => {
+    if (!hasTargetedFlights) return;
+    setShowOnlyTargeted(prev => !prev);
+  };
+
+  // Apply focus mode and ids to filter map to only those flights
+  useEffect(() => {
+    if (!selectedTrafficVolume) return;
+    const desiredFocus = showTargetedOnly ? targetedFlightIdSet : filteredFlightIds;
+    const currentIds = useSimStore.getState().focusFlightIds;
+    if (!areSetsEqual(currentIds, desiredFocus)) {
+      setFocusFlightIds(new Set(desiredFocus));
+    }
+    if (!focusMode) setFocusMode(true);
+  }, [filteredFlightIds, targetedFlightIdSet, showTargetedOnly, selectedTrafficVolume, setFocusFlightIds, focusMode, setFocusMode]);
 
   // time window presets
   const presets = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h", "2h30", "3h", "3h30", "4h"];
@@ -594,6 +621,39 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                 flightIds={selectedFlights.map((flight) => flight.flightId)}
                 buttonClassName="border-white/20 text-white/80"
               />
+              <button
+                type="button"
+                onClick={toggleSeeOnlyTargeted}
+                disabled={!hasTargetedFlights}
+                aria-pressed={showTargetedOnly}
+                aria-label={showTargetedOnly ? "Show filtered flights" : "See only targeted flights"}
+                title={showTargetedOnly ? "Show filtered flights" : "See only targeted flights"}
+                className={`h-6 w-6 p-0 rounded border flex items-center justify-center transition-colors ${showTargetedOnly ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30' : 'border-white/10 text-white/80 hover:bg-white/10'} disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-white/30`}
+              >
+                {showTargetedOnly ? (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                )}
+              </button>
             </div>
             {selectedFlights.length > 0 && (
               <button onClick={() => clearRegulationTargetFlights()} className="text-xs px-2 py-1 rounded border border-white/20 hover:bg-white/10">Clear</button>
