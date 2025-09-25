@@ -18,7 +18,7 @@ export default function RegulationCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, showTrafficVolumes, regulationTargetFlightIds, addRegulationTargetFlight, selectedTrafficVolume, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, showTrafficVolumes, regulationTargetFlightIds, regulationPreviewActive, addRegulationTargetFlight, selectedTrafficVolume, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
   
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -564,8 +564,10 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   }
 
   let lineIdsToShow: string[];
-  if (sim.flowPreviewFlightId) {
-    // Hover preview takes precedence over other filters and shows the full trajectory regardless of current time
+  if (sim.regulationPreviewActive) {
+    lineIdsToShow = Array.from(sim.regulationTargetFlightIds).map(String);
+  } else if (sim.flowPreviewFlightId) {
+    // Flow hover preview is next in priority: show the hovered trajectory regardless of time
     lineIdsToShow = [String(sim.flowPreviewFlightId)];
   } else if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
     const previewGroupId = sim.flowPreviewGroupId ? String(sim.flowPreviewGroupId) : null;
@@ -623,8 +625,8 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
   const ids = Array.from(sim.regulationTargetFlightIds).map(String);
   const filterExpr: any = ids.length > 0 ? ["in", ["to-string", ["get", "flightId"]], ["literal", ids]] : ["==", ["get", "flightId"], "__none__"];
   if (map.getLayer("reg-target-lines")) {
-    // In flow view, hide the bright red regulation overlay to let flow colors take precedence
-    const vis = sim.flowViewEnabled ? 'none' : 'visible';
+    // Flow view normally hides the regulation overlay, but targeted preview should override that
+    const vis = sim.flowViewEnabled && !sim.regulationPreviewActive ? 'none' : 'visible';
     map.setLayoutProperty("reg-target-lines", "visibility", vis);
     map.setFilter("reg-target-lines", filterExpr as any);
   }
@@ -636,8 +638,8 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sim = useSimStore.getState();
   if (!map.getLayer('flight-lines')) return;
 
-  if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
-    // Use centralized community -> color mapping from store for consistency with UI
+  if (!sim.regulationPreviewActive && sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+    // When not previewing regulation targets, apply flow coloring with centralized mapping
     const colorByCommunity = new Map<string, string>(
       Object.entries(sim.flowColorByCommunity || {})
     );
@@ -677,7 +679,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
 
   // Ensure regulation overlay visibility matches flow precedence
   if (map.getLayer('reg-target-lines')) {
-    const vis = sim.flowViewEnabled ? 'none' : 'visible';
+    const vis = sim.flowViewEnabled && !sim.regulationPreviewActive ? 'none' : 'visible';
     map.setLayoutProperty('reg-target-lines', 'visibility', vis);
   }
 
@@ -695,8 +697,8 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sectorOutlineId = 'sector-outline';
   const sectorLabelsId = 'sector-labels';
 
-  if (sim.flowViewEnabled) {
-    // Hide base sector fill/outline completely
+  if (sim.flowViewEnabled && !sim.regulationPreviewActive) {
+    // While flow coloring is active (and no regulation preview), hide base sector visuals
     if (map.getLayer(sectorFillId)) {
       map.setPaintProperty(sectorFillId, 'fill-opacity', 0);
     }

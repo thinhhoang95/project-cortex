@@ -229,8 +229,10 @@ export default function FlightQueryDialog({
       width="w-[min(1280px,95vw)]"
       height="h-[min(900px,93vh)]"
     >
-      <div className="p-6 space-y-6 text-white">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr),minmax(0,0.8fr)] lg:items-stretch">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto no-scrollbar">
+          <div className="p-6 space-y-6 text-white">
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr),minmax(0,0.8fr)] lg:items-stretch">
           <div className="space-y-4 flex h-full flex-col">
             <div className="text-sm font-medium text-white/70">Prompt</div>
             <div className="relative">
@@ -357,7 +359,9 @@ export default function FlightQueryDialog({
           highlightLabel={highlightLabel}
           baselineLabel={baselineLabel}
         />
+        </div>
       </div>
-    </ModalDialog>
+    </div>
+  </ModalDialog>
   );
 }

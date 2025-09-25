@@ -51,7 +51,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setFlowLoading,
     setFlowError,
     setFlowPreviewFlightId,
-    setFlowPreviewGroupId
+    setFlowPreviewGroupId,
+    regulationPreviewActive,
+    setRegulationPreviewActive
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -235,6 +237,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       setShowOnlyTargeted(false);
     }
   }, [showOnlyTargeted, hasTargetedFlights]);
+
+  useEffect(() => {
+    setRegulationPreviewActive(showTargetedOnly);
+  }, [showTargetedOnly, setRegulationPreviewActive]);
 
   const toggleSeeOnlyTargeted = () => {
     if (!hasTargetedFlights) return;
