@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Buffer } from "buffer";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import { loadSectors } from "@/lib/airspace";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import ModalDialog from "./ModalDialog";
@@ -62,6 +64,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const [saveTimestamp, setSaveTimestamp] = useState<number | null>(null);
   const [loadSearch, setLoadSearch] = useState("");
   const [savedPlans, setSavedPlans] = useState<SavedFlowPlan[]>([]);
+  const [basketStatsOpen, setBasketStatsOpen] = useState(false);
 
   // Target Cells: local search + time prompt state
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
@@ -84,13 +87,13 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const hoverOrigColorsRef = useRef<ReturnType<typeof useSimStore.getState>["flowColorByCommunity"] | null>(null);
 
   // Utilities
-  const resolveByKey = (key: string) => {
+  const resolveByKey = useCallback((key: string) => {
     // Try as flightId first, then as callsign
     let f = flights.find(ff => String(ff.flightId) === String(key));
     if (f) return f;
     f = flights.find(ff => ff.callSign && String(ff.callSign) === String(key));
     return f || null;
-  };
+  }, [flights]);
 
   const restoreFlowPreview = () => {
     setFlowCommunities(hoverOrigCommunitiesRef.current, hoverOrigGroupsRef.current, hoverOrigColorsRef.current || null);
@@ -104,6 +107,22 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     if (!query) return savedPlans;
     return savedPlans.filter((plan) => plan.label.toLowerCase().includes(query));
   }, [savedPlans, loadSearch]);
+
+  const allBasketFlightIds = useMemo(() => {
+    const collected: string[] = [];
+    const seen = new Set<string>();
+    for (const flow of flowBasket) {
+      for (const item of flow.items || []) {
+        const resolved = resolveByKey(item.key);
+        const raw = resolved?.flightId ? String(resolved.flightId) : item?.key !== undefined && item?.key !== null ? String(item.key) : "";
+        const normalized = raw.trim();
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        collected.push(normalized);
+      }
+    }
+    return collected;
+  }, [flowBasket, resolveByKey]);
 
   // Build request body for Flow Impact Evaluation
   const buildBaselinePayload = () => {
@@ -491,6 +510,15 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
           </div>
         </ModalDialog>
       )}
+      {basketStatsOpen && typeof window !== "undefined" && createPortal(
+        <FlightStatisticsDialog
+          open={basketStatsOpen}
+          onClose={() => setBasketStatsOpen(false)}
+          flightIds={allBasketFlightIds}
+          fullScreen
+        />,
+        document.body
+      )}
       {isMinimized ? (
         <button
           onClick={() => setIsMinimized(false)}
@@ -518,6 +546,26 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 aria-label="Minimize panel"
               >
                 –
+              </button>
+              <button
+                onClick={() => {
+                  if (allBasketFlightIds.length > 0) setBasketStatsOpen(true);
+                }}
+                className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Open basket flight statistics"
+                aria-label="Open basket flight statistics"
+                disabled={allBasketFlightIds.length === 0}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="M7 17L17 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M9 7h8v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
               <button
                 onClick={() => {
