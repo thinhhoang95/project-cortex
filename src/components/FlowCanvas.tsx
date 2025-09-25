@@ -517,7 +517,21 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
 // Apply flow-based coloring to flight lines
 function updateFlowRendering(map: maplibregl.Map | null) {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map) {
+    return;
+  }
+  if (!map.isStyleLoaded()) {
+    try {
+      map.once("idle", () => {
+        try {
+          updateFlowRendering(map);
+        } catch (err) {
+          console.error("Deferred updateFlowRendering error:", err);
+        }
+      });
+    } catch {}
+    return;
+  }
   const sim = useSimStore.getState();
   if (!map.getLayer('flight-lines')) return;
 
