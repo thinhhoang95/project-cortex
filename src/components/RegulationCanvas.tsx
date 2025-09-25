@@ -314,7 +314,7 @@ export default function RegulationCanvas() {
   useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes]);
 
   // Update regulation highlight when target ids change
-  useEffect(() => { updateRegulationHighlight(mapRef.current); }, [regulationTargetFlightIds, flowViewEnabled]);
+  useEffect(() => { updateRegulationHighlight(mapRef.current); }, [regulationTargetFlightIds, flowViewEnabled, regulationPreviewActive]);
 
   // Weather overlay integration (Surface Precipitation)
   useEffect(() => {
