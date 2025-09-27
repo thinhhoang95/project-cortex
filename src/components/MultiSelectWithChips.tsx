@@ -198,11 +198,11 @@ export default function MultiSelectWithChips({
         <div
           ref={menuRef}
           onMouseDown={(e) => e.stopPropagation()}
-          className="fixed bg-white/80 text-slate-900 backdrop-blur-sm border border-white/30 rounded-lg shadow-xl z-[9999]"
+          className="fixed glass-menu rounded-lg shadow-xl z-[9999] overflow-hidden"
           style={{ left: menuRect.left, width: menuRect.width, top: menuRect.top, bottom: menuRect.bottom, maxHeight: typeof menuRect.maxH === "number" ? `${menuRect.maxH}px` : menuRect.maxH, overflowY: "auto" }}
         >
           {filtered.length === 0 ? (
-            <div className="px-3 py-3 text-sm text-slate-700">No options</div>
+            <div className="px-3 py-3 text-sm glass-menu-muted">No options</div>
           ) : (
             <ul className="py-1">
               {filtered.map((opt) => {
@@ -212,22 +212,22 @@ export default function MultiSelectWithChips({
                     <button
                       type="button"
                       onClick={() => { toggle(opt.id); setQuery(""); }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm border-b last:border-b-0 border-white/20 hover:bg-white/40 transition-colors ${isSelected ? "bg-white/30" : "bg-transparent"}`}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm border-b last:border-b-0 border-[var(--menu-border)] transition-colors hover:bg-[var(--menu-hover-bg)] ${isSelected ? "bg-[var(--menu-hover-bg)]" : "bg-transparent"}`}
                     >
                       <span
-                        className={`inline-flex w-4 h-4 items-center justify-center rounded-sm border ${isSelected ? "bg-blue-600 border-blue-600 text-white" : "border-slate-400"}`}
+                        className={`inline-flex w-4 h-4 items-center justify-center rounded-sm border ${isSelected ? "bg-blue-600 border-blue-600 text-white" : "border-[var(--menu-border)] text-[var(--menu-text)]"}`}
                       >
                         {isSelected ? "✓" : ""}
                       </span>
                       <div className="flex-1">
-                        <div className="font-medium text-slate-900">
+                        <div className="font-medium text-[var(--menu-text)]">
                           {renderOptionLabel ? renderOptionLabel(opt) : opt.label}
                         </div>
                         {opt.description && (
-                          <div className="text-xs text-slate-700/80">{opt.description}</div>
+                          <div className="text-xs glass-menu-muted">{opt.description}</div>
                         )}
                       </div>
-                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-white/60 border border-white/80 font-mono">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--panel-bg-muted)] border border-[var(--menu-border)] text-[var(--menu-text-muted)] font-mono">
                         {opt.id}
                       </span>
                     </button>
