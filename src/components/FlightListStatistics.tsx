@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useMemo, useState } from "react";
 import { useSimStore } from "./useSimStore";
+import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import {
   ResponsiveContainer,
@@ -1094,7 +1095,14 @@ function FlightListStatistics({
                     {visibleRankedCards.map(card => (
                       <div key={`occupancy-${card.tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3">
                         <div className="flex items-start justify-between gap-2 mb-1.5">
-                          <div className="text-sm font-semibold text-white truncate" title={card.tvId}>{card.tvId}</div>
+                          <div className="text-sm font-semibold text-white truncate">
+                            <TrafficVolumeInfoTooltip
+                              trafficVolumeId={card.tvId}
+                              className="truncate max-w-full"
+                            >
+                              <span className="truncate">{card.tvId}</span>
+                            </TrafficVolumeInfoTooltip>
+                          </div>
                           <div className="text-right text-[11px] text-white/70 leading-tight">
                             <div>{formatPercent(card.metrics.share)} share</div>
                             <div>{formatNumber(card.metrics.selectedSum)} / {formatNumber(card.metrics.totalSum)}</div>

@@ -4,6 +4,7 @@ import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cartesi
 import { binIndexToRangeLabel, hhmmToMinutesSafe } from "@/lib/time";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { OccupancySeriesByTv } from "@/lib/models";
+import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 
 type SortMode = "total" | "abs_change" | "exceedance";
 
@@ -237,7 +238,11 @@ export default function OccupancyPrePostPanel({
           return (
             <div key={tv} className="bg-white/5 border border-white/10 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-semibold text-white/90">{tv}</div>
+                <div className="text-sm font-semibold text-white/90 truncate">
+                  <TrafficVolumeInfoTooltip trafficVolumeId={tv} className="truncate max-w-full">
+                    <span className="truncate">{tv}</span>
+                  </TrafficVolumeInfoTooltip>
+                </div>
               </div>
               <div className={compact ? "h-32" : "h-36"}>
                 <ResponsiveContainer width="100%" height="100%">

@@ -7,6 +7,7 @@ import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithCh
 import ShimmeringText from "@/components/ShimmeringText";
 import { loadSectors } from "@/lib/airspace";
 import TimeScaleControl from "@/components/TimeScaleControl";
+import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import {
   ComposedChart,
   Bar,
@@ -390,7 +391,11 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-sm font-semibold text-white">{tvId}</div>
+        <div className="text-sm font-semibold text-white truncate">
+          <TrafficVolumeInfoTooltip trafficVolumeId={tvId} className="truncate max-w-full">
+            <span className="truncate">{tvId}</span>
+          </TrafficVolumeInfoTooltip>
+        </div>
       </div>
       <div className="h-36">
         <ResponsiveContainer width="100%" height="100%">
