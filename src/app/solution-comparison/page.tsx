@@ -30,14 +30,26 @@ import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Toolti
 
 const PALETTE = ["#38bdf8", "#f472b6", "#facc15", "#34d399"];
 const ABS_CHANGE_PREFIX = "abs_change:" as const;
+const REL_CHANGE_PREFIX = "rel_change:" as const;
 
 type OccupancyScope = "aggregate" | "targets" | "ripples";
 type FlightSortMode = "max" | "diff" | "callsign";
-type TvSortMode = "exceedance" | "peak" | "alphabetical" | `${typeof ABS_CHANGE_PREFIX}${string}`;
+type TvSortMode =
+  | "exceedance"
+  | "peak"
+  | "alphabetical"
+  | `${typeof ABS_CHANGE_PREFIX}${string}`
+  | `${typeof REL_CHANGE_PREFIX}${string}`;
 
-function getAbsChangeSnapshotId(mode: TvSortMode): string | null {
-  return mode.startsWith(ABS_CHANGE_PREFIX) ? mode.slice(ABS_CHANGE_PREFIX.length) : null;
+function getPrefixedSnapshotId(
+  mode: TvSortMode,
+  prefix: typeof ABS_CHANGE_PREFIX | typeof REL_CHANGE_PREFIX,
+): string | null {
+  return mode.startsWith(prefix) ? mode.slice(prefix.length) : null;
 }
+
+const getAbsChangeSnapshotId = (mode: TvSortMode) => getPrefixedSnapshotId(mode, ABS_CHANGE_PREFIX);
+const getRelativeChangeSnapshotId = (mode: TvSortMode) => getPrefixedSnapshotId(mode, REL_CHANGE_PREFIX);
 
 type FlightRow = {
   flightId: string;
@@ -56,7 +68,7 @@ type TvMetrics = {
   maxPeak: number;
 };
 
-type AbsChangeSortOption = {
+type ChangeSortOption = {
   value: TvSortMode;
   label: string;
   disabled: boolean;
@@ -811,7 +823,55 @@ export default function SolutionComparisonPage() {
     return map;
   }, [alignedSnapshots, minutesPerBin, tvScope, viewFromMin, viewToMin]);
 
-  const absChangeSortOptions = useMemo<AbsChangeSortOption[]>(() => {
+  const tvRelativeChangeBySnapshot = useMemo(() => {
+    const map = new Map<string, Record<string, number>>();
+    if (tvScope !== "aggregate") return map;
+    alignedSnapshots.forEach((snap) => {
+      const occ = snap.aggregatedOccupancy;
+      if (!occ) {
+        map.set(snap.id, {});
+        return;
+      }
+      const pre = occ.pre_counts || {};
+      const post = occ.post_counts || {};
+      const tvIds = new Set<string>([
+        ...Object.keys(pre || {}),
+        ...Object.keys(post || {}),
+      ]);
+      const entries: Record<string, number> = {};
+      if (tvIds.size === 0) {
+        map.set(snap.id, entries);
+        return;
+      }
+      const minutes = Number(occ.time_bin_minutes || minutesPerBin || snap.minutesPerBin || 15);
+      tvIds.forEach((tvId) => {
+        const preSeries = pre?.[tvId] || [];
+        const postSeries = post?.[tvId] || [];
+        const n = Math.min(preSeries.length, postSeries.length);
+        let deltaSum = 0;
+        let baseSum = 0;
+        for (let i = 0; i < n; i++) {
+          const start = i * minutes;
+          if (start < viewFromMin || start > viewToMin) continue;
+          const a = Number(preSeries[i] ?? 0);
+          const b = Number(postSeries[i] ?? 0);
+          const aa = Number.isFinite(a) ? a : 0;
+          const bb = Number.isFinite(b) ? b : 0;
+          deltaSum += Math.abs(bb - aa);
+          baseSum += Math.abs(aa);
+        }
+        if (baseSum > 0) {
+          entries[tvId] = deltaSum / baseSum;
+        } else {
+          entries[tvId] = deltaSum > 0 ? Number.MAX_SAFE_INTEGER : 0;
+        }
+      });
+      map.set(snap.id, entries);
+    });
+    return map;
+  }, [alignedSnapshots, minutesPerBin, tvScope, viewFromMin, viewToMin]);
+
+  const absChangeSortOptions = useMemo<ChangeSortOption[]>(() => {
     if (tvScope !== "aggregate") return [];
     return alignedSnapshots.map((snap) => {
       const occ = snap.aggregatedOccupancy;
@@ -839,6 +899,31 @@ export default function SolutionComparisonPage() {
     });
   }, [alignedSnapshots, tvScope]);
 
+  const relativeChangeSortOptions = useMemo<ChangeSortOption[]>(() => {
+    if (tvScope !== "aggregate") return [];
+    return alignedSnapshots.map((snap) => {
+      const occ = snap.aggregatedOccupancy;
+      const preCount = Object.keys(occ?.pre_counts || {}).length;
+      const postCount = Object.keys(occ?.post_counts || {}).length;
+      let disabled = false;
+      let reason: string | undefined;
+      if (!occ || postCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing post-optimization aggregate counts.";
+      } else if (preCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing baseline aggregate counts.";
+      }
+      return {
+        value: `${REL_CHANGE_PREFIX}${snap.id}` as TvSortMode,
+        label: `Rank by Relative Change (${snap.description || "Untitled"})`,
+        disabled,
+        reason,
+        snapshotId: snap.id,
+      };
+    });
+  }, [alignedSnapshots, tvScope]);
+
   useEffect(() => {
     const snapshotId = getAbsChangeSnapshotId(tvSort);
     if (!snapshotId) return;
@@ -852,6 +937,19 @@ export default function SolutionComparisonPage() {
     }
   }, [absChangeSortOptions, tvScope, tvSort]);
 
+  useEffect(() => {
+    const snapshotId = getRelativeChangeSnapshotId(tvSort);
+    if (!snapshotId) return;
+    if (tvScope !== "aggregate") {
+      if (tvSort !== "exceedance") setTvSort("exceedance");
+      return;
+    }
+    const option = relativeChangeSortOptions.find((opt) => opt.snapshotId === snapshotId);
+    if (!option || option.disabled) {
+      if (tvSort !== "exceedance") setTvSort("exceedance");
+    }
+  }, [relativeChangeSortOptions, tvScope, tvSort]);
+
   const filteredTvIds = useMemo(() => {
     let list = tvMetrics;
     if (hasTvFilter) {
@@ -859,6 +957,8 @@ export default function SolutionComparisonPage() {
     }
     const absChangeSnapshotId = getAbsChangeSnapshotId(tvSort);
     const absScores = absChangeSnapshotId ? (tvAbsChangeBySnapshot.get(absChangeSnapshotId) || null) : null;
+    const relChangeSnapshotId = getRelativeChangeSnapshotId(tvSort);
+    const relScores = relChangeSnapshotId ? (tvRelativeChangeBySnapshot.get(relChangeSnapshotId) || null) : null;
     const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
     const sorted = [...list];
     sorted.sort((a, b) => {
@@ -866,6 +966,16 @@ export default function SolutionComparisonPage() {
         const scoreA = absScores[a.tvId] ?? 0;
         const scoreB = absScores[b.tvId] ?? 0;
         if (scoreB !== scoreA) return scoreB - scoreA;
+        return collator.compare(a.tvId, b.tvId);
+      }
+      if (relScores) {
+        const scoreA = relScores[a.tvId] ?? 0;
+        const scoreB = relScores[b.tvId] ?? 0;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        const absMap = relChangeSnapshotId ? tvAbsChangeBySnapshot.get(relChangeSnapshotId) || {} : {};
+        const absA = absMap[a.tvId] ?? 0;
+        const absB = absMap[b.tvId] ?? 0;
+        if (absB !== absA) return absB - absA;
         return collator.compare(a.tvId, b.tvId);
       }
       if (tvSort === "alphabetical") {
@@ -879,7 +989,14 @@ export default function SolutionComparisonPage() {
       return b.maxPeak - a.maxPeak;
     });
     return sorted.map((item) => item.tvId);
-  }, [tvMetrics, hasTvFilter, selectedTvSet, tvSort, tvAbsChangeBySnapshot]);
+  }, [
+    tvMetrics,
+    hasTvFilter,
+    selectedTvSet,
+    tvSort,
+    tvAbsChangeBySnapshot,
+    tvRelativeChangeBySnapshot,
+  ]);
 
   const visibleTvs = filteredTvIds.slice(0, visibleTvCount);
   const remainingTvCount = Math.max(0, filteredTvIds.length - visibleTvCount);
@@ -1555,6 +1672,16 @@ export default function SolutionComparisonPage() {
                   <option value="peak">Sort by peak</option>
                   <option value="alphabetical">Sort alphabetically</option>
                   {absChangeSortOptions.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={option.disabled}
+                      title={option.reason}
+                    >
+                      {option.label}
+                    </option>
+                  ))}
+                  {relativeChangeSortOptions.map((option) => (
                     <option
                       key={option.value}
                       value={option.value}

@@ -125,7 +125,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
   const regulations = useSimStore(s => s.regulations);
   const [viewFrom, setViewFrom] = useState<string>("00:00");
   const [viewTo, setViewTo] = useState<string>("23:59");
-  const [sortMode, setSortMode] = useState<'total' | 'abs_change' | 'exceedance'>("abs_change");
+  const [sortMode, setSortMode] = useState<'total' | 'abs_change' | 'relative_change' | 'exceedance'>("abs_change");
   const [regSnapshotPromptOpen, setRegSnapshotPromptOpen] = useState(false);
   const [regSnapshotDescription, setRegSnapshotDescription] = useState("");
   const [regSnapshotSaving, setRegSnapshotSaving] = useState(false);
@@ -500,6 +500,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                   >
                     <option value="total">Rank by Total</option>
                     <option value="abs_change" disabled={!hasBoth}>Rank by Absolute Changes</option>
+                    <option value="relative_change" disabled={!hasBoth}>Rank by Relative Changes</option>
                     <option value="exceedance" disabled={!hasCap}>By Exceedances</option>
                   </select>
                 );
