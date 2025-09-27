@@ -6,7 +6,7 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { OccupancySeriesByTv } from "@/lib/models";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 
-type SortMode = "total" | "abs_change" | "exceedance";
+type SortMode = "total" | "abs_change" | "relative_change" | "exceedance";
 
 export interface OccupancyPrePostPanelProps {
   postCounts: OccupancySeriesByTv;
@@ -176,6 +176,26 @@ export default function OccupancyPrePostPanel({
         const hasB = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
         if (!hasA || !hasB) { s[tv] = 0; continue; }
         s[tv] = rows.reduce((acc, r) => acc + Math.abs((r.post || 0) - (r.pre || 0)), 0);
+      } else if (effectiveSort === 'relative_change') {
+        const hasA = Array.isArray(effectivePre?.[tv]) && (effectivePre?.[tv] || []).length > 0;
+        const hasB = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
+        if (!hasA || !hasB) {
+          s[tv] = 0;
+          continue;
+        }
+        let deltaSum = 0;
+        let baseSum = 0;
+        for (const r of rows) {
+          const preVal = r.pre ?? 0;
+          const postVal = r.post ?? preVal;
+          deltaSum += Math.abs(postVal - preVal);
+          baseSum += Math.abs(preVal);
+        }
+        if (baseSum > 0) {
+          s[tv] = deltaSum / baseSum;
+        } else {
+          s[tv] = deltaSum > 0 ? Number.MAX_SAFE_INTEGER : 0;
+        }
       } else {
         // exceedance: sum positive (display - capacity) using display = post if available else pre
         const preferPost = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;

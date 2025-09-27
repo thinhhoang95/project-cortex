@@ -136,7 +136,7 @@ function FlowEvaluationPageContent() {
   // Occupancy Flow/Total-Pre TV sort mode
   const [occOrigSortMode, setOccOrigSortMode] = useState<'total' | 'flow_absolute' | 'flow_relative' | 'exceedance'>("total");
   // Occupancy Pre-Post TV sort mode
-  const [occAllSortMode, setOccAllSortMode] = useState<'total' | 'abs_change' | 'exceedance'>("total");
+  const [occAllSortMode, setOccAllSortMode] = useState<'total' | 'abs_change' | 'relative_change' | 'exceedance'>("total");
   const [snapshotPromptOpen, setSnapshotPromptOpen] = useState(false);
   const [snapshotDescription, setSnapshotDescription] = useState("");
   const [snapshotSaving, setSnapshotSaving] = useState(false);
@@ -276,6 +276,14 @@ function FlowEvaluationPageContent() {
 
   const selectedTvSet = useMemo(() => new Set(selectedTrafficVolumes.map(String)), [selectedTrafficVolumes]);
   const hasTvFilter = selectedTrafficVolumes.length > 0;
+
+  const canRankOccAllChanges = useMemo(() => {
+    const pre = occAllState.data?.pre_counts || {};
+    const post = occAllState.data?.post_counts || {};
+    const hasPre = Object.values(pre).some((series) => Array.isArray(series) && series.length > 0);
+    const hasPost = Object.values(post).some((series) => Array.isArray(series) && series.length > 0);
+    return hasPre && hasPost;
+  }, [occAllState.data?.pre_counts, occAllState.data?.post_counts]);
 
   const occAllPostCountsForView = useMemo<Record<string, number[]>>(() => {
     const src = occAllState.data?.post_counts;
@@ -745,6 +753,25 @@ function FlowEvaluationPageContent() {
           const aa = Number.isFinite(a) ? a : 0;
           const bb = Number.isFinite(b) ? b : 0;
           score += Math.abs(bb - aa);
+        }
+      } else if (occAllSortMode === 'relative_change') {
+        const n = Math.min(A.length, B.length);
+        let deltaSum = 0;
+        let baseSum = 0;
+        for (let i = 0; i < n; i++) {
+          const startMin = i * minutes;
+          if (startMin < vFrom || startMin > vTo) continue;
+          const a = Number(A[i] ?? 0);
+          const b = Number(B[i] ?? 0);
+          const aa = Number.isFinite(a) ? a : 0;
+          const bb = Number.isFinite(b) ? b : 0;
+          deltaSum += Math.abs(bb - aa);
+          baseSum += Math.abs(aa);
+        }
+        if (baseSum > 0) {
+          score = deltaSum / baseSum;
+        } else {
+          score = deltaSum > 0 ? Number.MAX_SAFE_INTEGER : 0;
         }
       } else {
         // exceedance: sum of positive (demand - capacity) over in-view bins using post if available else pre
@@ -1338,10 +1365,17 @@ function FlowEvaluationPageContent() {
                       <option value="total">Rank by Total</option>
                       <option
                         value="abs_change"
-                        disabled={!occAllState.data?.post_counts}
-                        title={!occAllState.data?.post_counts ? 'Run optimization to get post counts for changes.' : undefined}
+                        disabled={!canRankOccAllChanges}
+                        title={!canRankOccAllChanges ? 'Run optimization to compare pre and post counts.' : undefined}
                       >
                         Rank by Absolute Changes (Pre vs Post)
+                      </option>
+                      <option
+                        value="relative_change"
+                        disabled={!canRankOccAllChanges}
+                        title={!canRankOccAllChanges ? 'Run optimization to compare pre and post counts.' : undefined}
+                      >
+                        Rank by Relative Changes (Pre vs Post)
                       </option>
                       <option value="exceedance">By Exceedances</option>
                     </select>
