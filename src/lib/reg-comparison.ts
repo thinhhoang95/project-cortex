@@ -14,6 +14,11 @@ export interface RegulationAggregatedRolling {
   timeLabels?: string[];
 }
 
+export interface RegulationObjectiveSummary {
+  score: number | null;
+  components?: Record<string, number>;
+}
+
 export interface RegulationSnapshot {
   version: number;
   id: string;
@@ -26,6 +31,29 @@ export interface RegulationSnapshot {
   delaysMin?: Record<string, number> | null;
   metadata?: Record<string, any> | null;
   shareUrl?: string | null;
+  objective?: RegulationObjectiveSummary | null;
+}
+
+function sanitizeObjective(raw: any): RegulationObjectiveSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const scoreNumber = Number((raw as any).score);
+  const score = Number.isFinite(scoreNumber) ? scoreNumber : null;
+  let components: Record<string, number> | undefined;
+  const rawComponents = (raw as any).components;
+  if (rawComponents && typeof rawComponents === "object") {
+    const entries = Object.entries(rawComponents).reduce<Record<string, number>>((acc, [key, value]) => {
+      const num = Number(value);
+      if (Number.isFinite(num)) {
+        acc[key] = num;
+      }
+      return acc;
+    }, {});
+    if (Object.keys(entries).length > 0) {
+      components = entries;
+    }
+  }
+  if (score === null && !components) return null;
+  return { score, components };
 }
 
 function cloneSeries(values?: number[] | null): number[] {
@@ -105,6 +133,11 @@ export function createRegulationSnapshot(params: {
     delaysMin[String(flightId)] = minutes;
   });
 
+  const objective = sanitizeObjective({
+    score: result.objective,
+    components: result.objective_components,
+  });
+
   const snapshot: RegulationSnapshot = {
     version: REG_SNAPSHOT_VERSION,
     id,
@@ -117,6 +150,7 @@ export function createRegulationSnapshot(params: {
     delaysMin: Object.keys(delaysMin).length > 0 ? delaysMin : null,
     metadata: result.metadata ? { ...result.metadata } : null,
     shareUrl,
+    objective,
   };
 
   return snapshot;
@@ -141,10 +175,12 @@ function readRegSnapshotsFromStorage(): RegulationSnapshot[] {
           tv_ids_order: Array.isArray(aggregated.tv_ids_order) ? [...aggregated.tv_ids_order] : undefined,
           timeLabels: Array.isArray(aggregated.timeLabels) ? [...aggregated.timeLabels] : undefined,
         };
+        const sanitizedObjective = sanitizeObjective((item as any).objective);
         return {
           ...(item as any),
           version: typeof (item as any).version === "number" ? (item as any).version : REG_SNAPSHOT_VERSION,
           aggregatedRolling: sanitizedAggregated,
+          objective: sanitizedObjective,
         } as RegulationSnapshot;
       })
       .filter((item): item is RegulationSnapshot => !!item && !!item.id);
@@ -246,7 +282,7 @@ export function importRegSnapshots(raw: string): RegulationSnapshot[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (err) {
+  } catch (_err) {
     throw new Error("Invalid regulation snapshot JSON");
   }
   if (!Array.isArray(parsed)) {
@@ -258,6 +294,7 @@ export function importRegSnapshots(raw: string): RegulationSnapshot[] {
       const { id, createdAt, description } = item;
       if (!id || !description) return null;
       const aggregated = item.aggregatedRolling || {};
+      const sanitizedObjective = sanitizeObjective(item.objective);
       return {
         ...item,
         version: typeof item.version === "number" ? item.version : REG_SNAPSHOT_VERSION,
@@ -270,6 +307,7 @@ export function importRegSnapshots(raw: string): RegulationSnapshot[] {
           tv_ids_order: Array.isArray(aggregated.tv_ids_order) ? [...aggregated.tv_ids_order] : undefined,
           timeLabels: Array.isArray(aggregated.timeLabels) ? [...aggregated.timeLabels] : undefined,
         },
+        objective: sanitizedObjective,
       } as RegulationSnapshot;
     })
     .filter(Boolean) as RegulationSnapshot[];

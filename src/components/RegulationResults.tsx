@@ -97,6 +97,11 @@ type AirportDelayChartRow = {
   totalFlights: number;
 };
 
+type ObjectiveComponentEntry = {
+  key: string;
+  value: number | null;
+};
+
 const toTrimmedString = (value: unknown): string => {
   if (typeof value === "string") {
     return value.trim();
@@ -395,6 +400,37 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
 
   const regSnapshotCount = regSnapshotList.length;
 
+  const formatNumber = (value: number | null | undefined, digits = 2) => {
+    if (value === null || value === undefined) return "—";
+    if (!Number.isFinite(value)) return "∞";
+    return Number(value).toLocaleString(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  };
+
+  const objectiveScore = useMemo(() => {
+    if (!result) return null;
+    const score = Number(result.objective);
+    return Number.isFinite(score) ? score : null;
+  }, [result]);
+
+  const objectiveComponents = useMemo<ObjectiveComponentEntry[]>(() => {
+    const components = result?.objective_components;
+    if (!components || typeof components !== "object") return [];
+    return Object.entries(components)
+      .map(([key, value]) => {
+        const num = Number(value);
+        return {
+          key,
+          value: Number.isFinite(num) ? num : null,
+        };
+      })
+      .sort((a, b) => a.key.localeCompare(b.key));
+  }, [result?.objective_components]);
+
+  const hasObjectiveMetrics = objectiveScore !== null || objectiveComponents.length > 0;
+
   const handleOpenRegSnapshotPrompt = () => {
     if (!result) return;
     const current = loadRegSnapshots();
@@ -481,6 +517,42 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
             <Stat label="Flights" value={`${ds.num_flights.toLocaleString()}`} />
           </div>
         </div>
+
+        {hasObjectiveMetrics && (
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <div className="text-sm uppercase tracking-wider text-gray-300">Objective Function</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <Stat
+                label="Objective Score"
+                value={objectiveScore !== null ? formatNumber(objectiveScore, 2) : "—"}
+              />
+            </div>
+            {objectiveComponents.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-sm text-white/80">
+                  <thead className="text-white/60 text-[12px] uppercase tracking-wider">
+                    <tr>
+                      <th className="text-left px-3 py-2">Component</th>
+                      <th className="text-right px-3 py-2">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {objectiveComponents.map((entry) => (
+                      <tr key={entry.key} className="border-t border-white/10">
+                        <td className="px-3 py-2 text-white/80">{entry.key}</td>
+                        <td className="px-3 py-2 text-right font-mono text-white/90">
+                          {formatNumber(entry.value ?? null, 3)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Rolling-hour Occupancy Diff with time control and sort */}
         <div>

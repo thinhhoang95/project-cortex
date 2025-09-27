@@ -126,6 +126,11 @@ function formatNumber(val: number | null | undefined, digits = 2) {
   return Number(val).toFixed(digits);
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 function formatSecondsToHMM(totalSeconds: number | null | undefined): string {
   if (!Number.isFinite(totalSeconds ?? NaN)) return "—";
   const s = Math.max(0, Math.floor(totalSeconds as number));
@@ -402,6 +407,47 @@ export default function RegulationComparisonPage() {
       ...selectedSnapshots.map((snap) => snap.delayStats?.mean_delay_seconds ?? Number.POSITIVE_INFINITY),
     );
   }, [selectedSnapshots]);
+
+  const bestObjectiveScore = useMemo(() => {
+    const scores = selectedSnapshots
+      .map((snap) => toFiniteNumber(snap.objective?.score))
+      .filter((value): value is number => value !== null);
+    if (scores.length === 0) return null;
+    return Math.min(...scores);
+  }, [selectedSnapshots]);
+
+  const hasObjectiveScore = useMemo(
+    () => selectedSnapshots.some((snap) => toFiniteNumber(snap.objective?.score) !== null),
+    [selectedSnapshots],
+  );
+
+  const objectiveComponentKeys = useMemo(() => {
+    const keys = new Set<string>();
+    selectedSnapshots.forEach((snap) => {
+      const components = snap.objective?.components;
+      if (!components) return;
+      Object.keys(components).forEach((key) => keys.add(key));
+    });
+    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+  }, [selectedSnapshots]);
+
+  const objectiveComponentBest = useMemo(() => {
+    const bestMap = new Map<string, number>();
+    objectiveComponentKeys.forEach((key) => {
+      let best: number | null = null;
+      selectedSnapshots.forEach((snap) => {
+        const value = toFiniteNumber(snap.objective?.components?.[key]);
+        if (value === null) return;
+        if (best === null || value < best) {
+          best = value;
+        }
+      });
+      if (best !== null) {
+        bestMap.set(key, best);
+      }
+    });
+    return bestMap;
+  }, [objectiveComponentKeys, selectedSnapshots]);
 
   const airportStatsBySnapshot = useMemo(() => {
     const map = new Map<string, SnapshotAirportStats>();
@@ -1123,6 +1169,78 @@ export default function RegulationComparisonPage() {
                 );
               })}
             </div>
+          </section>
+
+          <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-white">Objective comparison</h2>
+            </div>
+            {hasObjectiveScore || objectiveComponentKeys.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+                  {selectedSnapshots.map((snap) => {
+                    const color = colorBySnapshotId.get(snap.id) || "#fff";
+                    const score = toFiniteNumber(snap.objective?.score);
+                    const isBest = bestObjectiveScore !== null && score !== null && score === bestObjectiveScore;
+                    return (
+                      <div key={snap.id} className="rounded-lg border border-white/10 bg-white/5 p-4 text-white/80 space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold">
+                          <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
+                          <span>{snap.description || "Untitled"}</span>
+                          {isBest && <span className="text-[10px] uppercase tracking-wider bg-emerald-500/20 border border-emerald-400/60 px-1.5 py-0.5 rounded text-emerald-100">Best</span>}
+                        </div>
+                        <div className="text-[12px] text-white/60">Objective score</div>
+                        <div className="text-2xl font-semibold text-white">{formatNumber(score, 2)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {objectiveComponentKeys.length > 0 && (
+                  <div className="mt-6 overflow-x-auto">
+                    <table className="min-w-full text-sm text-white/80">
+                      <thead className="text-white/60 text-[12px] uppercase tracking-wider">
+                        <tr>
+                          <th className="text-left px-3 py-2">Objective component</th>
+                          {selectedSnapshots.map((snap) => (
+                            <th key={snap.id} className="text-left px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || "#fff" }} />
+                                <span>{snap.description || "Untitled"}</span>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {objectiveComponentKeys.map((key) => {
+                          const bestValue = objectiveComponentBest.get(key);
+                          return (
+                            <tr key={key} className="border-t border-white/10">
+                              <td className="px-3 py-2 text-white/70">{key}</td>
+                              {selectedSnapshots.map((snap) => {
+                                const value = toFiniteNumber(snap.objective?.components?.[key]);
+                                const isBest = bestValue !== undefined && bestValue !== null && value !== null && value === bestValue;
+                                return (
+                                  <td
+                                    key={`${snap.id}-${key}`}
+                                    className={`px-3 py-2 font-mono text-[13px] ${isBest ? 'text-emerald-200' : 'text-white/80'}`}
+                                  >
+                                    {formatNumber(value, 3)}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="mt-4 text-sm text-white/60">Objective metrics not available for the selected snapshots.</div>
+            )}
           </section>
 
           <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
