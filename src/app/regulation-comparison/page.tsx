@@ -7,6 +7,7 @@ import TimeScaleControl from "@/components/TimeScaleControl";
 import ModalDialog from "@/components/ModalDialog";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import {
   RegulationSnapshot,
   loadRegSnapshots,
@@ -1539,7 +1540,11 @@ export default function RegulationComparisonPage() {
                 return (
                   <div key={tvId} className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-3">
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-white">{tvId}</div>
+                      <div className="text-sm font-semibold text-white truncate">
+                        <TrafficVolumeInfoTooltip trafficVolumeId={tvId} className="truncate max-w-full">
+                          <span className="truncate">{tvId}</span>
+                        </TrafficVolumeInfoTooltip>
+                      </div>
                     </div>
                     <div className="h-48">
                       {hasSeries || hasCapacity ? (

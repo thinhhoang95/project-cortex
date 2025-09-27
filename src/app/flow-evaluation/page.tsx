@@ -34,6 +34,7 @@ import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { FlowInputPayload } from "@/lib/flow-input";
 import { AutorateOccupancyResponse } from "@/lib/autorate";
+import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import {
   SolutionSnapshot,
   loadSnapshots,
@@ -1582,7 +1583,12 @@ function FlowEvaluationPageContent() {
                                 {controlled.has(tvId) && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-400/60 text-rose-200">Controlled</span>
                                 )}
-                                <span>{tvId}</span>
+                                <TrafficVolumeInfoTooltip
+                                  trafficVolumeId={tvId}
+                                  className="max-w-[160px] truncate"
+                                >
+                                  <span className="truncate">{tvId}</span>
+                                </TrafficVolumeInfoTooltip>
                               </div>
                             </div>
                             <div className="h-36">
@@ -2659,7 +2665,9 @@ function HistogramCard({ tvId, series, seriesB, minutesPerBin, viewFrom, viewTo,
         <div className="text-sm font-semibold text-white flex items-center gap-2">
           {isControlled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-400/70 text-rose-200">Controlled</span>}
           {markerColor && <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: markerColor }} />}
-          <span>{tvId}</span>
+          <TrafficVolumeInfoTooltip trafficVolumeId={tvId} className="max-w-[160px] truncate">
+            <span className="truncate">{tvId}</span>
+          </TrafficVolumeInfoTooltip>
         </div>
       </div>
       <div className="h-36">
