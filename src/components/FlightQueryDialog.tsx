@@ -308,7 +308,7 @@ export default function FlightQueryDialog({
                   <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/5">
                     {isSubmitting ? (
                       <div className="flex flex-1 items-center justify-center gap-2 text-sm text-white/70">
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-transparent"></div>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
                         <ShimmeringText text="Running query…" className="text-sm opacity-80" />
                       </div>
                     ) : resultFlightRows.length > 0 ? (
@@ -454,7 +454,7 @@ export default function FlightQueryDialog({
                 className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-2 text-sm font-medium shadow-[0_12px_35px_-18px_rgba(59,130,246,0.8)] transition hover:from-blue-600 hover:to-purple-700 disabled:cursor-not-allowed disabled:from-slate-600 disabled:to-slate-700 disabled:text-white/60"
               >
                 {isSubmitting && (
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white/60 border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
                 )}
                 {isSubmitting ? <ShimmeringText text="Sending…" /> : "Send"}
               </button>
