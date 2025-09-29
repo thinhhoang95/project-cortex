@@ -6,6 +6,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import { toTimeWindow } from "@/lib/regulationProposals";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
 
@@ -37,6 +38,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setIsRegulationPanelOpen,
     regulationEditPayload,
     setRegulationEditPayload,
+    fetchRegulationProposals,
+    proposalLoading,
     // Flow view state/actions
     flowViewEnabled,
     flowCommunities,
@@ -66,6 +69,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const [flightListError, setFlightListError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const MAX_VISIBLE = 20;
+  const [proposalTriggerError, setProposalTriggerError] = useState<string | null>(null);
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -146,6 +150,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     const count = currentCountForTime(occupancyData, t);
     if (typeof count === 'number') setCurrentCount(count);
   }, [t, occupancyData]);
+
+  useEffect(() => {
+    setProposalTriggerError(null);
+  }, [selectedTrafficVolume, regulationTimeWindow[0], regulationTimeWindow[1]]);
 
   // Build histogram data (rolling hour), then filter to active time window
   const baseChartData: Array<{ time: string; count: number; hour: number; capacity?: number }> = useMemo(() => {
@@ -512,42 +520,84 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              // Add this traffic volume to the FlowRegulationPanel and set the period
-              const [from, to] = regulationTimeWindow;
-              window.dispatchEvent(new CustomEvent('flow-regulation-add', {
-                detail: {
-                  trafficVolume: selectedTrafficVolume,
-                  from,
-                  to,
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                // Add this traffic volume to the FlowRegulationPanel and set the period
+                const [from, to] = regulationTimeWindow;
+                window.dispatchEvent(new CustomEvent('flow-regulation-add', {
+                  detail: {
+                    trafficVolume: selectedTrafficVolume,
+                    from,
+                    to,
+                  }
+                }));
+              }}
+              className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+              title="Add to regulation"
+            >
+              <svg height="16" fill="currentColor" width="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <g>
+                <line fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="12" x2="12" y1="19" y2="5"/>
+                <line fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="5" x2="19" y1="12" y2="12"/>
+                </g>
+              </svg>
+            </button>
+            <button
+              aria-label="Propose regulation bundles"
+              type="button"
+              onClick={async () => {
+                if (!selectedTrafficVolume) return;
+                const [from, to] = regulationTimeWindow;
+                if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+                  setProposalTriggerError('Invalid time window; end must be after start.');
+                  return;
                 }
-              }));
-            }}
-            className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-            title="Add to regulation"
-          >
-            Add
-          </button>
-          <button
-            onClick={() => { 
-              setSelectedTrafficVolume(null);
-              setFocusMode(false);
-              setFocusFlightIds(new Set());
-              setIsRegulationPanelOpen(false);
-              // Ensure Flow View is deactivated when panel closes
-              setFlowViewEnabled(false);
-              setFlowCommunities(null, null);
-              setFlowError(null);
-              setFlowPreviewFlightId(null);
-              window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
-            }}
-            className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-            title="Close panel"
-          >
-            ✕
-          </button>
+                setProposalTriggerError(null);
+                const fromHHMM = secondsToDayTimeString(from);
+                const toHHMM = secondsToDayTimeString(to);
+                await fetchRegulationProposals({
+                  trafficVolumeId: String(selectedTrafficVolume),
+                  timeWindow: toTimeWindow(fromHHMM, toHHMM),
+                });
+              }}
+              disabled={proposalLoading}
+              className={`h-7 w-7 flex items-center justify-center rounded-lg border text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${proposalLoading
+                ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
+                : 'border-white/30 bg-white/20 hover:bg-white/30'}`}
+            >
+              <svg height="12" fill="currentColor" width="12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <g id="new">
+                  <g>
+                    <polygon points="13,23 11,23 11,13.7 3,18.4 2,16.6 10,12 2,7.4 3,5.6 11,10.3 11,1 13,1 13,10.3 21,5.6 22,7.4 14,12 22,16.6 
+                      21,18.4 13,13.7 		"/>
+                  </g>
+                </g>
+              </svg>
+            </button>
+            <button
+              onClick={() => { 
+                setSelectedTrafficVolume(null);
+                setFocusMode(false);
+                setFocusFlightIds(new Set());
+                setIsRegulationPanelOpen(false);
+                // Ensure Flow View is deactivated when panel closes
+                setFlowViewEnabled(false);
+                setFlowCommunities(null, null);
+                setFlowError(null);
+                setFlowPreviewFlightId(null);
+                window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
+              }}
+              className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+              title="Close panel"
+            >
+              ✕
+            </button>
+          </div>
+          {proposalTriggerError && (
+            <div className="text-[11px] text-red-200 text-right">{proposalTriggerError}</div>
+          )}
         </div>
       </div>
 
@@ -719,6 +769,14 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 function formatTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}`;
+}
+
+function secondsToDayTimeString(seconds: number): string {
+  const day = 24 * 3600;
+  const normalized = ((Math.floor(seconds) % day) + day) % day;
+  const hours = Math.floor(normalized / 3600);
+  const minutes = Math.floor((normalized % 3600) / 60);
   return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}`;
 }
 

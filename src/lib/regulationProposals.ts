@@ -79,7 +79,7 @@ export function toTimeWindow(fromHHMM: string, toHHMM: string): string {
 export async function proposeRegulations(
   body: ProposeRegulationsRequest
 ): Promise<ProposeRegulationsResponse> {
-  const res = await authFetch("/propose_regulations", {
+  const res = await authFetch("/api/propose_regulations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

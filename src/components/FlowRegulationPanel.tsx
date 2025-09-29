@@ -7,7 +7,6 @@ import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
-import { toTimeWindow } from "@/lib/regulationProposals";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
 
@@ -22,8 +21,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     flowColorByCommunity,
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
-    fetchRegulationProposals,
-    proposalLoading,
     resetProposalState,
   } = useSimStore();
   const [open, setOpen] = useState(true);
@@ -35,7 +32,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [toTime, setToTime] = useState<string>(secToHHMM(t + 2 * 3600));
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [proposalTriggerError, setProposalTriggerError] = useState<string | null>(null);
   const [flowResults, setFlowResults] = useState<FlowsResponse | null>(null);
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   // Flow extraction params
@@ -188,9 +184,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     }
   }, [selectedTVs, setFlowCommunities, setFlowViewEnabled, setFlowError, resetProposalState]);
 
-  useEffect(() => {
-    setProposalTriggerError(null);
-  }, [selectedTVs, fromTime, toTime]);
 
   useEffect(() => {
     if (!open) {
@@ -217,34 +210,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-70">Traffic Flows</div>
           <div className="text-lg font-semibold">Select and Extract</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            aria-label="Propose regulation bundles"
-            type="button"
-            onClick={async () => {
-              if (selectedTVs.length !== 1) {
-                setProposalTriggerError('Select exactly one traffic volume to propose regulations.');
-                return;
-              }
-              if (!valid) {
-                setProposalTriggerError('Invalid time window; end must be after start.');
-                return;
-              }
-              setProposalTriggerError(null);
-              const query = {
-                trafficVolumeId: selectedTVs[0],
-                timeWindow: toTimeWindow(fromTime, toTime),
-              };
-              await fetchRegulationProposals(query);
-            }}
-            disabled={proposalLoading}
-            className={`px-3 py-1 rounded-lg border text-xs transition-colors ${proposalLoading
-              ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
-              : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
-          >
-            {proposalLoading ? 'Loading…' : 'Propose'}
-          </button>
         </div>
       </div>
 
@@ -301,9 +266,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
           </div>
           {!valid && (
             <div className="text-[11px] text-red-200 mt-1">End time must be after start time</div>
-          )}
-          {proposalTriggerError && (
-            <div className="text-[11px] text-red-200 mt-1">{proposalTriggerError}</div>
           )}
         </div>
 

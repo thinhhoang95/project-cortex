@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ShimmeringText from "@/components/ShimmeringText";
 import { useSimStore } from "@/components/useSimStore";
 import {
   RegulationProposal,
@@ -207,30 +208,40 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
             aria-pressed={proposalPreviewAll}
             type="button"
             onClick={togglePreviewAllProposals}
-            className={`px-2 py-1 rounded-lg border text-xs ${proposalPreviewAll
-              ? 'border-blue-400 bg-blue-500/20 text-blue-100'
+            title={proposalPreviewAll ? "Hide all previews" : "Preview all proposal flights"}
+            className={`h-7 w-7 flex items-center justify-center rounded-lg border transition-colors ${proposalPreviewAll
+              ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
               : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
           >
-            👁 Preview All
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
           </button>
           <button
             aria-label="Re-run regulation proposals"
             disabled={!proposalQuery || proposalLoading || !!topKError}
             type="button"
             onClick={handleRerun}
-            className={`px-2 py-1 rounded-lg border text-xs ${proposalLoading
+            title={proposalLoading ? "Loading..." : "Re-run with current parameters"}
+            className={`h-7 w-7 flex items-center justify-center rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${proposalLoading
               ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
               : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
           >
-            {proposalLoading ? 'Loading…' : 'Re-run'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={proposalLoading ? 'animate-spin' : ''}>
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M2.93077 11.2003C3.00244 6.23968 7.07619 2.25 12.0789 2.25C15.3873 2.25 18.287 3.99427 19.8934 6.60721C20.1103 6.96007 20.0001 7.42199 19.6473 7.63892C19.2944 7.85585 18.8325 7.74565 18.6156 7.39279C17.2727 5.20845 14.8484 3.75 12.0789 3.75C7.8945 3.75 4.50372 7.0777 4.431 11.1982L4.83138 10.8009C5.12542 10.5092 5.60029 10.511 5.89203 10.8051C6.18377 11.0991 6.18191 11.574 5.88787 11.8657L4.20805 13.5324C3.91565 13.8225 3.44398 13.8225 3.15157 13.5324L1.47176 11.8657C1.17772 11.574 1.17585 11.0991 1.46759 10.8051C1.75933 10.5111 2.2342 10.5092 2.52824 10.8009L2.93077 11.2003ZM19.7864 10.4666C20.0786 10.1778 20.5487 10.1778 20.8409 10.4666L22.5271 12.1333C22.8217 12.4244 22.8245 12.8993 22.5333 13.1939C22.2421 13.4885 21.7673 13.4913 21.4727 13.2001L21.0628 12.7949C20.9934 17.7604 16.9017 21.75 11.8825 21.75C8.56379 21.75 5.65381 20.007 4.0412 17.3939C3.82366 17.0414 3.93307 16.5793 4.28557 16.3618C4.63806 16.1442 5.10016 16.2536 5.31769 16.6061C6.6656 18.7903 9.09999 20.25 11.8825 20.25C16.0887 20.25 19.4922 16.9171 19.5625 12.7969L19.1546 13.2001C18.86 13.4913 18.3852 13.4885 18.094 13.1939C17.8028 12.8993 17.8056 12.4244 18.1002 12.1333L19.7864 10.4666Z" fill="currentColor"/>
+            </svg>
           </button>
           <button
             aria-label="Close regulation proposal panel"
             type="button"
             onClick={resetProposalState}
-            className="px-2 py-1 rounded-lg border border-white/30 bg-white/10 text-xs text-white/80 hover:bg-white/15"
+            title="Close panel"
+            className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
           >
-            Close
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18"></path>
+              <path d="M6 6l12 12"></path>
+            </svg>
           </button>
         </div>
       </div>
@@ -268,10 +279,11 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
         </div>
 
         {proposalLoading && (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, idx) => (
-              <div key={idx} className="h-16 animate-pulse rounded-lg bg-white/10" />
-            ))}
+          <div className="flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-6 text-sm text-white/80">
+            <div className="flex items-center gap-3">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]" />
+              <ShimmeringText text="Hunting for Regulations..." className="text-sm opacity-80" />
+            </div>
           </div>
         )}
 
@@ -284,7 +296,14 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
         {!proposalLoading && proposals.map((proposal) => {
           const expanded = expandedProposals[proposal.id] ?? false;
           const summary = summarizeProposalFeatures(proposal);
-          const improvement = proposal.objective_improvement || { delta_deficit_per_hour: 0, delta_objective_score: 0 };
+          const improvement = proposal.objective_improvement || { delta_objective_score: 0 };
+          const deltaObjective = improvement.delta_objective_score ?? 0;
+          const formattedDeltaObjective = deltaObjective > 0 ? `+${formatNumber(deltaObjective)}` : formatNumber(deltaObjective);
+          const objectivePositive = deltaObjective > 0;
+          const objectiveBadgeClasses = objectivePositive
+            ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-100"
+            : "border-rose-400/40 bg-rose-500/20 text-rose-100";
+          const objectiveIconRotation = objectivePositive ? "" : "rotate-180";
           const isPinned = proposalPreviewAll || proposalPinnedProposals.has(proposal.id);
           return (
             <div
@@ -301,13 +320,15 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
               >
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <div className="text-sm font-semibold">{proposal.id}</div>
+                    <div className="text-sm font-semibold truncate max-w-[100px]">{proposal.id}</div>
                     <div className="text-[11px] opacity-70">{proposal.control_window?.label} · ({proposal.flows?.length || 0} flows)</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="flex flex-col text-right text-[11px]">
-                      <span>Δ deficit/hr: {formatNumber(improvement.delta_deficit_per_hour)}</span>
-                      <span>Δ objective: {formatNumber(improvement.delta_objective_score)}</span>
+                    <div
+                      className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-medium ${objectiveBadgeClasses}`}
+                      title={`Δ ${formattedDeltaObjective}`}
+                    >
+                      <span>Δ: {formattedDeltaObjective}</span>
                     </div>
                     <button
                       aria-label={`Toggle preview for ${proposal.id}`}
@@ -316,18 +337,38 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                         e.stopPropagation();
                         toggleProposalEye(proposal.id);
                       }}
-                      className={`rounded-lg border px-2 py-1 text-xs ${isPinned
-                        ? 'border-blue-400 bg-blue-500/20 text-blue-100'
+                      title={isPinned ? "Hide preview" : "Show preview"}
+                      className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${isPinned
+                        ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
                         : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                     >
-                      👁
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/>
+                      </svg>
                     </button>
                     <button
                       aria-label={`Expand details for ${proposal.id}`}
+                      aria-expanded={expanded}
                       type="button"
-                      className="rounded-lg border border-white/30 bg-white/10 px-2 py-1 text-xs text-white/70"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedProposals((prev) => ({ ...prev, [proposal.id]: !expanded }));
+                      }}
+                      title={expanded ? "Collapse details" : "Expand details"}
+                      className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${expanded
+                        ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
+                        : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                     >
-                      {expanded ? 'Hide' : 'View'}
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      >
+                        <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </button>
                   </div>
                 </div>
@@ -340,15 +381,15 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
               </div>
               {expanded && (
                 <div className="space-y-4 border-t border-white/10 p-4 text-xs">
-                  <div className="grid gap-1">
+                  <div className="grid gap-2">
                     <div className="font-semibold text-white/80">Objective Components</div>
                     <table className="w-full text-left text-[11px]">
                       <thead>
                         <tr className="text-white/60">
-                          <th className="py-1">Component</th>
-                          <th className="py-1">Before</th>
-                          <th className="py-1">After</th>
-                          <th className="py-1">Δ</th>
+                          <th className="py-1 pr-2">Component</th>
+                          <th className="py-1 px-2 text-right">Before</th>
+                          <th className="py-1 px-2 text-right">After</th>
+                          <th className="py-1 pl-2 text-right">Δ</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -358,10 +399,10 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                           ...Object.keys(proposal.objective_components?.delta || {}),
                         ])).map((key) => (
                           <tr key={key} className="border-t border-white/10">
-                            <td className="py-1 font-medium">{key}</td>
-                            <td className="py-1">{formatNumber(proposal.objective_components?.before?.[key])}</td>
-                            <td className="py-1">{formatNumber(proposal.objective_components?.after?.[key])}</td>
-                            <td className="py-1">{formatNumber(proposal.objective_components?.delta?.[key])}</td>
+                            <td className="py-1.5 pr-2 font-medium">{key}</td>
+                            <td className="py-1.5 px-2 text-right">{formatNumber(proposal.objective_components?.before?.[key])}</td>
+                            <td className="py-1.5 px-2 text-right">{formatNumber(proposal.objective_components?.after?.[key])}</td>
+                            <td className="py-1.5 pl-2 text-right">{formatNumber(proposal.objective_components?.delta?.[key])}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -382,40 +423,80 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                             onMouseEnter={() => handleFlowHover(proposal, flow)}
                             onMouseLeave={handleClearPreview}
                           >
-                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                              <div className="font-semibold">Flow {flow.flow_id}</div>
-                              <div className="text-white/70">{flow.control_volume_id || '—'}</div>
-                              <div>
-                                {formatNumber(flow.baseline_rate_per_hour, 1)} → {formatNumber(flow.allowed_rate_per_hour, 1)}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="font-semibold text-sm">Flow {flow.flow_id}</div>
+                                  <div className="text-white/70 text-xs">{flow.control_volume_id || '—'}</div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    aria-label={`Toggle preview for flow ${flow.flow_id}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleProposalFlowEye(proposal.id, flow.flow_id);
+                                    }}
+                                    title={flowPinned ? "Hide flow preview" : "Show flow preview"}
+                                    className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${flowPinned
+                                      ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
+                                      : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/>
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedFlightLists((prev) => ({ ...prev, [key]: !(prev[key] ?? false) }));
+                                    }}
+                                    type="button"
+                                    aria-label={expandedFlightLists[key] ? 'Hide flight list' : 'Show flight list'}
+                                    className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${expandedFlightLists[key]
+                                      ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
+                                      : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+                                    title={expandedFlightLists[key] ? 'Hide flight list' : 'Show flight list'}
+                                  >
+                                    <svg
+                                      width="12"
+                                      height="12"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                    </svg>
+                                  </button>
+                                </div>
                               </div>
-                              <div>Cut/hr {formatNumber(flow.assigned_cut_per_hour, 1)}</div>
-                              <div>V {formatNumber(flowFeatures.v)}</div>
-                              <div>S15 {formatNumber(flowFeatures.slack15)}</div>
-                              <div>S30 {formatNumber(flowFeatures.slack30)}</div>
-                              <div>N {flowFeatures.flights}</div>
-                              <button
-                                aria-label={`Toggle preview for flow ${flow.flow_id}`}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleProposalFlowEye(proposal.id, flow.flow_id);
-                                }}
-                                className={`rounded-lg border px-2 py-1 text-xs ${flowPinned
-                                  ? 'border-blue-400 bg-blue-500/20 text-blue-100'
-                                  : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
-                              >
-                                👁
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedFlightLists((prev) => ({ ...prev, [key]: ! (prev[key] ?? false) }));
-                                }}
-                                type="button"
-                                className="rounded-lg border border-white/30 bg-white/10 px-2 py-1 text-xs text-white/70"
-                              >
-                                {expandedFlightLists[key] ? 'Hide Flights' : 'Flight List'}
-                              </button>
+                              
+                              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px]">
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">Rate:</span>
+                                  <span>{formatNumber(flow.baseline_rate_per_hour, 1)} → {formatNumber(flow.allowed_rate_per_hour, 1)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">Cut/hr:</span>
+                                  <span>{formatNumber(flow.assigned_cut_per_hour, 1)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">V:</span>
+                                  <span>{formatNumber(flowFeatures.v)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">S15:</span>
+                                  <span>{formatNumber(flowFeatures.slack15)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">S30:</span>
+                                  <span>{formatNumber(flowFeatures.slack30)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">Flights:</span>
+                                  <span>{flowFeatures.flights}</span>
+                                </div>
+                              </div>
                             </div>
                             {expandedFlightLists[key] && renderFlightList(proposal.id, flow)}
                           </div>
@@ -431,7 +512,7 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                         {proposalResults?.weights && (
                           <div>
                             <div className="font-semibold text-white/80">Weights</div>
-                            <div className="mt-1 grid grid-cols-2 gap-1">
+                            <div className="mt-1 grid grid-cols-2 gap-x-6 gap-y-2">
                               {Object.entries(proposalResults.weights).map(([k, v]) => (
                                 <div key={k} className="flex justify-between">
                                   <span>{k}</span>
@@ -444,7 +525,7 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                         {proposal.diagnostics && (
                           <div>
                             <div className="font-semibold text-white/80">Diagnostics</div>
-                            <div className="mt-1 grid grid-cols-2 gap-1">
+                            <div className="mt-1 grid grid-cols-2 gap-x-6 gap-y-2">
                               {Object.entries(proposal.diagnostics).map(([k, v]) => (
                                 <div key={k} className="flex justify-between">
                                   <span>{k}</span>
