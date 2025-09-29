@@ -26,7 +26,22 @@ import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
-import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, Legend } from "recharts";
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Bar,
+  Line,
+  Legend,
+  RadarChart,
+  Radar,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+} from "recharts";
 
 const PALETTE = ["#38bdf8", "#f472b6", "#facc15", "#34d399"];
 const ABS_CHANGE_PREFIX = "abs_change:" as const;
@@ -129,6 +144,45 @@ function formatNumber(val: number | null | undefined, digits = 2) {
 function toFiniteNumber(value: unknown): number | null {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+const OBJECTIVE_COMPONENT_KEYS = ["J_CAP", "J_DELAY"] as const;
+type ObjectiveComponentKey = (typeof OBJECTIVE_COMPONENT_KEYS)[number];
+
+function normalizeObjectiveKey(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return raw
+    .toString()
+    .trim()
+    .replace(/[^0-9a-zA-Z]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_")
+    .toUpperCase();
+}
+
+function getObjectiveComponentValue(
+  components: Record<string, unknown> | null | undefined,
+  key: ObjectiveComponentKey,
+): number | null {
+  if (!components) return null;
+  const target = normalizeObjectiveKey(key);
+  if (!target) return null;
+
+  if (Object.prototype.hasOwnProperty.call(components, key)) {
+    const direct = toFiniteNumber((components as Record<string, unknown>)[key]);
+    if (direct !== null) return direct;
+  }
+
+  for (const [rawKey, rawValue] of Object.entries(components)) {
+    if (normalizeObjectiveKey(rawKey) === target) {
+      const value = toFiniteNumber(rawValue);
+      if (value !== null) {
+        return value;
+      }
+    }
+  }
+
+  return null;
 }
 
 function formatSecondsToHMM(totalSeconds: number | null | undefined): string {
@@ -421,22 +475,25 @@ export default function RegulationComparisonPage() {
     [selectedSnapshots],
   );
 
-  const objectiveComponentKeys = useMemo(() => {
-    const keys = new Set<string>();
-    selectedSnapshots.forEach((snap) => {
-      const components = snap.objective?.components;
-      if (!components) return;
-      Object.keys(components).forEach((key) => keys.add(key));
+  const objectiveComponentKeys = useMemo<ObjectiveComponentKey[]>(() => {
+    const orderedKeys: ObjectiveComponentKey[] = [];
+    OBJECTIVE_COMPONENT_KEYS.forEach((key) => {
+      const hasValue = selectedSnapshots.some(
+        (snap) => getObjectiveComponentValue(snap.objective?.components, key) !== null,
+      );
+      if (hasValue) {
+        orderedKeys.push(key);
+      }
     });
-    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+    return orderedKeys;
   }, [selectedSnapshots]);
 
   const objectiveComponentBest = useMemo(() => {
-    const bestMap = new Map<string, number>();
+    const bestMap = new Map<ObjectiveComponentKey, number>();
     objectiveComponentKeys.forEach((key) => {
       let best: number | null = null;
       selectedSnapshots.forEach((snap) => {
-        const value = toFiniteNumber(snap.objective?.components?.[key]);
+        const value = getObjectiveComponentValue(snap.objective?.components, key);
         if (value === null) return;
         if (best === null || value < best) {
           best = value;
@@ -448,6 +505,58 @@ export default function RegulationComparisonPage() {
     });
     return bestMap;
   }, [objectiveComponentKeys, selectedSnapshots]);
+
+  const { objectiveRadarData, objectiveRadarMax } = useMemo(() => {
+    type RadarDatum = { metric: string } & Record<string, number>;
+
+    const rows: RadarDatum[] = [];
+    let maxValue = 0;
+
+    const metrics: Array<{
+      key: ObjectiveComponentKey | "TOTAL_DELAY";
+      label: string;
+      getter: (snap: RegulationSnapshot) => number | null;
+    }> = [
+      {
+        key: "TOTAL_DELAY",
+        label: "Total Delay (min)",
+        getter: (snap) => {
+          const totalDelaySeconds = toFiniteNumber(snap.delayStats?.total_delay_seconds);
+          return totalDelaySeconds !== null ? totalDelaySeconds / 60 : null;
+        },
+      },
+      ...OBJECTIVE_COMPONENT_KEYS.map((key) => ({
+        key,
+        label: key.replace(/_/g, " "),
+        getter: (snap: RegulationSnapshot) => getObjectiveComponentValue(snap.objective?.components, key),
+      })),
+    ];
+
+    metrics.forEach((metric) => {
+      const row: RadarDatum = { metric: metric.label };
+      let hasValue = false;
+
+      selectedSnapshots.forEach((snap) => {
+        const value = metric.getter(snap);
+        if (value !== null) {
+          row[snap.id] = value;
+          maxValue = Math.max(maxValue, value);
+          hasValue = true;
+        }
+      });
+
+      if (hasValue) {
+        rows.push(row);
+      }
+    });
+
+    return { objectiveRadarData: rows, objectiveRadarMax: maxValue };
+  }, [selectedSnapshots]);
+
+  const objectiveRadarDomainMax = useMemo(() => {
+    if (objectiveRadarMax <= 0) return 1;
+    return Math.max(1, Math.ceil(objectiveRadarMax * 1.1));
+  }, [objectiveRadarMax]);
 
   const airportStatsBySnapshot = useMemo(() => {
     const map = new Map<string, SnapshotAirportStats>();
@@ -1172,72 +1281,137 @@ export default function RegulationComparisonPage() {
           </section>
 
           <section className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <h2 className="text-lg font-semibold text-white">Objective comparison</h2>
             </div>
             {hasObjectiveScore || objectiveComponentKeys.length > 0 ? (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-                  {selectedSnapshots.map((snap) => {
-                    const color = colorBySnapshotId.get(snap.id) || "#fff";
-                    const score = toFiniteNumber(snap.objective?.score);
-                    const isBest = bestObjectiveScore !== null && score !== null && score === bestObjectiveScore;
-                    return (
-                      <div key={snap.id} className="rounded-lg border border-white/10 bg-white/5 p-4 text-white/80 space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-semibold">
-                          <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
-                          <span>{snap.description || "Untitled"}</span>
-                          {isBest && <span className="text-[10px] uppercase tracking-wider bg-emerald-500/20 border border-emerald-400/60 px-1.5 py-0.5 rounded text-emerald-100">Best</span>}
+              <div className="flex flex-col lg:flex-row gap-6">
+                {/* Left side: Objective scores and component table */}
+                <div className="flex-1 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {selectedSnapshots.map((snap) => {
+                      const color = colorBySnapshotId.get(snap.id) || "#fff";
+                      const score = toFiniteNumber(snap.objective?.score);
+                      const isBest = bestObjectiveScore !== null && score !== null && score === bestObjectiveScore;
+                      return (
+                        <div key={snap.id} className="rounded-lg border border-white/10 bg-white/5 p-4 text-white/80 space-y-2">
+                          <div className="flex items-center gap-2 text-sm font-semibold">
+                            <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
+                            <span>{snap.description || "Untitled"}</span>
+                            {isBest && <span className="text-[10px] uppercase tracking-wider bg-emerald-500/20 border border-emerald-400/60 px-1.5 py-0.5 rounded text-emerald-100">Best</span>}
+                          </div>
+                          <div className="text-[12px] text-white/60">Objective score</div>
+                          <div className="text-2xl font-semibold text-white">{formatNumber(score, 2)}</div>
                         </div>
-                        <div className="text-[12px] text-white/60">Objective score</div>
-                        <div className="text-2xl font-semibold text-white">{formatNumber(score, 2)}</div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+
+                  {objectiveComponentKeys.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm text-white/80">
+                        <thead className="text-white/60 text-[12px] uppercase tracking-wider">
+                          <tr>
+                            <th className="text-left px-3 py-2">Objective component</th>
+                            {selectedSnapshots.map((snap) => (
+                              <th key={snap.id} className="text-left px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="inline-flex w-2 h-2 rounded-full"
+                                    style={{ background: colorBySnapshotId.get(snap.id) || "#fff" }}
+                                  />
+                                  <span>{snap.description || "Untitled"}</span>
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {objectiveComponentKeys.map((key) => {
+                            const bestValue = objectiveComponentBest.get(key);
+                            return (
+                              <tr key={key} className="border-t border-white/10">
+                                <td className="px-3 py-2 text-white/70">{key}</td>
+                                {selectedSnapshots.map((snap) => {
+                                  const value = getObjectiveComponentValue(snap.objective?.components, key);
+                                  const isBest =
+                                    bestValue !== undefined &&
+                                    bestValue !== null &&
+                                    value !== null &&
+                                    value === bestValue;
+                                  return (
+                                    <td
+                                      key={`${snap.id}-${key}`}
+                                      className={`px-3 py-2 font-mono text-[13px] ${isBest ? 'text-emerald-200' : 'text-white/80'}`}
+                                    >
+                                      {formatNumber(value, 3)}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
-                {objectiveComponentKeys.length > 0 && (
-                  <div className="mt-6 overflow-x-auto">
-                    <table className="min-w-full text-sm text-white/80">
-                      <thead className="text-white/60 text-[12px] uppercase tracking-wider">
-                        <tr>
-                          <th className="text-left px-3 py-2">Objective component</th>
-                          {selectedSnapshots.map((snap) => (
-                            <th key={snap.id} className="text-left px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || "#fff" }} />
-                                <span>{snap.description || "Untitled"}</span>
-                              </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {objectiveComponentKeys.map((key) => {
-                          const bestValue = objectiveComponentBest.get(key);
+                {/* Right side: Spider/Radar chart */}
+                {objectiveRadarData.length > 0 && (
+                  <div className="w-full lg:w-96 xl:w-[420px] flex-shrink-0">
+                    <div className="bg-white/5 border border-white/10 rounded-lg p-4 h-full">
+                      <div className="text-sm font-medium text-white/80 mb-3">Delay vs Objective Components</div>
+                      <div className="h-80">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadarChart data={objectiveRadarData} outerRadius="80%">
+                            <PolarGrid stroke="rgba(148, 163, 184, 0.35)" />
+                            <PolarAngleAxis
+                              dataKey="metric"
+                              tick={{ fill: "rgba(226, 232, 240, 0.8)", fontSize: 11 }}
+                            />
+                            <PolarRadiusAxis
+                              angle={30}
+                              domain={[0, objectiveRadarDomainMax]}
+                              tick={{ fill: "rgba(226, 232, 240, 0.6)", fontSize: 10 }}
+                            />
+                            <Tooltip
+                              formatter={(value: unknown) =>
+                                typeof value === "number" ? formatNumber(value, 2) : value
+                              }
+                              wrapperClassName="text-sm"
+                            />
+                            {selectedSnapshots.map((snap) => {
+                              const color = colorBySnapshotId.get(snap.id) || "#fff";
+                              return (
+                                <Radar
+                                  key={snap.id}
+                                  name={snap.description || "Untitled"}
+                                  dataKey={snap.id}
+                                  stroke={color}
+                                  fill={color}
+                                  fillOpacity={0.2}
+                                />
+                              );
+                            })}
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="mt-3 space-y-1 text-[12px] text-white/70">
+                        {selectedSnapshots.map((snap) => {
+                          const color = colorBySnapshotId.get(snap.id) || "#fff";
                           return (
-                            <tr key={key} className="border-t border-white/10">
-                              <td className="px-3 py-2 text-white/70">{key}</td>
-                              {selectedSnapshots.map((snap) => {
-                                const value = toFiniteNumber(snap.objective?.components?.[key]);
-                                const isBest = bestValue !== undefined && bestValue !== null && value !== null && value === bestValue;
-                                return (
-                                  <td
-                                    key={`${snap.id}-${key}`}
-                                    className={`px-3 py-2 font-mono text-[13px] ${isBest ? 'text-emerald-200' : 'text-white/80'}`}
-                                  >
-                                    {formatNumber(value, 3)}
-                                  </td>
-                                );
-                              })}
-                            </tr>
+                            <div key={snap.id} className="flex items-center gap-2">
+                              <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
+                              <span className="truncate">{snap.description || "Untitled"}</span>
+                            </div>
                           );
                         })}
-                      </tbody>
-                    </table>
+                      </div>
+                    </div>
                   </div>
                 )}
-              </>
+              </div>
             ) : (
               <div className="mt-4 text-sm text-white/60">Objective metrics not available for the selected snapshots.</div>
             )}

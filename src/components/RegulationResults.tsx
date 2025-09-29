@@ -418,18 +418,24 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
   const objectiveComponents = useMemo<ObjectiveComponentEntry[]>(() => {
     const components = result?.objective_components;
     if (!components || typeof components !== "object") return [];
-    return Object.entries(components)
-      .map(([key, value]) => {
-        const num = Number(value);
-        return {
-          key,
-          value: Number.isFinite(num) ? num : null,
-        };
-      })
-      .sort((a, b) => a.key.localeCompare(b.key));
+
+    const normalized = new Map<string, number>();
+    Object.entries(components).forEach(([rawKey, rawValue]) => {
+      const upperKey = rawKey.toUpperCase();
+      const numeric = Number(rawValue);
+      if (Number.isFinite(numeric)) {
+        normalized.set(upperKey, numeric);
+      }
+    });
+
+    const keys: Array<"J_CAP" | "J_DELAY"> = ["J_CAP", "J_DELAY"];
+    return keys
+      .map((key) => ({ key, value: normalized.get(key) ?? null }))
+      .filter((entry) => entry.value !== null);
   }, [result?.objective_components]);
 
-  const hasObjectiveMetrics = objectiveScore !== null || objectiveComponents.length > 0;
+  const hasObjectiveComponents = objectiveComponents.length > 0;
+  const hasObjectiveMetrics = objectiveScore !== null || hasObjectiveComponents;
 
   const handleOpenRegSnapshotPrompt = () => {
     if (!result) return;
@@ -529,7 +535,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                 value={objectiveScore !== null ? formatNumber(objectiveScore, 2) : "—"}
               />
             </div>
-            {objectiveComponents.length > 0 && (
+            {hasObjectiveComponents && (
               <div className="mt-4 overflow-x-auto">
                 <table className="min-w-full text-sm text-white/80">
                   <thead className="text-white/60 text-[12px] uppercase tracking-wider">
