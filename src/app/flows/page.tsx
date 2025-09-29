@@ -6,6 +6,7 @@ import { useSimStore } from '@/components/useSimStore';
 import FlowCanvas from "@/components/FlowCanvas";
 import LeftControl1Flow from "@/components/LeftControl1Flow";
 import FlowRegulationPanel from "@/components/FlowRegulationPanel";
+import RegulationProposalPanel from "@/components/RegulationProposalPanel";
 import FlowAirspaceView from "@/components/FlowAirspaceView";
 import FlowPlanPanel from "@/components/FlowPlanPanel";
 import Header from "@/components/Header";
@@ -77,6 +78,9 @@ export default function FlowsPage() {
         <div className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
           <div className="pointer-events-auto">
             <FlowRegulationPanel embedded />
+          </div>
+          <div className="pointer-events-auto">
+            <RegulationProposalPanel embedded />
           </div>
           <div className="pointer-events-auto">
             <FlowAirspaceView embedded />

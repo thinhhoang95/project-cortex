@@ -16,7 +16,7 @@ export default function FlowCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showTrafficVolumes, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, regulationTargetFlightIds, regulationPreviewActive, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showTrafficVolumes, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, regulationTargetFlightIds, regulationPreviewActive, proposalPreviewActive, proposalPreviewFlightIds, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
 
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
@@ -275,6 +275,11 @@ export default function FlowCanvas() {
   // Ensure filters also react to flow mapping toggles (e.g., Flow Basket eye button)
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
 
+  useEffect(() => {
+    updateFlightLineFilters(mapRef.current);
+    updateFlowRendering(mapRef.current);
+  }, [proposalPreviewActive, proposalPreviewFlightIds]);
+
   // Weather overlay integration (Surface Precipitation)
   useEffect(() => {
     const map = mapRef.current;
@@ -459,7 +464,9 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   // When Flow View is enabled and communities are present, restrict to those flights
   let lineIdsToShow: string[];
   // Flight-level preview takes precedence over any group preview or other filters
-  if (sim.regulationPreviewActive) {
+  if (sim.proposalPreviewActive) {
+    lineIdsToShow = Array.from(sim.proposalPreviewFlightIds || []).map(String);
+  } else if (sim.regulationPreviewActive) {
     lineIdsToShow = Array.from(sim.regulationTargetFlightIds).map(String);
   } else if (sim.flowPreviewFlightId) {
     // Flow preview hovers are next-highest priority
@@ -535,7 +542,13 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sim = useSimStore.getState();
   if (!map.getLayer('flight-lines')) return;
 
-  if (!sim.regulationPreviewActive && sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+  if (
+    !sim.proposalPreviewActive &&
+    !sim.regulationPreviewActive &&
+    sim.flowViewEnabled &&
+    sim.flowCommunities &&
+    Object.keys(sim.flowCommunities).length > 0
+  ) {
     // Only apply flow coloring when regulation preview is off
     const colorByCommunity = new Map<string, string>(
       Object.entries(sim.flowColorByCommunity || {})
@@ -587,7 +600,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sectorOutlineId = 'sector-outline';
   const sectorLabelsId = 'sector-labels';
 
-  if (sim.flowViewEnabled && !sim.regulationPreviewActive) {
+  if (sim.flowViewEnabled && !sim.regulationPreviewActive && !sim.proposalPreviewActive) {
     // Keep base sector visuals hidden only when flow view has priority
     if (map.getLayer(sectorFillId)) {
       map.setPaintProperty(sectorFillId, 'fill-opacity', 0);

@@ -2,6 +2,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse } from "@/lib/models";
+import {
+  collectAllProposalFlights,
+  collectProposalFlights,
+  ProposeRegulationsRequest,
+  ProposeRegulationsResponse,
+  proposeRegulations,
+} from "@/lib/regulationProposals";
 
 interface User {
   email: string;
@@ -63,6 +70,12 @@ interface Regulation {
   createdAt: number;
 }
 
+export type ProposalQuery = {
+  trafficVolumeId: string;
+  timeWindow: string;
+  topK?: number;
+};
+
 type State = {
   t: number;               // current sim time (s)
   range: [number, number]; // global window
@@ -107,6 +120,20 @@ type State = {
   regulationRate: number;
   regulations: Regulation[];
   isRegulationPanelOpen: boolean;
+  // Regulation proposals
+  isRegulationProposalPanelOpen: boolean;
+  proposalLoading: boolean;
+  proposalError: string | null;
+  proposalQuery: ProposalQuery | null;
+  proposalResults: ProposeRegulationsResponse | null;
+  proposalPreviewActive: boolean;
+  proposalPreviewFlightIds: Set<string>;
+  proposalPreviewProposalId: string | null;
+  proposalPreviewAll: boolean;
+  proposalHoverFlightIds: Set<string>;
+  proposalPinnedProposals: Set<string>;
+  proposalPinnedFlows: Set<string>;
+  proposalPinnedFlightIds: Set<string>;
   // Simulation results modal
   regulationSimulationResult: RegulationPlanSimulationResponse | null;
   isResultsOpen: boolean;
@@ -168,6 +195,14 @@ type State = {
   addRegulation: (regulation: Omit<Regulation, 'id' | 'createdAt'>) => void;
   removeRegulation: (id: string) => void;
   setIsRegulationPanelOpen: (open: boolean) => void;
+  setIsRegulationProposalPanelOpen: (open: boolean) => void;
+  fetchRegulationProposals: (q: ProposalQuery) => Promise<void>;
+  setProposalPreview: (ids: Set<string>, proposalId?: string | null) => void;
+  clearProposalPreview: () => void;
+  toggleProposalEye: (proposalId: string) => void;
+  toggleProposalFlowEye: (proposalId: string, flowId: string | number) => void;
+  togglePreviewAllProposals: () => void;
+  resetProposalState: () => void;
   setRegulationEditPayload: (p: Omit<Regulation, 'id' | 'createdAt'> | null) => void;
   setRegulationSimulationResult: (r: RegulationPlanSimulationResponse | null) => void;
   setIsResultsOpen: (open: boolean) => void;
@@ -256,6 +291,19 @@ const defaultState: Pick<State,
   | 'regulationRate'
   | 'regulations'
   | 'isRegulationPanelOpen'
+  | 'isRegulationProposalPanelOpen'
+  | 'proposalLoading'
+  | 'proposalError'
+  | 'proposalQuery'
+  | 'proposalResults'
+  | 'proposalPreviewActive'
+  | 'proposalPreviewFlightIds'
+  | 'proposalPreviewProposalId'
+  | 'proposalPreviewAll'
+  | 'proposalHoverFlightIds'
+  | 'proposalPinnedProposals'
+  | 'proposalPinnedFlows'
+  | 'proposalPinnedFlightIds'
   | 'regulationEditPayload'
   | 'regulationSimulationResult'
   | 'isResultsOpen'
@@ -307,6 +355,19 @@ const defaultState: Pick<State,
   regulationRate: 0,
   regulations: [],
   isRegulationPanelOpen: false,
+  isRegulationProposalPanelOpen: false,
+  proposalLoading: false,
+  proposalError: null,
+  proposalQuery: null,
+  proposalResults: null,
+  proposalPreviewActive: false,
+  proposalPreviewFlightIds: new Set<string>(),
+  proposalPreviewProposalId: null,
+  proposalPreviewAll: false,
+  proposalHoverFlightIds: new Set<string>(),
+  proposalPinnedProposals: new Set<string>(),
+  proposalPinnedFlows: new Set<string>(),
+  proposalPinnedFlightIds: new Set<string>(),
   regulationEditPayload: null,
   regulationSimulationResult: null,
   isResultsOpen: false,
@@ -320,9 +381,58 @@ const defaultState: Pick<State,
   user: null,
 };
 
-export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((set, get) => ({
-  ...defaultState,
-  setUser: (user) => set({ user }),
+export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((set, get) => {
+  const recomputePinnedFlights = (
+    nextPinnedProposals: Set<string>,
+    nextPinnedFlows: Set<string>
+  ) => {
+    const flights = new Set<string>();
+    const results = get().proposalResults;
+    if (!results) return flights;
+    for (const proposal of results.proposals || []) {
+      if (nextPinnedProposals.has(proposal.id)) {
+        collectProposalFlights(proposal).forEach((id) => flights.add(String(id)));
+      }
+      for (const flow of proposal.flows || []) {
+        const key = `${proposal.id}::${flow.flow_id}`;
+        if (nextPinnedFlows.has(key)) {
+          for (const fid of flow.flight_ids || []) {
+            flights.add(String(fid));
+          }
+        }
+      }
+    }
+    return flights;
+  };
+
+  const applyProposalPreview = (opts?: {
+    hover?: Set<string>;
+    proposalId?: string | null;
+    previewAll?: boolean;
+  }) => {
+    const state = get();
+    const previewAll = opts?.previewAll ?? state.proposalPreviewAll;
+    const base = previewAll
+      ? collectAllProposalFlights(state.proposalResults)
+      : new Set(state.proposalPinnedFlightIds);
+    const hoverSet = opts?.hover
+      ? new Set(Array.from(opts.hover).map(String))
+      : new Set(state.proposalHoverFlightIds);
+    const combined = new Set<string>();
+    base.forEach((id) => combined.add(String(id)));
+    hoverSet.forEach((id) => combined.add(String(id)));
+    set({
+      proposalPreviewAll: previewAll,
+      proposalPreviewActive: combined.size > 0,
+      proposalPreviewFlightIds: combined,
+      proposalPreviewProposalId: opts?.proposalId ?? null,
+      proposalHoverFlightIds: hoverSet,
+    });
+  };
+
+  return {
+    ...defaultState,
+    setUser: (user) => set({ user }),
   login: async (email: string, password: string) => {
     try {
       const res = await fetch('/api/token', {
@@ -457,6 +567,115 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
     set(state => ({ regulations: state.regulations.filter(r => r.id !== id) }));
   },
   setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open }),
+  setIsRegulationProposalPanelOpen: (open) => set({ isRegulationProposalPanelOpen: open }),
+  fetchRegulationProposals: async (q) => {
+    set({
+      isRegulationProposalPanelOpen: true,
+      proposalLoading: true,
+      proposalError: null,
+      proposalQuery: q,
+      proposalResults: null,
+      proposalPreviewActive: false,
+      proposalPreviewFlightIds: new Set<string>(),
+      proposalPreviewProposalId: null,
+      proposalPreviewAll: false,
+      proposalHoverFlightIds: new Set<string>(),
+      proposalPinnedProposals: new Set<string>(),
+      proposalPinnedFlows: new Set<string>(),
+      proposalPinnedFlightIds: new Set<string>(),
+    });
+    try {
+      const body: ProposeRegulationsRequest = {
+        traffic_volume_id: q.trafficVolumeId,
+        time_window: q.timeWindow,
+      };
+      if (q.topK != null) {
+        body.top_k_regulations = q.topK;
+      }
+      const data = await proposeRegulations(body);
+      set({
+        proposalResults: data,
+        proposalLoading: false,
+        proposalError: null,
+      });
+      applyProposalPreview({ hover: new Set<string>(), proposalId: null, previewAll: false });
+    } catch (error: any) {
+      set({
+        proposalLoading: false,
+        proposalError: error?.message || 'Failed to fetch regulation proposals',
+      });
+      applyProposalPreview({ hover: new Set<string>(), proposalId: null, previewAll: false });
+    }
+  },
+  setProposalPreview: (ids, proposalId = null) => {
+    applyProposalPreview({ hover: ids, proposalId: proposalId ?? null });
+  },
+  clearProposalPreview: () => {
+    applyProposalPreview({ hover: new Set<string>(), proposalId: null });
+  },
+  toggleProposalEye: (proposalId) => {
+    const state = get();
+    if (!state.proposalResults) return;
+    const nextPinnedProposals = new Set(state.proposalPinnedProposals);
+    if (nextPinnedProposals.has(proposalId)) {
+      nextPinnedProposals.delete(proposalId);
+    } else {
+      nextPinnedProposals.add(proposalId);
+    }
+    const nextPinnedFlows = new Set(state.proposalPinnedFlows);
+    const nextPinnedFlights = recomputePinnedFlights(nextPinnedProposals, nextPinnedFlows);
+    set({
+      proposalPinnedProposals: nextPinnedProposals,
+      proposalPinnedFlows: nextPinnedFlows,
+      proposalPinnedFlightIds: nextPinnedFlights,
+    });
+    applyProposalPreview();
+  },
+  toggleProposalFlowEye: (proposalId, flowId) => {
+    const state = get();
+    if (!state.proposalResults) return;
+    const key = `${proposalId}::${flowId}`;
+    const nextPinnedFlows = new Set(state.proposalPinnedFlows);
+    if (nextPinnedFlows.has(key)) {
+      nextPinnedFlows.delete(key);
+    } else {
+      nextPinnedFlows.add(key);
+    }
+    const nextPinnedProposals = new Set(state.proposalPinnedProposals);
+    const nextPinnedFlights = recomputePinnedFlights(nextPinnedProposals, nextPinnedFlows);
+    set({
+      proposalPinnedProposals: nextPinnedProposals,
+      proposalPinnedFlows: nextPinnedFlows,
+      proposalPinnedFlightIds: nextPinnedFlights,
+    });
+    applyProposalPreview();
+  },
+  togglePreviewAllProposals: () => {
+    const state = get();
+    const nextAll = !state.proposalPreviewAll;
+    applyProposalPreview({
+      hover: state.proposalHoverFlightIds,
+      proposalId: null,
+      previewAll: nextAll,
+    });
+  },
+  resetProposalState: () => {
+    set({
+      isRegulationProposalPanelOpen: false,
+      proposalLoading: false,
+      proposalError: null,
+      proposalQuery: null,
+      proposalResults: null,
+      proposalPreviewActive: false,
+      proposalPreviewFlightIds: new Set<string>(),
+      proposalPreviewProposalId: null,
+      proposalPreviewAll: false,
+      proposalHoverFlightIds: new Set<string>(),
+      proposalPinnedProposals: new Set<string>(),
+      proposalPinnedFlows: new Set<string>(),
+      proposalPinnedFlightIds: new Set<string>(),
+    });
+  },
   setRegulationEditPayload: (p) => set({ regulationEditPayload: p }),
   setRegulationSimulationResult: (r) => set({ regulationSimulationResult: r }),
   setIsResultsOpen: (open) => set({ isResultsOpen: open }),
@@ -573,7 +792,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       })
     }));
   }
-}),
+  };
+},
 {
   name: 'sim-storage',
   partialize: (state) => ({ user: state.user }),
