@@ -392,11 +392,14 @@ export default function SolutionComparisonPage() {
     return Math.min(...flightColumnStats.map((s) => s.average));
   }, [flightColumnStats]);
 
-  const { objectiveRadarData, objectiveRadarMax } = useMemo(() => {
-    type RadarDatum = { metric: string; [key: string]: string | number };
+  const { objectiveRadarData, objectiveRadarRawValues } = useMemo(() => {
+    type RadarDatum = {
+      metric: string;
+      metricKey: string;
+    } & { [key: string]: number | string };
 
     const rows: RadarDatum[] = [];
-    let maxValue = 0;
+    const rawValueMap = new Map<string, Map<string, number>>();
 
     // Build list of all component keys across all snapshots
     const componentKeysSet = new Set<string>();
@@ -408,41 +411,77 @@ export default function SolutionComparisonPage() {
     });
     const componentKeys = Array.from(componentKeysSet).sort();
 
-    // Add optimized score as a metric
-    const optimizedScoreRow: RadarDatum = { metric: "Optimized Score" };
-    let hasOptimizedScore = false;
-    alignedSnapshots.forEach((snap) => {
-      const score = snap.objective.optimized?.score;
-      if (score != null && Number.isFinite(score)) {
-        optimizedScoreRow[snap.id] = score;
-        maxValue = Math.max(maxValue, score);
-        hasOptimizedScore = true;
-      }
-    });
-    if (hasOptimizedScore) rows.push(optimizedScoreRow);
+    type MetricConfig = {
+      key: string;
+      label: string;
+      getter: (snap: SolutionSnapshot) => number | null;
+      preferLower: boolean;
+    };
 
-    // Add each component
-    componentKeys.forEach((key) => {
-      const row: RadarDatum = { metric: key };
-      let hasValue = false;
+    const metrics: MetricConfig[] = [
+      {
+        key: "OPTIMIZED_SCORE",
+        label: "Optimized Score",
+        getter: (snap) => {
+          const score = snap.objective.optimized?.score;
+          return score != null && Number.isFinite(score) ? Number(score) : null;
+        },
+        preferLower: false,
+      },
+      ...componentKeys.map<MetricConfig>((key) => ({
+        key,
+        label: key,
+        getter: (snap) => {
+          const value = snap.objective.optimized?.components?.[key];
+          return value != null && Number.isFinite(value) ? Number(value) : null;
+        },
+        preferLower: true,
+      })),
+    ];
+
+    metrics.forEach((metric) => {
+      const rawValues: Array<{ snapshotId: string; value: number }> = [];
+
       alignedSnapshots.forEach((snap) => {
-        const value = snap.objective.optimized?.components?.[key];
-        if (value != null && Number.isFinite(value)) {
-          row[snap.id] = value;
-          maxValue = Math.max(maxValue, value);
-          hasValue = true;
+        const value = metric.getter(snap);
+        if (value !== null) {
+          rawValues.push({ snapshotId: snap.id, value });
         }
       });
-      if (hasValue) rows.push(row);
+
+      if (rawValues.length === 0) {
+        return;
+      }
+
+      const values = rawValues.map((item) => item.value);
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const span = maxValue - minValue;
+
+      const row: RadarDatum = {
+        metric: metric.label,
+        metricKey: metric.key,
+      };
+      const metricRawValues = new Map<string, number>();
+
+      rawValues.forEach(({ snapshotId, value }) => {
+        const normalized = span === 0
+          ? 100
+          : metric.preferLower
+          ? ((maxValue - value) / span) * 100
+          : ((value - minValue) / span) * 100;
+        row[snapshotId] = Number.isFinite(normalized) ? normalized : 0;
+        metricRawValues.set(snapshotId, value);
+      });
+
+      rows.push(row);
+      rawValueMap.set(metric.key, metricRawValues);
     });
 
-    return { objectiveRadarData: rows, objectiveRadarMax: maxValue };
+    return { objectiveRadarData: rows, objectiveRadarRawValues: rawValueMap };
   }, [alignedSnapshots]);
 
-  const objectiveRadarDomainMax = useMemo(() => {
-    if (objectiveRadarMax <= 0) return 1;
-    return Math.max(1, Math.ceil(objectiveRadarMax * 1.1));
-  }, [objectiveRadarMax]);
+  const objectiveRadarDomainMax = 100;
 
   const airportStatsBySnapshot = useMemo(() => {
     const map = new Map<string, SnapshotAirportStats>();
@@ -1337,11 +1376,26 @@ export default function SolutionComparisonPage() {
                             angle={30}
                             domain={[0, objectiveRadarDomainMax]}
                             tick={{ fill: "rgba(226, 232, 240, 0.6)", fontSize: 10 }}
+                            tickFormatter={(value: number) => `${formatNumber(value, 0)}%`}
                           />
                           <Tooltip
-                            formatter={(value: unknown) =>
-                              typeof value === "number" ? formatNumber(value, 2) : String(value)
-                            }
+                            formatter={(value: unknown, _name, props) => {
+                              if (typeof value !== "number" || !props) return value;
+                              const dataKey = typeof props.dataKey === "string" ? props.dataKey : null;
+                              const metricKey =
+                                typeof (props.payload as { metricKey?: unknown })?.metricKey === "string"
+                                  ? ((props.payload as { metricKey?: string }).metricKey as string)
+                                  : null;
+                              const rawValue =
+                                dataKey && metricKey
+                                  ? objectiveRadarRawValues.get(metricKey)?.get(dataKey)
+                                  : null;
+                              const percentLabel = `${formatNumber(value, 1)}%`;
+                              if (rawValue == null) {
+                                return percentLabel;
+                              }
+                              return `${percentLabel} (raw: ${formatNumber(rawValue, 2)})`;
+                            }}
                             wrapperClassName="text-sm"
                             contentStyle={{ background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
                             itemStyle={{ color: "white" }}
