@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ShimmeringText from "@/components/ShimmeringText";
 import { useSimStore } from "@/components/useSimStore";
+import type { FlowBasketItem } from "@/components/useSimStore";
 import {
   RegulationProposal,
   collectProposalFlights,
@@ -73,6 +74,44 @@ function summarizeFlowFeatures(flow: ProposalFlow) {
   };
 }
 
+type TimeRange = {
+  from: string;
+  to: string;
+};
+
+type TargetCellCombo = {
+  volume: string;
+  period: TimeRange;
+};
+
+function extractTimeRange(label?: string | null): TimeRange | null {
+  if (!label) return null;
+  const match = label.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*[–-]\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
+  if (!match) return null;
+  const normalize = (value: string) => {
+    const parts = value.split(":");
+    if (parts.length < 2) return value;
+    const [hh, mm, ss] = parts;
+    const hour = hh.padStart(2, "0");
+    if (ss) {
+      return `${hour}:${mm}:${ss}`;
+    }
+    return `${hour}:${mm}`;
+  };
+  return { from: normalize(match[1]), to: normalize(match[2]) };
+}
+
+function buildBasketItemsFromFlow(flow: ProposalFlow): FlowBasketItem[] {
+  return (flow.flight_ids || []).map((flightId) => ({ key: String(flightId) }));
+}
+
+function resolveFlowPeriod(proposal: RegulationProposal, flow: ProposalFlow): TimeRange | null {
+  return (
+    extractTimeRange(flow.time_window_label) ||
+    extractTimeRange(proposal.control_window?.label)
+  );
+}
+
 export default function RegulationProposalPanel({ embedded = false }: RegulationProposalPanelProps) {
   const {
     isRegulationProposalPanelOpen,
@@ -94,6 +133,12 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     clearProposalPreview,
     fetchRegulationProposals,
     resetProposalState,
+    flowBasket,
+    addFlowBasket,
+    addFlowBasketWithPeriod,
+    addFlightsToBasketFlow,
+    setFlowBasketPeriod,
+    addTargetCells,
   } = useSimStore();
 
   const [topKInput, setTopKInput] = useState<string>("");
@@ -165,6 +210,73 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
 
   const handleClearPreview = () => {
     clearProposalPreview();
+  };
+
+  const ensureFlowInBasket = (
+    name: string,
+    items: FlowBasketItem[],
+    period?: TimeRange | null
+  ) => {
+    if (!items || items.length === 0) return;
+    const existing = flowBasket.find((flow) => flow.name === name);
+    if (existing) {
+      addFlightsToBasketFlow(existing.id, items);
+      if (period && period.from && period.to) {
+        setFlowBasketPeriod(existing.id, period.from, period.to, { overwrite: false });
+      }
+      return existing.id;
+    }
+    if (period && period.from && period.to) {
+      return addFlowBasketWithPeriod(name, items, period.from, period.to);
+    }
+    return addFlowBasket(name, items);
+  };
+
+  const applyTargetCellCombos = (combos: TargetCellCombo[]) => {
+    if (!combos || combos.length === 0) return;
+    const grouped = new Map<string, { from: string; to: string; volumes: Set<string> }>();
+    for (const combo of combos) {
+      const from = combo.period.from;
+      const to = combo.period.to;
+      if (!from || !to || from === to) continue;
+      const key = `${from}::${to}`;
+      const bucket = grouped.get(key) || { from, to, volumes: new Set<string>() };
+      bucket.volumes.add(combo.volume);
+      grouped.set(key, bucket);
+    }
+    grouped.forEach(({ from, to, volumes }) => {
+      const list = Array.from(volumes);
+      if (list.length === 0) return;
+      addTargetCells(list, from, to);
+    });
+  };
+
+  const addFlowFromProposal = (
+    proposal: RegulationProposal,
+    flow: ProposalFlow,
+    combosAccumulator?: TargetCellCombo[]
+  ) => {
+    const items = buildBasketItemsFromFlow(flow);
+    if (items.length === 0) return;
+    const period = resolveFlowPeriod(proposal, flow);
+    const label = `${proposal.id} · Flow ${flow.flow_id}`;
+    ensureFlowInBasket(label, items, period);
+    const volume = flow.control_volume_id;
+    if (!volume || !period) return;
+    const combo: TargetCellCombo = { volume: String(volume), period };
+    if (combosAccumulator) {
+      combosAccumulator.push(combo);
+    } else {
+      applyTargetCellCombos([combo]);
+    }
+  };
+
+  const addEntireProposalToBasket = (proposal: RegulationProposal) => {
+    const combos: TargetCellCombo[] = [];
+    for (const flow of proposal.flows || []) {
+      addFlowFromProposal(proposal, flow, combos);
+    }
+    applyTargetCellCombos(combos);
   };
 
   const renderFlightList = (proposalId: string, flow: ProposalFlow) => {
@@ -537,6 +649,20 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                                   <span>{flowFeatures.flights}</span>
                                 </div>
                               </div>
+                              <div className="mt-3 flex justify-end">
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-[11px] rounded-md border border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addFlowFromProposal(proposal, flow);
+                                  }}
+                                  aria-label={`Add flow ${flow.flow_id} from ${proposal.id} to Flow Basket`}
+                                  title="Add flow to Flow Basket"
+                                >
+                                  + Add
+                                </button>
+                              </div>
                             </div>
                             {expandedFlightLists[key] && renderFlightList(proposal.id, flow)}
                           </div>
@@ -578,6 +704,20 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                       </div>
                     </details>
                   )}
+                  <div className="pt-3 border-t border-white/10 flex justify-end">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 text-[11px] rounded-md border border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addEntireProposalToBasket(proposal);
+                      }}
+                      aria-label={`Add proposed regulation ${proposal.id} to Flow Basket`}
+                      title="Add all flows from this regulation to Flow Basket"
+                    >
+                      + Add
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

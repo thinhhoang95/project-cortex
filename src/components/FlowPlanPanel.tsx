@@ -786,7 +786,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                       >
                         <div className="flex items-center gap-2 text-xs">
                           <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: bf.color }} title={bf.name} />
-                          <span className="opacity-90 font-medium truncate" title={bf.name}>{bf.name}</span>
+                          <span className="opacity-90 font-medium truncate max-w-[50px]" title={bf.name}>{bf.name}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] opacity-70">{bf.items?.length || 0} flights{bf.periodFrom && bf.periodTo ? ` • Period ${bf.periodFrom}–${bf.periodTo}` : ''}</span>
