@@ -1380,7 +1380,7 @@ export default function SolutionComparisonPage() {
                           />
                           <Tooltip
                             formatter={(value: unknown, _name, props) => {
-                              if (typeof value !== "number" || !props) return value;
+                              if (typeof value !== "number" || !props) return String(value);
                               const dataKey = typeof props.dataKey === "string" ? props.dataKey : null;
                               const metricKey =
                                 typeof (props.payload as { metricKey?: unknown })?.metricKey === "string"
