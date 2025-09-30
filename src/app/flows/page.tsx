@@ -17,6 +17,8 @@ import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 export default function FlowsPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
+  const isRegulationProposalPanelOpen = useSimStore((state) => state.isRegulationProposalPanelOpen);
+  const proposalLoading = useSimStore((state) => state.proposalLoading);
   const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
@@ -79,9 +81,11 @@ export default function FlowsPage() {
           <div className="pointer-events-auto">
             <FlowRegulationPanel embedded />
           </div>
-          <div className="pointer-events-auto">
-            <RegulationProposalPanel embedded />
-          </div>
+          {(isRegulationProposalPanelOpen || proposalLoading) && (
+            <div className="pointer-events-auto">
+              <RegulationProposalPanel embedded />
+            </div>
+          )}
           <div className="pointer-events-auto">
             <FlowAirspaceView embedded />
           </div>

@@ -99,7 +99,18 @@ type AirportDelayChartRow = {
 
 type ObjectiveComponentEntry = {
   key: string;
-  value: number | null;
+  normalizedKey: string;
+  value: number;
+};
+
+type WeightEntry = {
+  key: string;
+  value: number;
+};
+
+type DelayMetric = {
+  minutes: number | null;
+  seconds: number | null;
 };
 
 const toTrimmedString = (value: unknown): string => {
@@ -125,6 +136,77 @@ const normalizeAirportLabel = (value: unknown): string => stringWithFallback(val
 
 const AIRPORT_TABLE_LIMIT = 15;
 
+const OBJECTIVE_COMPONENT_ORDER = ["J_CAP", "J_DELAY", "J_REG", "J_TV", "J_SHARE", "J_SPILL"] as const;
+
+const readFiniteNumber = (value: unknown): number | null => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const normalizeObjectiveKey = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  return raw
+    .toString()
+    .trim()
+    .replace(/[^0-9a-zA-Z]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_")
+    .toUpperCase();
+};
+
+const extractDelayMetric = (
+  stats: RegulationPlanSimulationResponse["delay_stats"] | undefined,
+  prefix: "total" | "mean" | "max" | "min",
+): DelayMetric => {
+  if (!stats) return { minutes: null, seconds: null };
+  const secondsKey = `${prefix}_delay_seconds`;
+  const minutesKey = `${prefix}_delay_minutes`;
+  const seconds = readFiniteNumber((stats as any)?.[secondsKey]);
+  const minutes = readFiniteNumber((stats as any)?.[minutesKey]);
+
+  if (seconds === null && minutes === null) {
+    return { minutes: null, seconds: null };
+  }
+
+  if (seconds === null && minutes !== null) {
+    return { minutes, seconds: minutes * 60 };
+  }
+
+  if (minutes === null && seconds !== null) {
+    return { minutes: seconds / 60, seconds };
+  }
+
+  return { minutes, seconds };
+};
+
+const delayMetricHasValue = (metric: DelayMetric): boolean => {
+  if (!metric) return false;
+  return metric.minutes !== null || metric.seconds !== null;
+};
+
+const formatDelayMetricValue = (metric: DelayMetric, formatNumber: (value: number | null | undefined, digits?: number) => string): string => {
+  if (!metric) return "—";
+  if (metric.minutes !== null) {
+    const digits = metric.minutes >= 100 ? 1 : 2;
+    return `${formatNumber(metric.minutes, digits)} min`;
+  }
+  if (metric.seconds !== null) {
+    return `${Math.round(metric.seconds).toLocaleString()} s`;
+  }
+  return "—";
+};
+
+const formatDelayMetricSub = (metric: DelayMetric): string | undefined => {
+  if (!metric) return undefined;
+  if (metric.seconds !== null) {
+    return formatSecondsToHMM(metric.seconds);
+  }
+  if (metric.minutes !== null) {
+    return formatSecondsToHMM(metric.minutes * 60);
+  }
+  return undefined;
+};
+
 export default function RegulationResults({ open, result, onClose }: RegulationResultsProps) {
   const flights = useSimStore(s => s.flights);
   const regulations = useSimStore(s => s.regulations);
@@ -142,6 +224,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     message: string;
     action?: { label: string; href: string };
   } | null>(null);
+  const [showLegacyComponents, setShowLegacyComponents] = useState(false);
+  const [showObjectiveWeights, setShowObjectiveWeights] = useState(false);
 
   const regSnapshotSizeBytes = useMemo(() => estimateRegSnapshotsSize(regSnapshotList), [regSnapshotList]);
   const regSnapshotSizeWarn = regSnapshotSizeBytes > REG_SNAPSHOT_SIZE_WARN_THRESHOLD;
@@ -163,6 +247,12 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     if (!open) return;
     setRegSnapshotList(loadRegSnapshots());
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setShowLegacyComponents(false);
+    setShowObjectiveWeights(false);
+  }, [open, result]);
 
   // Initialize default view window when modal opens based on plan regulations
   useEffect(() => {
@@ -409,33 +499,109 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     });
   };
 
-  const objectiveScore = useMemo(() => {
-    if (!result) return null;
-    const score = Number(result.objective);
-    return Number.isFinite(score) ? score : null;
-  }, [result]);
+  const objectiveScore = useMemo(() => readFiniteNumber(result?.objective), [result?.objective]);
 
   const objectiveComponents = useMemo<ObjectiveComponentEntry[]>(() => {
     const components = result?.objective_components;
     if (!components || typeof components !== "object") return [];
 
-    const normalized = new Map<string, number>();
+    const normalized = new Map<string, { rawKey: string; value: number }>();
     Object.entries(components).forEach(([rawKey, rawValue]) => {
-      const upperKey = rawKey.toUpperCase();
-      const numeric = Number(rawValue);
-      if (Number.isFinite(numeric)) {
-        normalized.set(upperKey, numeric);
+      const numeric = readFiniteNumber(rawValue);
+      const normalizedKey = normalizeObjectiveKey(rawKey);
+      if (numeric === null || !normalizedKey) return;
+      if (!normalized.has(normalizedKey)) {
+        normalized.set(normalizedKey, { rawKey, value: numeric });
       }
     });
 
-    const keys: Array<"J_CAP" | "J_DELAY"> = ["J_CAP", "J_DELAY"];
-    return keys
-      .map((key) => ({ key, value: normalized.get(key) ?? null }))
-      .filter((entry) => entry.value !== null);
+    const ordered: ObjectiveComponentEntry[] = [];
+    OBJECTIVE_COMPONENT_ORDER.forEach((orderKey) => {
+      const match = normalized.get(orderKey);
+      if (!match) return;
+      ordered.push({ key: match.rawKey, normalizedKey: orderKey, value: match.value });
+      normalized.delete(orderKey);
+    });
+
+    const remaining = Array.from(normalized.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([normKey, match]) => ({ key: match.rawKey, normalizedKey: normKey, value: match.value }));
+
+    return [...ordered, ...remaining];
   }, [result?.objective_components]);
 
+  const legacyObjectiveScore = useMemo(() => readFiniteNumber(result?.legacy_objective), [result?.legacy_objective]);
+
+  const legacyObjectiveComponents = useMemo<ObjectiveComponentEntry[]>(() => {
+    const components = result?.legacy_objective_components;
+    if (!components || typeof components !== "object") return [];
+
+    return Object.entries(components)
+      .map(([rawKey, rawValue]) => {
+        const numeric = readFiniteNumber(rawValue);
+        if (numeric === null) return null;
+        const normalizedKey = normalizeObjectiveKey(rawKey) ?? rawKey;
+        return { key: rawKey, normalizedKey, value: numeric };
+      })
+      .filter((entry): entry is ObjectiveComponentEntry => !!entry)
+      .sort((a, b) => a.normalizedKey.localeCompare(b.normalizedKey));
+  }, [result?.legacy_objective_components]);
+
+  const weightsUsed = useMemo<WeightEntry[]>(() => {
+    const weights = result?.weights_used;
+    if (!weights || typeof weights !== "object") return [];
+
+    return Object.entries(weights)
+      .map(([key, rawValue]) => {
+        const numeric = readFiniteNumber(rawValue);
+        if (numeric === null) return null;
+        return { key, value: numeric };
+      })
+      .filter((entry): entry is WeightEntry => !!entry)
+      .sort((a, b) => a.key.localeCompare(b.key));
+  }, [result?.weights_used]);
+
   const hasObjectiveComponents = objectiveComponents.length > 0;
-  const hasObjectiveMetrics = objectiveScore !== null || hasObjectiveComponents;
+  const hasLegacyObjective = legacyObjectiveScore !== null || legacyObjectiveComponents.length > 0;
+  const hasWeightsUsed = weightsUsed.length > 0;
+  const hasObjectiveMetrics =
+    objectiveScore !== null || hasObjectiveComponents || hasLegacyObjective || hasWeightsUsed;
+
+  const delayStats = result?.delay_stats;
+  const delayTotal = useMemo(() => extractDelayMetric(delayStats, "total"), [delayStats]);
+  const delayMean = useMemo(() => extractDelayMetric(delayStats, "mean"), [delayStats]);
+  const delayMax = useMemo(() => extractDelayMetric(delayStats, "max"), [delayStats]);
+  const delayMin = useMemo(() => extractDelayMetric(delayStats, "min"), [delayStats]);
+
+  const delayStatEntries = useMemo(
+    () => {
+      const entries = [
+        { label: "Total Delay", metric: delayTotal },
+        { label: "Mean Delay", metric: delayMean },
+        { label: "Max Delay", metric: delayMax },
+      ].filter(({ metric }) => delayMetricHasValue(metric));
+
+      if (delayMetricHasValue(delayMin)) {
+        entries.push({ label: "Min Delay", metric: delayMin });
+      }
+
+      return entries;
+    },
+    [delayTotal, delayMean, delayMax, delayMin],
+  );
+
+  const delayedFlightsCount = useMemo(() => {
+    if (!delayStats) return null;
+    return (
+      readFiniteNumber((delayStats as any).num_delayed) ??
+      readFiniteNumber((delayStats as any).delayed_flights_count)
+    );
+  }, [delayStats]);
+
+  const totalFlightsCount = useMemo(() => {
+    if (!delayStats) return null;
+    return readFiniteNumber((delayStats as any).num_flights);
+  }, [delayStats]);
 
   const handleOpenRegSnapshotPrompt = () => {
     if (!result) return;
@@ -493,8 +659,6 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
 
   if (!open || !result) return null;
 
-  const ds = result.delay_stats;
-
   return (
     <>
       <ModalDialog open={open} onClose={onClose} title="Simulation Results" description="Post-regulation occupancy, delay stats, and per-flight details">
@@ -515,12 +679,28 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
             </button>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <Stat label="Total Delay" value={`${Math.round(ds.total_delay_seconds).toLocaleString()} s`} sub={formatSecondsToHMM(ds.total_delay_seconds)} />
-            <Stat label="Mean Delay" value={`${Math.round(ds.mean_delay_seconds).toLocaleString()} s`} sub={formatSecondsToHMM(ds.mean_delay_seconds)} />
-            <Stat label="Max Delay" value={`${Math.round(ds.max_delay_seconds).toLocaleString()} s`} sub={formatSecondsToHMM(ds.max_delay_seconds)} />
-            <Stat label="Min Delay" value={`${Math.round(ds.min_delay_seconds).toLocaleString()} s`} sub={formatSecondsToHMM(ds.min_delay_seconds)} />
-            <Stat label="Delayed Flights" value={`${ds.delayed_flights_count.toLocaleString()}`} />
-            <Stat label="Flights" value={`${ds.num_flights.toLocaleString()}`} />
+            {delayStatEntries.map(({ label, metric }) => (
+              <Stat
+                key={label}
+                label={label}
+                value={formatDelayMetricValue(metric, formatNumber)}
+                sub={formatDelayMetricSub(metric)}
+              />
+            ))}
+            <Stat
+              label="Delayed Flights"
+              value={
+                delayedFlightsCount !== null
+                  ? Math.round(delayedFlightsCount).toLocaleString()
+                  : "—"
+              }
+            />
+            <Stat
+              label="Flights"
+              value={
+                totalFlightsCount !== null ? Math.round(totalFlightsCount).toLocaleString() : "—"
+              }
+            />
           </div>
         </div>
 
@@ -534,6 +714,12 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                 label="Objective Score"
                 value={objectiveScore !== null ? formatNumber(objectiveScore, 2) : "—"}
               />
+              {hasLegacyObjective && (
+                <Stat
+                  label="Legacy Objective"
+                  value={legacyObjectiveScore !== null ? formatNumber(legacyObjectiveScore, 2) : "—"}
+                />
+              )}
             </div>
             {hasObjectiveComponents && (
               <div className="mt-4 overflow-x-auto">
@@ -546,15 +732,113 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                   </thead>
                   <tbody>
                     {objectiveComponents.map((entry) => (
-                      <tr key={entry.key} className="border-t border-white/10">
+                      <tr key={entry.normalizedKey} className="border-t border-white/10">
                         <td className="px-3 py-2 text-white/80">{entry.key}</td>
                         <td className="px-3 py-2 text-right font-mono text-white/90">
-                          {formatNumber(entry.value ?? null, 3)}
+                          {formatNumber(entry.value, 3)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {hasLegacyObjective && legacyObjectiveComponents.length > 0 && (
+              <div className="mt-6">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-white/60 hover:text-white transition-colors mb-2"
+                  onClick={() => setShowLegacyComponents((v) => !v)}
+                  aria-controls="legacy-components-content"
+                  aria-expanded={showLegacyComponents}
+                >
+                  <span>Legacy Components</span>
+                  <svg
+                    className={`w-4 h-4 text-white/70 transition-transform ${showLegacyComponents ? "rotate-90" : ""}`}
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                <div
+                  className={`overflow-x-auto${showLegacyComponents ? "" : " hidden"}`}
+                  id="legacy-components-content"
+                  aria-hidden={!showLegacyComponents}
+                >
+                  <table className="min-w-full text-sm text-white/80">
+                    <thead className="text-white/60 text-[12px] uppercase tracking-wider">
+                      <tr>
+                        <th className="text-left px-3 py-2">Component</th>
+                        <th className="text-right px-3 py-2">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {legacyObjectiveComponents.map((entry) => (
+                        <tr key={`legacy-${entry.normalizedKey}`} className="border-t border-white/10">
+                          <td className="px-3 py-2 text-white/70">{entry.key}</td>
+                          <td className="px-3 py-2 text-right font-mono text-white/80">
+                            {formatNumber(entry.value, 3)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {hasWeightsUsed && (
+              <div className="mt-6">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-white/60 hover:text-white transition-colors mb-2"
+                  onClick={() => setShowObjectiveWeights((v) => !v)}
+                  aria-controls="objective-weights-content"
+                  aria-expanded={showObjectiveWeights}
+                >
+                  <span>Objective Weights Applied</span>
+                  <svg
+                    className={`w-4 h-4 text-white/70 transition-transform ${showObjectiveWeights ? "rotate-90" : ""}`}
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                <div
+                  className={`overflow-x-auto${showObjectiveWeights ? "" : " hidden"}`}
+                  id="objective-weights-content"
+                  aria-hidden={!showObjectiveWeights}
+                >
+                  <table className="min-w-full text-sm text-white/80">
+                    <thead className="text-white/60 text-[12px] uppercase tracking-wider">
+                      <tr>
+                        <th className="text-left px-3 py-2">Weight</th>
+                        <th className="text-right px-3 py-2">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {weightsUsed.map((entry) => (
+                        <tr key={`weight-${entry.key}`} className="border-t border-white/10">
+                          <td className="px-3 py-2 text-white/70">{entry.key}</td>
+                          <td className="px-3 py-2 text-right font-mono text-white/80">
+                            {formatNumber(entry.value, 3)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

@@ -42,23 +42,39 @@ export interface SectorFeatureProps {
 
 // Regulation plan simulation models
 export interface RegulationPlanDelayStats {
-  total_delay_seconds: number;
-  mean_delay_seconds: number;
-  max_delay_seconds: number;
-  min_delay_seconds: number;
-  delayed_flights_count: number;
-  num_flights: number;
+  total_delay_seconds?: number;
+  total_delay_minutes?: number;
+  mean_delay_seconds?: number;
+  mean_delay_minutes?: number;
+  max_delay_seconds?: number;
+  max_delay_minutes?: number;
+  min_delay_seconds?: number;
+  min_delay_minutes?: number;
+  delayed_flights_count?: number;
+  num_delayed?: number;
+  num_flights?: number;
 }
 
 export interface RegulationPlanObjectiveComponents {
-  z_sum: number;
-  z_max: number;
-  delay_min: number;
-  num_regs: number;
-  alpha: number;
-  beta: number;
-  gamma: number;
-  delta: number;
+  [component: string]: number | undefined;
+  J_cap?: number;
+  J_delay?: number;
+  J_reg?: number;
+  J_tv?: number;
+  J_share?: number;
+  J_spill?: number;
+}
+
+export interface RegulationPlanLegacyObjectiveComponents {
+  [component: string]: number | undefined;
+  z_sum?: number;
+  z_max?: number;
+  delay_min?: number;
+  num_regs?: number;
+  alpha?: number;
+  beta?: number;
+  gamma?: number;
+  delta?: number;
 }
 
 export interface RegulationPlanRollingTv {
@@ -70,12 +86,17 @@ export interface RegulationPlanRollingTv {
 }
 
 export interface RegulationPlanMetadata {
-  top_k: number;
   time_bin_minutes: number;
   bins_per_tv: number;
   bins_per_hour: number;
   num_traffic_volumes: number;
-  ranking_metric: string;
+  num_changed_tvs?: number;
+  num_flows?: number;
+  tvs_scored?: string[];
+  deprecated?: Record<string, string>;
+  top_k?: number;
+  ranking_metric?: string;
+  [extra: string]: unknown;
 }
 
 export interface RegulationPlanPreFlightContextEntry {
@@ -89,9 +110,13 @@ export interface RegulationPlanSimulationResponse {
   delay_stats: RegulationPlanDelayStats;
   objective: number;
   objective_components: RegulationPlanObjectiveComponents;
-  rolling_changed_tvs?: RegulationPlanRollingTv[]; // new preferred field
-  rolling_top_tvs: RegulationPlanRollingTv[];
+  legacy_objective?: number;
+  legacy_objective_components?: RegulationPlanLegacyObjectiveComponents;
+  rolling_changed_tvs?: RegulationPlanRollingTv[];
+  rolling_top_tvs?: RegulationPlanRollingTv[];
   excess_vector_stats?: { sum: number; max: number; mean: number; count: number };
+  excess_vector?: unknown;
+  weights_used?: Record<string, number>;
   metadata: RegulationPlanMetadata;
 }
 

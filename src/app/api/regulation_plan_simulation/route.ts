@@ -8,7 +8,24 @@ export async function POST(request: NextRequest) {
 
     if (!body || !Array.isArray(body.regulations)) {
       return NextResponse.json(
-        { error: 'Invalid payload: expected { regulations: [...] }' },
+        {
+          error: 'Invalid payload: expected { regulations: [...] }',
+          hint: 'Provide a list of regulation strings or objects per the Regulation DSL.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const hasInvalidRegulation = body.regulations.some(
+      (entry: unknown) => typeof entry !== 'string' && (typeof entry !== 'object' || entry === null)
+    );
+
+    if (hasInvalidRegulation) {
+      return NextResponse.json(
+        {
+          error: 'Invalid regulation entry',
+          hint: 'Each regulation must be a string (Regulation DSL) or an object with location/rate/time_windows.',
+        },
         { status: 400 }
       );
     }
@@ -20,13 +37,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const sanitizedBody: Record<string, unknown> = { ...body, regulations: body.regulations };
+
+    if (sanitizedBody.include_excess_vector !== undefined) {
+      sanitizedBody.include_excess_vector = Boolean(sanitizedBody.include_excess_vector);
+    }
+
+    if (sanitizedBody.weights !== undefined && typeof sanitizedBody.weights !== 'object') {
+      return NextResponse.json(
+        {
+          error: 'Invalid weights override',
+          hint: 'weights must be an object of numeric overrides for the objective weights.',
+        },
+        { status: 400 }
+      );
+    }
+
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
     const url = `${backendUrl}/regulation_plan_simulation`;
 
     const resp = await fetch(url, {
       method: 'POST',
-      headers: withAuth(request, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify(body),
+      headers: withAuth(request, {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      }),
+      body: JSON.stringify(sanitizedBody),
     });
 
     const unauthorized = await maybeHandleUnauthorized(resp);
@@ -50,4 +86,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

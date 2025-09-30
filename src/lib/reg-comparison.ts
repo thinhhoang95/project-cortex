@@ -61,6 +61,11 @@ function cloneSeries(values?: number[] | null): number[] {
   return values.map((v) => (Number.isFinite(Number(v)) ? Number(v) : 0));
 }
 
+function readFiniteNumber(value: unknown): number | undefined {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
+}
+
 export function generateRegSnapshotId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -116,14 +121,37 @@ export function createRegulationSnapshot(params: {
   if (Object.keys(capacity).length > 0) aggregatedRolling.capacity = capacity;
   if (tvOrder.length > 0) aggregatedRolling.tv_ids_order = tvOrder;
 
-  const delayStats: RegulationPlanDelayStats = {
-    total_delay_seconds: Number(result.delay_stats?.total_delay_seconds ?? 0),
-    mean_delay_seconds: Number(result.delay_stats?.mean_delay_seconds ?? 0),
-    max_delay_seconds: Number(result.delay_stats?.max_delay_seconds ?? 0),
-    min_delay_seconds: Number(result.delay_stats?.min_delay_seconds ?? 0),
-    delayed_flights_count: Number(result.delay_stats?.delayed_flights_count ?? 0),
-    num_flights: Number(result.delay_stats?.num_flights ?? 0),
-  };
+  const delayStats: RegulationPlanDelayStats = {};
+  const rawDelayStats = result.delay_stats ?? ({} as RegulationPlanDelayStats);
+
+  const totalSeconds = readFiniteNumber((rawDelayStats as any).total_delay_seconds);
+  const totalMinutes = readFiniteNumber((rawDelayStats as any).total_delay_minutes);
+  if (totalSeconds !== undefined) delayStats.total_delay_seconds = totalSeconds;
+  if (totalMinutes !== undefined) delayStats.total_delay_minutes = totalMinutes;
+
+  const meanSeconds = readFiniteNumber((rawDelayStats as any).mean_delay_seconds);
+  const meanMinutes = readFiniteNumber((rawDelayStats as any).mean_delay_minutes);
+  if (meanSeconds !== undefined) delayStats.mean_delay_seconds = meanSeconds;
+  if (meanMinutes !== undefined) delayStats.mean_delay_minutes = meanMinutes;
+
+  const maxSeconds = readFiniteNumber((rawDelayStats as any).max_delay_seconds);
+  const maxMinutes = readFiniteNumber((rawDelayStats as any).max_delay_minutes);
+  if (maxSeconds !== undefined) delayStats.max_delay_seconds = maxSeconds;
+  if (maxMinutes !== undefined) delayStats.max_delay_minutes = maxMinutes;
+
+  const minSeconds = readFiniteNumber((rawDelayStats as any).min_delay_seconds);
+  const minMinutes = readFiniteNumber((rawDelayStats as any).min_delay_minutes);
+  if (minSeconds !== undefined) delayStats.min_delay_seconds = minSeconds;
+  if (minMinutes !== undefined) delayStats.min_delay_minutes = minMinutes;
+
+  const numDelayed = readFiniteNumber((rawDelayStats as any).num_delayed);
+  const delayedFlightsCount =
+    readFiniteNumber((rawDelayStats as any).delayed_flights_count) ?? numDelayed ?? 0;
+  const numFlights = readFiniteNumber((rawDelayStats as any).num_flights) ?? 0;
+
+  delayStats.delayed_flights_count = delayedFlightsCount;
+  if (numDelayed !== undefined) delayStats.num_delayed = numDelayed;
+  delayStats.num_flights = numFlights;
 
   const delaysMinEntries = Object.entries(result.delays_by_flight || {});
   const delaysMin: Record<string, number> = {};

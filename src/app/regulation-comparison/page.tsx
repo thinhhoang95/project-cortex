@@ -146,7 +146,7 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
-const OBJECTIVE_COMPONENT_KEYS = ["J_CAP", "J_DELAY"] as const;
+const OBJECTIVE_COMPONENT_KEYS = ["J_CAP", "J_DELAY", "J_REG", "J_TV", "J_SHARE", "J_SPILL"] as const;
 type ObjectiveComponentKey = (typeof OBJECTIVE_COMPONENT_KEYS)[number];
 
 function normalizeObjectiveKey(raw: string | null | undefined): string | null {
@@ -184,6 +184,50 @@ function getObjectiveComponentValue(
 
   return null;
 }
+
+type DelayMetric = {
+  seconds: number | null;
+  minutes: number | null;
+};
+
+const resolveDelayMetric = (
+  stats: RegulationSnapshot["delayStats"] | undefined,
+  prefix: "total" | "mean" | "max" | "min",
+): DelayMetric => {
+  if (!stats) return { seconds: null, minutes: null };
+  const secondsKey = `${prefix}_delay_seconds`;
+  const minutesKey = `${prefix}_delay_minutes`;
+  const seconds = toFiniteNumber((stats as any)?.[secondsKey]);
+  const minutes = toFiniteNumber((stats as any)?.[minutesKey]);
+
+  if (seconds === null && minutes === null) {
+    return { seconds: null, minutes: null };
+  }
+
+  if (seconds === null && minutes !== null) {
+    return { seconds: minutes * 60, minutes };
+  }
+
+  if (minutes === null && seconds !== null) {
+    return { seconds, minutes: seconds / 60 };
+  }
+
+  return { seconds, minutes };
+};
+
+const resolveDelayedFlights = (stats: RegulationSnapshot["delayStats"] | undefined): number | null => {
+  if (!stats) return null;
+  return (
+    toFiniteNumber((stats as any)?.num_delayed) ??
+    toFiniteNumber((stats as any)?.delayed_flights_count) ??
+    null
+  );
+};
+
+const resolveTotalFlights = (stats: RegulationSnapshot["delayStats"] | undefined): number | null => {
+  if (!stats) return null;
+  return toFiniteNumber((stats as any)?.num_flights) ?? null;
+};
 
 function formatSecondsToHMM(totalSeconds: number | null | undefined): string {
   if (!Number.isFinite(totalSeconds ?? NaN)) return "—";
@@ -449,17 +493,19 @@ export default function RegulationComparisonPage() {
   }, [flightColumnStats]);
 
   const bestTotalDelaySeconds = useMemo(() => {
-    if (selectedSnapshots.length === 0) return null;
-    return Math.min(
-      ...selectedSnapshots.map((snap) => snap.delayStats?.total_delay_seconds ?? Number.POSITIVE_INFINITY),
-    );
+    const totals = selectedSnapshots
+      .map((snap) => resolveDelayMetric(snap.delayStats, "total").seconds)
+      .filter((value): value is number => value !== null);
+    if (totals.length === 0) return null;
+    return Math.min(...totals);
   }, [selectedSnapshots]);
 
   const bestMeanDelaySeconds = useMemo(() => {
-    if (selectedSnapshots.length === 0) return null;
-    return Math.min(
-      ...selectedSnapshots.map((snap) => snap.delayStats?.mean_delay_seconds ?? Number.POSITIVE_INFINITY),
-    );
+    const means = selectedSnapshots
+      .map((snap) => resolveDelayMetric(snap.delayStats, "mean").seconds)
+      .filter((value): value is number => value !== null);
+    if (means.length === 0) return null;
+    return Math.min(...means);
   }, [selectedSnapshots]);
 
   const bestObjectiveScore = useMemo(() => {
@@ -507,7 +553,7 @@ export default function RegulationComparisonPage() {
   }, [objectiveComponentKeys, selectedSnapshots]);
 
   const { objectiveRadarData, objectiveRadarMax } = useMemo(() => {
-    type RadarDatum = { metric: string } & Record<string, number>;
+    type RadarDatum = { metric: string; [key: string]: string | number };
 
     const rows: RadarDatum[] = [];
     let maxValue = 0;
@@ -521,8 +567,8 @@ export default function RegulationComparisonPage() {
         key: "TOTAL_DELAY",
         label: "Total Delay (min)",
         getter: (snap) => {
-          const totalDelaySeconds = toFiniteNumber(snap.delayStats?.total_delay_seconds);
-          return totalDelaySeconds !== null ? totalDelaySeconds / 60 : null;
+          const metric = resolveDelayMetric(snap.delayStats, "total");
+          return metric.minutes;
         },
       },
       ...OBJECTIVE_COMPONENT_KEYS.map((key) => ({
@@ -1267,11 +1313,21 @@ export default function RegulationComparisonPage() {
                     <div className="grid grid-cols-2 gap-2 text-[12px] text-white/70">
                       <div>
                         <div className="text-white/50 uppercase text-[10px] tracking-wider">Total delay (min)</div>
-                        <div className="font-mono text-white/90">{formatNumber((snap.delayStats?.total_delay_seconds ?? 0) / 60, 1)}</div>
+                        <div className="font-mono text-white/90">
+                          {(() => {
+                            const metric = resolveDelayMetric(snap.delayStats, "total");
+                            return metric.minutes !== null ? formatNumber(metric.minutes, 1) : "—";
+                          })()}
+                        </div>
                       </div>
                       <div>
                         <div className="text-white/50 uppercase text-[10px] tracking-wider">Mean delay (min)</div>
-                        <div className="font-mono text-white/90">{formatNumber((snap.delayStats?.mean_delay_seconds ?? 0) / 60, 2)}</div>
+                        <div className="font-mono text-white/90">
+                          {(() => {
+                            const metric = resolveDelayMetric(snap.delayStats, "mean");
+                            return metric.minutes !== null ? formatNumber(metric.minutes, 2) : "—";
+                          })()}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1425,14 +1481,20 @@ export default function RegulationComparisonPage() {
               {selectedSnapshots.map((snap) => {
                 const color = colorBySnapshotId.get(snap.id) || "#fff";
                 const stats = snap.delayStats;
-                const totalSeconds = stats?.total_delay_seconds ?? 0;
-                const meanSeconds = stats?.mean_delay_seconds ?? 0;
-                const maxSeconds = stats?.max_delay_seconds ?? 0;
-                const minSeconds = stats?.min_delay_seconds ?? 0;
-                const delayedFlights = stats?.delayed_flights_count ?? 0;
-                const totalFlights = stats?.num_flights ?? 0;
-                const isBestTotal = bestTotalDelaySeconds != null && totalSeconds === bestTotalDelaySeconds;
-                const isBestMean = bestMeanDelaySeconds != null && meanSeconds === bestMeanDelaySeconds;
+                const totalMetric = resolveDelayMetric(stats, "total");
+                const meanMetric = resolveDelayMetric(stats, "mean");
+                const maxMetric = resolveDelayMetric(stats, "max");
+                const minMetric = resolveDelayMetric(stats, "min");
+                const delayedFlights = resolveDelayedFlights(stats);
+                const totalFlights = resolveTotalFlights(stats);
+                const isBestTotal =
+                  bestTotalDelaySeconds != null &&
+                  totalMetric.seconds !== null &&
+                  totalMetric.seconds === bestTotalDelaySeconds;
+                const isBestMean =
+                  bestMeanDelaySeconds != null &&
+                  meanMetric.seconds !== null &&
+                  meanMetric.seconds === bestMeanDelaySeconds;
                 return (
                   <div key={snap.id} className="rounded-lg border border-white/10 bg-white/5 p-4 text-white/80 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1441,12 +1503,26 @@ export default function RegulationComparisonPage() {
                       {isBestTotal && <span className="text-[10px] uppercase tracking-wider bg-emerald-500/20 border border-emerald-400/60 px-1.5 py-0.5 rounded text-emerald-100">Lowest total</span>}
                     </div>
                     <div className="text-[12px] text-white/60">Total delay</div>
-                    <div className="text-2xl font-semibold text-white">{formatNumber(totalSeconds / 60, 1)} min</div>
-                    <div className="text-[12px] text-white/60">{formatSecondsToHMM(totalSeconds)}</div>
-                    <div className={`text-sm ${isBestMean ? 'text-emerald-300' : 'text-white/70'}`}>Mean {formatNumber(meanSeconds / 60, 2)} min</div>
-                    <div className="text-[12px] text-white/70">Max {formatNumber(maxSeconds / 60, 2)} min</div>
-                    <div className="text-[12px] text-white/70">Min {formatNumber(minSeconds / 60, 2)} min</div>
-                    <div className="text-[12px] text-white/70">Delayed flights {delayedFlights.toLocaleString()} / {totalFlights.toLocaleString()}</div>
+                    <div className="text-2xl font-semibold text-white">
+                      {totalMetric.minutes !== null ? `${formatNumber(totalMetric.minutes, 1)} min` : "—"}
+                    </div>
+                    <div className="text-[12px] text-white/60">
+                      {totalMetric.seconds !== null ? formatSecondsToHMM(totalMetric.seconds) : "—"}
+                    </div>
+                    <div className={`text-sm ${isBestMean ? 'text-emerald-300' : 'text-white/70'}`}>
+                      Mean {meanMetric.minutes !== null ? `${formatNumber(meanMetric.minutes, 2)} min` : "—"}
+                    </div>
+                    <div className="text-[12px] text-white/70">
+                      Max {maxMetric.minutes !== null ? `${formatNumber(maxMetric.minutes, 2)} min` : "—"}
+                    </div>
+                    <div className="text-[12px] text-white/70">
+                      Min {minMetric.minutes !== null ? `${formatNumber(minMetric.minutes, 2)} min` : "—"}
+                    </div>
+                    <div className="text-[12px] text-white/70">
+                      Delayed flights {delayedFlights !== null ? delayedFlights.toLocaleString() : "—"} /
+                      {" "}
+                      {totalFlights !== null ? totalFlights.toLocaleString() : "—"}
+                    </div>
                   </div>
                 );
               })}
