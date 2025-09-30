@@ -95,7 +95,7 @@ export async function proposeRegulations(
     ...data,
     proposals: (data?.proposals || []).map((p: any, i: number) => ({
       ...p,
-      id: `RP-${String(i + 1).padStart(2, "0")} ${data?.traffic_volume_id ?? "TV"} ${String(data?.time_window ?? "").replaceAll(":", "")}`,
+      id: `RP-${String(i + 1).padStart(2, "0")} ${data?.traffic_volume_id ?? "TV"} ${String(data?.time_window ?? "").replace(/:/g, "")}`,
     })),
   };
   return enriched as ProposeRegulationsResponse;
