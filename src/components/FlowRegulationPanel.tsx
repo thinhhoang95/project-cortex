@@ -19,6 +19,10 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setFlowViewEnabled,
     setFlowError,
     flowColorByCommunity,
+    flowThreshold,
+    flowResolution,
+    setFlowThreshold,
+    setFlowResolution,
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
     resetProposalState,
@@ -34,9 +38,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [extractError, setExtractError] = useState<string | null>(null);
   const [flowResults, setFlowResults] = useState<FlowsResponse | null>(null);
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
-  // Flow extraction params
-  const [threshold, setThreshold] = useState<number>(0.1);
-  const [resolution, setResolution] = useState<number>(1.0);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,8 +144,8 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         tvs: selectedTVs.join(','),
         from_time_str: hhmmToHHMMSS(fromTime),
         to_time_str: hhmmToHHMMSS(toTime),
-        threshold: String(Math.min(10, Math.max(0.1, threshold))),
-        resolution: String(Math.min(10, Math.max(0.1, resolution))),
+        threshold: String(Math.min(10, Math.max(0.1, flowThreshold))),
+        resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
       });
       setFlowResults(data);
       // Build community/group mapping for global store so map can color and filter
@@ -292,11 +293,11 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 min={0.1}
                 max={10}
                 step={0.05}
-                value={threshold}
+                value={flowThreshold}
                 onChange={(e) => {
                   const v = Number(e.currentTarget.value);
                   if (!Number.isFinite(v)) return;
-                  setThreshold(Math.min(10, Math.max(0.1, v)));
+                  setFlowThreshold(Math.min(10, Math.max(0.1, v)));
                 }}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />
@@ -308,11 +309,11 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 min={0.1}
                 max={10}
                 step={0.1}
-                value={resolution}
+                value={flowResolution}
                 onChange={(e) => {
                   const v = Number(e.currentTarget.value);
                   if (!Number.isFinite(v)) return;
-                  setResolution(Math.min(10, Math.max(0.1, v)));
+                  setFlowResolution(Math.min(10, Math.max(0.1, v)));
                 }}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />

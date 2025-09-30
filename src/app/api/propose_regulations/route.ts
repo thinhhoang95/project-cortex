@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
   const trafficVolumeId = body.traffic_volume_id;
   const timeWindow = body.time_window;
   const topKRaw = body.top_k_regulations;
+  const thresholdRaw = body.threshold;
+  const resolutionRaw = body.resolution;
 
   if (!trafficVolumeId || !timeWindow) {
     return NextResponse.json(
@@ -46,6 +48,28 @@ export async function POST(request: NextRequest) {
       );
     }
     payload.top_k_regulations = Math.floor(topK);
+  }
+
+  if (thresholdRaw !== undefined) {
+    const threshold = Number(thresholdRaw);
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+      return NextResponse.json(
+        { error: 'threshold must be a number in [0,1] when provided' },
+        { status: 400 }
+      );
+    }
+    payload.threshold = threshold;
+  }
+
+  if (resolutionRaw !== undefined) {
+    const resolution = Number(resolutionRaw);
+    if (!Number.isFinite(resolution) || resolution <= 0) {
+      return NextResponse.json(
+        { error: 'resolution must be a positive number when provided' },
+        { status: 400 }
+      );
+    }
+    payload.resolution = resolution;
   }
 
   try {

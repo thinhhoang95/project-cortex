@@ -74,6 +74,8 @@ export type ProposalQuery = {
   trafficVolumeId: string;
   timeWindow: string;
   topK?: number;
+  threshold?: number;
+  resolution?: number;
 };
 
 type State = {
@@ -591,6 +593,12 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       };
       if (q.topK != null) {
         body.top_k_regulations = q.topK;
+      }
+      if (q.threshold != null) {
+        body.threshold = q.threshold;
+      }
+      if (q.resolution != null) {
+        body.resolution = q.resolution;
       }
       const data = await proposeRegulations(body);
       set({

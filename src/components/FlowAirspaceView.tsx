@@ -560,6 +560,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 await fetchRegulationProposals({
                   trafficVolumeId: String(selectedTrafficVolume),
                   timeWindow: toTimeWindow(fromHHMM, toHHMM),
+                  threshold: flowThreshold,
+                  resolution: flowResolution,
                 });
               }}
               disabled={proposalLoading}

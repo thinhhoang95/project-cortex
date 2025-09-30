@@ -4,6 +4,8 @@ export type ProposeRegulationsRequest = {
   traffic_volume_id: string;
   time_window: string;
   top_k_regulations?: number;
+  threshold?: number;
+  resolution?: number;
 };
 
 export type ProposalFlowFeatures = {

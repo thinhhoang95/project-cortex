@@ -83,6 +83,10 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     proposalPreviewAll,
     proposalPinnedProposals,
     proposalPinnedFlows,
+    flowThreshold,
+    flowResolution,
+    setFlowThreshold,
+    setFlowResolution,
     togglePreviewAllProposals,
     toggleProposalEye,
     toggleProposalFlowEye,
@@ -143,6 +147,8 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
       trafficVolumeId: proposalQuery.trafficVolumeId,
       timeWindow: proposalQuery.timeWindow,
       topK,
+      threshold: flowThreshold,
+      resolution: flowResolution,
     });
   };
 
@@ -261,20 +267,54 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
           </div>
         )}
 
-        <div className="flex items-center gap-2 text-xs">
-          <label className="flex items-center gap-2">
-            <span className="opacity-70">Top K override</span>
-            <input
-              type="number"
-              min={1}
-              className="w-20 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-right text-white focus:outline-none"
-              value={topKInput}
-              onChange={(e) => {
-                setTopKInput(e.target.value);
-              }}
-              placeholder={proposalResults?.top_k ? String(proposalResults.top_k) : ""}
-            />
-          </label>
+        <div className="space-y-2 text-xs">
+          <div className="flex items-end gap-3">
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="opacity-70">K proposals</span>
+              <input
+                type="number"
+                min={1}
+                className="h-9 w-full rounded-md border border-white/20 bg-white/10 px-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-blue-300/40"
+                value={topKInput}
+                onChange={(e) => {
+                  setTopKInput(e.target.value);
+                }}
+                placeholder={proposalResults?.top_k ? String(proposalResults.top_k) : ""}
+              />
+            </label>
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="opacity-70">Threshold</span>
+              <input
+                type="number"
+                min={0.1}
+                max={10}
+                step={0.05}
+                value={flowThreshold}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (!Number.isFinite(v)) return;
+                  setFlowThreshold(Math.min(10, Math.max(0.1, v)));
+                }}
+                className="h-9 w-full rounded-md border border-white/20 bg-white/10 px-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-blue-300/40"
+              />
+            </label>
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="opacity-70">Resolution</span>
+              <input
+                type="number"
+                min={0.1}
+                max={10}
+                step={0.1}
+                value={flowResolution}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (!Number.isFinite(v)) return;
+                  setFlowResolution(Math.min(10, Math.max(0.1, v)));
+                }}
+                className="h-9 w-full rounded-md border border-white/20 bg-white/10 px-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-blue-300/40"
+              />
+            </label>
+          </div>
           {topKError && <span className="text-[11px] text-red-200">{topKError}</span>}
         </div>
 
