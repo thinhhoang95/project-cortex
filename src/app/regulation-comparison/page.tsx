@@ -552,16 +552,20 @@ export default function RegulationComparisonPage() {
     return bestMap;
   }, [objectiveComponentKeys, selectedSnapshots]);
 
-  const { objectiveRadarData, objectiveRadarMax } = useMemo(() => {
-    type RadarDatum = { metric: string; [key: string]: string | number };
+  const { objectiveRadarData, objectiveRadarRawValues } = useMemo(() => {
+    type RadarDatum = {
+      metric: string;
+      metricKey: string;
+    } & Record<string, number | string>;
 
     const rows: RadarDatum[] = [];
-    let maxValue = 0;
+    const rawValueMap = new Map<string, Map<string, number>>();
 
     const metrics: Array<{
       key: ObjectiveComponentKey | "TOTAL_DELAY";
       label: string;
       getter: (snap: RegulationSnapshot) => number | null;
+      preferLower: boolean;
     }> = [
       {
         key: "TOTAL_DELAY",
@@ -570,39 +574,60 @@ export default function RegulationComparisonPage() {
           const metric = resolveDelayMetric(snap.delayStats, "total");
           return metric.minutes;
         },
+        preferLower: true,
       },
       ...OBJECTIVE_COMPONENT_KEYS.map((key) => ({
         key,
         label: key.replace(/_/g, " "),
-        getter: (snap: RegulationSnapshot) => getObjectiveComponentValue(snap.objective?.components, key),
+        getter: (snap: RegulationSnapshot) =>
+          getObjectiveComponentValue(snap.objective?.components, key),
+        preferLower: true,
       })),
     ];
 
     metrics.forEach((metric) => {
-      const row: RadarDatum = { metric: metric.label };
-      let hasValue = false;
+      const rawValues: Array<{ snapshotId: string; value: number }> = [];
 
       selectedSnapshots.forEach((snap) => {
         const value = metric.getter(snap);
         if (value !== null) {
-          row[snap.id] = value;
-          maxValue = Math.max(maxValue, value);
-          hasValue = true;
+          rawValues.push({ snapshotId: snap.id, value });
         }
       });
 
-      if (hasValue) {
-        rows.push(row);
+      if (rawValues.length === 0) {
+        return;
       }
+
+      const values = rawValues.map((item) => item.value);
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const span = maxValue - minValue;
+
+      const row: RadarDatum = {
+        metric: metric.label,
+        metricKey: metric.key,
+      };
+      const metricRawValues = new Map<string, number>();
+
+      rawValues.forEach(({ snapshotId, value }) => {
+        const normalized = span === 0
+          ? 100
+          : metric.preferLower
+          ? ((maxValue - value) / span) * 100
+          : ((value - minValue) / span) * 100;
+        row[snapshotId] = Number.isFinite(normalized) ? normalized : 0;
+        metricRawValues.set(snapshotId, value);
+      });
+
+      rows.push(row);
+      rawValueMap.set(metric.key, metricRawValues);
     });
 
-    return { objectiveRadarData: rows, objectiveRadarMax: maxValue };
+    return { objectiveRadarData: rows, objectiveRadarRawValues: rawValueMap };
   }, [selectedSnapshots]);
 
-  const objectiveRadarDomainMax = useMemo(() => {
-    if (objectiveRadarMax <= 0) return 1;
-    return Math.max(1, Math.ceil(objectiveRadarMax * 1.1));
-  }, [objectiveRadarMax]);
+  const objectiveRadarDomainMax = 100;
 
   const airportStatsBySnapshot = useMemo(() => {
     const map = new Map<string, SnapshotAirportStats>();
@@ -1430,11 +1455,26 @@ export default function RegulationComparisonPage() {
                               angle={30}
                               domain={[0, objectiveRadarDomainMax]}
                               tick={{ fill: "rgba(226, 232, 240, 0.6)", fontSize: 10 }}
+                              tickFormatter={(value: number) => `${formatNumber(value, 0)}%`}
                             />
                             <Tooltip
-                              formatter={(value: unknown) =>
-                                typeof value === "number" ? formatNumber(value, 2) : value
-                              }
+                              formatter={(value: unknown, _name, props) => {
+                                if (typeof value !== "number" || !props) return [String(value), _name];
+                                const dataKey = typeof props.dataKey === "string" ? props.dataKey : null;
+                                const metricKey =
+                                  typeof (props.payload as { metricKey?: unknown })?.metricKey === "string"
+                                    ? ((props.payload as { metricKey?: string }).metricKey as string)
+                                    : null;
+                                const rawValue =
+                                  dataKey && metricKey
+                                    ? objectiveRadarRawValues.get(metricKey)?.get(dataKey)
+                                    : null;
+                                const percentLabel = `${formatNumber(value, 1)}%`;
+                                if (rawValue == null) {
+                                  return [percentLabel, _name];
+                                }
+                                return [`${percentLabel} (raw: ${formatNumber(rawValue, 2)})`, _name];
+                              }}
                               wrapperClassName="text-sm"
                             />
                             {selectedSnapshots.map((snap) => {
