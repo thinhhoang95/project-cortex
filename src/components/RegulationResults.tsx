@@ -499,7 +499,70 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     });
   };
 
+  const formatSignedNumber = (value: number | null | undefined, digits = 2) => {
+    if (value === null || value === undefined) return "—";
+    if (!Number.isFinite(value)) return "∞";
+    return new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+      signDisplay: "always",
+    }).format(Number(value));
+  };
+
+  const formatSignedPercent = (value: number | null | undefined, digits = 1): string | undefined => {
+    if (value === null || value === undefined) return undefined;
+    if (!Number.isFinite(value)) return undefined;
+    return `${new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+      signDisplay: "always",
+    }).format(Number(value))}%`;
+  };
+
+  const baselineObjective = useMemo(
+    () => readFiniteNumber(result?.pre_objective),
+    [result?.pre_objective],
+  );
+
   const objectiveScore = useMemo(() => readFiniteNumber(result?.objective), [result?.objective]);
+
+  const objectiveImprovement = useMemo(() => {
+    const direct = readFiniteNumber(result?.delta_objective);
+    if (direct !== null) return direct;
+    if (baselineObjective !== null && objectiveScore !== null) {
+      const delta = baselineObjective - objectiveScore;
+      return Number.isFinite(delta) ? delta : null;
+    }
+    return null;
+  }, [result?.delta_objective, baselineObjective, objectiveScore]);
+
+  const objectiveImprovementPercent = useMemo(() => {
+    if (objectiveImprovement === null || baselineObjective === null || baselineObjective === 0) {
+      return null;
+    }
+    const percent = (objectiveImprovement / baselineObjective) * 100;
+    return Number.isFinite(percent) ? percent : null;
+  }, [objectiveImprovement, baselineObjective]);
+
+  const objectiveImprovementTone: "positive" | "negative" | undefined =
+    objectiveImprovement === null
+      ? undefined
+      : objectiveImprovement > 0
+        ? "positive"
+        : objectiveImprovement < 0
+          ? "negative"
+          : undefined;
+
+  const objectiveImprovementSub = useMemo(() => {
+    if (objectiveImprovement === null) return undefined;
+    const percentLabel = formatSignedPercent(objectiveImprovementPercent, 1);
+    if (percentLabel) {
+      return `${percentLabel} vs baseline`;
+    }
+    if (objectiveImprovement > 0) return "Improvement vs baseline";
+    if (objectiveImprovement < 0) return "Regression vs baseline";
+    return "No change vs baseline";
+  }, [objectiveImprovement, objectiveImprovementPercent]);
 
   const objectiveComponents = useMemo<ObjectiveComponentEntry[]>(() => {
     const components = result?.objective_components;
@@ -565,7 +628,12 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
   const hasLegacyObjective = legacyObjectiveScore !== null || legacyObjectiveComponents.length > 0;
   const hasWeightsUsed = weightsUsed.length > 0;
   const hasObjectiveMetrics =
-    objectiveScore !== null || hasObjectiveComponents || hasLegacyObjective || hasWeightsUsed;
+    baselineObjective !== null ||
+    objectiveScore !== null ||
+    objectiveImprovement !== null ||
+    hasObjectiveComponents ||
+    hasLegacyObjective ||
+    hasWeightsUsed;
 
   const delayStats = result?.delay_stats;
   const delayTotal = useMemo(() => extractDelayMetric(delayStats, "total"), [delayStats]);
@@ -711,13 +779,28 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
               <Stat
-                label="Objective Score"
+                label="Baseline Objective"
+                value={
+                  baselineObjective !== null ? formatNumber(baselineObjective, 2) : "—"
+                }
+                sub={baselineObjective !== null ? "Pre-regulation" : undefined}
+              />
+              <Stat
+                label="Optimized Objective"
                 value={objectiveScore !== null ? formatNumber(objectiveScore, 2) : "—"}
+                sub={objectiveScore !== null ? "Post-regulation" : undefined}
+              />
+              <Stat
+                label="Improvement"
+                value={formatSignedNumber(objectiveImprovement, 2)}
+                sub={objectiveImprovementSub}
+                tone={objectiveImprovementTone}
               />
               {hasLegacyObjective && (
                 <Stat
                   label="Legacy Objective"
                   value={legacyObjectiveScore !== null ? formatNumber(legacyObjectiveScore, 2) : "—"}
+                  sub={legacyObjectiveScore !== null ? "Legacy scoring" : undefined}
                 />
               )}
             </div>
@@ -1265,12 +1348,36 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Stat({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "positive" | "negative";
+}) {
+  const containerToneClass =
+    tone === "positive"
+      ? "bg-emerald-500/10 border border-emerald-400/50"
+      : tone === "negative"
+        ? "bg-rose-500/10 border border-rose-400/50"
+        : "bg-slate-900/30 border border-white/10";
+  const valueToneClass =
+    tone === "positive"
+      ? "text-emerald-300"
+      : tone === "negative"
+        ? "text-rose-300"
+        : "text-white";
+  const subToneClass = tone ? "text-xs text-white/80" : "text-xs text-gray-300";
+
   return (
-    <div className="bg-slate-900/30 rounded-lg p-3 border border-white/10">
+    <div className={`rounded-lg p-3 ${containerToneClass}`}>
       <div className="text-[10px] uppercase tracking-wider text-gray-400">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
-      {sub && <div className="text-xs text-gray-300">{sub}</div>}
+      <div className={`text-lg font-semibold ${valueToneClass}`}>{value}</div>
+      {sub && <div className={subToneClass}>{sub}</div>}
     </div>
   );
 }

@@ -135,10 +135,37 @@ type AirportComparisonRow = {
   perSnapshot: Record<string, AirportDelayRow>;
 };
 
+type SnapshotObjectiveStats = {
+  baseline: number | null;
+  score: number | null;
+  improvement: number | null;
+  percent: number | null;
+};
+
 function formatNumber(val: number | null | undefined, digits = 2) {
   if (val === null || val === undefined || Number.isNaN(val)) return "—";
   if (!Number.isFinite(val)) return "∞";
   return Number(val).toFixed(digits);
+}
+
+function formatSigned(val: number | null | undefined, digits = 2) {
+  if (val === null || val === undefined || Number.isNaN(val)) return "—";
+  if (!Number.isFinite(val)) return "∞";
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    signDisplay: "always",
+  }).format(Number(val));
+}
+
+function formatPercentSigned(val: number | null | undefined, digits = 1) {
+  if (val === null || val === undefined || Number.isNaN(val)) return "—";
+  if (!Number.isFinite(val)) return "∞";
+  return `${new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    signDisplay: "always",
+  }).format(Number(val))}%`;
 }
 
 function toFiniteNumber(value: unknown): number | null {
@@ -508,18 +535,72 @@ export default function RegulationComparisonPage() {
     return Math.min(...means);
   }, [selectedSnapshots]);
 
-  const bestObjectiveScore = useMemo(() => {
-    const scores = selectedSnapshots
-      .map((snap) => toFiniteNumber(snap.objective?.score))
-      .filter((value): value is number => value !== null);
-    if (scores.length === 0) return null;
-    return Math.min(...scores);
-  }, [selectedSnapshots]);
+  const {
+    objectiveStatsBySnapshot,
+    hasObjectiveScore,
+    bestObjectiveScore,
+    bestObjectiveImprovement,
+  } = useMemo(() => {
+    const statsMap = new Map<string, SnapshotObjectiveStats>();
+    let anyMetric = false;
+    let bestScore: number | null = null;
+    let bestImprovement: number | null = null;
 
-  const hasObjectiveScore = useMemo(
-    () => selectedSnapshots.some((snap) => toFiniteNumber(snap.objective?.score) !== null),
-    [selectedSnapshots],
-  );
+    selectedSnapshots.forEach((snap) => {
+      const rawObjective = snap.objective || null;
+      const score = toFiniteNumber(rawObjective?.score);
+      const baseline =
+        toFiniteNumber((rawObjective as any)?.baseline) ??
+        toFiniteNumber((rawObjective as any)?.pre_objective);
+      let improvement =
+        toFiniteNumber((rawObjective as any)?.improvement) ??
+        toFiniteNumber((rawObjective as any)?.delta_objective) ??
+        null;
+
+      if (improvement === null && baseline !== null && score !== null) {
+        const delta = baseline - score;
+        improvement = Number.isFinite(delta) ? delta : null;
+      }
+
+      let percent: number | null = null;
+      if (improvement !== null && baseline !== null && baseline !== 0) {
+        const calc = (improvement / baseline) * 100;
+        percent = Number.isFinite(calc) ? calc : null;
+      }
+
+      statsMap.set(snap.id, {
+        baseline,
+        score,
+        improvement,
+        percent,
+      });
+
+      if (baseline !== null) {
+        anyMetric = true;
+      }
+      if (score !== null) {
+        anyMetric = true;
+        if (bestScore === null || score < bestScore) {
+          bestScore = score;
+        }
+      }
+      if (improvement !== null) {
+        anyMetric = true;
+        if (improvement > 0) {
+          if (bestImprovement === null || improvement > bestImprovement) {
+            bestImprovement = improvement;
+          }
+        }
+      }
+    });
+
+    return {
+      objectiveStatsBySnapshot: statsMap,
+      hasObjectiveScore: anyMetric,
+      bestObjectiveScore: bestScore,
+      bestObjectiveImprovement: bestImprovement,
+    };
+  }, [selectedSnapshots]);
 
   const objectiveComponentKeys = useMemo<ObjectiveComponentKey[]>(() => {
     const orderedKeys: ObjectiveComponentKey[] = [];
@@ -1372,17 +1453,105 @@ export default function RegulationComparisonPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {selectedSnapshots.map((snap) => {
                       const color = colorBySnapshotId.get(snap.id) || "#fff";
-                      const score = toFiniteNumber(snap.objective?.score);
-                      const isBest = bestObjectiveScore !== null && score !== null && score === bestObjectiveScore;
+                      const stats = objectiveStatsBySnapshot.get(snap.id);
+                      const baseline = stats?.baseline ?? null;
+                      const score = stats?.score ?? null;
+                      const improvement = stats?.improvement ?? null;
+                      const percent = stats?.percent ?? null;
+
+                      const isBest =
+                        bestObjectiveScore !== null &&
+                        score !== null &&
+                        Math.abs(score - bestObjectiveScore) < 1e-6;
+
+                      const isMostImproved =
+                        bestObjectiveImprovement !== null &&
+                        improvement !== null &&
+                        Math.abs(improvement - bestObjectiveImprovement) < 1e-6;
+
+                      const improvementTone =
+                        improvement === null
+                          ? undefined
+                          : improvement > 0
+                            ? "positive"
+                            : improvement < 0
+                              ? "negative"
+                              : "neutral";
+
+                      const improvementClass =
+                        improvementTone === "positive"
+                          ? "text-emerald-300"
+                          : improvementTone === "negative"
+                            ? "text-rose-300"
+                            : "text-white/90";
+
+                      const improvementSubClass =
+                        improvementTone === "positive"
+                          ? "text-[11px] text-emerald-200"
+                          : improvementTone === "negative"
+                            ? "text-[11px] text-rose-200"
+                            : "text-[11px] text-white/60";
+
+                      const percentLabel = percent !== null ? formatPercentSigned(percent, 1) : null;
+                      const improvementSubtitle =
+                        improvement === null
+                          ? baseline === null
+                            ? "Objective metrics unavailable"
+                            : "Improvement unavailable"
+                          : percent !== null && percentLabel
+                            ? `${percentLabel} vs baseline`
+                            : improvement > 0
+                              ? "Improved vs baseline"
+                              : improvement < 0
+                                ? "Regressed vs baseline"
+                                : "No change vs baseline";
+
                       return (
-                        <div key={snap.id} className="rounded-lg border border-white/10 bg-white/5 p-4 text-white/80 space-y-2">
-                          <div className="flex items-center gap-2 text-sm font-semibold">
-                            <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
-                            <span>{snap.description || "Untitled"}</span>
-                            {isBest && <span className="text-[10px] uppercase tracking-wider bg-emerald-500/20 border border-emerald-400/60 px-1.5 py-0.5 rounded text-emerald-100">Best</span>}
+                        <div key={snap.id} className="rounded-lg border border-white/10 bg-white/5 p-4 text-white/80 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
+                              <span>{snap.description || "Untitled"}</span>
+                            </div>
+                            {(isBest || isMostImproved) && (
+                              <div className="flex flex-wrap items-center gap-1 text-[10px] uppercase tracking-wider">
+                                {isBest && (
+                                  <span className="bg-emerald-500/20 border border-emerald-400/60 px-1.5 py-0.5 rounded text-emerald-100">
+                                    Best Score
+                                  </span>
+                                )}
+                                {isMostImproved && (
+                                  <span className="bg-sky-500/20 border border-sky-400/60 px-1.5 py-0.5 rounded text-sky-100">
+                                    Most Improved
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
-                          <div className="text-[12px] text-white/60">Objective score</div>
-                          <div className="text-2xl font-semibold text-white">{formatNumber(score, 2)}</div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <div className="text-white/50 uppercase text-[10px] tracking-wider">Baseline objective</div>
+                              <div className="text-base font-mono text-white/90">
+                                {baseline !== null ? formatNumber(baseline, 2) : "—"}
+                              </div>
+                              <div className="text-[11px] text-white/60">Pre-regulation</div>
+                            </div>
+                            <div>
+                              <div className="text-white/50 uppercase text-[10px] tracking-wider">Optimized objective</div>
+                              <div className="text-xl font-mono text-white">
+                                {score !== null ? formatNumber(score, 2) : "—"}
+                              </div>
+                              <div className="text-[11px] text-white/60">Post-regulation</div>
+                            </div>
+                            <div>
+                              <div className="text-white/50 uppercase text-[10px] tracking-wider">Improvement</div>
+                              <div className={`text-base font-mono ${improvementClass}`}>
+                                {formatSigned(improvement, 2)}
+                              </div>
+                              <div className={improvementSubClass}>{improvementSubtitle}</div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}

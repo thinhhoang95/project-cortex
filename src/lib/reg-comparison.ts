@@ -16,6 +16,8 @@ export interface RegulationAggregatedRolling {
 
 export interface RegulationObjectiveSummary {
   score: number | null;
+  baseline?: number | null;
+  improvement?: number | null;
   components?: Record<string, number>;
 }
 
@@ -34,10 +36,23 @@ export interface RegulationSnapshot {
   objective?: RegulationObjectiveSummary | null;
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 function sanitizeObjective(raw: any): RegulationObjectiveSummary | null {
   if (!raw || typeof raw !== "object") return null;
-  const scoreNumber = Number((raw as any).score);
-  const score = Number.isFinite(scoreNumber) ? scoreNumber : null;
+  const score = toFiniteNumber((raw as any).score);
+  const baseline =
+    toFiniteNumber((raw as any).baseline) ??
+    toFiniteNumber((raw as any).pre_objective) ??
+    toFiniteNumber((raw as any).preObjective);
+  const improvement =
+    toFiniteNumber((raw as any).improvement) ??
+    toFiniteNumber((raw as any).delta_objective) ??
+    toFiniteNumber((raw as any).deltaObjective) ??
+    (baseline !== null && score !== null ? baseline - score : null);
   let components: Record<string, number> | undefined;
   const rawComponents = (raw as any).components;
   if (rawComponents && typeof rawComponents === "object") {
@@ -52,8 +67,12 @@ function sanitizeObjective(raw: any): RegulationObjectiveSummary | null {
       components = entries;
     }
   }
-  if (score === null && !components) return null;
-  return { score, components };
+  if (score === null && baseline === null && improvement === null && !components) return null;
+  const summary: RegulationObjectiveSummary = { score };
+  if (baseline !== null) summary.baseline = baseline;
+  if (improvement !== null) summary.improvement = improvement;
+  if (components) summary.components = components;
+  return summary;
 }
 
 function cloneSeries(values?: number[] | null): number[] {
@@ -163,6 +182,8 @@ export function createRegulationSnapshot(params: {
 
   const objective = sanitizeObjective({
     score: result.objective,
+    baseline: result.pre_objective,
+    improvement: result.delta_objective,
     components: result.objective_components,
   });
 
