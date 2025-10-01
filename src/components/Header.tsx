@@ -340,7 +340,7 @@ const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
                 </button>
                 <div className="mx-4 my-2 glass-menu-divider" />
                 <div className="px-4 pb-3 text-xs glass-menu-muted">
-                  Version 25.09.30.0 (autumnrain)
+                  Version 25.10.01.5 (autumnrain)
                 </div>
               </div>
             )}

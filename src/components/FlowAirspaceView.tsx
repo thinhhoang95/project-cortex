@@ -45,7 +45,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setFlowLoading,
     setFlowError,
     setFlowPreviewFlightId,
-    addFlowBasketWithPeriod
+    addFlowBasketWithPeriod,
+    addTargetCells
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
@@ -392,7 +393,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     const toLabel = secondsToDayTimeString(toSeconds);
     const flowName = `TV ${selectedTrafficVolume} ${fromLabel}-${toLabel}`;
     addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
-  }, [addFlowBasketWithPeriod, regulationTimeWindow, selectedTrafficVolume]);
+    if (selectedTrafficVolume) {
+      addTargetCells([String(selectedTrafficVolume)], fromLabel, toLabel);
+    }
+  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, selectedTrafficVolume]);
 
   // Listen for map flight clicks to add to list
   useEffect(() => {
