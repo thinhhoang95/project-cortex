@@ -121,7 +121,8 @@ function FlowEvaluationPageContent() {
   const [showOptResponse, setShowOptResponse] = useState<boolean>(false);
   const [weightsOverride, setWeightsOverride] = useState<Record<string, number> | null>(null);
   const showLabels = true;
-  const [showWeightDetails, setShowWeightDetails] = useState<boolean>(false);
+  const [showWeightsSection, setShowWeightsSection] = useState<boolean>(false);
+  const [showHyperparamsSection, setShowHyperparamsSection] = useState<boolean>(false);
   const [saParamsOverride, setSaParamsOverride] = useState<Record<string, number> | null>(null);
   const [rippleSummaryExpanded, setRippleSummaryExpanded] = useState<boolean>(false);
   const [expandedTargetCharts, setExpandedTargetCharts] = useState<Record<number, boolean>>({});
@@ -992,139 +993,183 @@ function FlowEvaluationPageContent() {
 
             {/* Weights override */}
             <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[11px] uppercase tracking-wider text-white/60">Weights and Hyperparameters</div>
-                <button
-                  onClick={() => setShowWeightDetails((s) => !s)}
-                  className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 text-[12px]"
-                >{showWeightDetails ? 'Hide Details' : 'Show Details'}</button>
-              </div>
-              {showWeightDetails && (
-              <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
-                <table className="w-full text-sm text-white/90">
-                  <thead className="bg-white/5 text-white/70">
-                    <tr>
-                      <th className="text-left px-3 py-2">Weight key</th>
-                      <th className="text-left px-3 py-2">Description</th>
-                      <th className="text-left px-3 py-2">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const used = (evalState.data?.weights_used || {}) as Record<string, number>;
-                      const override = (weightsOverride || {}) as Record<string, number>;
-                      const knownKeys = WEIGHT_DEFINITIONS.map((d) => d.key);
-                      const extraKeys = Array.from(new Set([
-                        ...Object.keys(used || {}),
-                        ...Object.keys(override || {}),
-                      ])).filter((k) => !knownKeys.includes(k));
-                      const orderedKeys = [...knownKeys, ...extraKeys];
-                      return orderedKeys.map((key) => {
-                        const def = WEIGHT_DEFINITIONS.find((d) => d.key === key);
-                        const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
-                        const displayVal = hasOverride
-                          ? String(override[key])
-                          : (used && Object.prototype.hasOwnProperty.call(used, key))
-                            ? String(used[key])
-                            : '';
-                        return (
-                          <tr key={key} className="border-t border-white/10 align-top">
-                            <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
-                            <td className="px-3 py-2 text-white/70 text-[12px]">
-                              {def?.description || 'Custom weight key'}
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={displayVal}
-                                onChange={(e) => {
-                                  const raw = e.currentTarget.value;
-                                  setWeightsOverride((prev) => {
-                                    const base = { ...(prev || {}) } as Record<string, number>;
-                                    if (raw === '') {
-                                      // Clear override to fall back to used value
-                                      delete base[key];
-                                      return Object.keys(base).length > 0 ? base : null;
-                                    }
-                                    const num = Number(raw);
-                                    if (!Number.isFinite(num)) return base;
-                                    base[key] = num;
-                                    return base;
-                                  });
-                                }}
-                                className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
-                                style={{ colorScheme: 'dark' }}
-                              />
-                            </td>
-                            
+              <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Weights and Hyperparameters</div>
+              <div className="space-y-4">
+                <div>
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-white/60 hover:text-white transition-colors mb-2"
+                    onClick={() => setShowWeightsSection((v) => !v)}
+                    aria-controls="weights-details-content"
+                    aria-expanded={showWeightsSection}
+                  >
+                    <span>Weights</span>
+                    <svg
+                      className={`w-4 h-4 text-white/70 transition-transform ${showWeightsSection ? "rotate-90" : ""}`}
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
+                  {showWeightsSection && (
+                    <div
+                      className="bg-white/5 border border-white/10 rounded-lg overflow-hidden"
+                      id="weights-details-content"
+                      aria-hidden={!showWeightsSection}
+                    >
+                      <table className="w-full text-sm text-white/90">
+                        <thead className="bg-white/5 text-white/70">
+                          <tr>
+                            <th className="text-left px-3 py-2">Weight key</th>
+                            <th className="text-left px-3 py-2">Description</th>
+                            <th className="text-left px-3 py-2">Value</th>
                           </tr>
-                        );
-                      });
-                    })()}
-                    <WeightsAddRow onAdd={(key, val) => setWeightsOverride((prev) => ({ ...(prev || {}), [key]: val }))} />
-                  </tbody>
-                </table>
-              </div>
-              )}
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const used = (evalState.data?.weights_used || {}) as Record<string, number>;
+                            const override = (weightsOverride || {}) as Record<string, number>;
+                            const knownKeys = WEIGHT_DEFINITIONS.map((d) => d.key);
+                            const extraKeys = Array.from(new Set([
+                              ...Object.keys(used || {}),
+                              ...Object.keys(override || {}),
+                            ])).filter((k) => !knownKeys.includes(k));
+                            const orderedKeys = [...knownKeys, ...extraKeys];
+                            return orderedKeys.map((key) => {
+                              const def = WEIGHT_DEFINITIONS.find((d) => d.key === key);
+                              const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
+                              const displayVal = hasOverride
+                                ? String(override[key])
+                                : (used && Object.prototype.hasOwnProperty.call(used, key))
+                                  ? String(used[key])
+                                  : '';
+                              return (
+                                <tr key={key} className="border-t border-white/10 align-top">
+                                  <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
+                                  <td className="px-3 py-2 text-white/70 text-[12px]">
+                                    {def?.description || 'Custom weight key'}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="number"
+                                      value={displayVal}
+                                      onChange={(e) => {
+                                        const raw = e.currentTarget.value;
+                                        setWeightsOverride((prev) => {
+                                          const base = { ...(prev || {}) } as Record<string, number>;
+                                          if (raw === '') {
+                                            // Clear override to fall back to used value
+                                            delete base[key];
+                                            return Object.keys(base).length > 0 ? base : null;
+                                          }
+                                          const num = Number(raw);
+                                          if (!Number.isFinite(num)) return base;
+                                          base[key] = num;
+                                          return base;
+                                        });
+                                      }}
+                                      className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
+                                      style={{ colorScheme: 'dark' }}
+                                    />
+                                  </td>
 
-              {showWeightDetails && (
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[11px] uppercase tracking-wider text-white/60">Optimization Hyperparameters</div>
+                                </tr>
+                              );
+                            });
+                          })()}
+                          <WeightsAddRow onAdd={(key, val) => setWeightsOverride((prev) => ({ ...(prev || {}), [key]: val }))} />
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-                <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
-                  <table className="w-full text-sm text-white/90">
-                    <thead className="bg-white/5 text-white/70">
-                      <tr>
-                        <th className="text-left px-3 py-2">Parameter</th>
-                        <th className="text-left px-3 py-2">Description</th>
-                        <th className="text-left px-3 py-2">Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {SA_PARAM_DEFINITIONS.map(({ key, description, default: defVal }) => {
-                        const used = (optState.data?.sa_params_used || {}) as Record<string, number>;
-                        const override = (saParamsOverride || {}) as Record<string, number>;
-                        const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
-                        const displayVal = hasOverride
-                          ? String(override[key])
-                          : (used && Object.prototype.hasOwnProperty.call(used, key))
-                            ? String(used[key])
-                            : String(defVal);
-                        return (
-                          <tr key={key} className="border-t border-white/10 align-top">
-                            <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
-                            <td className="px-3 py-2 text-white/70 text-[12px]">{description}</td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={displayVal}
-                                onChange={(e) => {
-                                  const raw = e.currentTarget.value;
-                                  setSaParamsOverride((prev) => {
-                                    const base = { ...(prev || {}) } as Record<string, number>;
-                                    if (raw === '') {
-                                      delete base[key];
-                                      return Object.keys(base).length > 0 ? base : null;
-                                    }
-                                    const num = Number(raw);
-                                    if (!Number.isFinite(num)) return base;
-                                    base[key] = num;
-                                    return base;
-                                  });
-                                }}
-                                className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
-                                style={{ colorScheme: 'dark' }}
-                              />
-                            </td>
+                <div>
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between text-xs uppercase tracking-wider text-white/60 hover:text-white transition-colors mb-2"
+                    onClick={() => setShowHyperparamsSection((v) => !v)}
+                    aria-controls="hyperparameters-details-content"
+                    aria-expanded={showHyperparamsSection}
+                  >
+                    <span>Optimization Hyperparameters</span>
+                    <svg
+                      className={`w-4 h-4 text-white/70 transition-transform ${showHyperparamsSection ? "rotate-90" : ""}`}
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
+                  {showHyperparamsSection && (
+                    <div
+                      className="bg-white/5 border border-white/10 rounded-lg overflow-hidden"
+                      id="hyperparameters-details-content"
+                      aria-hidden={!showHyperparamsSection}
+                    >
+                      <table className="w-full text-sm text-white/90">
+                        <thead className="bg-white/5 text-white/70">
+                          <tr>
+                            <th className="text-left px-3 py-2">Parameter</th>
+                            <th className="text-left px-3 py-2">Description</th>
+                            <th className="text-left px-3 py-2">Value</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody>
+                          {SA_PARAM_DEFINITIONS.map(({ key, description, default: defVal }) => {
+                            const used = (optState.data?.sa_params_used || {}) as Record<string, number>;
+                            const override = (saParamsOverride || {}) as Record<string, number>;
+                            const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
+                            const displayVal = hasOverride
+                              ? String(override[key])
+                              : (used && Object.prototype.hasOwnProperty.call(used, key))
+                                ? String(used[key])
+                                : String(defVal);
+                            return (
+                              <tr key={key} className="border-t border-white/10 align-top">
+                                <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
+                                <td className="px-3 py-2 text-white/70 text-[12px]">{description}</td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    value={displayVal}
+                                    onChange={(e) => {
+                                      const raw = e.currentTarget.value;
+                                      setSaParamsOverride((prev) => {
+                                        const base = { ...(prev || {}) } as Record<string, number>;
+                                        if (raw === '') {
+                                          delete base[key];
+                                          return Object.keys(base).length > 0 ? base : null;
+                                        }
+                                        const num = Number(raw);
+                                        if (!Number.isFinite(num)) return base;
+                                        base[key] = num;
+                                        return base;
+                                      });
+                                    }}
+                                    className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
+                                    style={{ colorScheme: 'dark' }}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
-              )}
             </div>
 
             {/* Debug toggles */}
