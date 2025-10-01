@@ -136,6 +136,48 @@ type AirportComparisonRow = {
 };
 
 const IMPROVEMENT_EPSILON = 1e-6;
+const OBJECTIVE_COMPONENT_ORDER = ["J_CAP", "J_DELAY", "J_REG", "J_TV", "J_SHARE", "J_SPILL"] as const;
+
+function toFiniteNumber(value: unknown): number | null {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizeObjectiveKey(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return raw
+    .toString()
+    .trim()
+    .replace(/[^0-9a-zA-Z]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_")
+    .toUpperCase();
+}
+
+function getObjectiveComponentValue(
+  components: Record<string, unknown> | null | undefined,
+  key: string,
+): number | null {
+  if (!components) return null;
+  const target = normalizeObjectiveKey(key);
+  if (!target) return null;
+
+  if (Object.prototype.hasOwnProperty.call(components, key)) {
+    const direct = toFiniteNumber((components as Record<string, unknown>)[key]);
+    if (direct !== null) return direct;
+  }
+
+  for (const [rawKey, rawValue] of Object.entries(components)) {
+    if (normalizeObjectiveKey(rawKey) === target) {
+      const value = toFiniteNumber(rawValue);
+      if (value !== null) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
 
 function resolveObjectiveImprovement(
   snapshot: SolutionSnapshot,
@@ -462,19 +504,13 @@ export default function SolutionComparisonPage() {
       {
         key: "J_DELAY",
         label: "J Delay",
-        getter: (snap) => {
-          const value = snap.objective.optimized?.components?.["J_DELAY"];
-          return typeof value === "number" && Number.isFinite(value) ? value : null;
-        },
+        getter: (snap) => getObjectiveComponentValue(snap.objective.optimized?.components, "J_DELAY"),
         preferLower: true,
       },
       {
         key: "J_REG",
         label: "J Reg",
-        getter: (snap) => {
-          const value = snap.objective.optimized?.components?.["J_REG"];
-          return typeof value === "number" && Number.isFinite(value) ? value : null;
-        },
+        getter: (snap) => getObjectiveComponentValue(snap.objective.optimized?.components, "J_REG"),
         preferLower: true,
       },
       {
@@ -853,14 +889,34 @@ export default function SolutionComparisonPage() {
   }, [alignedSnapshots, airportStatsBySnapshot]);
 
   const objectiveComponentKeys = useMemo(() => {
-    const keys = new Set<string>();
+    const normalizedMap = new Map<string, string>();
+
     alignedSnapshots.forEach((snap) => {
       const baseline = snap.objective.baseline?.components || {};
       const optimized = snap.objective.optimized?.components || {};
-      Object.keys(baseline).forEach((k) => keys.add(k));
-      Object.keys(optimized).forEach((k) => keys.add(k));
+
+      [baseline, optimized].forEach((components) => {
+        Object.keys(components || {}).forEach((rawKey) => {
+          const normalized = normalizeObjectiveKey(rawKey);
+          if (normalized) {
+            if (!normalizedMap.has(normalized)) {
+              normalizedMap.set(normalized, normalized);
+            }
+          }
+        });
+      });
     });
-    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+
+    const ordered: string[] = [];
+    OBJECTIVE_COMPONENT_ORDER.forEach((key) => {
+      if (normalizedMap.has(key)) {
+        ordered.push(key);
+        normalizedMap.delete(key);
+      }
+    });
+
+    const remaining = Array.from(normalizedMap.keys()).sort((a, b) => a.localeCompare(b));
+    return [...ordered, ...remaining];
   }, [alignedSnapshots]);
 
   const bestImprovementAbsolute = useMemo(() => {
@@ -1433,17 +1489,34 @@ export default function SolutionComparisonPage() {
                       </thead>
                       <tbody>
                         {objectiveComponentKeys.map((key) => {
-                          const bestValue = Math.min(...alignedSnapshots.map((snap) => snap.objective.optimized?.components?.[key] ?? Number.POSITIVE_INFINITY));
+                          let bestValue: number | null = null;
+                          alignedSnapshots.forEach((snap) => {
+                            const candidate = getObjectiveComponentValue(snap.objective.optimized?.components, key);
+                            if (candidate === null) return;
+                            if (bestValue === null || candidate < bestValue) {
+                              bestValue = candidate;
+                            }
+                          });
+
                           return (
                             <tr key={key} className="border-t border-white/10">
-                              <td className="px-3 py-2 text-white/70">{key}</td>
+                              <td className="px-3 py-2 text-white/70">{key.replace(/_/g, ' ')}</td>
                               {alignedSnapshots.map((snap) => {
-                                const baselineVal = snap.objective.baseline?.components?.[key] ?? null;
-                                const optimizedVal = snap.objective.optimized?.components?.[key] ?? null;
-                                const delta = (baselineVal != null && optimizedVal != null) ? optimizedVal - baselineVal : null;
-                                const isBest = optimizedVal != null && optimizedVal === bestValue;
+                                const baselineVal = getObjectiveComponentValue(snap.objective.baseline?.components, key);
+                                const optimizedVal = getObjectiveComponentValue(snap.objective.optimized?.components, key);
+                                const delta =
+                                  baselineVal !== null && optimizedVal !== null
+                                    ? optimizedVal - baselineVal
+                                    : null;
+                                const isBest =
+                                  optimizedVal !== null &&
+                                  bestValue !== null &&
+                                  Math.abs(optimizedVal - bestValue) < IMPROVEMENT_EPSILON;
                                 return (
-                                  <td key={snap.id} className={`px-3 py-2 font-mono text-[13px] ${isBest ? 'text-emerald-200' : 'text-white/80'}`}>
+                                  <td
+                                    key={snap.id}
+                                    className={`px-3 py-2 font-mono text-[13px] ${isBest ? 'text-emerald-200' : 'text-white/80'}`}
+                                  >
                                     <div>{formatNumber(optimizedVal, 2)}</div>
                                     <div className="text-white/50 text-[11px]">→ {formatNumber(baselineVal, 2)} (Δ {formatNumber(delta, 2)})</div>
                                   </td>
