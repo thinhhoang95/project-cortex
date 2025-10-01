@@ -538,12 +538,10 @@ export default function RegulationComparisonPage() {
   const {
     objectiveStatsBySnapshot,
     hasObjectiveScore,
-    bestObjectiveScore,
     bestObjectiveImprovement,
   } = useMemo(() => {
     const statsMap = new Map<string, SnapshotObjectiveStats>();
     let anyMetric = false;
-    let bestScore: number | null = null;
     let bestImprovement: number | null = null;
 
     selectedSnapshots.forEach((snap) => {
@@ -580,9 +578,6 @@ export default function RegulationComparisonPage() {
       }
       if (score !== null) {
         anyMetric = true;
-        if (bestScore === null || score < bestScore) {
-          bestScore = score;
-        }
       }
       if (improvement !== null) {
         anyMetric = true;
@@ -597,7 +592,6 @@ export default function RegulationComparisonPage() {
     return {
       objectiveStatsBySnapshot: statsMap,
       hasObjectiveScore: anyMetric,
-      bestObjectiveScore: bestScore,
       bestObjectiveImprovement: bestImprovement,
     };
   }, [selectedSnapshots]);
@@ -633,7 +627,11 @@ export default function RegulationComparisonPage() {
     return bestMap;
   }, [objectiveComponentKeys, selectedSnapshots]);
 
-  const { objectiveRadarData, objectiveRadarRawValues } = useMemo(() => {
+  const {
+    objectiveRadarData,
+    objectiveRadarRawValues,
+    objectiveRadarMaxNormalized,
+  } = useMemo(() => {
     type RadarDatum = {
       metric: string;
       metricKey: string;
@@ -642,8 +640,12 @@ export default function RegulationComparisonPage() {
     const rows: RadarDatum[] = [];
     const rawValueMap = new Map<string, Map<string, number>>();
 
+    const radarComponentKeys: ObjectiveComponentKey[] = ["J_DELAY", "J_REG"];
+    const EPSILON = 1e-6;
+    let maxNormalizedValue = 0;
+
     const metrics: Array<{
-      key: ObjectiveComponentKey | "TOTAL_DELAY";
+      key: ObjectiveComponentKey | "TOTAL_DELAY" | "IMPROVEMENT";
       label: string;
       getter: (snap: RegulationSnapshot) => number | null;
       preferLower: boolean;
@@ -657,13 +659,20 @@ export default function RegulationComparisonPage() {
         },
         preferLower: true,
       },
-      ...OBJECTIVE_COMPONENT_KEYS.map((key) => ({
+      ...radarComponentKeys.map((key) => ({
         key,
         label: key.replace(/_/g, " "),
         getter: (snap: RegulationSnapshot) =>
           getObjectiveComponentValue(snap.objective?.components, key),
         preferLower: true,
       })),
+      {
+        key: "IMPROVEMENT",
+        label: "Improvement (objective score)",
+        getter: (snap: RegulationSnapshot) =>
+          objectiveStatsBySnapshot.get(snap.id)?.improvement ?? null,
+        preferLower: false,
+      },
     ];
 
     metrics.forEach((metric) => {
@@ -684,6 +693,9 @@ export default function RegulationComparisonPage() {
       const minValue = Math.min(...values);
       const maxValue = Math.max(...values);
       const span = maxValue - minValue;
+      const bestValue = metric.preferLower ? minValue : maxValue;
+      const bestMagnitude = Math.abs(bestValue);
+      const spanMagnitude = Math.abs(span);
 
       const row: RadarDatum = {
         metric: metric.label,
@@ -692,23 +704,61 @@ export default function RegulationComparisonPage() {
       const metricRawValues = new Map<string, number>();
 
       rawValues.forEach(({ snapshotId, value }) => {
-        const normalized = span === 0
-          ? 100
-          : metric.preferLower
-          ? ((maxValue - value) / span) * 100
-          : ((value - minValue) / span) * 100;
-        row[snapshotId] = Number.isFinite(normalized) ? normalized : 0;
+        let normalized: number;
+
+        if (metric.preferLower) {
+          if (bestMagnitude > EPSILON) {
+            normalized = 100 + ((value - bestValue) / bestMagnitude) * 100;
+          } else if (spanMagnitude > EPSILON) {
+            normalized = 100 + ((value - bestValue) / spanMagnitude) * 100;
+          } else {
+            normalized = 100;
+          }
+
+          if (normalized < 100 && value >= bestValue - EPSILON) {
+            normalized = 100;
+          }
+          normalized = Math.max(0, normalized);
+        } else {
+          const delta = bestValue - value;
+          if (bestMagnitude > EPSILON) {
+            normalized = 100 - (delta / bestMagnitude) * 100;
+          } else if (spanMagnitude > EPSILON) {
+            normalized = 100 - (delta / spanMagnitude) * 100;
+          } else {
+            normalized = 100;
+          }
+
+          if (normalized > 100 && value <= bestValue + EPSILON) {
+            normalized = 100;
+          }
+          normalized = Math.max(0, normalized);
+        }
+
+        const safeNormalized = Number.isFinite(normalized) ? normalized : 0;
+        row[snapshotId] = safeNormalized;
         metricRawValues.set(snapshotId, value);
+        if (Number.isFinite(safeNormalized)) {
+          maxNormalizedValue = Math.max(maxNormalizedValue, safeNormalized);
+        }
       });
 
       rows.push(row);
       rawValueMap.set(metric.key, metricRawValues);
     });
 
-    return { objectiveRadarData: rows, objectiveRadarRawValues: rawValueMap };
-  }, [selectedSnapshots]);
+    return {
+      objectiveRadarData: rows,
+      objectiveRadarRawValues: rawValueMap,
+      objectiveRadarMaxNormalized: maxNormalizedValue,
+    };
+  }, [objectiveStatsBySnapshot, selectedSnapshots]);
 
-  const objectiveRadarDomainMax = 100;
+  const objectiveRadarDomainMax = useMemo(() => {
+    const base = objectiveRadarMaxNormalized || 100;
+    const normalizedMax = Math.max(100, base);
+    return Math.ceil(normalizedMax / 25) * 25;
+  }, [objectiveRadarMaxNormalized]);
 
   const airportStatsBySnapshot = useMemo(() => {
     const map = new Map<string, SnapshotAirportStats>();
@@ -1459,11 +1509,6 @@ export default function RegulationComparisonPage() {
                       const improvement = stats?.improvement ?? null;
                       const percent = stats?.percent ?? null;
 
-                      const isBest =
-                        bestObjectiveScore !== null &&
-                        score !== null &&
-                        Math.abs(score - bestObjectiveScore) < 1e-6;
-
                       const isMostImproved =
                         bestObjectiveImprovement !== null &&
                         improvement !== null &&
@@ -1513,18 +1558,11 @@ export default function RegulationComparisonPage() {
                               <span className="inline-flex w-2 h-2 rounded-full" style={{ background: color }} />
                               <span>{snap.description || "Untitled"}</span>
                             </div>
-                            {(isBest || isMostImproved) && (
+                            {isMostImproved && (
                               <div className="flex flex-wrap items-center gap-1 text-[10px] uppercase tracking-wider">
-                                {isBest && (
-                                  <span className="bg-emerald-500/20 border border-emerald-400/60 px-1.5 py-0.5 rounded text-emerald-100">
-                                    Best Score
-                                  </span>
-                                )}
-                                {isMostImproved && (
-                                  <span className="bg-sky-500/20 border border-sky-400/60 px-1.5 py-0.5 rounded text-sky-100">
-                                    Most Improved
-                                  </span>
-                                )}
+                                <span className="bg-sky-500/20 border border-sky-400/60 px-1.5 py-0.5 rounded text-sky-100">
+                                  Most Improved
+                                </span>
                               </div>
                             )}
                           </div>
