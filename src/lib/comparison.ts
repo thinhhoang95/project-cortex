@@ -20,6 +20,7 @@ function cloneSeriesMap(src?: Record<string, number[]> | null) {
 export interface SnapshotObjectiveSummary {
   baseline: AutomaticRateAdjustmentResponse["objective_baseline"] | null;
   optimized: AutomaticRateAdjustmentResponse["objective_optimized"] | null;
+  improvement?: { absolute: number; percent: number } | null;
   evaluation?: BaseEvaluationResponse["objective"] | null;
 }
 
@@ -145,6 +146,61 @@ export function createSolutionSnapshot(params: CreateSnapshotParams): SolutionSn
     objective: {
       baseline: optimization.objective_baseline ?? null,
       optimized: optimization.objective_optimized ?? null,
+      improvement: (() => {
+        if (optimization.improvement) {
+          const { absolute, percent } = optimization.improvement;
+          const abs = Number(absolute);
+          const pct = Number(percent);
+          const baselineScore = optimization.objective_baseline?.score;
+          const optimizedScore = optimization.objective_optimized?.score;
+          const fallbackPercent = () => {
+            if (
+              typeof baselineScore === "number" &&
+              Number.isFinite(baselineScore) &&
+              baselineScore !== 0 &&
+              Number.isFinite(abs)
+            ) {
+              return (abs / baselineScore) * 100;
+            }
+            return null;
+          };
+          const fallbackAbsolute = () => {
+            if (
+              typeof baselineScore === "number" &&
+              typeof optimizedScore === "number" &&
+              Number.isFinite(baselineScore) &&
+              Number.isFinite(optimizedScore)
+            ) {
+              return baselineScore - optimizedScore;
+            }
+            return null;
+          };
+
+          const resolvedAbsolute = Number.isFinite(abs) ? abs : fallbackAbsolute();
+          const resolvedPercent = Number.isFinite(pct) ? pct : fallbackPercent();
+          if (
+            typeof resolvedAbsolute === "number" &&
+            Number.isFinite(resolvedAbsolute) &&
+            typeof resolvedPercent === "number" &&
+            Number.isFinite(resolvedPercent)
+          ) {
+            return { absolute: resolvedAbsolute, percent: resolvedPercent };
+          }
+        }
+        const baselineScore = optimization.objective_baseline?.score;
+        const optimizedScore = optimization.objective_optimized?.score;
+        if (
+          typeof baselineScore === "number" &&
+          typeof optimizedScore === "number" &&
+          Number.isFinite(baselineScore) &&
+          Number.isFinite(optimizedScore)
+        ) {
+          const absolute = baselineScore - optimizedScore;
+          const percent = baselineScore !== 0 ? (absolute / baselineScore) * 100 : 0;
+          return { absolute, percent };
+        }
+        return null;
+      })(),
       evaluation: evaluation?.objective ?? null,
     },
     delaysMin: optimization.delays_min ? { ...optimization.delays_min } : null,

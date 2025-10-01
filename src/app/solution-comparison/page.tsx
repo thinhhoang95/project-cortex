@@ -135,6 +135,52 @@ type AirportComparisonRow = {
   perSnapshot: Record<string, AirportDelayRow>;
 };
 
+const IMPROVEMENT_EPSILON = 1e-6;
+
+function resolveObjectiveImprovement(
+  snapshot: SolutionSnapshot,
+): { absolute: number | null; percent: number | null } {
+  const baselineScore = snapshot.objective.baseline?.score;
+  const optimizedScore = snapshot.objective.optimized?.score;
+
+  let absolute: number | null = null;
+  let percent: number | null = null;
+
+  const storedImprovement = snapshot.objective.improvement;
+  if (storedImprovement) {
+    const abs = Number(storedImprovement.absolute);
+    if (Number.isFinite(abs)) {
+      absolute = abs;
+    }
+    const pct = Number(storedImprovement.percent);
+    if (Number.isFinite(pct)) {
+      percent = pct;
+    }
+  }
+
+  if (
+    absolute === null &&
+    typeof baselineScore === "number" &&
+    typeof optimizedScore === "number" &&
+    Number.isFinite(baselineScore) &&
+    Number.isFinite(optimizedScore)
+  ) {
+    absolute = baselineScore - optimizedScore;
+  }
+
+  if (
+    percent === null &&
+    absolute !== null &&
+    typeof baselineScore === "number" &&
+    Number.isFinite(baselineScore) &&
+    Math.abs(baselineScore) > IMPROVEMENT_EPSILON
+  ) {
+    percent = (absolute / baselineScore) * 100;
+  }
+
+  return { absolute, percent };
+}
+
 function formatNumber(val: number | null | undefined, digits = 2) {
   if (val === null || val === undefined || Number.isNaN(val)) return "—";
   if (!Number.isFinite(val)) return "∞";
@@ -392,51 +438,54 @@ export default function SolutionComparisonPage() {
     return Math.min(...flightColumnStats.map((s) => s.average));
   }, [flightColumnStats]);
 
-  const { objectiveRadarData, objectiveRadarRawValues } = useMemo(() => {
+  const {
+    objectiveRadarData,
+    objectiveRadarRawValues,
+    objectiveRadarMaxNormalized,
+  } = useMemo(() => {
     type RadarDatum = {
       metric: string;
       metricKey: string;
-    } & { [key: string]: number | string };
+    } & Record<string, number | string>;
 
     const rows: RadarDatum[] = [];
     const rawValueMap = new Map<string, Map<string, number>>();
+    const EPSILON = 1e-6;
+    let maxNormalizedValue = 0;
 
-    // Build list of all component keys across all snapshots
-    const componentKeysSet = new Set<string>();
-    alignedSnapshots.forEach((snap) => {
-      const baseline = snap.objective.baseline?.components || {};
-      const optimized = snap.objective.optimized?.components || {};
-      Object.keys(baseline).forEach((k) => componentKeysSet.add(k));
-      Object.keys(optimized).forEach((k) => componentKeysSet.add(k));
-    });
-    const componentKeys = Array.from(componentKeysSet).sort();
-
-    type MetricConfig = {
-      key: string;
+    const metrics: Array<{
+      key: "J_DELAY" | "J_REG" | "IMPROVEMENT";
       label: string;
       getter: (snap: SolutionSnapshot) => number | null;
       preferLower: boolean;
-    };
-
-    const metrics: MetricConfig[] = [
+    }> = [
       {
-        key: "OPTIMIZED_SCORE",
-        label: "Optimized Score",
+        key: "J_DELAY",
+        label: "J Delay",
         getter: (snap) => {
-          const score = snap.objective.optimized?.score;
-          return score != null && Number.isFinite(score) ? Number(score) : null;
+          const value = snap.objective.optimized?.components?.["J_DELAY"];
+          return typeof value === "number" && Number.isFinite(value) ? value : null;
+        },
+        preferLower: true,
+      },
+      {
+        key: "J_REG",
+        label: "J Reg",
+        getter: (snap) => {
+          const value = snap.objective.optimized?.components?.["J_REG"];
+          return typeof value === "number" && Number.isFinite(value) ? value : null;
+        },
+        preferLower: true,
+      },
+      {
+        key: "IMPROVEMENT",
+        label: "Improvement (objective score)",
+        getter: (snap) => {
+          const { absolute } = resolveObjectiveImprovement(snap);
+          return typeof absolute === "number" && Number.isFinite(absolute) ? absolute : null;
         },
         preferLower: false,
       },
-      ...componentKeys.map<MetricConfig>((key) => ({
-        key,
-        label: key,
-        getter: (snap) => {
-          const value = snap.objective.optimized?.components?.[key];
-          return value != null && Number.isFinite(value) ? Number(value) : null;
-        },
-        preferLower: true,
-      })),
     ];
 
     metrics.forEach((metric) => {
@@ -457,6 +506,9 @@ export default function SolutionComparisonPage() {
       const minValue = Math.min(...values);
       const maxValue = Math.max(...values);
       const span = maxValue - minValue;
+      const bestValue = metric.preferLower ? minValue : maxValue;
+      const bestMagnitude = Math.abs(bestValue);
+      const spanMagnitude = Math.abs(span);
 
       const row: RadarDatum = {
         metric: metric.label,
@@ -465,23 +517,61 @@ export default function SolutionComparisonPage() {
       const metricRawValues = new Map<string, number>();
 
       rawValues.forEach(({ snapshotId, value }) => {
-        const normalized = span === 0
-          ? 100
-          : metric.preferLower
-          ? ((maxValue - value) / span) * 100
-          : ((value - minValue) / span) * 100;
-        row[snapshotId] = Number.isFinite(normalized) ? normalized : 0;
+        let normalized: number;
+
+        if (metric.preferLower) {
+          if (bestMagnitude > EPSILON) {
+            normalized = 100 + ((value - bestValue) / bestMagnitude) * 100;
+          } else if (spanMagnitude > EPSILON) {
+            normalized = 100 + ((value - bestValue) / spanMagnitude) * 100;
+          } else {
+            normalized = 100;
+          }
+
+          if (normalized < 100 && value >= bestValue - EPSILON) {
+            normalized = 100;
+          }
+          normalized = Math.max(0, normalized);
+        } else {
+          const delta = bestValue - value;
+          if (bestMagnitude > EPSILON) {
+            normalized = 100 - (delta / bestMagnitude) * 100;
+          } else if (spanMagnitude > EPSILON) {
+            normalized = 100 - (delta / spanMagnitude) * 100;
+          } else {
+            normalized = 100;
+          }
+
+          if (normalized > 100 && value <= bestValue + EPSILON) {
+            normalized = 100;
+          }
+          normalized = Math.max(0, normalized);
+        }
+
+        const safeNormalized = Number.isFinite(normalized) ? normalized : 0;
+        row[snapshotId] = safeNormalized;
         metricRawValues.set(snapshotId, value);
+        if (Number.isFinite(safeNormalized)) {
+          maxNormalizedValue = Math.max(maxNormalizedValue, safeNormalized);
+        }
       });
 
       rows.push(row);
       rawValueMap.set(metric.key, metricRawValues);
     });
 
-    return { objectiveRadarData: rows, objectiveRadarRawValues: rawValueMap };
+    return {
+      objectiveRadarData: rows,
+      objectiveRadarRawValues: rawValueMap,
+      objectiveRadarMaxNormalized: maxNormalizedValue,
+    };
   }, [alignedSnapshots]);
 
-  const objectiveRadarDomainMax = 100;
+  const objectiveRadarDomainMax = useMemo(() => {
+    const base = objectiveRadarMaxNormalized || 100;
+    const normalizedMax = Math.max(100, base);
+    return Math.ceil(normalizedMax / 25) * 25;
+  }, [objectiveRadarMaxNormalized]);
 
   const airportStatsBySnapshot = useMemo(() => {
     const map = new Map<string, SnapshotAirportStats>();
@@ -773,9 +863,12 @@ export default function SolutionComparisonPage() {
     return Array.from(keys).sort((a, b) => a.localeCompare(b));
   }, [alignedSnapshots]);
 
-  const bestOptimizedScore = useMemo(() => {
-    if (alignedSnapshots.length === 0) return null;
-    return Math.min(...alignedSnapshots.map((snap) => snap.objective.optimized?.score ?? Number.POSITIVE_INFINITY));
+  const bestImprovementAbsolute = useMemo(() => {
+    const values = alignedSnapshots
+      .map((snap) => resolveObjectiveImprovement(snap).absolute)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    if (values.length === 0) return null;
+    return Math.max(...values);
   }, [alignedSnapshots]);
 
   const tvSeriesBySnapshot = useMemo(() => {
@@ -1293,11 +1386,17 @@ export default function SolutionComparisonPage() {
                     const color = colorBySnapshotId.get(snap.id) || "#fff";
                     const baseline = snap.objective.baseline?.score ?? null;
                     const optimized = snap.objective.optimized?.score ?? null;
-                    const delta = (baseline != null && optimized != null) ? optimized - baseline : null;
-                    const pct = (baseline != null && optimized != null && baseline !== 0)
-                      ? ((optimized - baseline) / Math.abs(baseline)) * 100
-                      : null;
-                    const isBest = optimized != null && bestOptimizedScore != null && optimized === bestOptimizedScore;
+                    const { absolute: improvementAbs, percent: improvementPct } = resolveObjectiveImprovement(snap);
+                    const isBest =
+                      improvementAbs != null &&
+                      bestImprovementAbsolute != null &&
+                      Math.abs(improvementAbs - bestImprovementAbsolute) < IMPROVEMENT_EPSILON;
+                    const improvementClass = (() => {
+                      if (improvementAbs == null) return "text-white/60";
+                      if (improvementAbs > 0) return "text-emerald-300";
+                      if (improvementAbs < 0) return "text-rose-300";
+                      return "text-white/70";
+                    })();
                     return (
                       <div key={snap.id} className="rounded-lg border border-white/10 bg-white/5 p-4 text-white/80 space-y-2">
                         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1308,8 +1407,8 @@ export default function SolutionComparisonPage() {
                         <div className="text-[12px] text-white/60">Optimized score</div>
                         <div className="text-2xl font-semibold text-white">{formatNumber(optimized, 2)}</div>
                         <div className="text-[12px] text-white/70">Baseline {formatNumber(baseline, 2)}</div>
-                        <div className={`text-sm ${delta != null && delta < 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                          Δ {formatNumber(delta, 2)} ({formatNumber(pct, 1)}%)
+                        <div className={`text-sm ${improvementClass}`}>
+                          Improvement {formatNumber(improvementAbs, 2)} ({formatNumber(improvementPct, 1)}%)
                         </div>
                       </div>
                     );
