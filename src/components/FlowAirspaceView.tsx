@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
@@ -7,6 +7,7 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
+import FlightQueryDialog from "@/components/FlightQueryDialog";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
 
@@ -20,21 +21,16 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setFocusMode,
     setFocusFlightIds,
     setT,
-    regulationTargetFlightIds,
-    regulationVisibleFlightIds,
     setRegulationVisibleFlightIds,
     regulationListedFlightIds,
     setRegulationListedFlightIds,
     addRegulationTargetFlight,
-    removeRegulationTargetFlight,
     clearRegulationTargetFlights,
     setRegulationTargetFlightIds,
     regulationTimeWindow,
     setRegulationTimeWindow,
-    regulationRate,
     setRegulationRate,
     setSelectedTrafficVolume,
-    addRegulation,
     setIsRegulationPanelOpen,
     regulationEditPayload,
     setRegulationEditPayload,
@@ -42,23 +38,19 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     proposalLoading,
     // Flow view state/actions
     flowViewEnabled,
-    flowCommunities,
-    flowGroups,
-    flowColorByCommunity,
     flowThreshold,
     flowResolution,
-    flowLoading,
-    flowError,
     setFlowViewEnabled,
-    setFlowThreshold,
-    setFlowResolution,
     setFlowCommunities,
     setFlowLoading,
     setFlowError,
-    setFlowPreviewFlightId
+    setFlowPreviewFlightId,
+    addFlowBasketWithPeriod
   } = useSimStore();
 
   const [inputValue, setInputValue] = useState("");
+  const [queryDialogOpen, setQueryDialogOpen] = useState(false);
+  const [queryInitialPrompt, setQueryInitialPrompt] = useState<string>("");
   const [activePreset, setActivePreset] = useState<string>("1h");
   const [currentCount, setCurrentCount] = useState<number>(0);
   const [hourlyCapacity, setHourlyCapacity] = useState<number>(0);
@@ -386,35 +378,21 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setRegulationTimeWindow(from, to);
   }
 
-  function handleEnter() {
-    const q = inputValue.trim();
-    if (!q) return;
-    // Special keyword: add all currently visible flights from the flight list in a single update
-    if (q.toLowerCase() === 'all') {
-      if (Array.isArray(regulationVisibleFlightIds) && regulationVisibleFlightIds.length > 0) {
-        const next = new Set<string>(regulationTargetFlightIds);
-        for (const id of regulationVisibleFlightIds) next.add(String(id));
-        if (!areSetsEqual(next, regulationTargetFlightIds)) {
-          setRegulationTargetFlightIds(next);
-        }
-      }
-      setInputValue("");
-      return;
-    }
-    // For now, support callsign/flightId exact match
-    const queryLower = q.toLowerCase();
-    const flight = flights.find(f => {
-      const idMatch = String(f.flightId).toLowerCase() === queryLower;
-      const cs = f.callSign;
-      const csLower = cs !== undefined && cs !== null ? String(cs).toLowerCase() : undefined;
-      const csMatch = csLower ? csLower === queryLower : false;
-      return idMatch || csMatch;
-    });
-    if (flight) {
-      addRegulationTargetFlight(String(flight.flightId));
-      setInputValue("");
-    }
-  }
+  const handleOpenQueryDialog = useCallback(() => {
+    setQueryInitialPrompt(inputValue.trim());
+    setQueryDialogOpen(true);
+  }, [inputValue]);
+
+  const handleFlightsSelectedFromQuery = useCallback((ids: string[]) => {
+    setQueryDialogOpen(false);
+    const unique = Array.from(new Set((ids || []).map(id => String(id).trim()).filter(Boolean)));
+    if (unique.length === 0) return;
+    const [fromSeconds, toSeconds] = regulationTimeWindow;
+    const fromLabel = secondsToDayTimeString(fromSeconds);
+    const toLabel = secondsToDayTimeString(toSeconds);
+    const flowName = `TV ${selectedTrafficVolume} ${fromLabel}-${toLabel}`;
+    addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
+  }, [addFlowBasketWithPeriod, regulationTimeWindow, selectedTrafficVolume]);
 
   // Listen for map flight clicks to add to list
   useEffect(() => {
@@ -651,6 +629,47 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               Window: {formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}
             </span>
           </div>
+          <div className="bg-white/10 border border-white/10 rounded-lg p-2 mb-3">
+            <div className="relative flex items-center gap-2">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleOpenQueryDialog();
+                  }
+                }}
+                placeholder="Describe flights to query"
+                className="w-full px-3 py-2 pr-12 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
+              />
+              <button
+                type="button"
+                onClick={handleOpenQueryDialog}
+                className="absolute inset-y-0 right-2 flex items-center justify-center text-gray-300 hover:text-white"
+                title="Open flight query"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M7 17 17 7" />
+                  <path d="M7 7h10v10" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-[11px] opacity-70 mt-2">
+              Use the flight list as the baseline. Selected results will be added to the Flow Basket as a new flow.
+            </p>
+          </div>
           {hourGlassData.length > 0 && (
             <HourGlass data={hourGlassData} label height={12} className="my-2" />
           )}
@@ -764,6 +783,14 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
         {/* Rate and Add removed for Flow Regulation */}
       </div>
+      <FlightQueryDialog
+        open={queryDialogOpen}
+        onClose={() => setQueryDialogOpen(false)}
+        initialPrompt={queryInitialPrompt}
+        flightIds={flightTableData.map(flight => flight.flightId)}
+        onSelectFlights={handleFlightsSelectedFromQuery}
+        fullScreen
+      />
     </div>
   );
 }
