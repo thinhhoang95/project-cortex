@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import ShimmeringText from "@/components/ShimmeringText";
 import { useSimStore } from "@/components/useSimStore";
 import type { FlowBasketItem } from "@/components/useSimStore";
@@ -9,6 +10,9 @@ import {
   collectProposalFlights,
   ProposalFlow,
 } from "@/lib/regulationProposals";
+import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
+import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import type { Trajectory } from "@/lib/models";
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "–";
@@ -139,12 +143,15 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     addFlightsToBasketFlow,
     setFlowBasketPeriod,
     addTargetCells,
+    flights,
   } = useSimStore();
 
   const [topKInput, setTopKInput] = useState<string>("");
   const [topKError, setTopKError] = useState<string | null>(null);
   const [expandedProposals, setExpandedProposals] = useState<Record<string, boolean>>({});
   const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
+  const [showAllFlightLists, setShowAllFlightLists] = useState<Record<string, boolean>>({});
+  const [statsDialog, setStatsDialog] = useState<{ flightIds: string[]; fullScreen?: boolean } | null>(null);
 
   useEffect(() => {
     const nextTopK = proposalQuery?.topK ?? proposalResults?.top_k;
@@ -152,6 +159,7 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     setTopKError(null);
     setExpandedProposals({});
     setExpandedFlightLists({});
+    setShowAllFlightLists({});
   }, [proposalQuery, proposalResults]);
 
   const showPanel = isRegulationProposalPanelOpen || proposalLoading;
@@ -175,6 +183,14 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     : "absolute top-20 right-4 z-40 w-[420px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col";
 
   const proposals = proposalResults?.proposals || [];
+
+  const flightLookup = useMemo(() => {
+    const map = new Map<string, Trajectory>();
+    for (const flight of flights || []) {
+      map.set(String(flight.flightId), flight);
+    }
+    return map;
+  }, [flights]);
 
   const handleRerun = async () => {
     if (!proposalQuery) return;
@@ -281,34 +297,81 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
 
   const renderFlightList = (proposalId: string, flow: ProposalFlow) => {
     const key = `${proposalId}::${flow.flow_id}`;
-    const expanded = expandedFlightLists[key] ?? false;
-    const flights = flow.flight_ids || [];
-    const slice = expanded ? flights : flights.slice(0, 30);
-    if (flights.length === 0) {
-      return <div className="text-xs text-white/60">No flights listed</div>;
+    const isOpen = expandedFlightLists[key] ?? false;
+    if (!isOpen) return null;
+
+    const flowFlightIds = flow.flight_ids || [];
+    if (flowFlightIds.length === 0) {
+      return (
+        <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-[11px] text-white/60">
+          No flights listed
+        </div>
+      );
     }
+
+    const MAX_VISIBLE = 20;
+    const expanded = showAllFlightLists[key] ?? false;
+    const rows = flowFlightIds.map((flightId) => {
+      const lookup = flightLookup.get(String(flightId));
+      const callSign = lookup?.callSign?.trim()
+        ? String(lookup.callSign)
+        : String(flightId);
+      return {
+        flightId: String(flightId),
+        callSign,
+        origin: lookup?.origin || "N/A",
+        destination: lookup?.destination || "N/A",
+      };
+    });
+
+    const visibleRows = expanded ? rows : rows.slice(0, MAX_VISIBLE);
+    const hiddenCount = Math.max(0, rows.length - MAX_VISIBLE);
+
     return (
-      <div className="mt-2 space-y-2">
-        <table className="w-full text-[11px] text-white/80">
-          <tbody>
-            {slice.map((flightId) => (
-              <tr key={flightId} className="border-b border-white/10 last:border-0">
-                <td className="py-1 font-mono">{flightId}</td>
+      <div className="mt-3">
+        <div className="overflow-hidden rounded-lg border border-white/10">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="bg-white/10 text-white/70">
+                <th className="px-2 py-2 text-left font-semibold">Flight</th>
+                <th className="px-2 py-2 text-left font-semibold">Origin</th>
+                <th className="px-2 py-2 text-left font-semibold">Destination</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {flights.length > 30 && (
-          <button
-            onClick={() =>
-              setExpandedFlightLists((prev) => ({ ...prev, [key]: !expanded }))
-            }
-            type="button"
-            className="text-xs text-blue-200 hover:text-blue-100 underline"
-          >
-            {expanded ? "Show less" : `See more (${flights.length - 30} more)`}
-          </button>
-        )}
+            </thead>
+            <tbody>
+              {visibleRows.map((row) => (
+                <tr
+                  key={row.flightId}
+                  className="border-t border-white/10 transition-colors hover:bg-white/10"
+                >
+                  <td className="px-2 py-1.5">
+                    <div className="font-mono text-white/90">{row.callSign}</div>
+                    {row.callSign !== row.flightId && (
+                      <div className="text-[10px] text-white/50">{row.flightId}</div>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5">{row.origin}</td>
+                  <td className="px-2 py-1.5">{row.destination}</td>
+                </tr>
+              ))}
+              {hiddenCount > 0 && (
+                <tr
+                  className="cursor-pointer border-t border-white/10 hover:bg-white/10"
+                  onClick={() =>
+                    setShowAllFlightLists((prev) => ({ ...prev, [key]: !expanded }))
+                  }
+                >
+                  <td
+                    className="px-2 py-1.5 text-center italic text-white/70"
+                    colSpan={3}
+                  >
+                    {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   };
@@ -455,8 +518,9 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
           const objectiveBadgeClasses = objectivePositive
             ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-100"
             : "border-rose-400/40 bg-rose-500/20 text-rose-100";
-          const objectiveIconRotation = objectivePositive ? "" : "rotate-180";
           const isPinned = proposalPreviewAll || proposalPinnedProposals.has(proposal.id);
+          const proposalFlights = Array.from(collectProposalFlights(proposal)).map((id) => String(id));
+          const hasProposalFlights = proposalFlights.length > 0;
           return (
             <div
               key={proposal.id}
@@ -568,6 +632,8 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                         const key = `${proposal.id}::${flow.flow_id}`;
                         const flowFeatures = summarizeFlowFeatures(flow);
                         const flowPinned = proposalPreviewAll || proposalPinnedFlows.has(key);
+                        const flightListOpen = expandedFlightLists[key] ?? false;
+                        const hasFlightIds = (flow.flight_ids?.length ?? 0) > 0;
                         return (
                           <div
                             key={key}
@@ -599,16 +665,46 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                                     </svg>
                                   </button>
                                   <button
+                                    type="button"
+                                    aria-label={`View flight statistics for flow ${flow.flow_id}`}
+                                    title="Flight statistics"
+                                    disabled={!hasFlightIds}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setExpandedFlightLists((prev) => ({ ...prev, [key]: !(prev[key] ?? false) }));
+                                      if (!flow.flight_ids?.length) return;
+                                      setStatsDialog({ flightIds: flow.flight_ids.map((id) => String(id)), fullScreen: true });
+                                    }}
+                                    className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${hasFlightIds
+                                      ? 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'
+                                      : 'cursor-not-allowed border-white/10 bg-white/5 text-white/40'}`}
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <path d="M16.3891 8.11096L8.61091 15.8891" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                      <path d="M16.3891 8.11096L16.7426 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                      <path d="M16.3891 8.11096L12.5 7.75741" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedFlightLists((prev) => {
+                                        const next = !(prev[key] ?? false);
+                                        if (!next) {
+                                          setShowAllFlightLists((rows) => {
+                                            if (rows[key] === undefined) return rows;
+                                            const { [key]: _removed, ...rest } = rows;
+                                            return rest;
+                                          });
+                                        }
+                                        return { ...prev, [key]: next };
+                                      });
                                     }}
                                     type="button"
-                                    aria-label={expandedFlightLists[key] ? 'Hide flight list' : 'Show flight list'}
-                                    className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${expandedFlightLists[key]
+                                    aria-label={flightListOpen ? 'Hide flight list' : 'Show flight list'}
+                                    className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${flightListOpen
                                       ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
                                       : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
-                                    title={expandedFlightLists[key] ? 'Hide flight list' : 'Show flight list'}
+                                    title={flightListOpen ? 'Hide flight list' : 'Show flight list'}
                                   >
                                     <svg
                                       width="12"
@@ -664,7 +760,7 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                                 </button>
                               </div>
                             </div>
-                            {expandedFlightLists[key] && renderFlightList(proposal.id, flow)}
+                            {renderFlightList(proposal.id, flow)}
                           </div>
                         );
                       })}
@@ -704,7 +800,27 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                       </div>
                     </details>
                   )}
-                  <div className="pt-3 border-t border-white/10 flex justify-end">
+                  <div className="pt-3 border-t border-white/10 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className={`h-8 w-8 rounded-md border flex items-center justify-center transition-colors ${hasProposalFlights
+                        ? 'border-white/20 bg-white/10 text-white/80 hover:bg-white/15'
+                        : 'cursor-not-allowed border-white/10 bg-white/5 text-white/40'}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!hasProposalFlights) return;
+                        setStatsDialog({ flightIds: proposalFlights, fullScreen: true });
+                      }}
+                      aria-label={`View flight statistics for proposal ${proposal.id}`}
+                      title="Flight statistics"
+                      disabled={!hasProposalFlights}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16.3891 8.11096L8.61091 15.8891" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M16.3891 8.11096L16.7426 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M16.3891 8.11096L12.5 7.75741" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
                     <button
                       type="button"
                       className="px-3 py-1.5 text-[11px] rounded-md border border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
@@ -724,6 +840,15 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
           );
         })}
       </div>
+      {statsDialog && typeof window !== "undefined" && createPortal(
+        <FlightStatisticsDialog
+          open={!!statsDialog}
+          onClose={() => setStatsDialog(null)}
+          flightIds={statsDialog.flightIds}
+          fullScreen={statsDialog.fullScreen ?? true}
+        />,
+        document.body
+      )}
     </div>
   );
 }
