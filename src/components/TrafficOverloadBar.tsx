@@ -156,37 +156,46 @@ export default function TrafficOverloadBar({
 
   const segments = useMemo<ParsedSegment[]>(() => {
     const span = Math.max(1, range.end - range.start);
-    return data
-      .map((item, index) => {
-        const parsed = parsePeriod(item.period);
-        if (!parsed) return null;
-        let [start, end] = parsed;
-        if (end <= start) return null;
-        start = Math.max(range.start, start);
-        end = Math.min(range.end, end);
-        if (end <= start) return null;
-        const relativeStart = (start - range.start) / span;
-        const relativeEnd = (end - range.start) / span;
-        const widthPct = (relativeEnd - relativeStart) * 100;
-        const leftPct = relativeStart * 100;
-        const centerPct = leftPct + widthPct / 2;
-        const color = resolveColor(item.color, index, colorPalette);
-        const metadata = Array.isArray(item.metadata) ? item.metadata.filter((m) => typeof m === "string" && m.trim().length > 0) : [];
-        const periodLabel = `${formatTime(start)} - ${formatTime(end)}`;
-        return {
-          id: `${item.period}-${index}`,
-          start,
-          end,
-          widthPct,
-          leftPct,
-          centerPct,
-          color,
-          metadata,
-          periodLabel,
-          label: item.label?.trim() || undefined,
-        } satisfies ParsedSegment;
-      })
-      .filter((segment): segment is ParsedSegment => Boolean(segment));
+    const result: ParsedSegment[] = [];
+
+    data.forEach((item, index) => {
+      const parsed = parsePeriod(item.period);
+      if (!parsed) return;
+
+      let [start, end] = parsed;
+      if (end <= start) return;
+
+      start = Math.max(range.start, start);
+      end = Math.min(range.end, end);
+      if (end <= start) return;
+
+      const relativeStart = (start - range.start) / span;
+      const relativeEnd = (end - range.start) / span;
+      const widthPct = (relativeEnd - relativeStart) * 100;
+      const leftPct = relativeStart * 100;
+      const centerPct = leftPct + widthPct / 2;
+      const color = resolveColor(item.color, index, colorPalette);
+      const metadata = Array.isArray(item.metadata)
+        ? item.metadata.filter((m) => typeof m === "string" && m.trim().length > 0)
+        : [];
+      const periodLabel = `${formatTime(start)} - ${formatTime(end)}`;
+      const trimmedLabel = item.label?.trim();
+
+      result.push({
+        id: `${item.period}-${index}`,
+        start,
+        end,
+        widthPct,
+        leftPct,
+        centerPct,
+        color,
+        metadata,
+        periodLabel,
+        ...(trimmedLabel ? { label: trimmedLabel } : {}),
+      });
+    });
+
+    return result;
   }, [colorPalette, data, range.end, range.start]);
 
   const activeSegment = activeIndex !== null ? segments[activeIndex] ?? null : null;
