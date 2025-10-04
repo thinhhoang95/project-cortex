@@ -7,7 +7,7 @@ import Image from 'next/image'
 import LoginForm from '@/components/LoginForm'
 
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 
 function UserDebugLogger() {
@@ -22,6 +22,8 @@ function UserDebugLogger() {
 
 
 export default function LoginPage() {
+  const [jobToast, setJobToast] = useState<boolean>(true);
+
   return (
     <main className="relative h-screen flex items-center justify-center px-6 py-12 overflow-hidden">
       
@@ -70,6 +72,34 @@ export default function LoginPage() {
           <span className="text-sm text-white/50">Proudly made in Toulouse.</span>
         </div>
       </section>
+
+      {/* Job search toast notification */}
+      {jobToast && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm flex items-start gap-3 bg-cyan-500/15 border-cyan-300/60 text-cyan-100">
+          <div className="flex-1 text-sm">
+            <div>Thanks for using Flow&apos;s Kitchen. I&apos;m also desperately looking for a new job. I could do some coding, some ML stuffs, and I know a bit about design too. If you like what you see, let&apos;s connect.</div>
+            <a 
+              href="https://www.linkedin.com/in/thinh-hoang-571252b7/" 
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex items-center gap-1 text-[12px] underline hover:text-cyan-50"
+            >
+              LinkedIn Profile
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14"></path>
+                <path d="M12 5l7 7-7 7"></path>
+              </svg>
+            </a>
+          </div>
+          <button
+            onClick={() => setJobToast(false)}
+            className="text-[12px] text-white/70 hover:text-white"
+            aria-label="Dismiss notification"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </main>
   )
 }
