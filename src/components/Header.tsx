@@ -138,7 +138,7 @@ const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
       <div className="flex items-center justify-between px-6 py-1">
         <div className="flex items-center space-x-3">
           <h1 className="text-xl font-bold text-white">Flow&apos;s Kitchen</h1>
-          <span className="text-[0.625rem] uppercase tracking-widest text-white/80 border border-white/60 rounded px-2 py-0.5">
+          <span className="text-[0.625rem] uppercase text-white/80 border border-white/60 rounded-full px-2 py-0.5">
             RESEARCH PREVIEW
           </span>
         </div>
