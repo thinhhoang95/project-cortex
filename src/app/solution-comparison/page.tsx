@@ -26,8 +26,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
-import TrafficOverloadBar from "@/components/TrafficOverloadBar";
-import { computeHotspotSegments, selectActiveHotspots } from "@/lib/hotspotSegments";
+import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -278,10 +277,6 @@ export default function SolutionComparisonPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
   const { flights, setFlights, setRange } = useSimStore();
-  // Avoid returning a new object in the selector to keep server snapshots stable.
-  const hotspots = useSimStore((state) => state.hotspots);
-  const showHotspots = useSimStore((state) => state.showHotspots);
-  const currentSeconds = useSimStore((state) => state.t);
   const [hydrated, setHydrated] = useState(false);
 
   const [snapshots, setSnapshots] = useState<SolutionSnapshot[]>([]);
@@ -402,15 +397,6 @@ export default function SolutionComparisonPage() {
   const minutesPerBin = minutesBySnapshot.dominant || (alignedSnapshots[0]?.minutesPerBin ?? 15);
   const viewFromMin = hhmmToMinutesSafe(viewFrom);
   const viewToMin = hhmmToMinutesSafe(viewTo);
-  const activeHotspots = useMemo(
-    () => selectActiveHotspots(hotspots, showHotspots, currentSeconds),
-    [hotspots, showHotspots, currentSeconds],
-  );
-
-  const hotspotSegmentsByTv = useMemo(
-    () => computeHotspotSegments(activeHotspots, viewFromMin, viewToMin),
-    [activeHotspots, viewFromMin, viewToMin],
-  );
 
   const { flightsById, flightsByCallsign } = useMemo(() => {
     const byId = new Map<string, any>();
@@ -1001,6 +987,53 @@ export default function SolutionComparisonPage() {
     });
     return map;
   }, [alignedSnapshots, tvScope]);
+
+  const overloadSegmentsBySnapshot = useMemo(() => {
+    const map = new Map<string, Record<string, TrafficOverloadDatum[]>>();
+    const binMinutes = Math.max(1, minutesPerBin);
+    alignedSnapshots.forEach((snap) => {
+      const seriesByTv = tvSeriesBySnapshot.get(snap.id) || {};
+      const capByTv = capacityBySnapshot.get(snap.id) || {};
+      const segmentsForSnapshot: Record<string, TrafficOverloadDatum[]> = {};
+      Object.entries(seriesByTv).forEach(([tvId, series]) => {
+        const capacitySeries = (capByTv as Record<string, number[] | undefined>)[tvId] || [];
+        const segments: TrafficOverloadDatum[] = [];
+        for (let i = 0; i < series.length; i++) {
+          const startMin = i * binMinutes;
+          if (startMin < viewFromMin || startMin > viewToMin) continue;
+          const occupancy = Number(series[i] ?? 0);
+          const capacity = Number(capacitySeries?.[i] ?? Number.NaN);
+          if (!Number.isFinite(capacity) || capacity < 0) continue;
+          if (!Number.isFinite(occupancy) || occupancy <= capacity) continue;
+          const ratio = capacity > 0 ? occupancy / capacity : Infinity;
+          let color = "#fb923c";
+          if (ratio >= 1.4) {
+            color = "#b91c1c";
+          } else if (ratio >= 1.2) {
+            color = "#f97316";
+          }
+          const endMin = Math.min(startMin + binMinutes, Math.max(viewFromMin + 1, viewToMin));
+          const startLabel = minutesToHHMM(startMin);
+          const endLabel = minutesToHHMM(endMin);
+          segments.push({
+            period: `${startLabel}-${endLabel}`,
+            color,
+            metadata: [
+              `Occupancy: ${occupancy.toFixed(0)}`,
+              `Capacity: ${capacity.toFixed(0)}`,
+              `Excess: ${(occupancy - capacity).toFixed(0)}`,
+            ],
+            label: `${tvId} overload`,
+          });
+        }
+        if (segments.length > 0) {
+          segmentsForSnapshot[tvId] = segments;
+        }
+      });
+      map.set(snap.id, segmentsForSnapshot);
+    });
+    return map;
+  }, [alignedSnapshots, capacityBySnapshot, minutesPerBin, tvSeriesBySnapshot, viewFromMin, viewToMin]);
 
   const tvIdsUnion = useMemo(() => {
     const set = new Set<string>();
@@ -2136,8 +2169,6 @@ export default function SolutionComparisonPage() {
 
                 const hasCapacity = Array.isArray(capacitySeries) && capacitySeries.length > 0;
                 const hasSeries = alignedSnapshots.some((snap) => (tvSeriesBySnapshot.get(snap.id)?.[tvId] || []).length > 0);
-                const hotspotSegments = hotspotSegmentsByTv.get(tvId) || [];
-
                 return (
                   <div key={tvId} className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-3">
                     <div className="flex items-center justify-between">
@@ -2178,7 +2209,22 @@ export default function SolutionComparisonPage() {
                         </div>
                       )}
                     </div>
-                    <TrafficOverloadBar data={hotspotSegments} showTime={hotspotSegments.length > 0} />
+                    <div className="space-y-2">
+                      {alignedSnapshots.map((snap) => {
+                        const segs = (overloadSegmentsBySnapshot.get(snap.id) || {})[tvId] || [];
+                        return (
+                          <div key={`overbar-${tvId}-${snap.id}`} className="flex items-center gap-2">
+                            <div className="shrink-0 w-40 max-w-[40%] flex items-center gap-1 text-[12px] text-white/70 truncate">
+                              <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || '#fff' }} />
+                              <span className="truncate">{snap.description || 'Untitled'}</span>
+                            </div>
+                            <div className="grow min-w-0">
+                              <TrafficOverloadBar data={segs} showTime={segs.length > 0} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                     <div className="space-y-1 text-[12px] text-white/70">
                       {legendMetrics.map(({ snap, peak, exceedance }) => (
                         <div key={snap.id} className="flex items-center gap-2">

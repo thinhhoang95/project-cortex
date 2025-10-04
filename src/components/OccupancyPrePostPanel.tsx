@@ -256,7 +256,10 @@ export default function OccupancyPrePostPanel({
         {displayTvs.map((tv) => {
           const rows = rowsByTv.get(tv) || [];
           const hasData = rows.length > 0;
-          const overloadSegments = buildOverloadSegments(rows, binMinutes, tv);
+          const preSegments = buildOverloadSegments(rows, binMinutes, tv, 'pre');
+          const postSegments = buildOverloadSegments(rows, binMinutes, tv, 'post');
+          const hasPreSeries = Array.isArray(effectivePre?.[tv]) && (effectivePre?.[tv] || []).length > 0;
+          const hasPostSeries = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
           return (
             <div key={tv} className="bg-white/5 border border-white/10 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
@@ -308,8 +311,26 @@ export default function OccupancyPrePostPanel({
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <div className="mt-4">
-                <TrafficOverloadBar data={overloadSegments} showTime={overloadSegments.length > 0} />
+              <div className="mt-4 space-y-1.5">
+                {hasPreSeries && (
+                  <div className="flex items-center gap-2 text-[11px] text-white/70">
+                    <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Pre</div>
+                    <div className="grow min-w-0">
+                      <TrafficOverloadBar data={preSegments} showTime={preSegments.length > 0} />
+                    </div>
+                  </div>
+                )}
+                {hasPostSeries && (
+                  <div className="flex items-center gap-2 text-[11px] text-white/70">
+                    <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Post</div>
+                    <div className="grow min-w-0">
+                      <TrafficOverloadBar data={postSegments} showTime={postSegments.length > 0} />
+                    </div>
+                  </div>
+                )}
+                {!hasPreSeries && !hasPostSeries && (
+                  <TrafficOverloadBar data={[]} showTime={false} />
+                )}
               </div>
               {!hasData && <div className="text-[11px] text-gray-300 mt-2">No data in selected time window.</div>}
             </div>
@@ -331,7 +352,12 @@ export default function OccupancyPrePostPanel({
   );
 }
 
-function buildOverloadSegments(rows: TvRowPoint[], binMinutes: number, tvId: string): TrafficOverloadDatum[] {
+function buildOverloadSegments(
+  rows: TvRowPoint[],
+  binMinutes: number,
+  tvId: string,
+  series: 'pre' | 'post',
+): TrafficOverloadDatum[] {
   const segments: TrafficOverloadDatum[] = [];
   const binLength = Math.max(1, binMinutes);
   rows.forEach((row) => {
@@ -341,7 +367,7 @@ function buildOverloadSegments(rows: TvRowPoint[], binMinutes: number, tvId: str
 
     const postVal = typeof row.post === "number" && Number.isFinite(row.post) ? row.post : null;
     const preVal = typeof row.pre === "number" && Number.isFinite(row.pre) ? row.pre : null;
-    const occupancy = postVal ?? preVal;
+    const occupancy = series === 'post' ? postVal : preVal;
     if (occupancy == null || !Number.isFinite(occupancy)) return;
     if (occupancy <= capacity) return;
 
@@ -358,7 +384,7 @@ function buildOverloadSegments(rows: TvRowPoint[], binMinutes: number, tvId: str
     const endMinutes = startMinutes + binLength;
     const startLabel = formatMinutesToHHMM(startMinutes);
     const endLabel = formatMinutesToHHMMWith24(endMinutes);
-    const seriesLabel = postVal != null ? "Post" : "Pre";
+    const seriesLabel = series === 'post' ? "Post" : "Pre";
 
     segments.push({
       period: `${startLabel}-${endLabel}`,
@@ -368,7 +394,7 @@ function buildOverloadSegments(rows: TvRowPoint[], binMinutes: number, tvId: str
         `Capacity: ${capacity.toFixed(0)}`,
         `Excess: ${(occupancy - capacity).toFixed(0)}`,
       ],
-      label: `${tvId} overload`,
+      label: `${tvId} ${seriesLabel.toLowerCase()} overload`,
     });
   });
   return segments;
