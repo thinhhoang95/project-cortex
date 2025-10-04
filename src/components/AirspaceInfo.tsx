@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 
 // Use Next.js API route to avoid CORS issues
 
@@ -439,6 +440,61 @@ export default function AirspaceInfo() {
     return '';
   };
 
+  const trafficOverloadSegments = useMemo(() => {
+    if (!displayChartData.length) {
+      return { data: [], fromTime: undefined as string | undefined, toTime: undefined as string | undefined };
+    }
+
+    let firstStart: string | undefined;
+    let lastEnd: string | undefined;
+
+    const data = displayChartData.map((point) => {
+      const [rawStart = "", rawEnd = ""] = point.time.split('-');
+      const start = rawStart.trim();
+      const end = rawEnd.trim();
+      if (!firstStart && start) firstStart = start;
+      if (end) lastEnd = end;
+
+      const occupancy = Number(point.count ?? 0);
+      const capacity = Number(point.capacity ?? 0);
+      const ratio = capacity > 0 ? occupancy / capacity : 0;
+
+      let color = '#34d399';
+      if (capacity <= 0) {
+        color = '#94a3b8';
+      } else if (ratio >= 1.4) {
+        color = '#b91c1c';
+      } else if (ratio >= 1.2) {
+        color = '#f97316';
+      } else if (ratio >= 1.0) {
+        color = '#fb923c';
+      }
+
+      const metadata: string[] = [`Rolling occupancy: ${Math.round(occupancy)}`];
+      if (capacity > 0) {
+        metadata.push(`Hourly capacity: ${Math.round(capacity)}`);
+        metadata.push(`Load ratio: ${(occupancy / capacity).toFixed(2)}`);
+        const diff = occupancy - capacity;
+        metadata.push(`${diff >= 0 ? 'Excess' : 'Available'}: ${Math.abs(Math.round(diff))}`);
+      } else {
+        metadata.push('Hourly capacity: unavailable');
+      }
+
+      return {
+        period: point.time,
+        color,
+        metadata,
+        label: selectedTrafficVolume ? `${selectedTrafficVolume} load` : undefined,
+      };
+    });
+
+    return {
+      data,
+      fromTime: firstStart,
+      toTime: lastEnd,
+    };
+  }, [displayChartData, selectedTrafficVolume]);
+
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number, payload?: ChartDataPoint }>; label?: string }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -619,6 +675,19 @@ export default function AirspaceInfo() {
                   </div>
                 </div>
               </div>
+
+              {trafficOverloadSegments.data.length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="font-medium text-sm mb-3 opacity-90">Traffic Volume Load</h4>
+                  <TrafficOverloadBar
+                    fromTime={trafficOverloadSegments.fromTime}
+                    toTime={trafficOverloadSegments.toTime}
+                    data={trafficOverloadSegments.data}
+                    height={16}
+                    showTime
+                  />
+                </div>
+              )}
             </div>
           )}
 

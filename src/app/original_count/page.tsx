@@ -8,6 +8,7 @@ import ShimmeringText from "@/components/ShimmeringText";
 import { loadSectors } from "@/lib/airspace";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
+import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import {
   ComposedChart,
   Bar,
@@ -388,6 +389,40 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
     return arr.filter((r) => r.startMin >= vFrom && r.startMin <= vTo);
   }, [series, labels, capacitySeries, minutesPerBin, viewFromMin, viewToMin]);
 
+  const overloadSegments = useMemo(() => {
+    const segments: TrafficOverloadDatum[] = [];
+    const binMinutes = Math.max(1, minutesPerBin);
+    rows.forEach((row) => {
+      if (row.capacity == null) return;
+      const capacity = Number(row.capacity);
+      const occupancy = Number(row.value);
+      if (!Number.isFinite(capacity) || !Number.isFinite(occupancy)) return;
+      if (occupancy <= capacity) return;
+      const ratio = capacity > 0 ? occupancy / capacity : Infinity;
+      let color = "#fb923c";
+      if (ratio >= 1.4) {
+        color = "#b91c1c";
+      } else if (ratio >= 1.2) {
+        color = "#f97316";
+      }
+      const startMinutes = row.startMin;
+      const endMinutes = startMinutes + binMinutes;
+      const startLabel = formatMinutesToHHMM(startMinutes);
+      const endLabel = formatMinutesToHHMMWith24(endMinutes);
+      segments.push({
+        period: `${startLabel}-${endLabel}`,
+        color,
+        metadata: [
+          `Count: ${occupancy.toFixed(0)}`,
+          `Capacity: ${capacity.toFixed(0)}`,
+          `Excess: ${(occupancy - capacity).toFixed(0)}`,
+        ],
+        label: `${tvId} overload`,
+      });
+    });
+    return segments;
+  }, [rows, minutesPerBin, tvId]);
+
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
       <div className="flex items-center justify-between mb-2">
@@ -437,6 +472,12 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      <div className="mt-4">
+        <TrafficOverloadBar
+          data={overloadSegments}
+          showTime={overloadSegments.length > 0}
+        />
+      </div>
       
     </div>
   );
@@ -466,8 +507,17 @@ function formatMinutesToHHMM(totalMinutes: number): string {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
+function formatMinutesToHHMMWith24(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "00:00";
+  const clamped = Math.max(0, Math.floor(totalMinutes));
+  if (clamped >= 24 * 60) {
+    return "24:00";
+  }
+  return formatMinutesToHHMM(clamped);
+}
+
 function binIndexToRangeLabel(binIdx: number, minutesPerBin: number): string {
   const startMin = binIdx * minutesPerBin;
   const endMin = startMin + minutesPerBin;
-  return `${formatMinutesToHHMM(startMin)}-${formatMinutesToHHMM(endMin)}`;
+  return `${formatMinutesToHHMM(startMin)}-${formatMinutesToHHMMWith24(endMin)}`;
 }

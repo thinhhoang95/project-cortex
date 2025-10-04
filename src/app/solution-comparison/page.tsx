@@ -26,6 +26,8 @@ import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
+import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import { computeHotspotSegments, selectActiveHotspots } from "@/lib/hotspotSegments";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -276,6 +278,10 @@ export default function SolutionComparisonPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
   const { flights, setFlights, setRange } = useSimStore();
+  // Avoid returning a new object in the selector to keep server snapshots stable.
+  const hotspots = useSimStore((state) => state.hotspots);
+  const showHotspots = useSimStore((state) => state.showHotspots);
+  const currentSeconds = useSimStore((state) => state.t);
   const [hydrated, setHydrated] = useState(false);
 
   const [snapshots, setSnapshots] = useState<SolutionSnapshot[]>([]);
@@ -396,6 +402,15 @@ export default function SolutionComparisonPage() {
   const minutesPerBin = minutesBySnapshot.dominant || (alignedSnapshots[0]?.minutesPerBin ?? 15);
   const viewFromMin = hhmmToMinutesSafe(viewFrom);
   const viewToMin = hhmmToMinutesSafe(viewTo);
+  const activeHotspots = useMemo(
+    () => selectActiveHotspots(hotspots, showHotspots, currentSeconds),
+    [hotspots, showHotspots, currentSeconds],
+  );
+
+  const hotspotSegmentsByTv = useMemo(
+    () => computeHotspotSegments(activeHotspots, viewFromMin, viewToMin),
+    [activeHotspots, viewFromMin, viewToMin],
+  );
 
   const { flightsById, flightsByCallsign } = useMemo(() => {
     const byId = new Map<string, any>();
@@ -2121,6 +2136,7 @@ export default function SolutionComparisonPage() {
 
                 const hasCapacity = Array.isArray(capacitySeries) && capacitySeries.length > 0;
                 const hasSeries = alignedSnapshots.some((snap) => (tvSeriesBySnapshot.get(snap.id)?.[tvId] || []).length > 0);
+                const hotspotSegments = hotspotSegmentsByTv.get(tvId) || [];
 
                 return (
                   <div key={tvId} className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-3">
@@ -2162,6 +2178,7 @@ export default function SolutionComparisonPage() {
                         </div>
                       )}
                     </div>
+                    <TrafficOverloadBar data={hotspotSegments} showTime={hotspotSegments.length > 0} />
                     <div className="space-y-1 text-[12px] text-white/70">
                       {legendMetrics.map(({ snap, peak, exceedance }) => (
                         <div key={snap.id} className="flex items-center gap-2">

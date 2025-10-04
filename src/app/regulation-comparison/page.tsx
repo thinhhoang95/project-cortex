@@ -26,6 +26,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
+import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -312,6 +313,10 @@ export default function RegulationComparisonPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
   const { flights, setFlights, setRange } = useSimStore();
+  // Avoid returning a new object in the selector (which can break
+  // useSyncExternalStore SSR semantics and cause infinite loops).
+  // Select each slice separately so the snapshot is stable.
+  // Note: hotspot state is not used on this page for overload bars
   const [hydrated, setHydrated] = useState(false);
 
   const [snapshots, setSnapshots] = useState<RegulationSnapshot[]>([]);
@@ -1069,6 +1074,52 @@ export default function RegulationComparisonPage() {
     });
     return map;
   }, [alignedSnapshots]);
+
+  // Build overload segments per snapshot and TV, limited to the current time window.
+  const overloadSegmentsBySnapshot = useMemo(() => {
+    const map = new Map<string, Record<string, TrafficOverloadDatum[]>>();
+    const binMinutes = Math.max(1, minutesPerBin);
+    alignedSnapshots.forEach((snap) => {
+      const seriesByTv = tvSeriesBySnapshot.get(snap.id) || {};
+      const capByTv = capacityBySnapshot.get(snap.id) || {};
+      const perTv: Record<string, TrafficOverloadDatum[]> = {};
+      Object.entries(seriesByTv).forEach(([tvId, series]) => {
+        const capacity = (capByTv as Record<string, number[] | undefined>)[tvId] || [];
+        const segs: TrafficOverloadDatum[] = [];
+        for (let i = 0; i < series.length; i++) {
+          const startMin = i * binMinutes;
+          if (startMin < viewFromMin || startMin > viewToMin) continue;
+          const occ = Number(series[i] ?? 0);
+          const cap = Number(capacity?.[i] ?? Number.NaN);
+          if (!Number.isFinite(cap) || cap < 0) continue; // cannot determine overload without capacity
+          if (!Number.isFinite(occ) || occ <= cap) continue; // only highlight overloads
+          const ratio = cap > 0 ? occ / cap : Infinity;
+          let color = "#fb923c"; // amber for mild overload
+          if (ratio >= 1.4) {
+            color = "#b91c1c"; // deep red
+          } else if (ratio >= 1.2) {
+            color = "#f97316"; // orange
+          }
+          const endMin = Math.min(startMin + binMinutes, Math.max(viewFromMin + 1, viewToMin));
+          const startLabel = minutesToHHMM(startMin);
+          const endLabel = minutesToHHMM(endMin);
+          segs.push({
+            period: `${startLabel}-${endLabel}`,
+            color,
+            metadata: [
+              `Occupancy: ${occ.toFixed(0)}`,
+              `Capacity: ${cap.toFixed(0)}`,
+              `Excess: ${(occ - cap).toFixed(0)}`,
+            ],
+            label: `${tvId} overload`,
+          });
+        }
+        if (segs.length > 0) perTv[tvId] = segs;
+      });
+      map.set(snap.id, perTv);
+    });
+    return map;
+  }, [alignedSnapshots, tvSeriesBySnapshot, capacityBySnapshot, minutesPerBin, viewFromMin, viewToMin]);
 
   const tvIdsUnion = useMemo(() => {
     const set = new Set<string>();
@@ -2271,6 +2322,7 @@ export default function RegulationComparisonPage() {
 
                 const hasCapacity = Array.isArray(capacitySeries) && capacitySeries.length > 0;
                 const hasSeries = alignedSnapshots.some((snap) => (tvSeriesBySnapshot.get(snap.id)?.[tvId] || []).length > 0);
+                // Build per-snapshot overload segments for this TV
 
                 return (
                   <div key={tvId} className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-3">
@@ -2311,6 +2363,22 @@ export default function RegulationComparisonPage() {
                           No occupancy data for this TV in the selected snapshots.
                         </div>
                       )}
+                    </div>
+                    <div className="space-y-2">
+                      {alignedSnapshots.map((snap) => {
+                        const segs = (overloadSegmentsBySnapshot.get(snap.id) || {})[tvId] || [];
+                        return (
+                          <div key={`overbar-${tvId}-${snap.id}`} className="flex items-center gap-2">
+                            <div className="shrink-0 w-40 max-w-[40%] flex items-center gap-1 text-[12px] text-white/70 truncate">
+                              <span className="inline-flex w-2 h-2 rounded-full" style={{ background: colorBySnapshotId.get(snap.id) || '#fff' }} />
+                              <span className="truncate">{snap.description || 'Untitled'}</span>
+                            </div>
+                            <div className="grow min-w-0">
+                              <TrafficOverloadBar data={segs} showTime={segs.length > 0} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                     <div className="space-y-1 text-[12px] text-white/70">
                       {legendMetrics.map(({ snap, peak, exceedance }) => (

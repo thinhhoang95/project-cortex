@@ -35,6 +35,7 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { FlowInputPayload } from "@/lib/flow-input";
 import { AutorateOccupancyResponse } from "@/lib/autorate";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
+import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import {
   SolutionSnapshot,
   loadSnapshots,
@@ -1652,6 +1653,36 @@ function FlowEvaluationPageContent() {
                         const built = buildRowsForTv(tvId);
                         const rows = built.rows;
                         const flowOrder = built.flowTotals.map(t => t.fid);
+                        const overloadSegments: TrafficOverloadDatum[] = [];
+                        const binMinutes = Math.max(1, minutesPerBin);
+                        rows.forEach((row) => {
+                          const cap = Number(row.capacity);
+                          const occ = Number(row.total);
+                          if (!Number.isFinite(cap) || cap < 0) return;
+                          if (!Number.isFinite(occ) || occ <= cap) return;
+                          const ratio = cap > 0 ? occ / cap : Infinity;
+                          let color = "#fb923c";
+                          if (ratio >= 1.4) {
+                            color = "#b91c1c";
+                          } else if (ratio >= 1.2) {
+                            color = "#f97316";
+                          }
+                          const startMinutes = Number(row.startMin ?? 0);
+                          if (!Number.isFinite(startMinutes)) return;
+                          const endMinutes = startMinutes + binMinutes;
+                          const startLabel = formatMinutesToHHMM(startMinutes);
+                          const endLabel = formatMinutesToHHMMWith24(endMinutes);
+                          overloadSegments.push({
+                            period: `${startLabel}-${endLabel}`,
+                            color,
+                            metadata: [
+                              `Total: ${occ.toFixed(0)}`,
+                              `Capacity: ${cap.toFixed(0)}`,
+                              `Excess: ${(occ - cap).toFixed(0)}`,
+                            ],
+                            label: `${tvId} overload`,
+                          });
+                        });
                         return (
                           <div key={`occ-orig-${tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3 relative">
                             {built.hasOverlap && (
@@ -1711,6 +1742,12 @@ function FlowEvaluationPageContent() {
                                   {built.hasCapacity && <Line type="stepAfter" dataKey="capacity" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />}
                                 </ComposedChart>
                               </ResponsiveContainer>
+                            </div>
+                            <div className="mt-4">
+                              <TrafficOverloadBar
+                                data={overloadSegments}
+                                showTime={overloadSegments.length > 0}
+                              />
                             </div>
                           </div>
                         );
@@ -2803,4 +2840,25 @@ function HistogramCard({ tvId, series, seriesB, minutesPerBin, viewFrom, viewTo,
       </div>
     </div>
   );
+}
+
+function formatMinutesToHHMM(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "00:00";
+  const minutesInDay = 24 * 60;
+  const normalized = ((Math.floor(totalMinutes) % minutesInDay) + minutesInDay) % minutesInDay;
+  const hh = Math.floor(normalized / 60);
+  const mm = normalized % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function formatMinutesToHHMMWith24(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "00:00";
+  const minutesInDay = 24 * 60;
+  if (totalMinutes >= minutesInDay) {
+    return "24:00";
+  }
+  if (totalMinutes < 0) {
+    return formatMinutesToHHMM(0);
+  }
+  return formatMinutesToHHMM(totalMinutes);
 }

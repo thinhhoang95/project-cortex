@@ -5,6 +5,7 @@ import { binIndexToRangeLabel, hhmmToMinutesSafe } from "@/lib/time";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { OccupancySeriesByTv } from "@/lib/models";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
+import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 
 type SortMode = "total" | "abs_change" | "relative_change" | "exceedance";
 
@@ -255,6 +256,7 @@ export default function OccupancyPrePostPanel({
         {displayTvs.map((tv) => {
           const rows = rowsByTv.get(tv) || [];
           const hasData = rows.length > 0;
+          const overloadSegments = buildOverloadSegments(rows, binMinutes, tv);
           return (
             <div key={tv} className="bg-white/5 border border-white/10 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
@@ -306,6 +308,9 @@ export default function OccupancyPrePostPanel({
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
+              <div className="mt-4">
+                <TrafficOverloadBar data={overloadSegments} showTime={overloadSegments.length > 0} />
+              </div>
               {!hasData && <div className="text-[11px] text-gray-300 mt-2">No data in selected time window.</div>}
             </div>
           );
@@ -324,4 +329,68 @@ export default function OccupancyPrePostPanel({
       </div>
     </div>
   );
+}
+
+function buildOverloadSegments(rows: TvRowPoint[], binMinutes: number, tvId: string): TrafficOverloadDatum[] {
+  const segments: TrafficOverloadDatum[] = [];
+  const binLength = Math.max(1, binMinutes);
+  rows.forEach((row) => {
+    if (row.cap == null) return;
+    const capacity = row.cap;
+    if (typeof capacity !== "number" || !Number.isFinite(capacity) || capacity < 0) return;
+
+    const postVal = typeof row.post === "number" && Number.isFinite(row.post) ? row.post : null;
+    const preVal = typeof row.pre === "number" && Number.isFinite(row.pre) ? row.pre : null;
+    const occupancy = postVal ?? preVal;
+    if (occupancy == null || !Number.isFinite(occupancy)) return;
+    if (occupancy <= capacity) return;
+
+    const ratio = capacity > 0 ? occupancy / capacity : Infinity;
+    let color = "#fb923c";
+    if (ratio >= 1.4) {
+      color = "#b91c1c";
+    } else if (ratio >= 1.2) {
+      color = "#f97316";
+    }
+
+    const startMinutes = typeof row.startMin === "number" ? row.startMin : NaN;
+    if (!Number.isFinite(startMinutes)) return;
+    const endMinutes = startMinutes + binLength;
+    const startLabel = formatMinutesToHHMM(startMinutes);
+    const endLabel = formatMinutesToHHMMWith24(endMinutes);
+    const seriesLabel = postVal != null ? "Post" : "Pre";
+
+    segments.push({
+      period: `${startLabel}-${endLabel}`,
+      color,
+      metadata: [
+        `${seriesLabel}: ${occupancy.toFixed(0)}`,
+        `Capacity: ${capacity.toFixed(0)}`,
+        `Excess: ${(occupancy - capacity).toFixed(0)}`,
+      ],
+      label: `${tvId} overload`,
+    });
+  });
+  return segments;
+}
+
+function formatMinutesToHHMM(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "00:00";
+  const minutesInDay = 24 * 60;
+  const normalized = ((Math.floor(totalMinutes) % minutesInDay) + minutesInDay) % minutesInDay;
+  const hh = Math.floor(normalized / 60);
+  const mm = normalized % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function formatMinutesToHHMMWith24(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "00:00";
+  const minutesInDay = 24 * 60;
+  if (totalMinutes >= minutesInDay) {
+    return "24:00";
+  }
+  if (totalMinutes < 0) {
+    return formatMinutesToHHMM(0);
+  }
+  return formatMinutesToHHMM(totalMinutes);
 }

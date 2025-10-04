@@ -8,6 +8,7 @@ import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
+import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
 
@@ -202,6 +203,60 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       return sec >= displayFrom && sec <= displayTo;
     });
   }, [chartData, regulationTimeWindow, t]);
+
+  const trafficOverloadSegments = useMemo(() => {
+    if (!chartData.length) return [];
+
+    const [windowStart, windowEnd] = regulationTimeWindow;
+
+    const parseTimeToSeconds = (value: string): number => {
+      const parts = value.split(":").map((p) => Number(p));
+      const hours = Number.isFinite(parts[0]) ? parts[0] : 0;
+      const minutes = Number.isFinite(parts[1]) ? parts[1] : 0;
+      const seconds = Number.isFinite(parts[2]) ? parts[2] : 0;
+      return hours * 3600 + minutes * 60 + seconds;
+    };
+
+    return chartData.reduce((acc: any[], point) => {
+      const [rawStart = "", rawEnd = ""] = String(point.time || "").split('-');
+      const startSeconds = parseTimeToSeconds(rawStart.trim());
+      const endSeconds = parseTimeToSeconds((rawEnd || rawStart).trim());
+      const intersectsWindow = endSeconds > windowStart && startSeconds < windowEnd;
+      if (!intersectsWindow) return acc;
+
+      const occupancy = Number(point.count ?? 0);
+      const capacity = Number(point.capacity ?? 0);
+      const ratio = capacity > 0 ? occupancy / capacity : 0;
+
+      const color = capacity <= 0
+        ? "#94a3b8"
+        : ratio >= 1.4
+          ? "#b91c1c"
+          : ratio >= 1.2
+            ? "#f97316"
+            : ratio >= 1.0
+              ? "#fb923c"
+              : "#34d399";
+
+      const metadata: string[] = [`Rolling occupancy: ${Math.round(occupancy)}`];
+      if (capacity > 0) {
+        metadata.push(`Hourly capacity: ${Math.round(capacity)}`);
+        metadata.push(`Load ratio: ${ratio.toFixed(2)}`);
+        const diff = occupancy - capacity;
+        metadata.push(`${diff >= 0 ? 'Excess' : 'Available'}: ${Math.abs(Math.round(diff))}`);
+      } else {
+        metadata.push('Hourly capacity: unavailable');
+      }
+
+      acc.push({
+        period: point.time,
+        color,
+        metadata,
+        label: selectedTrafficVolume ? `${selectedTrafficVolume} load` : undefined,
+      });
+      return acc;
+    }, [] as any[]);
+  }, [chartData, regulationTimeWindow, selectedTrafficVolume]);
 
   // Compute filtered flights for active time window, and apply focus filter on the map
   const filteredFlightIds = useMemo(() => {
@@ -782,6 +837,17 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Entrances</span></div>
               <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Hourly Capacity</span></div>
             </div>
+          </div>
+        )}
+
+        {trafficOverloadSegments.length > 0 && (
+          <div className="bg-white/5 rounded-lg p-4">
+            <h4 className="font-medium text-sm opacity-90 mb-3">Traffic Volume Load</h4>
+            <TrafficOverloadBar
+              data={trafficOverloadSegments}
+              height={16}
+              showTime
+            />
           </div>
         )}
 

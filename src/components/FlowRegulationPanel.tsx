@@ -7,6 +7,7 @@ import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
 
@@ -171,6 +172,86 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     const flows = flowResults?.flows || [];
     return flows.slice().sort((a, b) => ((b.flights?.length || 0) - (a.flights?.length || 0)));
   }, [flowResults]);
+
+  const minutesPerBin = useMemo(() => {
+    if (flowResults?.num_time_bins && Number.isFinite(flowResults.num_time_bins) && flowResults.num_time_bins > 0) {
+      return 1440 / flowResults.num_time_bins;
+    }
+    return 15;
+  }, [flowResults?.num_time_bins]);
+
+  const flowOverloadSegments = useMemo(() => {
+    if (!flowResults) return new Map<number, TrafficOverloadDatum[]>();
+
+    const map = new Map<number, TrafficOverloadDatum[]>();
+    const windowStart = hhmmToSec(fromTime);
+    const windowEnd = hhmmToSec(toTime);
+
+    const clampMinutes = (value: number) => {
+      if (!Number.isFinite(value)) return 0;
+      return Math.max(0, Math.min(1440, value));
+    };
+
+    const formatMinutesToLabel = (value: number) => {
+      const clamped = clampMinutes(Math.round(value));
+      const hours = Math.floor(clamped / 60);
+      const minutes = clamped % 60;
+      if (hours === 24 && minutes > 0) {
+        return "24:00";
+      }
+      return `${String(Math.min(hours, 24)).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    };
+
+    for (const flow of flowResults.flows || []) {
+      const numericDemand = Array.isArray(flow.demand)
+        ? flow.demand.map((value) => (Number.isFinite(Number(value)) ? Number(value) : 0))
+        : [];
+
+      if (!numericDemand.length) {
+        map.set(flow.flow_id, []);
+        continue;
+      }
+
+      const peak = numericDemand.reduce((max, value) => Math.max(max, value), 0);
+
+      const segments = numericDemand.reduce((acc: TrafficOverloadDatum[], demand, index) => {
+        const startMinutes = index * minutesPerBin;
+        const endMinutes = startMinutes + minutesPerBin;
+        const startSeconds = Math.round(startMinutes * 60);
+        const endSeconds = Math.round(endMinutes * 60);
+        const intersectsWindow = endSeconds > windowStart && startSeconds < windowEnd;
+        if (!intersectsWindow) return acc;
+
+        const period = `${formatMinutesToLabel(startMinutes)}-${formatMinutesToLabel(endMinutes)}`;
+        const ratio = peak > 0 ? demand / peak : 0;
+        const color = ratio >= 0.85
+          ? "#b91c1c"
+          : ratio >= 0.7
+            ? "#f97316"
+            : ratio >= 0.5
+              ? "#fb923c"
+              : "#34d399";
+
+        const metadata: string[] = [`Demand: ${Math.round(demand)}`];
+        if (peak > 0) {
+          const share = Math.max(0, Math.min(1, demand / peak));
+          metadata.push(`Peak share: ${(share * 100).toFixed(0)}%`);
+        }
+
+        acc.push({
+          period,
+          color,
+          metadata,
+          label: flow.controlled_volume ? `${flow.controlled_volume} load` : `Flow ${flow.flow_id} load`,
+        });
+        return acc;
+      }, [] as TrafficOverloadDatum[]);
+
+      map.set(flow.flow_id, segments);
+    }
+
+    return map;
+  }, [flowResults, minutesPerBin, fromTime, toTime]);
 
   // When TVs are cleared, reset extraction results and disable flow view
   useEffect(() => {
@@ -387,6 +468,19 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         className="w-full"
                       />
                     </div>
+                    {(() => {
+                      const segments = flowOverloadSegments.get(flow.flow_id) || [];
+                      if (!segments.length) return null;
+                      return (
+                        <div className="px-2 pt-2">
+                          <TrafficOverloadBar
+                            data={segments}
+                            height={16}
+                            showTime
+                          />
+                        </div>
+                      );
+                    })()}
                     <div className="px-2 pb-2">
                       <div className="rounded-lg border border-white/10 overflow-hidden">
                         <table className="w-full text-[11px]">

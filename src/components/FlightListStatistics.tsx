@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { useSimStore } from "./useSimStore";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
+import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import {
   ResponsiveContainer,
@@ -1092,91 +1093,131 @@ function FlightListStatistics({
                 ) : (
                   <>
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {visibleRankedCards.map(card => (
-                      <div key={`occupancy-${card.tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3">
-                        <div className="flex items-start justify-between gap-2 mb-1.5">
-                          <div className="text-sm font-semibold text-white truncate">
-                            <TrafficVolumeInfoTooltip
-                              trafficVolumeId={card.tvId}
-                              className="truncate max-w-full"
-                            >
-                              <span className="truncate">{card.tvId}</span>
-                            </TrafficVolumeInfoTooltip>
+                    {visibleRankedCards.map(card => {
+                      const overloadSegments: TrafficOverloadDatum[] = [];
+                      const rawMinutes = Number(occupancyMinutesPerBin);
+                      const binMinutes = Number.isFinite(rawMinutes) && rawMinutes > 0 ? rawMinutes : 1;
+                      for (const row of card.rows) {
+                        if (row.capacity == null) continue;
+                        const capacity = Number(row.capacity);
+                        const occupancy = Number(row.total);
+                        if (!Number.isFinite(capacity) || capacity < 0) continue;
+                        if (!Number.isFinite(occupancy)) continue;
+                        if (occupancy <= capacity) continue;
+                        const ratio = capacity > 0 ? occupancy / capacity : Infinity;
+                        let color = "#fb923c";
+                        if (ratio >= 1.4) {
+                          color = "#b91c1c";
+                        } else if (ratio >= 1.2) {
+                          color = "#f97316";
+                        }
+                        const startMinutes = row.startMinute;
+                        const endMinutes = startMinutes + binMinutes;
+                        const startLabel = formatMinutesToHHMM(startMinutes);
+                        const endLabel = formatMinutesToHHMMWith24(endMinutes);
+                        overloadSegments.push({
+                          period: `${startLabel}-${endLabel}`,
+                          color,
+                          metadata: [
+                            `Count: ${formatNumber(occupancy)}`,
+                            `Capacity: ${formatNumber(capacity)}`,
+                            `Excess: ${formatNumber(occupancy - capacity)}`,
+                          ],
+                          label: `${card.tvId} overload`,
+                        });
+                      }
+                      return (
+                        <div key={`occupancy-${card.tvId}`} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                          <div className="flex items-start justify-between gap-2 mb-1.5">
+                            <div className="text-sm font-semibold text-white truncate">
+                              <TrafficVolumeInfoTooltip
+                                trafficVolumeId={card.tvId}
+                                className="truncate max-w-full"
+                              >
+                                <span className="truncate">{card.tvId}</span>
+                              </TrafficVolumeInfoTooltip>
+                            </div>
+                            <div className="text-right text-[11px] text-white/70 leading-tight">
+                              <div>{formatPercent(card.metrics.share)} share</div>
+                              <div>{formatNumber(card.metrics.selectedSum)} / {formatNumber(card.metrics.totalSum)}</div>
+                            </div>
                           </div>
-                          <div className="text-right text-[11px] text-white/70 leading-tight">
-                            <div>{formatPercent(card.metrics.share)} share</div>
-                            <div>{formatNumber(card.metrics.selectedSum)} / {formatNumber(card.metrics.totalSum)}</div>
-                          </div>
-                        </div>
-                        <div className="text-[11px] text-white/60 mb-2 flex flex-wrap gap-3">
-                          <span className="flex items-center gap-1">
-                          <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
-                          {highlightLabel}
-                          </span>
-                          <span className="flex items-center gap-1">
-                          <span className="inline-block w-2 h-2 rounded-sm bg-slate-400" />
-                          {remainderLegendLabel}
-                          </span>
-                          {card.hasCapacity && (
+                          <div className="text-[11px] text-white/60 mb-2 flex flex-wrap gap-3">
                             <span className="flex items-center gap-1">
-                              <span className="inline-block w-4 h-[2px] bg-amber-300" />
-                              Capacity
+                              <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
+                              {highlightLabel}
                             </span>
-                          )}
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 rounded-sm bg-slate-400" />
+                              {remainderLegendLabel}
+                            </span>
+                            {card.hasCapacity && (
+                              <span className="flex items-center gap-1">
+                                <span className="inline-block w-4 h-[2px] bg-amber-300" />
+                                Capacity
+                              </span>
+                            )}
+                          </div>
+                          <div className="h-36">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={card.rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                                <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
+                                <XAxis
+                                  dataKey="idx"
+                                  tick={{ fontSize: 10, fill: "rgba(226,232,240,0.9)" }}
+                                  interval="preserveStartEnd"
+                                  height={18}
+                                  tickFormatter={(value: any) => {
+                                    const idx = Number(value ?? 0);
+                                    return card.rows[idx]?.labelShort ?? card.rows[idx]?.label ?? "";
+                                  }}
+                                />
+                                <YAxis
+                                  tick={{ fontSize: 10, fill: "rgba(226,232,240,0.9)" }}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  width={28}
+                                  allowDecimals={false}
+                                />
+                                <Tooltip
+                                  formatter={(value: any, name) => {
+                                    const num = Number(value ?? 0);
+                                    if (name === "selected") return [formatNumber(num), highlightLabel];
+                                    if (name === "other") return [formatNumber(num), remainderLegendLabel];
+                                    if (name === "capacity") return [formatNumber(num), "Capacity"];
+                                    return [formatNumber(num), String(name)];
+                                  }}
+                                  labelFormatter={(value: any) => {
+                                    const idx = Number(value ?? 0);
+                                    return card.rows[idx]?.label ?? `Bin ${idx}`;
+                                  }}
+                                  contentStyle={{ background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
+                                  itemStyle={{ color: "white" }}
+                                />
+                                <Bar dataKey="selected" stackId="count" fill="#38bdf8" name={highlightLabel} isAnimationActive={false} />
+                                <Bar dataKey="other" stackId="count" fill="#94a3b8" name={remainderLegendLabel} isAnimationActive={false} />
+                                {card.hasCapacity && (
+                                  <Line type="stepAfter" dataKey="capacity" stroke="#facc15" strokeWidth={1.5} dot={false} name="Capacity" isAnimationActive={false} />
+                                )}
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="mt-3">
+                            <TrafficOverloadBar
+                              data={overloadSegments}
+                              showTime={overloadSegments.length > 0}
+                            />
+                          </div>
+                          <div className="mt-2 text-[11px] text-white/60 flex flex-wrap gap-3">
+                            <span>Peak {formatNumber(card.metrics.peakSelected)} / {formatNumber(card.metrics.peakTotal)}</span>
+                            {card.metrics.exceedance > 0 && (
+                              <span>Exceed {formatNumber(card.metrics.exceedance)}</span>
+                            )}
+                            <span>{formatCount(card.rows.length)} bins · {occupancyMinutesPerBin}m</span>
+                          </div>
                         </div>
-                        <div className="h-36">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={card.rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-                              <XAxis
-                                dataKey="idx"
-                                tick={{ fontSize: 10, fill: "rgba(226,232,240,0.9)" }}
-                                interval="preserveStartEnd"
-                                height={18}
-                                tickFormatter={(value: any) => {
-                                  const idx = Number(value ?? 0);
-                                  return card.rows[idx]?.labelShort ?? card.rows[idx]?.label ?? "";
-                                }}
-                              />
-                              <YAxis
-                                tick={{ fontSize: 10, fill: "rgba(226,232,240,0.9)" }}
-                                axisLine={false}
-                                tickLine={false}
-                                width={28}
-                                allowDecimals={false}
-                              />
-                              <Tooltip
-                                formatter={(value: any, name) => {
-                                  const num = Number(value ?? 0);
-                                  if (name === "selected") return [formatNumber(num), highlightLabel];
-                                  if (name === "other") return [formatNumber(num), remainderLegendLabel];
-                                  if (name === "capacity") return [formatNumber(num), "Capacity"];
-                                  return [formatNumber(num), String(name)];
-                                }}
-                                labelFormatter={(value: any) => {
-                                  const idx = Number(value ?? 0);
-                                  return card.rows[idx]?.label ?? `Bin ${idx}`;
-                                }}
-                                contentStyle={{ background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
-                                itemStyle={{ color: "white" }}
-                              />
-                              <Bar dataKey="selected" stackId="count" fill="#38bdf8" name={highlightLabel} isAnimationActive={false} />
-                              <Bar dataKey="other" stackId="count" fill="#94a3b8" name={remainderLegendLabel} isAnimationActive={false} />
-                              {card.hasCapacity && (
-                                <Line type="stepAfter" dataKey="capacity" stroke="#facc15" strokeWidth={1.5} dot={false} name="Capacity" isAnimationActive={false} />
-                              )}
-                            </ComposedChart>
-                          </ResponsiveContainer>
-                        </div>
-                        <div className="mt-2 text-[11px] text-white/60 flex flex-wrap gap-3">
-                          <span>Peak {formatNumber(card.metrics.peakSelected)} / {formatNumber(card.metrics.peakTotal)}</span>
-                          {card.metrics.exceedance > 0 && (
-                            <span>Exceed {formatNumber(card.metrics.exceedance)}</span>
-                          )}
-                          <span>{formatCount(card.rows.length)} bins · {occupancyMinutesPerBin}m</span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   {rankedCards.length > visibleRankedCards.length && (
                     <div className="mt-2 flex justify-center">
@@ -1649,6 +1690,23 @@ function shortenLabel(label: string): string {
   const dash = label.indexOf("-");
   const short = dash > 0 ? label.slice(0, dash) : label;
   return short.trim();
+}
+
+function formatMinutesToHHMM(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "00:00";
+  const clamped = Math.max(0, Math.floor(totalMinutes));
+  const hours = Math.floor(clamped / 60);
+  const minutes = clamped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatMinutesToHHMMWith24(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "00:00";
+  const clamped = Math.max(0, Math.floor(totalMinutes));
+  if (clamped >= 24 * 60) {
+    return "24:00";
+  }
+  return formatMinutesToHHMM(clamped);
 }
 
 function formatTimeOfDay(seconds: number | null): string {

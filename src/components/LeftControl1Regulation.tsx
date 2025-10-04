@@ -1,8 +1,9 @@
 "use client";
 import { useSimStore } from "@/components/useSimStore";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import ShimmeringText from "@/components/ShimmeringText";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 
 type LeftControl1RegulationProps = { embedded?: boolean };
 
@@ -179,25 +180,77 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                     </thead>
                     <tbody>
                       {displayedHotspots.map((hotspot, index) => {
-                      const [from, to] = String(hotspot.time_bin || '').split('-');
-                      return (
-                        <tr 
-                          key={`${hotspot.traffic_volume_id}-${hotspot.time_bin}`} 
-                          className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer transition-colors`}
-                          onClick={() => handleHotspotRowClick(hotspot)}
-                          title="Click to set time and pan to traffic volume"
-                        >
-                          <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
-                          <td className="p-2 font-mono text-xs leading-tight">
-                            <div>{from?.trim()}</div>
-                            <div>{to?.trim()}</div>
-                          </td>
-                          <td className="p-2 text-right font-mono">{hotspot.hourly_occupancy.toFixed(0)}</td>
-                          <td className="p-2 text-right font-mono">{hotspot.hourly_capacity.toFixed(0)}</td>
-                          <td className="p-2 text-right font-mono">{(hotspot.hourly_occupancy - hotspot.hourly_capacity).toFixed(0)}</td>
-                        </tr>
-                      );
-                    })}
+                        const [from, to] = String(hotspot.time_bin || '').split('-');
+                        const occupancy = Number(hotspot.hourly_occupancy ?? 0);
+                        const capacity = Number(hotspot.hourly_capacity ?? 0);
+                        const excess = occupancy - capacity;
+                        const ratio = capacity > 0 ? occupancy / capacity : 0;
+                        const severityColor = hotspot.is_overloaded
+                          ? ratio >= 1.4
+                            ? "#b91c1c"
+                            : ratio >= 1.2
+                              ? "#f97316"
+                              : "#fb923c"
+                          : "#34d399";
+                        const metadata: string[] = [
+                          `Occupancy: ${occupancy.toFixed(0)}`,
+                          `Capacity: ${capacity.toFixed(0)}`,
+                          `Excess: ${excess.toFixed(0)}`,
+                        ];
+                        if (Number.isFinite(hotspot.z_max)) {
+                          metadata.push(`Peak load: ${Number(hotspot.z_max).toFixed(2)}`);
+                        }
+                        if (Number.isFinite(hotspot.z_sum)) {
+                          metadata.push(`Load sum: ${Number(hotspot.z_sum).toFixed(2)}`);
+                        }
+                        const rowKey = `${hotspot.traffic_volume_id}-${hotspot.time_bin}`;
+                        const zebraClass = index % 2 === 0 ? 'bg-white/0' : 'bg-white/5';
+                        return (
+                          <Fragment key={rowKey}>
+                            <tr
+                              className={`border-t border-white/10 ${zebraClass} hover:bg-white/10 cursor-pointer transition-colors`}
+                              onClick={() => handleHotspotRowClick(hotspot)}
+                              title="Click to set time and pan to traffic volume"
+                            >
+                              <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
+                              <td className="p-2 font-mono text-xs leading-tight">
+                                <div>{from?.trim()}</div>
+                                <div>{to?.trim()}</div>
+                              </td>
+                              <td className="p-2 text-right font-mono">{occupancy.toFixed(0)}</td>
+                              <td className="p-2 text-right font-mono">{capacity.toFixed(0)}</td>
+                              <td className="p-2 text-right font-mono">{excess.toFixed(0)}</td>
+                            </tr>
+                            <tr className={`border-t border-white/10 ${zebraClass} hover:bg-white/10 transition-colors`}>
+                              <td
+                                className="p-2 pt-2 pb-2 cursor-pointer"
+                                colSpan={5}
+                                onClick={() => handleHotspotRowClick(hotspot)}
+                                role="button"
+                                aria-label={`Show hotspot ${hotspot.traffic_volume_id} details`}
+                                tabIndex={0}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    handleHotspotRowClick(hotspot);
+                                  }
+                                }}
+                              >
+                                <TrafficOverloadBar
+                                  fromTime="00:00"
+                                  toTime="24:00"
+                                  data={[{
+                                    period: String(hotspot.time_bin || ""),
+                                    color: severityColor,
+                                    metadata,
+                                    label: `${hotspot.traffic_volume_id} hotspot`,
+                                  }]}
+                                />
+                              </td>
+                            </tr>
+                          </Fragment>
+                        );
+                      })}
                     {!showAllHotspots && sortedHotspots.length > 20 && (
                       <tr
                         className="border-t border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
