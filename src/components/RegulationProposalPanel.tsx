@@ -11,6 +11,7 @@ import {
   ProposalFlow,
 } from "@/lib/regulationProposals";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
+import FlightQueryDialog from "@/components/FlightQueryDialog";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { Trajectory } from "@/lib/models";
 
@@ -88,6 +89,10 @@ type TargetCellCombo = {
   period: TimeRange;
 };
 
+type ProposalReviewContext =
+  | { type: "flow"; proposal: RegulationProposal; flow: ProposalFlow }
+  | { type: "proposal"; proposal: RegulationProposal };
+
 function extractTimeRange(label?: string | null): TimeRange | null {
   if (!label) return null;
   const match = label.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*[–-]\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
@@ -152,6 +157,8 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
   const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
   const [showAllFlightLists, setShowAllFlightLists] = useState<Record<string, boolean>>({});
   const [statsDialog, setStatsDialog] = useState<{ flightIds: string[]; fullScreen?: boolean } | null>(null);
+  const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
+  const [reviewContext, setReviewContext] = useState<ProposalReviewContext | null>(null);
 
   useEffect(() => {
     const nextTopK = proposalQuery?.topK ?? proposalResults?.top_k;
@@ -174,6 +181,38 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     return ids.size;
   }, [proposalResults]);
 
+  const reviewFlightIds = useMemo(() => {
+    if (!reviewContext) return [] as string[];
+    if (reviewContext.type === "flow") {
+      return (reviewContext.flow.flight_ids || []).map((id) => String(id));
+    }
+    const set = new Set<string>();
+    for (const flow of reviewContext.proposal.flows || []) {
+      for (const id of flow.flight_ids || []) {
+        set.add(String(id));
+      }
+    }
+    return Array.from(set);
+  }, [reviewContext]);
+
+  const reviewLabels = useMemo(() => {
+    if (!reviewContext) return { highlight: undefined as string | undefined, baseline: undefined as string | undefined };
+    if (reviewContext.type === "flow") {
+      const label = `${reviewContext.proposal.id} · Flow ${reviewContext.flow.flow_id}`;
+      return { highlight: "Selected flights", baseline: label };
+    }
+    const label = `${reviewContext.proposal.id} · Proposal`;
+    return { highlight: "Selected flights", baseline: label };
+  }, [reviewContext]);
+
+  const flightLookup = useMemo(() => {
+    const map = new Map<string, Trajectory>();
+    for (const flight of flights || []) {
+      map.set(String(flight.flightId), flight);
+    }
+    return map;
+  }, [flights]);
+
   if (!showPanel) {
     return null;
   }
@@ -184,13 +223,51 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
 
   const proposals = proposalResults?.proposals || [];
 
-  const flightLookup = useMemo(() => {
-    const map = new Map<string, Trajectory>();
-    for (const flight of flights || []) {
-      map.set(String(flight.flightId), flight);
+  const handleReviewSelection = (selectedIds: string[]) => {
+    if (!reviewContext) return;
+    const selectedSet = new Set((selectedIds || []).map((id) => String(id)));
+    if (selectedSet.size === 0) {
+      setReviewContext(null);
+      return;
     }
-    return map;
-  }, [flights]);
+
+    if (reviewContext.type === "flow") {
+      const { proposal, flow } = reviewContext;
+      const items = buildBasketItemsFromFlow(flow).filter((item) => selectedSet.has(String(item.key)));
+      if (items.length === 0) {
+        setReviewContext(null);
+        return;
+      }
+      const period = resolveFlowPeriod(proposal, flow);
+      ensureFlowInBasket(`${proposal.id} · Flow ${flow.flow_id}`, items, period);
+      const volume = flow.control_volume_id;
+      if (volume && period) {
+        applyTargetCellCombos([{ volume: String(volume), period }]);
+      }
+    } else {
+      const { proposal } = reviewContext;
+      const combos: TargetCellCombo[] = [];
+      for (const flow of proposal.flows || []) {
+        const items = buildBasketItemsFromFlow(flow).filter((item) => selectedSet.has(String(item.key)));
+        if (items.length === 0) continue;
+        const period = resolveFlowPeriod(proposal, flow);
+        ensureFlowInBasket(`${proposal.id} · Flow ${flow.flow_id}`, items, period);
+        const volume = flow.control_volume_id;
+        if (volume && period) {
+          combos.push({ volume: String(volume), period });
+        }
+      }
+      if (combos.length > 0) {
+        applyTargetCellCombos(combos);
+      }
+    }
+
+    setReviewContext(null);
+  };
+
+  const handleCloseReview = () => {
+    setReviewContext(null);
+  };
 
   const handleRerun = async () => {
     if (!proposalQuery) return;
@@ -521,6 +598,8 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
           const isPinned = proposalPreviewAll || proposalPinnedProposals.has(proposal.id);
           const proposalFlights = Array.from(collectProposalFlights(proposal)).map((id) => String(id));
           const hasProposalFlights = proposalFlights.length > 0;
+          const proposalMenuKey = `proposal:${proposal.id}`;
+          const proposalMenuOpen = openAddMenuFor === proposalMenuKey;
           return (
             <div
               key={proposal.id}
@@ -634,6 +713,8 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                         const flowPinned = proposalPreviewAll || proposalPinnedFlows.has(key);
                         const flightListOpen = expandedFlightLists[key] ?? false;
                         const hasFlightIds = (flow.flight_ids?.length ?? 0) > 0;
+                        const flowMenuKey = `flow:${proposal.id}::${flow.flow_id}`;
+                        const flowMenuOpen = openAddMenuFor === flowMenuKey;
                         return (
                           <div
                             key={key}
@@ -746,18 +827,50 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                                 </div>
                               </div>
                               <div className="mt-3 flex justify-end">
-                                <button
-                                  type="button"
-                                  className="px-2 py-1 text-[11px] rounded-md border border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    addFlowFromProposal(proposal, flow);
-                                  }}
-                                  aria-label={`Add flow ${flow.flow_id} from ${proposal.id} to Flow Basket`}
-                                  title="Add flow to Flow Basket"
-                                >
-                                  + Add
-                                </button>
+                                <div className="relative inline-block text-[11px]">
+                                  <button
+                                    type="button"
+                                    className="px-2 py-1 rounded-md border border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenAddMenuFor(flowMenuOpen ? null : flowMenuKey);
+                                    }}
+                                    aria-label={`Add flow ${flow.flow_id} from ${proposal.id} to Flow Basket`}
+                                    title="Add flow to Flow Basket"
+                                  >
+                                    + Add
+                                  </button>
+                                  {flowMenuOpen && (
+                                    <div
+                                      className="absolute right-0 mt-1 w-44 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-30"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <button
+                                        className="w-full text-left px-3 py-2 hover:bg-white/10"
+                                        onClick={() => {
+                                          addFlowFromProposal(proposal, flow);
+                                          setOpenAddMenuFor(null);
+                                        }}
+                                      >
+                                        Add
+                                      </button>
+                                      <button
+                                        className="w-full text-left px-3 py-2 hover:bg-white/10"
+                                        onClick={() => {
+                                          const items = buildBasketItemsFromFlow(flow);
+                                          if (items.length === 0) {
+                                            setOpenAddMenuFor(null);
+                                            return;
+                                          }
+                                          setReviewContext({ type: "flow", proposal, flow });
+                                          setOpenAddMenuFor(null);
+                                        }}
+                                      >
+                                        Review and Add
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                             {renderFlightList(proposal.id, flow)}
@@ -821,18 +934,49 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                         <path d="M16.3891 8.11096L12.5 7.75741" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     </button>
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 text-[11px] rounded-md border border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addEntireProposalToBasket(proposal);
-                      }}
-                      aria-label={`Add proposed regulation ${proposal.id} to Flow Basket`}
-                      title="Add all flows from this regulation to Flow Basket"
-                    >
-                      + Add
-                    </button>
+                    <div className="relative inline-block text-[11px]">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-md border border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenAddMenuFor(proposalMenuOpen ? null : proposalMenuKey);
+                        }}
+                        aria-label={`Add proposed regulation ${proposal.id} to Flow Basket`}
+                        title="Add all flows from this regulation to Flow Basket"
+                      >
+                        + Add
+                      </button>
+                      {proposalMenuOpen && (
+                        <div
+                          className="absolute right-0 mt-1 w-48 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-30"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            className="w-full text-left px-3 py-2 hover:bg-white/10"
+                            onClick={() => {
+                              addEntireProposalToBasket(proposal);
+                              setOpenAddMenuFor(null);
+                            }}
+                          >
+                            Add
+                          </button>
+                          <button
+                            className="w-full text-left px-3 py-2 hover:bg-white/10"
+                            onClick={() => {
+                              if (!hasProposalFlights) {
+                                setOpenAddMenuFor(null);
+                                return;
+                              }
+                              setReviewContext({ type: "proposal", proposal });
+                              setOpenAddMenuFor(null);
+                            }}
+                          >
+                            Review and Add
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -840,6 +984,15 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
           );
         })}
       </div>
+      <FlightQueryDialog
+        open={!!reviewContext}
+        onClose={handleCloseReview}
+        flightIds={reviewFlightIds}
+        onSelectFlights={handleReviewSelection}
+        highlightLabel={reviewLabels.highlight}
+        baselineLabel={reviewLabels.baseline}
+        fullScreen
+      />
       {statsDialog && typeof window !== "undefined" && createPortal(
         <FlightStatisticsDialog
           open={!!statsDialog}
