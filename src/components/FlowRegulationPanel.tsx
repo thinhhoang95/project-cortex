@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import { loadSectors } from "@/lib/airspace";
 import { authFetch } from "@/lib/auth";
@@ -7,9 +7,20 @@ import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import type { FlowBasketItem } from "@/components/useSimStore";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
+
+type FlowReviewContext = {
+  targetFlowId?: string;
+  targetLabel: string;
+  items: FlowBasketItem[];
+  periodFrom?: string | null;
+  periodTo?: string | null;
+  tvs: string[];
+};
 
 export default function FlowRegulationPanel({ embedded = false }: FlowRegulationPanelProps) {
   const {
@@ -27,6 +38,12 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
     resetProposalState,
+    flowBasket,
+    addFlowBasket,
+    addFlowBasketWithPeriod,
+    addFlightsToBasketFlow,
+    setFlowBasketPeriod,
+    addTargetCells,
   } = useSimStore();
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -39,6 +56,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [extractError, setExtractError] = useState<string | null>(null);
   const [flowResults, setFlowResults] = useState<FlowsResponse | null>(null);
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
+  const [reviewContext, setReviewContext] = useState<FlowReviewContext | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -253,6 +271,63 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     return map;
   }, [flowResults, minutesPerBin, fromTime, toTime]);
 
+  const reviewFlightIds = useMemo(() => {
+    if (!reviewContext) return [] as string[];
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const item of reviewContext.items) {
+      const key = String(item.key);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ids.push(key);
+    }
+    return ids;
+  }, [reviewContext]);
+
+  const reviewLabels = useMemo(() => {
+    if (!reviewContext) return { highlight: undefined as string | undefined, baseline: undefined as string | undefined };
+    const label = reviewContext.targetLabel;
+    const highlight = reviewContext.targetFlowId ? `Add to ${label}` : `Create ${label}`;
+    return { highlight, baseline: label };
+  }, [reviewContext]);
+
+  const handleReviewRequest = useCallback((context: FlowReviewContext) => {
+    setReviewContext(context);
+  }, []);
+
+  const handleReviewSelection = useCallback((selectedIds: string[]) => {
+    if (!reviewContext) return;
+    const selectedSet = new Set((selectedIds || []).map((id) => String(id)));
+    const selectedItems = reviewContext.items.filter((item) => selectedSet.has(String(item.key)));
+    if (selectedItems.length === 0) {
+      setReviewContext(null);
+      return;
+    }
+    if (reviewContext.targetFlowId) {
+      addFlightsToBasketFlow(reviewContext.targetFlowId, selectedItems);
+      if (reviewContext.periodFrom && reviewContext.periodTo) {
+        setFlowBasketPeriod(reviewContext.targetFlowId, reviewContext.periodFrom, reviewContext.periodTo, { overwrite: false });
+        if (reviewContext.tvs.length > 0) {
+          addTargetCells(reviewContext.tvs, reviewContext.periodFrom, reviewContext.periodTo);
+        }
+      }
+    } else {
+      if (reviewContext.periodFrom && reviewContext.periodTo) {
+        addFlowBasketWithPeriod(reviewContext.targetLabel, selectedItems, reviewContext.periodFrom, reviewContext.periodTo);
+        if (reviewContext.tvs.length > 0) {
+          addTargetCells(reviewContext.tvs, reviewContext.periodFrom, reviewContext.periodTo);
+        }
+      } else {
+        addFlowBasket(reviewContext.targetLabel, selectedItems);
+      }
+    }
+    setReviewContext(null);
+  }, [reviewContext, addFlightsToBasketFlow, setFlowBasketPeriod, addTargetCells, addFlowBasketWithPeriod, addFlowBasket]);
+
+  const handleCloseReview = useCallback(() => {
+    setReviewContext(null);
+  }, []);
+
   // When TVs are cleared, reset extraction results and disable flow view
   useEffect(() => {
     if (selectedTVs.length === 0) {
@@ -451,12 +526,20 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         />
                         <AddToBasketMenu
                           flowId={String(flow.flow_id)}
+                          flowLabel={`Flow ${flow.flow_id}`}
                           items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
                           tvs={selectedTVs}
                           periodFrom={fromTime}
                           periodTo={toTime}
                           openId={openAddMenuFor}
                           setOpenId={setOpenAddMenuFor}
+                          flowBasket={flowBasket}
+                          addFlowBasket={addFlowBasket}
+                          addFlowBasketWithPeriod={addFlowBasketWithPeriod}
+                          addFlightsToBasketFlow={addFlightsToBasketFlow}
+                          setFlowBasketPeriod={setFlowBasketPeriod}
+                          addTargetCells={addTargetCells}
+                          onReviewRequest={handleReviewRequest}
                         />
                       </div>
                     </div>
@@ -525,6 +608,15 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
           </div>
         )}
       </div>
+      <FlightQueryDialog
+        open={!!reviewContext}
+        onClose={handleCloseReview}
+        flightIds={reviewFlightIds}
+        onSelectFlights={handleReviewSelection}
+        highlightLabel={reviewLabels.highlight}
+        baselineLabel={reviewLabels.baseline}
+        fullScreen
+      />
     </div>
   );
 }
@@ -610,13 +702,110 @@ function extractTimeFromDateTime(value: string | null | undefined): string | nul
 // Event handler
 // (no-op placeholder removed)
 
-function AddToBasketMenu({ flowId, items, tvs, periodFrom, periodTo, openId, setOpenId }: { flowId: string; items: Array<{ key: string; requestedBin?: number; earliestCrossing?: string | null }>; tvs: string[]; periodFrom: string; periodTo: string; openId: string | null; setOpenId: (id: string | null) => void }) {
-  const { flowBasket, addFlowBasket, addFlowBasketWithPeriod, addFlightsToBasketFlow, setFlowBasketPeriod, addTargetCells } = useSimStore();
+type AddToBasketMenuProps = {
+  flowId: string;
+  flowLabel: string;
+  items: FlowBasketItem[];
+  tvs: string[];
+  periodFrom: string;
+  periodTo: string;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  flowBasket: ReturnType<typeof useSimStore.getState>["flowBasket"];
+  addFlowBasket: (name: string, items?: Array<string | FlowBasketItem>) => string;
+  addFlowBasketWithPeriod: (name: string, items: Array<string | FlowBasketItem>, periodFrom: string, periodTo: string) => string;
+  addFlightsToBasketFlow: (id: string, items: Array<string | FlowBasketItem>) => void;
+  setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => void;
+  addTargetCells: (tvs: string[], periodFrom: string, periodTo: string) => void;
+  onReviewRequest: (context: FlowReviewContext) => void;
+};
+
+function AddToBasketMenu({
+  flowId,
+  flowLabel,
+  items,
+  tvs,
+  periodFrom,
+  periodTo,
+  openId,
+  setOpenId,
+  flowBasket,
+  addFlowBasket,
+  addFlowBasketWithPeriod,
+  addFlightsToBasketFlow,
+  setFlowBasketPeriod,
+  addTargetCells,
+  onReviewRequest,
+}: AddToBasketMenuProps) {
   const isOpen = openId === flowId;
+  const normalizedItems: FlowBasketItem[] = items.map((item) => ({
+    key: String(item.key),
+    requestedBin: item.requestedBin,
+    earliestCrossing: item.earliestCrossing ?? undefined,
+  }));
+  const tvList = (Array.isArray(tvs) ? tvs : []).map((tv) => String(tv)).filter((tv) => tv.length > 0);
+
+  const handleAddAsNew = () => {
+    if (periodFrom && periodTo) {
+      addFlowBasketWithPeriod(flowLabel, normalizedItems, periodFrom, periodTo);
+      if (tvList.length > 0) {
+        addTargetCells(tvList, periodFrom, periodTo);
+      }
+    } else {
+      addFlowBasket(flowLabel, normalizedItems);
+    }
+    setOpenId(null);
+  };
+
+  const handleAddToExisting = (basketFlowId: string) => {
+    addFlightsToBasketFlow(basketFlowId, normalizedItems);
+    if (periodFrom && periodTo) {
+      setFlowBasketPeriod(basketFlowId, periodFrom, periodTo, { overwrite: false });
+      if (tvList.length > 0) {
+        addTargetCells(tvList, periodFrom, periodTo);
+      }
+    }
+    setOpenId(null);
+  };
+
+  const handleReviewNew = () => {
+    if (normalizedItems.length === 0) {
+      setOpenId(null);
+      return;
+    }
+    setOpenId(null);
+    onReviewRequest({
+      targetLabel: flowLabel,
+      items: normalizedItems,
+      periodFrom,
+      periodTo,
+      tvs: tvList,
+    });
+  };
+
+  const handleReviewExisting = (basketFlowId: string, basketFlowName: string) => {
+    if (normalizedItems.length === 0) {
+      setOpenId(null);
+      return;
+    }
+    setOpenId(null);
+    onReviewRequest({
+      targetFlowId: basketFlowId,
+      targetLabel: basketFlowName,
+      items: normalizedItems,
+      periodFrom,
+      periodTo,
+      tvs: tvList,
+    });
+  };
+
   return (
     <div className="relative inline-block text-[11px]">
       <button
-        onClick={(e) => { e.stopPropagation(); setOpenId(isOpen ? null : flowId); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpenId(isOpen ? null : flowId);
+        }}
         className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1"
         title="Add this flow to Flow Basket"
       >
@@ -624,50 +813,36 @@ function AddToBasketMenu({ flowId, items, tvs, periodFrom, periodTo, openId, set
         <span className="hidden sm:inline">Add</span>
       </button>
       {isOpen && (
-        <div className="absolute right-0 mt-1 w-48 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-20" onClick={(e) => e.stopPropagation()}>
-          <button
-            className="w-full text-left px-3 py-2 hover:bg-white/10"
-            onClick={() => {
-              if (periodFrom && periodTo) {
-                addFlowBasketWithPeriod(
-                  `Flow ${flowId}`,
-                  items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing })),
-                  periodFrom,
-                  periodTo
-                );
-                // Also add selected TVs as Target Cells with this period
-                if (Array.isArray(tvs) && tvs.length > 0) {
-                  addTargetCells(tvs, periodFrom, periodTo);
-                }
-              } else {
-                addFlowBasket(
-                  `Flow ${flowId}`,
-                  items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing }))
-                );
-              }
-              setOpenId(null);
-            }}
-          >Add as New</button>
+        <div
+          className="absolute right-0 mt-1 w-56 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-20"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button className="w-full text-left px-3 py-2 hover:bg-white/10" onClick={handleAddAsNew}>
+            Add as New
+          </button>
+          <button className="w-full text-left px-3 py-2 hover:bg-white/10" onClick={handleReviewNew}>
+            Review and Add
+          </button>
           <div className="h-px bg-white/10" />
           {flowBasket.length === 0 ? (
             <div className="px-3 py-2 opacity-60">No flows in basket</div>
           ) : (
-            <div className="max-h-48 overflow-y-auto">
+            <div className="max-h-56 overflow-y-auto">
               {flowBasket.map((bf) => (
-                <button key={bf.id}
-                  className="w-full text-left px-3 py-2 hover:bg-white/10"
-                  onClick={() => {
-                    addFlightsToBasketFlow(bf.id, items.map(it => ({ key: String(it.key), requestedBin: it.requestedBin, earliestCrossing: it.earliestCrossing })));
-                    if (periodFrom && periodTo) {
-                      setFlowBasketPeriod(bf.id, periodFrom, periodTo, { overwrite: false });
-                      // Also add selected TVs as Target Cells with this period
-                      if (Array.isArray(tvs) && tvs.length > 0) {
-                        addTargetCells(tvs, periodFrom, periodTo);
-                      }
-                    }
-                    setOpenId(null);
-                  }}
-                >Add to {bf.name}</button>
+                <div key={bf.id} className="border-b border-white/5 last:border-b-0">
+                  <button
+                    className="w-full text-left px-3 py-2 hover:bg-white/10"
+                    onClick={() => handleAddToExisting(bf.id)}
+                  >
+                    Add to {bf.name}
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-2 hover:bg-white/10"
+                    onClick={() => handleReviewExisting(bf.id, bf.name)}
+                  >
+                    Review and Add to {bf.name}
+                  </button>
+                </div>
               ))}
             </div>
           )}
