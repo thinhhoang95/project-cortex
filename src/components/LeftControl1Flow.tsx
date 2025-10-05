@@ -173,8 +173,9 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                       <tr className="bg-white/10 select-none">
                       <SortableTh label="TV" active={sortBy === 'tv'} dir={sortDir} onClick={() => handleHeaderClick('tv')} />
                       <SortableTh label="Time" active={sortBy === 'time'} dir={sortDir} onClick={() => handleHeaderClick('time')} />
-                      <SortableTh label="Occ." active={sortBy === 'occ'} dir={sortDir} onClick={() => handleHeaderClick('occ')} />
-                      <SortableTh label="Cap." active={sortBy === 'cap'} dir={sortDir} onClick={() => handleHeaderClick('cap')} />
+                      {/* <SortableTh label="Occ." active={sortBy === 'occ'} dir={sortDir} onClick={() => handleHeaderClick('occ')} /> */}
+                      {/* <SortableTh label="Cap." active={sortBy === 'cap'} dir={sortDir} onClick={() => handleHeaderClick('cap')} /> */}
+                      <th className="text-left p-2 font-semibold">Ovl.</th>
                       <SortableTh label="Ex." active={sortBy === 'ex'} dir={sortDir} onClick={() => handleHeaderClick('ex')} />
                       </tr>
                     </thead>
@@ -217,25 +218,9 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                                 <div>{from?.trim()}</div>
                                 <div>{to?.trim()}</div>
                               </td>
-                              <td className="p-2 text-right font-mono">{occupancy.toFixed(0)}</td>
-                              <td className="p-2 text-right font-mono">{capacity.toFixed(0)}</td>
-                              <td className="p-2 text-right font-mono">{excess.toFixed(0)}</td>
-                            </tr>
-                            <tr className={`border-t border-white/10 ${zebraClass} hover:bg-white/10 transition-colors`}>
-                              <td
-                                className="p-2 pt-2 pb-2 cursor-pointer"
-                                colSpan={5}
-                                onClick={() => handleHotspotRowClick(hotspot)}
-                                role="button"
-                                aria-label={`Show hotspot ${hotspot.traffic_volume_id} details`}
-                                tabIndex={0}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter' || event.key === ' ') {
-                                    event.preventDefault();
-                                    handleHotspotRowClick(hotspot);
-                                  }
-                                }}
-                              >
+                              {/* <td className="p-2 text-right font-mono">{occupancy.toFixed(0)}</td> */}
+                              {/* <td className="p-2 text-right font-mono">{capacity.toFixed(0)}</td> */}
+                              <td className="p-2">
                                 <TrafficOverloadBar
                                   fromTime="00:00"
                                   toTime="24:00"
@@ -247,6 +232,7 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                                   }]}
                                 />
                               </td>
+                              <td className="p-2 text-right font-mono">{excess.toFixed(0)}</td>
                             </tr>
                           </Fragment>
                         );
@@ -257,7 +243,7 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                         onClick={() => setShowAllHotspots(true)}
                         title="Show the remaining hotspots"
                       >
-                        <td className="p-2 text-center italic opacity-80" colSpan={5}>{formatSeeMoreLabel(hiddenHotspotCount)}</td>
+                        <td className="p-2 text-center italic opacity-80" colSpan={4}>{formatSeeMoreLabel(hiddenHotspotCount)}</td>
                       </tr>
                     )}
                     {showAllHotspots && sortedHotspots.length > 20 && (
@@ -266,7 +252,7 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
                         onClick={() => setShowAllHotspots(false)}
                         title="Collapse the list"
                       >
-                        <td className="p-2 text-center italic opacity-80" colSpan={5}>{SEE_LESS_LABEL}</td>
+                        <td className="p-2 text-center italic opacity-80" colSpan={4}>{SEE_LESS_LABEL}</td>
                       </tr>
                     )}
                   </tbody>

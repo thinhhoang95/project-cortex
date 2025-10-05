@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import ModalDialog from "./ModalDialog";
+import { APP_VERSION } from "@/lib/version";
 
-const RELEASE_NOTES_VERSION = "2025.10.05";
+const RELEASE_NOTES_VERSION = APP_VERSION;
 const LOCAL_STORAGE_KEY = "release-notes-version";
 
 const RELEASE_NOTES_CONTENT = `

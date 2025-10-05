@@ -9,6 +9,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
 import AgentModal from '@/components/AgentModal';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
+import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -343,7 +344,7 @@ const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
                 </button>
                 <div className="mx-4 my-2 glass-menu-divider" />
                 <div className="px-4 pb-3 text-xs glass-menu-muted">
-                  Version 25.10.04.0 (autumnrain)
+                  Version {APP_VERSION} ({VERSION_CODENAME})
                 </div>
               </div>
             )}

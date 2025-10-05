@@ -153,7 +153,11 @@ export default function NetworkStatusPanel({
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.15)" />
                   <XAxis dataKey="bucket" stroke="#fff" tick={{ fontSize: 11 }} />
                   <YAxis stroke="#fff" tick={{ fontSize: 11 }} allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: "rgba(30,41,59,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8 }} />
+                  <Tooltip
+                    contentStyle={{ background: "var(--menu-bg)", border: "1px solid var(--menu-border)", borderRadius: 8, color: "var(--menu-text)" }}
+                    labelStyle={{ color: "var(--menu-text)" }}
+                    itemStyle={{ color: "var(--menu-text)" }}
+                  />
                   <Bar dataKey="count" name="Flights" fill="#60a5fa" />
                 </BarChart>
               </ResponsiveContainer>
@@ -170,7 +174,11 @@ export default function NetworkStatusPanel({
                       <Cell key={`slice-${index}`} fill={piePalette[index % piePalette.length]} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ background: "rgba(30,41,59,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8 }} />
+                  <Tooltip
+                    contentStyle={{ background: "var(--menu-bg)", border: "1px solid var(--menu-border)", borderRadius: 8, color: "var(--menu-text)" }}
+                    labelStyle={{ color: "var(--menu-text)" }}
+                    itemStyle={{ color: "var(--menu-text)" }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </div>
