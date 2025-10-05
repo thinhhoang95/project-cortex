@@ -1,6 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type {
+  FocusEvent,
+  MutableRefObject,
+  MouseEvent,
+  ReactElement,
+  ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import type { SectorFeatureProps } from "@/lib/models";
 import { fetchTrafficVolumeFeature, getCachedTrafficVolumeFeature } from "@/lib/trafficVolumes";
@@ -8,10 +24,11 @@ import TrafficVolumeMiniMap from "./TrafficVolumeMiniMap";
 
 type TrafficVolumeInfoTooltipProps = {
   trafficVolumeId?: string | null;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
   tooltipClassName?: string;
   wrapperClassName?: string;
+  asChild?: boolean;
 };
 
 type TooltipStatus = "idle" | "loading" | "ready" | "error";
@@ -34,6 +51,7 @@ export default function TrafficVolumeInfoTooltip({
   className,
   tooltipClassName,
   wrapperClassName,
+  asChild = false,
 }: TrafficVolumeInfoTooltipProps) {
   const normalizedId = useMemo(() => normalizeId(trafficVolumeId), [trafficVolumeId]);
   const cached = useMemo(() => (normalizedId ? getCachedTrafficVolumeFeature(normalizedId)?.properties ?? null : null), [normalizedId]);
@@ -48,7 +66,10 @@ export default function TrafficVolumeInfoTooltip({
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
   const [portalNode, setPortalNode] = useState<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const setSpanTriggerRef = useCallback((node: HTMLSpanElement | null) => {
+    triggerRef.current = node;
+  }, []);
 
   useEffect(() => {
     if (!normalizedId) {
@@ -104,15 +125,15 @@ export default function TrafficVolumeInfoTooltip({
     });
   }, []);
 
-  const handleOpen = () => {
+  const handleOpen = useCallback(() => {
     if (!normalizedId) return;
     updatePosition();
     setOpen(true);
-  };
+  }, [normalizedId, updatePosition]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setOpen(false);
-  };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -140,24 +161,6 @@ export default function TrafficVolumeInfoTooltip({
     };
   }, []);
 
-  if (!normalizedId) {
-    return <>{children}</>;
-  }
-
-  const rootClassName = [
-    "relative inline-flex min-w-0 max-w-full items-center",
-    wrapperClassName,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const labelClassName = [
-    "min-w-0 max-w-full",
-    className,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
   const tooltipClass = [
     "pointer-events-none fixed z-[10050] rounded-xl border border-white/15 bg-slate-950/95 px-4 py-3 text-[11px] text-white/90 shadow-xl transition-opacity duration-150 backdrop-blur-sm",
     open ? "opacity-100" : "opacity-0",
@@ -167,37 +170,32 @@ export default function TrafficVolumeInfoTooltip({
     .filter(Boolean)
     .join(" ");
 
+  if (!normalizedId) {
+    return <>{children}</>;
+  }
+
   const formattedMin = formatFlightLevel(meta?.min_fl);
   const formattedMax = formatFlightLevel(meta?.max_fl);
   const showRange = formattedMin && formattedMax;
   const displayName = meta?.name?.trim() || "";
   const showVolumeIdDetail = Boolean(displayName && displayName !== normalizedId);
 
-  return (
-    <span
-      ref={triggerRef}
-      className={rootClassName}
-      onMouseEnter={handleOpen}
-      onMouseLeave={handleClose}
-      onFocusCapture={handleOpen}
-      onBlurCapture={handleClose}
-    >
-      <span className={labelClassName}>{children}</span>
-      {portalNode &&
-        createPortal(
-          <div
-            className={tooltipClass}
-            role="status"
-            aria-live="polite"
-            style={{
-              left: coords?.left ?? -9999,
-              top: coords?.top ?? -9999,
-              transform: "translate(-50%, 8px)",
-              zIndex: 10050,
-            }}
-          >
-            <div className="flex min-w-[320px] max-w-[520px] items-stretch gap-3">
-              <div className="flex min-w-0 flex-1 flex-col text-left">
+  const tooltipPortal =
+    portalNode &&
+    createPortal(
+      <div
+        className={tooltipClass}
+        role="status"
+        aria-live="polite"
+        style={{
+          left: coords?.left ?? -9999,
+          top: coords?.top ?? -9999,
+          transform: "translate(-50%, 8px)",
+          zIndex: 10050,
+        }}
+      >
+        <div className="flex min-w-[320px] max-w-[520px] items-stretch gap-3">
+          <div className="flex min-w-0 flex-1 flex-col text-left">
                 <div className="flex items-center gap-2 text-xs font-semibold text-white">
                   <span className="truncate">{displayName || normalizedId}</span>
                   {showVolumeIdDetail && (
@@ -225,23 +223,111 @@ export default function TrafficVolumeInfoTooltip({
                   </div>
                 )}
               </div>
-              <div className="flex-shrink-0">
-                <div className="relative h-32 w-44 overflow-hidden rounded-lg border border-white/10 bg-slate-950/60">
-                  {open ? (
-                    <TrafficVolumeMiniMap
-                      key={normalizedId}
-                      trafficVolumeId={normalizedId}
-                      className="h-full w-full"
-                    />
-                  ) : (
-                    <div className="h-full w-full" />
-                  )}
-                </div>
-              </div>
+          <div className="flex-shrink-0">
+            <div className="relative h-32 w-44 overflow-hidden rounded-lg border border-white/10 bg-slate-950/60">
+              {open ? (
+                <TrafficVolumeMiniMap
+                  key={normalizedId}
+                  trafficVolumeId={normalizedId}
+                  className="h-full w-full"
+                />
+              ) : (
+                <div className="h-full w-full" />
+              )}
             </div>
-          </div>,
-          portalNode,
-        )}
+          </div>
+        </div>
+      </div>,
+      portalNode,
+    );
+
+  if (asChild) {
+    if (!isValidElement(children)) {
+      return <>{children}{tooltipPortal}</>;
+    }
+
+    const child = Children.only(children) as ReactElement<any>;
+    const existingRef = (child as any).ref;
+
+    const assignRef = (node: HTMLElement | null) => {
+      triggerRef.current = node;
+      if (typeof existingRef === "function") {
+        existingRef(node);
+      } else if (existingRef && typeof existingRef === "object") {
+        (existingRef as MutableRefObject<HTMLElement | null>).current = node;
+      }
+    };
+
+    const handleMouseEnter = (event: MouseEvent<HTMLElement>) => {
+      child.props.onMouseEnter?.(event);
+      if (!event.defaultPrevented) {
+        handleOpen();
+      }
+    };
+
+    const handleMouseLeave = (event: MouseEvent<HTMLElement>) => {
+      child.props.onMouseLeave?.(event);
+      if (!event.defaultPrevented) {
+        handleClose();
+      }
+    };
+
+    const handleFocus = (event: FocusEvent<HTMLElement>) => {
+      child.props.onFocus?.(event);
+      if (!event.defaultPrevented) {
+        handleOpen();
+      }
+    };
+
+    const handleBlur = (event: FocusEvent<HTMLElement>) => {
+      child.props.onBlur?.(event);
+      if (!event.defaultPrevented) {
+        handleClose();
+      }
+    };
+
+    const mergedClassName = [child.props.className, wrapperClassName].filter(Boolean).join(" ");
+
+    return (
+      <>
+        {cloneElement(child, {
+          ref: assignRef,
+          className: mergedClassName || undefined,
+          onMouseEnter: handleMouseEnter,
+          onMouseLeave: handleMouseLeave,
+          onFocus: handleFocus,
+          onBlur: handleBlur,
+        })}
+        {tooltipPortal}
+      </>
+    );
+  }
+
+  const rootClassName = [
+    "relative inline-flex min-w-0 max-w-full items-center",
+    wrapperClassName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const labelClassName = [
+    "min-w-0 max-w-full",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <span
+      ref={setSpanTriggerRef}
+      className={rootClassName}
+      onMouseEnter={handleOpen}
+      onMouseLeave={handleClose}
+      onFocusCapture={handleOpen}
+      onBlurCapture={handleClose}
+    >
+      <span className={labelClassName}>{children}</span>
+      {tooltipPortal}
     </span>
   );
 }

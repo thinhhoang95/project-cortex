@@ -4,6 +4,7 @@ import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import ShimmeringText from "@/components/ShimmeringText";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 
 type LeftControl1Props = { embedded?: boolean };
 
@@ -215,47 +216,57 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
                         const zebraClass = index % 2 === 0 ? 'bg-white/0' : 'bg-white/5';
                         return (
                           <Fragment key={rowKey}>
-                            <tr 
-                              className={`border-t border-white/10 ${zebraClass} hover:bg-white/10 cursor-pointer transition-colors`}
-                              onClick={() => handleHotspotRowClick(hotspot)}
-                              title="Click to set time and pan to traffic volume"
+                            <TrafficVolumeInfoTooltip
+                              trafficVolumeId={String(hotspot.traffic_volume_id ?? "")}
+                              asChild
                             >
-                              <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
-                              <td className="p-2 font-mono text-xs leading-tight">
-                                <div>{from?.trim()}</div>
-                                <div>{to?.trim()}</div>
-                              </td>
-                              <td className="p-2 text-right font-mono">{occupancy.toFixed(0)}</td>
-                              <td className="p-2 text-right font-mono">{capacity.toFixed(0)}</td>
-                              <td className="p-2 text-right font-mono">{excess.toFixed(0)}</td>
-                            </tr>
-                            <tr className={`border-t border-white/10 ${zebraClass} hover:bg-white/10 transition-colors`}>
-                              <td
-                                className="p-2 pt-2 pb-2 cursor-pointer"
-                                colSpan={5}
+                              <tr
+                                className={`border-t border-white/10 ${zebraClass} hover:bg-white/10 cursor-pointer transition-colors`}
                                 onClick={() => handleHotspotRowClick(hotspot)}
-                                role="button"
-                                aria-label={`Show hotspot ${hotspot.traffic_volume_id} details`}
-                                tabIndex={0}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter' || event.key === ' ') {
-                                    event.preventDefault();
-                                    handleHotspotRowClick(hotspot);
-                                  }
-                                }}
+                                title="Click to set time and pan to traffic volume"
                               >
-                                <TrafficOverloadBar
-                                  fromTime="00:00"
-                                  toTime="24:00"
-                                  data={[{
-                                    period: String(hotspot.time_bin || ""),
-                                    color: severityColor,
-                                    metadata,
-                                    label: `${hotspot.traffic_volume_id} hotspot`,
-                                  }]}
-                                />
-                              </td>
-                            </tr>
+                                <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
+                                <td className="p-2 font-mono text-xs leading-tight">
+                                  <div>{from?.trim()}</div>
+                                  <div>{to?.trim()}</div>
+                                </td>
+                                <td className="p-2 text-right font-mono">{occupancy.toFixed(0)}</td>
+                                <td className="p-2 text-right font-mono">{capacity.toFixed(0)}</td>
+                                <td className="p-2 text-right font-mono">{excess.toFixed(0)}</td>
+                              </tr>
+                            </TrafficVolumeInfoTooltip>
+                            <TrafficVolumeInfoTooltip
+                              trafficVolumeId={String(hotspot.traffic_volume_id ?? "")}
+                              asChild
+                            >
+                              <tr className={`border-t border-white/10 ${zebraClass} hover:bg-white/10 transition-colors`}>
+                                <td
+                                  className="p-2 pt-2 pb-2 cursor-pointer"
+                                  colSpan={5}
+                                  onClick={() => handleHotspotRowClick(hotspot)}
+                                  role="button"
+                                  aria-label={`Show hotspot ${hotspot.traffic_volume_id} details`}
+                                  tabIndex={0}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      handleHotspotRowClick(hotspot);
+                                    }
+                                  }}
+                                >
+                                  <TrafficOverloadBar
+                                    fromTime="00:00"
+                                    toTime="24:00"
+                                    data={[{
+                                      period: String(hotspot.time_bin || ""),
+                                      color: severityColor,
+                                      metadata,
+                                      label: `${hotspot.traffic_volume_id} hotspot`,
+                                    }]}
+                                  />
+                                </td>
+                              </tr>
+                            </TrafficVolumeInfoTooltip>
                           </Fragment>
                         );
                       })}
