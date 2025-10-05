@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
@@ -9,6 +9,12 @@ import { authFetch } from "@/lib/auth";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 
 type RegulationPanelProps = { embedded?: boolean };
+
+type CommunityReviewContext = {
+  communityId: string;
+  flightIds: string[];
+  label: string;
+};
 
 export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
   const {
@@ -68,6 +74,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [flightListLoading, setFlightListLoading] = useState(false);
   const [magicSearchOpen, setMagicSearchOpen] = useState(false);
   const [showOnlyTargeted, setShowOnlyTargeted] = useState(false);
+  const [communityReviewContext, setCommunityReviewContext] = useState<CommunityReviewContext | null>(null);
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -415,11 +422,83 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     return () => { setFlowPreviewFlightId(null); setFlowPreviewGroupId(null); };
   }, [setFlowPreviewFlightId, setFlowPreviewGroupId]);
 
+  const addRegulationFromFlightIds = useCallback((flightIds: string[]) => {
+    if (!selectedTrafficVolume) return false;
+    const uniqueIds = Array.from(new Set((flightIds || []).map((id) => String(id)).filter(Boolean)));
+    if (uniqueIds.length === 0) return false;
+    const idSet = new Set(uniqueIds);
+    const callsignMap = new Map<string, string>();
+    for (const flight of flights) {
+      const id = String(flight.flightId);
+      if (!idSet.has(id)) continue;
+      const callsign = flight.callSign ? String(flight.callSign) : id;
+      callsignMap.set(id, callsign);
+    }
+    const flightCallsigns = uniqueIds.map((id) => callsignMap.get(id) ?? id);
+    if (flightCallsigns.length === 0) return false;
+    addRegulation({
+      trafficVolume: selectedTrafficVolume,
+      activeTimeWindowFrom: regulationTimeWindow[0],
+      activeTimeWindowTo: regulationTimeWindow[1],
+      flightCallsigns,
+      rate: regulationRate,
+    });
+    setIsRegulationPanelOpen(true);
+    clearRegulationTargetFlights();
+    return true;
+  }, [selectedTrafficVolume, flights, addRegulation, regulationTimeWindow, regulationRate, setIsRegulationPanelOpen, clearRegulationTargetFlights]);
+
+  const handleReviewCommunity = useCallback((context: CommunityReviewContext) => {
+    if (!context) return;
+    const normalizedIds = Array.from(new Set((context.flightIds || []).map((id) => String(id)).filter(Boolean)));
+    if (normalizedIds.length === 0) {
+      setCommunityReviewContext(null);
+      return;
+    }
+    setCommunityReviewContext({
+      communityId: String(context.communityId),
+      label: context.label || `Community ${context.communityId}`,
+      flightIds: normalizedIds,
+    });
+  }, [setCommunityReviewContext]);
+
+  const communityReviewFlightIds = useMemo(() => {
+    if (!communityReviewContext) return [] as string[];
+    return communityReviewContext.flightIds.map((id) => String(id));
+  }, [communityReviewContext]);
+
+  const communityReviewLabels = useMemo(() => {
+    if (!communityReviewContext) {
+      return { highlight: undefined as string | undefined, baseline: undefined as string | undefined };
+    }
+    const baseLabel = communityReviewContext.label || `Community ${communityReviewContext.communityId}`;
+    return {
+      highlight: `Add ${baseLabel}`,
+      baseline: baseLabel,
+    };
+  }, [communityReviewContext]);
+
+  const handleCommunityReviewSelection = useCallback((selectedIds: string[]) => {
+    if (!communityReviewContext) return;
+    const allowed = new Set((communityReviewContext.flightIds || []).map((id) => String(id)));
+    const chosen = Array.from(new Set((selectedIds || []).map((id) => String(id)).filter((id) => allowed.has(id))));
+    if (chosen.length === 0) {
+      setCommunityReviewContext(null);
+      return;
+    }
+    addRegulationFromFlightIds(chosen);
+    setCommunityReviewContext(null);
+  }, [communityReviewContext, addRegulationFromFlightIds, setCommunityReviewContext]);
+
+  const handleCloseCommunityReview = useCallback(() => {
+    setCommunityReviewContext(null);
+  }, [setCommunityReviewContext]);
+
   function handlePreviewRegulation() {
     if (!selectedTrafficVolume || selectedFlights.length === 0) return;
-    
+
     const flightCallsigns = selectedFlights.map(f => f.callSign || String(f.flightId));
-    
+
     addRegulation({
       trafficVolume: selectedTrafficVolume,
       activeTimeWindowFrom: regulationTimeWindow[0],
@@ -647,6 +726,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             orderedFlightsData={orderedFlightsData}
             regulationTimeWindow={regulationTimeWindow}
             embedded={embedded}
+            onReviewCommunity={handleReviewCommunity}
           />
         )}
 
@@ -864,12 +944,22 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         }}
         fullScreen
       />
+      <FlightQueryDialog
+        open={!!communityReviewContext}
+        onClose={handleCloseCommunityReview}
+        flightIds={communityReviewFlightIds}
+        onSelectFlights={handleCommunityReviewSelection}
+        highlightLabel={communityReviewLabels.highlight}
+        baselineLabel={communityReviewLabels.baseline}
+        fullScreen
+      />
     </div>
   );
 }
 
-function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow, embedded }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number]; embedded?: boolean }) {
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow, embedded, onReviewCommunity }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number]; embedded?: boolean; onReviewCommunity: (context: CommunityReviewContext) => void; }) {
   const { setFlowPreviewFlightId, setFlowPreviewGroupId, regulationTargetFlightIds, setRegulationTargetFlightIds } = useSimStore();
+  const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
   // Derive community sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -895,6 +985,13 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
       .sort((a, b) => b.size - a.size)
       .slice(0, 10);
   }, [groupEntries]);
+
+  useEffect(() => {
+    if (!openMenuFor) return;
+    if (!topGroups.some((g) => g.cid === openMenuFor)) {
+      setOpenMenuFor(null);
+    }
+  }, [openMenuFor, topGroups]);
 
   // Use centralized color mapping from the store; default gray for others
   const colorMap = useMemo(() => new Map<string, string>(Object.entries(flowColorByCommunity || {})), [flowColorByCommunity]);
@@ -945,22 +1042,64 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                     ariaLabel={`Open flight statistics for community ${g.cid}`}
                     title="Open flight statistics"
                   />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // Bulk add this community's flights to the Target Regulation Flight List
-                      const next = new Set<string>(regulationTargetFlightIds);
-                      for (const fid of g.ids || []) {
-                        if (fid) next.add(String(fid));
-                      }
-                      if (!areSetsEqual(next, regulationTargetFlightIds)) setRegulationTargetFlightIds(next);
-                    }}
-                    className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1 text-[11px]"
-                    title="Add this community to Targeted Flights"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
-                    <span className="hidden sm:inline">Add</span>
-                  </button>
+                  <div className="relative inline-block text-[11px]">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuFor((prev) => (prev === g.cid ? null : g.cid));
+                      }}
+                      className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1"
+                      title="Add this community to Targeted Flights"
+                      aria-haspopup="menu"
+                      aria-expanded={openMenuFor === g.cid}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+                      <span className="hidden sm:inline">Add</span>
+                    </button>
+                    {openMenuFor === g.cid && (
+                      <div
+                        className="absolute right-0 mt-1 w-44 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-20"
+                        onClick={(e) => e.stopPropagation()}
+                        role="menu"
+                      >
+                        <button
+                          className="w-full text-left px-3 py-2 hover:bg-white/10"
+                          onClick={() => {
+                            const next = new Set<string>(regulationTargetFlightIds);
+                            for (const fid of g.ids || []) {
+                              if (fid) next.add(String(fid));
+                            }
+                            if (!areSetsEqual(next, regulationTargetFlightIds)) {
+                              setRegulationTargetFlightIds(next);
+                            }
+                            setOpenMenuFor(null);
+                          }}
+                          role="menuitem"
+                        >
+                          Add
+                        </button>
+                        <button
+                          className="w-full text-left px-3 py-2 hover:bg-white/10"
+                          onClick={() => {
+                            const uniqueIds = Array.from(new Set((g.ids || []).map((fid) => String(fid)).filter(Boolean)));
+                            if (uniqueIds.length === 0) {
+                              setOpenMenuFor(null);
+                              return;
+                            }
+                            onReviewCommunity({
+                              communityId: g.cid,
+                              flightIds: uniqueIds,
+                              label: `Community ${g.cid}`,
+                            });
+                            setOpenMenuFor(null);
+                          }}
+                          role="menuitem"
+                        >
+                          Review and Add
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="px-2 pt-2">
