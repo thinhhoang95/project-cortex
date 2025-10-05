@@ -11,6 +11,7 @@ import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
+import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
 
 function countTimesUpTo(sortedTimes: number[], value: number): number {
   let lo = 0;
@@ -147,6 +148,7 @@ export default function Page() {
         </div>
       </div>
       <ViewOptionsControl />
+      <ReleaseNotesDialog />
     </main>
   );
 }
