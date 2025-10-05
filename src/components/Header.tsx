@@ -149,6 +149,9 @@ const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
             <Link href="/" className={`${pathname === '/' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
               Monitoring
             </Link>
+            <Link href="/predictions" className={`${pathname === '/predictions' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
+              Predictions
+            </Link>
             <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
               Regulations
             </Link>
