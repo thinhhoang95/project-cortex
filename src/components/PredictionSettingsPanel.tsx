@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import SelectChevron from "@/components/SelectChevron";
 
 type PredictionSettingsPanelProps = {
   embedded?: boolean;
@@ -45,25 +46,31 @@ export default function PredictionSettingsPanel({
           <h2 className="font-semibold mb-3">Simulation Settings</h2>
           <div className="space-y-3">
             <FormField label="Behavioural Model">
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent [&>option]:bg-slate-800 [&>option]:text-white"
-              >
-                <option value="Equinox Summer 2023">
-                  Equinox Summer 2023
-                </option>
-              </select>
+              <div className="relative">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full appearance-none pl-3 pr-10 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent [&>option]:bg-slate-800 [&>option]:text-white"
+                >
+                  <option value="Equinox Summer 2023">
+                    Equinox Summer 2023
+                  </option>
+                </select>
+                <SelectChevron />
+              </div>
             </FormField>
 
             <FormField label="Regulation Scenario">
-              <select
-                value={regulationScenario}
-                onChange={(e) => setRegulationScenario(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent [&>option]:bg-slate-800 [&>option]:text-white"
-              >
-                <option value="Default">Default</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={regulationScenario}
+                  onChange={(e) => setRegulationScenario(e.target.value)}
+                  className="w-full appearance-none pl-3 pr-10 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent [&>option]:bg-slate-800 [&>option]:text-white"
+                >
+                  <option value="Default">Default</option>
+                </select>
+                <SelectChevron />
+              </div>
             </FormField>
           </div>
         </div>
@@ -103,17 +110,20 @@ export default function PredictionSettingsPanel({
               </FormField>
 
               <FormField label="Reporting value">
-                <select
-                  value={reportingValue}
-                  onChange={(e) => setReportingValue(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent [&>option]:bg-slate-800 [&>option]:text-white"
-                >
-                  {reportingOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={reportingValue}
+                    onChange={(e) => setReportingValue(e.target.value)}
+                    className="w-full appearance-none pl-3 pr-10 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent [&>option]:bg-slate-800 [&>option]:text-white"
+                  >
+                    {reportingOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <SelectChevron />
+                </div>
               </FormField>
             </div>
           </div>

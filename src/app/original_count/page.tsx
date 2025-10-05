@@ -9,6 +9,7 @@ import { loadSectors } from "@/lib/airspace";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import SelectChevron from "@/components/SelectChevron";
 import {
   ComposedChart,
   Bar,
@@ -258,14 +259,17 @@ export default function OriginalCountPage() {
               </div>
               <div>
                 <div className="text-[11px] opacity-80 mb-1 text-white">Rank by</div>
-                <select
-                  value={rankBy}
-                  onChange={(e) => setRankBy(e.currentTarget.value)}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                >
-                  <option value="total_excess">Total Excess</option>
-                  <option value="total_count">Total Count</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={rankBy}
+                    onChange={(e) => setRankBy(e.currentTarget.value)}
+                    className="w-full appearance-none pl-3 pr-10 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                  >
+                    <option value="total_excess">Total Excess</option>
+                    <option value="total_count">Total Count</option>
+                  </select>
+                  <SelectChevron />
+                </div>
               </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
