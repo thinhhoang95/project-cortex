@@ -3,26 +3,28 @@
 import { useEffect, useState } from "react";
 import ModalDialog from "./ModalDialog";
 
-const RELEASE_NOTES_VERSION = "2024.09.01";
+const RELEASE_NOTES_VERSION = "2025.10.05";
 const LOCAL_STORAGE_KEY = "release-notes-version";
 
 const RELEASE_NOTES_CONTENT = `
-  <h2>Highlights</h2>
-  <p>Welcome to the latest Project Cortex update! This release introduces a collection of improvements designed to streamline your operations and give controllers better situational awareness.</p>
-  <ul>
-    <li><strong>Stability upgrades:</strong> Numerous under-the-hood enhancements reduce latency spikes when ingesting high-volume flow data.</li>
-    <li><strong>Visualization refresh:</strong> The tactical map now features clearer altitude coloring, making congested sectors easier to spot.</li>
-    <li><strong>Smarter recommendations:</strong> Flight prioritization automatically accounts for arrival bank constraints to keep downstream airports balanced.</li>
+  <h2 class="text-2xl font-bold mb-4">Highlights</h2>
+  
+  <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
+  
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Color bar feature.</strong> You can now have the usual experience of glancing at the color bar to quickly scan for traffic overloads, similarly in ETFMS/iFlow. The overload color bar is available under everywhere you see a histogram occupancy chart.</li>
+    <li><strong>A Smarter Flight Filter.</strong> The intelligent flight querying system is now powered by a more recent checkpoint of a custom fine-tuned model based on Qwen3-32B: faster and more accurate.</li>
+    <li><strong>Regulation Proposals.</strong> You can now pick any traffic volume to see automatically generated proposals for regulation.</li>
   </ul>
-  <h2>Quality of life</h2>
-  <p>We also addressed several long-standing paper cuts and community requests.</p>
-  <ol>
-    <li>Copied regulation plans preserve custom titles and sharing permissions.</li>
-    <li>When switching scenarios the previously selected airport stays pinned.</li>
-    <li>Search remembers your five most recent queries for rapid access.</li>
-  </ol>
-  <h2>Looking ahead</h2>
-  <p>Expect more collaboration tooling and per-flight annotations in upcoming releases. As always, share your feedback directly from the app sidebar.</p>
+  
+  <h2 class="text-2xl font-bold mb-4">Tell us what you think!</h2>
+  <p class="mb-4">We value your feedback and are constantly improving the app. Please share your thoughts with me via dthoang@intuelle.com.</p>
+  
+  <h2 class="text-2xl font-bold mb-4">Looking ahead</h2>
+  <p>A new prediction tab is coming, with the ability to visualize predictions for every single flight, along with confidence intervals for occupancy counts and probability of overloads.</p>
+
+  <p class="mt-8">Happy cooking!</p>
+  <p> Yours truly, Thinh.</p>
 `;
 
 export default function ReleaseNotesDialog() {
@@ -56,7 +58,7 @@ export default function ReleaseNotesDialog() {
     <ModalDialog
       open={open}
       onClose={handleClose}
-      title="Project Cortex Release Notes"
+      title="Release Notes"
       description={`Version ${RELEASE_NOTES_VERSION}`}
       height="h-[min(720px,92vh)]"
     >
@@ -71,7 +73,7 @@ export default function ReleaseNotesDialog() {
           <button
             type="button"
             onClick={handleClose}
-            className="inline-flex items-center rounded-lg border border-sky-400/60 bg-sky-500/20 px-4 py-2 text-sm font-medium text-sky-100 shadow-sm transition hover:bg-sky-500/30"
+            className="inline-flex items-center rounded-full border border-sky-400/60 bg-sky-500/20 px-4 py-2 text-sm font-medium text-sky-100 shadow-sm transition hover:bg-sky-500/30"
           >
             OK
           </button>
