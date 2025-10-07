@@ -277,6 +277,7 @@ const defaultState: Pick<State,
   | 'showHotspots'
   | 'hotspots'
   | 'hotspotsLoading'
+  | 'hotspotsMetadata'
   | 'flowViewEnabled'
   | 'flowThreshold'
   | 'flowResolution'
