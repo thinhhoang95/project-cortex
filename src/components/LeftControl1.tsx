@@ -5,11 +5,12 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import ShimmeringText from "@/components/ShimmeringText";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
+import { addMinutesToHHMM } from "@/lib/time";
 
 type LeftControl1Props = { embedded?: boolean };
 
 export default function LeftControl1({ embedded = false }: LeftControl1Props) {
-  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, setT, setSelectedTrafficVolume } = useSimStore();
+  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, hotspotsMetadata, setT, setSelectedTrafficVolume } = useSimStore();
   
   // Sorting state for hotspot table
   type SortKey = 'tv' | 'time' | 'occ' | 'cap' | 'ex';
@@ -81,6 +82,11 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
     return sortedHotspots.slice(0, 20);
   }, [sortedHotspots, showAllHotspots]);
   const hiddenHotspotCount = Math.max(0, sortedHotspots.length - displayedHotspots.length);
+
+  const hotspotBinMinutesRaw = Number(hotspotsMetadata?.time_bin_minutes);
+  const hotspotBinMinutes = Number.isFinite(hotspotBinMinutesRaw) && hotspotBinMinutesRaw > 0
+    ? hotspotBinMinutesRaw
+    : null;
 
   const handleHeaderClick = (key: SortKey) => {
     if (key === sortBy) {
@@ -190,7 +196,12 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
                     </thead>
                     <tbody>
                       {displayedHotspots.map((hotspot, index) => {
-                        const [from, to] = String(hotspot.time_bin || '').split('-');
+                        const [fromRaw, toRaw] = String(hotspot.time_bin || '').split('-');
+                        const from = (fromRaw ?? '').trim();
+                        const toStart = (toRaw ?? '').trim();
+                        const to = toStart && hotspotBinMinutes !== null
+                          ? addMinutesToHHMM(toStart, hotspotBinMinutes)
+                          : toStart;
                         const occupancy = Number(hotspot.hourly_occupancy ?? 0);
                         const capacity = Number(hotspot.hourly_capacity ?? 0);
                         const excess = occupancy - capacity;
@@ -228,8 +239,8 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
                               >
                                 <td className="p-2 font-mono text-xs">{hotspot.traffic_volume_id}</td>
                                 <td className="p-2 font-mono text-xs leading-tight">
-                                  <div>{from?.trim()}</div>
-                                  <div>{to?.trim()}</div>
+                                  <div>{from}</div>
+                                  <div>{to}</div>
                                 </td>
                                 {/* <td className="p-2 text-right font-mono">{occupancy.toFixed(0)}</td> */}
                                 {/* <td className="p-2 text-right font-mono">{capacity.toFixed(0)}</td> */}

@@ -11,7 +11,6 @@ import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
-import SlackViewControl from "@/components/SlackViewControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import {
   loadRegSnapshots,
@@ -147,7 +146,6 @@ export default function RegulationsPage() {
           </div>
         )}
       </div>
-      <SlackViewControl />
       <ViewOptionsControl />
       {regComparisonToast && (
         <div

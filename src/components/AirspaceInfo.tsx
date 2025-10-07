@@ -14,6 +14,7 @@ interface OccupancyData {
   traffic_volume_id: string;
   occupancy_counts: Record<string, number>;
   hourly_capacity: Record<string, number>;
+  anchor_capacity?: Record<string, number>;
   metadata: {
     time_bin_minutes: number;
     total_time_windows: number;
@@ -141,10 +142,10 @@ export default function AirspaceInfo() {
         const [hours, minutes] = startTime.split(':').map(Number);
         const hour = hours + minutes / 60;
 
-        // Find the capacity for this time bin from hourly_capacity
-        // hourly_capacity uses format "HH:00-HH+1:00" so we need to match the hour
+        // capacity for this bin: prefer anchor (HH:MM), fallback to hourly (HH:00-HH+1:00)
+        const anchorKey = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
-        const capacity = occupancyData.hourly_capacity[hourKey];
+        const capacity = occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey];
 
         return {
           time: timeRange,
@@ -417,18 +418,41 @@ export default function AirspaceInfo() {
     ? (displayChartData.find(d => currentTimeHours <= d.hour) ?? displayChartData[displayChartData.length - 1]).time
     : undefined;
 
-  // Generate capacity reference lines - group by hour and create horizontal lines
-  const capacityLines = occupancyData ? 
-    Object.entries(occupancyData.hourly_capacity).map(([hourRange, capacity]) => {
-      const [startHour] = hourRange.split('-')[0].split(':');
-      const hourNum = parseInt(startHour);
-      return { hour: hourNum, capacity };
-    }) : [];
-
   // Find the current count at the current time bin
   const currentCount = displayChartData.length
     ? (displayChartData.find(d => currentTimeHours <= d.hour) ?? displayChartData[displayChartData.length - 1]).count
     : 0;
+
+  const currentAnchorCapacity = useMemo(() => {
+    if (!occupancyData || !Number.isFinite(timeBinMinutes) || timeBinMinutes <= 0) return undefined;
+    const minutesPerDay = 24 * 60;
+    const totalMinutes = Math.floor(t / 60) % minutesPerDay;
+    const binStartMinutes = totalMinutes - (totalMinutes % timeBinMinutes);
+    const hours = Math.floor(binStartMinutes / 60);
+    const minutes = binStartMinutes % 60;
+    const anchorKey = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
+    return occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey];
+  }, [occupancyData, timeBinMinutes, t]);
+
+  const windowAnchorCapacityRange = useMemo(() => {
+    if (!focusMode) return null;
+    const values = displayChartData
+      .map((d) => (typeof d.capacity === 'number' && Number.isFinite(d.capacity) ? d.capacity : null))
+      .filter((v): v is number => v !== null);
+    if (!values.length) return null;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return { min, max };
+  }, [displayChartData, focusMode]);
+
+  const windowCapacityLabel = windowAnchorCapacityRange
+    ? `${Math.round(windowAnchorCapacityRange.min)}–${Math.round(windowAnchorCapacityRange.max)}`
+    : null;
+
+  const summaryGridClassName = typeof currentAnchorCapacity === 'number'
+    ? 'grid grid-cols-2 md:grid-cols-3 gap-3'
+    : 'grid grid-cols-2 gap-3';
 
   // Custom tick formatter for x-axis - show every 3 hours
   const formatXAxisTick = (tickItem: string, index: number) => {
@@ -472,12 +496,12 @@ export default function AirspaceInfo() {
 
       const metadata: string[] = [`Rolling occupancy: ${Math.round(occupancy)}`];
       if (capacity > 0) {
-        metadata.push(`Hourly capacity: ${Math.round(capacity)}`);
+        metadata.push(`Anchor capacity (rolling hour): ${Math.round(capacity)}`);
         metadata.push(`Load ratio: ${(occupancy / capacity).toFixed(2)}`);
         const diff = occupancy - capacity;
         metadata.push(`${diff >= 0 ? 'Excess' : 'Available'}: ${Math.abs(Math.round(diff))}`);
       } else {
-        metadata.push('Hourly capacity: unavailable');
+        metadata.push('Anchor capacity unavailable');
       }
 
       return {
@@ -506,7 +530,7 @@ export default function AirspaceInfo() {
           </p>
           {data?.capacity !== undefined && (
             <p className="text-yellow-300">
-              Capacity: <span className="font-medium">{data.capacity}</span>
+              Anchor capacity: <span className="font-medium">{Math.round(data.capacity)}</span>
             </p>
           )}
         </div>
@@ -591,20 +615,29 @@ export default function AirspaceInfo() {
           {occupancyData && !loading && !error && (
             <div className="space-y-4">
               {/* Summary Stats */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className={summaryGridClassName}>
                 <div className="bg-white/10 rounded-lg p-3">
-                  <p className="text-xs opacity-70">Total Movements</p>
+                  <p className="text-xs opacity-70">Movements</p>
                   <p className="text-lg font-semibold">{occupancyData.metadata.total_flights_in_tv}</p>
                 </div>
                 <div className="bg-white/10 rounded-lg p-3">
                   <p className="text-xs opacity-70">Current Count</p>
                   <p className="text-lg font-semibold">{currentCount}</p>
                 </div>
+                {typeof currentAnchorCapacity === 'number' && (
+                  <div className="bg-white/10 rounded-lg p-3">
+                    <p className="text-xs opacity-70">Capacity</p>
+                    <p className="text-lg font-semibold">{Math.round(currentAnchorCapacity)}</p>
+                  </div>
+                )}
               </div>
+              {focusMode && windowCapacityLabel && (
+                <p className="text-xs opacity-70">Capacity anchors (window): {windowCapacityLabel}</p>
+              )}
 
               {/* Histogram */}
               <div className="bg-white/5 rounded-lg p-4">
-                <h4 className="font-medium text-sm mb-3 opacity-90">Rolling Hour Occupancy & Capacity</h4>
+                <h4 className="font-medium text-sm mb-3 opacity-90">Rolling Hour Occupancy & Anchor Capacity</h4>
                 <div style={{ width: '100%', height: 200 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={displayChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
@@ -642,13 +675,13 @@ export default function AirspaceInfo() {
                         style={{ cursor: 'pointer' }}
                       />
                       <Line 
-                        type="stepAfter"
+                        type="linear"
                         dataKey="capacity" 
                         stroke="#fbbf24"
                         strokeWidth={2}
                         dot={false}
                         connectNulls={false}
-                        name="Capacity"
+                        name="Anchor capacity (rolling hour)"
                         isAnimationActive={false}
                       />
                       
@@ -671,7 +704,7 @@ export default function AirspaceInfo() {
                   </div>
                   <div className="flex items-center">
                     <div className="w-3 h-0.5 bg-yellow-400 mr-1"></div>
-                    <span>Hourly Capacity</span>
+                    <span>Anchor Capacity (rolling hour)</span>
                   </div>
                 </div>
               </div>

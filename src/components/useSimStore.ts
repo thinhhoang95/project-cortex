@@ -101,6 +101,7 @@ type State = {
   showHotspots: boolean;
   hotspots: Hotspot[];
   hotspotsLoading: boolean;
+  hotspotsMetadata: HotspotResponse["metadata"] | null;
   // Flow view state
   flowViewEnabled: boolean;
   flowThreshold: number;
@@ -175,6 +176,7 @@ type State = {
   setShowHotspots: (show: boolean) => void;
   setHotspots: (hotspots: Hotspot[]) => void;
   setHotspotsLoading: (loading: boolean) => void;
+  setHotspotsMetadata: (metadata: HotspotResponse["metadata"] | null) => void;
   // Flow view actions
   setFlowViewEnabled: (enabled: boolean) => void;
   setFlowThreshold: (threshold: number) => void;
@@ -339,6 +341,7 @@ const defaultState: Pick<State,
   showHotspots: false,
   hotspots: [],
   hotspotsLoading: false,
+  hotspotsMetadata: null,
   flowViewEnabled: false,
   flowThreshold: 0.8,
   flowResolution: 1.0,
@@ -498,6 +501,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setShowHotspots: (show) => set({ showHotspots: show }),
   setHotspots: (hotspots) => set({ hotspots }),
   setHotspotsLoading: (loading) => set({ hotspotsLoading: loading }),
+  setHotspotsMetadata: (metadata) => set({ hotspotsMetadata: metadata }),
   setFlowViewEnabled: (enabled) => set({ flowViewEnabled: enabled }),
   setFlowThreshold: (threshold) => set({ flowThreshold: threshold }),
   setFlowResolution: (resolution) => set({ flowResolution: resolution }),
@@ -530,10 +534,13 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       }
       
       // Hotspots are already sorted by z_max in the API
-      set({ hotspots: data.hotspots || [] });
+      set({
+        hotspots: data.hotspots || [],
+        hotspotsMetadata: data.metadata ?? null,
+      });
     } catch (error) {
       console.error('Error fetching hotspots:', error);
-      set({ hotspots: [] });
+      set({ hotspots: [], hotspotsMetadata: null });
     } finally {
       set({ hotspotsLoading: false });
     }

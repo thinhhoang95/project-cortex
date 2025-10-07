@@ -67,7 +67,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [inputValue, setInputValue] = useState("");
   const [activePreset, setActivePreset] = useState<string>("1h");
   const [currentCount, setCurrentCount] = useState<number>(0);
-  const [hourlyCapacity, setHourlyCapacity] = useState<number>(0);
+  const [currentAnchorCapacity, setCurrentAnchorCapacity] = useState<number | null>(null);
   const [occupancyData, setOccupancyData] = useState<any | null>(null);
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<Record<string, string[]> | null>(null);
   const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
@@ -95,11 +95,17 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         const data = await res.json();
         if (cancelled) return;
         setOccupancyData(data);
-        const cap = capacityForTime(data?.hourly_capacity || {}, t);
-        setHourlyCapacity(cap ?? 0);
+        const binMinutes = inferTimeBinMinutesFromData(data);
+        const cap = anchorCapacityForTime(
+          data?.anchor_capacity,
+          data?.hourly_capacity,
+          t,
+          binMinutes
+        );
+        setCurrentAnchorCapacity(typeof cap === 'number' ? cap : null);
         setRegulationRate(cap ?? 0);
       } catch {
-        if (!cancelled) { setOccupancyData(null); setHourlyCapacity(0); }
+        if (!cancelled) { setOccupancyData(null); setCurrentAnchorCapacity(null); }
       }
       // Default active time window anchored at current t unless editing payload provided
       if (!useSimStore.getState().regulationEditPayload) {
@@ -140,13 +146,23 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     return () => { cancelled = true; };
   }, [selectedTrafficVolume, t]);
 
+  const timeBinMinutes = useMemo(
+    () => inferTimeBinMinutesFromData(occupancyData),
+    [occupancyData]
+  );
+
   // Recompute current count and capacity when time changes
   useEffect(() => {
-    const cap = capacityForTime(occupancyData?.hourly_capacity || {}, t);
-    setHourlyCapacity(cap ?? hourlyCapacity);
+    const cap = anchorCapacityForTime(
+      occupancyData?.anchor_capacity,
+      occupancyData?.hourly_capacity,
+      t,
+      timeBinMinutes
+    );
+    setCurrentAnchorCapacity(typeof cap === 'number' ? cap : null);
     const count = currentCountForTime(occupancyData, t);
     if (typeof count === 'number') setCurrentCount(count);
-  }, [t, occupancyData]);
+  }, [t, occupancyData, timeBinMinutes]);
 
   // Build histogram data (rolling hour), then filter to active time window
   const baseChartData: Array<{ time: string; count: number; hour: number; capacity?: number }> = useMemo(() => {
@@ -156,27 +172,21 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       const [startTime] = timeRange.split('-');
       const [hours, minutes] = startTime.split(':').map(Number);
       const hour = hours + minutes / 60;
+      const anchorKey = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
       const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
-      const capacity = occupancyData.hourly_capacity?.[hourKey];
+      const capacity = occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey];
       return { time: timeRange, count: count as number, hour, capacity };
     }).sort((a,b) => a.hour - b.hour);
     return arr;
   }, [occupancyData]);
 
+  const binsPerHour = useMemo(
+    () => Math.max(1, Math.round(60 / Math.max(1, timeBinMinutes))),
+    [timeBinMinutes]
+  );
+
   const chartData = useMemo(() => {
     if (baseChartData.length === 0) return [] as typeof baseChartData;
-    // Deduce bin minutes
-    const timeBinMinutes = (() => {
-      const meta = occupancyData?.metadata?.time_bin_minutes;
-      if (typeof meta === 'number' && meta > 0) return meta;
-      try {
-        const [start, end] = baseChartData[0].time.split('-');
-        const [sh, sm] = start.split(':').map(Number);
-        const [eh, em] = end.split(':').map(Number);
-        return Math.max(1, (eh*60+em) - (sh*60+sm));
-      } catch { return 60; }
-    })();
-    const binsPerHour = Math.max(1, Math.round(60 / timeBinMinutes));
     const rolling = baseChartData.map((_, idx) => {
       let rollingSum = 0;
       const endIdx = Math.min(idx + binsPerHour, baseChartData.length);
@@ -184,7 +194,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       return { ...baseChartData[idx], count: rollingSum };
     });
     return rolling;
-  }, [baseChartData, occupancyData]);
+  }, [baseChartData, binsPerHour]);
 
   const displayChartData = useMemo(() => {
     if (!chartData.length) return [] as typeof chartData;
@@ -207,14 +217,6 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     if (!chartData.length) return [];
 
     const [windowStart, windowEnd] = regulationTimeWindow;
-
-    const parseTimeToSeconds = (value: string): number => {
-      const parts = value.split(":").map((p) => Number(p));
-      const hours = Number.isFinite(parts[0]) ? parts[0] : 0;
-      const minutes = Number.isFinite(parts[1]) ? parts[1] : 0;
-      const seconds = Number.isFinite(parts[2]) ? parts[2] : 0;
-      return hours * 3600 + minutes * 60 + seconds;
-    };
 
     // Respect active time window by only including intersecting bins.
     return chartData.reduce((acc: any[], point) => {
@@ -241,12 +243,12 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
       const metadata: string[] = [`Rolling occupancy: ${Math.round(occupancy)}`];
       if (capacity > 0) {
-        metadata.push(`Hourly capacity: ${Math.round(capacity)}`);
+        metadata.push(`Anchor capacity (rolling hour): ${Math.round(capacity)}`);
         metadata.push(`Load ratio: ${ratio.toFixed(2)}`);
         const diff = occupancy - capacity;
         metadata.push(`${diff >= 0 ? 'Excess' : 'Available'}: ${Math.abs(Math.round(diff))}`);
       } else {
-        metadata.push('Hourly capacity: unavailable');
+        metadata.push('Anchor capacity unavailable');
       }
 
       acc.push({
@@ -258,6 +260,31 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       return acc;
     }, [] as any[]);
   }, [chartData, regulationTimeWindow, selectedTrafficVolume]);
+
+  const windowAnchorCapacityRange = useMemo(() => {
+    if (!chartData.length) return null;
+    const [windowStart, windowEnd] = regulationTimeWindow;
+    const values: number[] = [];
+    for (const point of chartData) {
+      const [rawStart = "", rawEnd = ""] = String(point.time || "").split("-");
+      const startSeconds = parseTimeToSeconds(rawStart.trim());
+      const endSeconds = parseTimeToSeconds((rawEnd || rawStart).trim());
+      const intersectsWindow = endSeconds > windowStart && startSeconds < windowEnd;
+      if (!intersectsWindow) continue;
+      if (typeof point.capacity === "number" && Number.isFinite(point.capacity)) {
+        values.push(point.capacity);
+      }
+    }
+    if (!values.length) return null;
+    return {
+      min: Math.min(...values),
+      max: Math.max(...values),
+    };
+  }, [chartData, regulationTimeWindow]);
+
+  const windowAnchorCapacityLabel = windowAnchorCapacityRange
+    ? `${Math.round(windowAnchorCapacityRange.min)}–${Math.round(windowAnchorCapacityRange.max)}`
+    : null;
 
   // Compute filtered flights for active time window, and apply focus filter on the map
   const filteredFlightIds = useMemo(() => {
@@ -637,8 +664,15 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             <div className="text-lg font-semibold">{currentCount}</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">Hourly Capacity</div>
-            <div className="text-lg font-semibold">{hourlyCapacity}</div>
+            <div className="text-xs opacity-70">Capacity</div>
+            <div className="text-lg font-semibold">
+              {currentAnchorCapacity !== null ? Math.round(currentAnchorCapacity) : '—'}
+            </div>
+            {windowAnchorCapacityLabel && (
+              <div className="text-[11px] opacity-70 mt-1">
+                Window anchors: {windowAnchorCapacityLabel}
+              </div>
+            )}
           </div>
         </div>
 
@@ -866,7 +900,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         {displayChartData.length > 0 && (
           <div className="bg-white/5 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium text-sm opacity-90">Rolling Hour Entrances & Capacity</h4>
+              <h4 className="font-medium text-sm opacity-90">Rolling Hour Entrances & Anchor Capacity</h4>
               <span className="text-[10px] opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
             </div>
             <div style={{ width: '100%', height: 180 }}>
@@ -880,14 +914,14 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                     const point: any = displayChartData[index as any];
                     if (point && point.hour !== undefined) setT(point.hour * 3600);
                   }} style={{ cursor: 'pointer' }} />
-                  <Line type="stepAfter" dataKey="capacity" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls={false} name="Capacity" isAnimationActive={false} />
+                  <Line type="linear" dataKey="capacity" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls={false} name="Anchor capacity (rolling hour)" isAnimationActive={false} />
                   <ReferenceLine x={nearestCategoryForTime(displayChartData, t)} stroke="#ef4444" strokeWidth={2} strokeDasharray="0" label={{ value: "Current Time", position: "top", fill: "#ef4444", fontSize: 10 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center justify-center space-x-4 mt-2 text-xs opacity-70">
               <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Entrances</span></div>
-              <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Hourly Capacity</span></div>
+              <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Anchor Capacity (rolling hour)</span></div>
             </div>
           </div>
         )}
@@ -912,8 +946,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             onChange={(e) => setRegulationRate(Number(e.currentTarget.value))}
             className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
           />
-          {hourlyCapacity > 0 && (
-            <div className="text-[10px] opacity-70 mt-1">Defaulted to hourly capacity: {hourlyCapacity}</div>
+          {currentAnchorCapacity !== null && (
+            <div className="text-[10px] opacity-70 mt-1">
+              Defaulted to anchor capacity (rolling hour): {Math.round(currentAnchorCapacity)}
+            </div>
           )}
         </div>
 
@@ -1155,13 +1191,50 @@ function formatTime(seconds: number): string {
   return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}`;
 }
 
-function capacityForTime(hourlyCapacity: Record<string, number>, t: number): number | undefined {
-  // hourlyCapacity keys like "06:00-07:00"; find the matching range for current hour
-  const h = Math.floor(t / 3600);
-  const start = `${h.toString().padStart(2,'0')}:00`;
-  const end = `${(h+1).toString().padStart(2,'0')}:00`;
-  const key = `${start}-${end}`;
-  return hourlyCapacity[key];
+function parseTimeToSeconds(value: string): number {
+  const parts = value.split(":").map((p) => Number(p));
+  const hours = Number.isFinite(parts[0]) ? parts[0] : 0;
+  const minutes = Number.isFinite(parts[1]) ? parts[1] : 0;
+  const seconds = Number.isFinite(parts[2]) ? parts[2] : 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function inferTimeBinMinutesFromData(occupancyData: any): number {
+  if (!occupancyData) return 60;
+  const meta = occupancyData?.metadata?.time_bin_minutes;
+  if (typeof meta === "number" && meta > 0) return meta;
+  const entries = Object.keys(occupancyData?.occupancy_counts || {});
+  if (entries.length === 0) return 60;
+  try {
+    const [range] = entries;
+    const [startStr, endStr] = String(range).split("-");
+    const [sh, sm] = startStr.split(":").map(Number);
+    const [eh, em] = (endStr || startStr).split(":").map(Number);
+    const startMinutes = sh * 60 + sm;
+    let endMinutes = eh * 60 + em;
+    if (endMinutes < startMinutes) endMinutes += 24 * 60;
+    const diff = endMinutes - startMinutes;
+    return diff > 0 ? diff : 60;
+  } catch {
+    return 60;
+  }
+}
+
+function anchorCapacityForTime(
+  anchorCapacity: Record<string, number> | undefined,
+  hourlyCapacity: Record<string, number> | undefined,
+  t: number,
+  timeBinMinutes?: number
+): number | undefined {
+  const binMinutes = typeof timeBinMinutes === "number" && timeBinMinutes > 0 ? timeBinMinutes : 60;
+  const minutesPerDay = 24 * 60;
+  const totalMinutes = Math.floor(t / 60) % minutesPerDay;
+  const binStartMinutes = totalMinutes - (totalMinutes % binMinutes);
+  const hours = Math.floor(binStartMinutes / 60);
+  const minutes = binStartMinutes % 60;
+  const anchorKey = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+  const hourKey = `${hours.toString().padStart(2, "0")}:00-${(hours + 1).toString().padStart(2, "0")}:00`;
+  return anchorCapacity?.[anchorKey] ?? hourlyCapacity?.[hourKey];
 }
 
 function currentCountForTime(occupancyData: any, t: number): number | undefined {
@@ -1181,19 +1254,7 @@ function currentCountForTime(occupancyData: any, t: number): number | undefined 
     return { startStr, endStr, startMin, endMin, count: Number(count) };
   }).sort((a, b) => a.startMin - b.startMin);
 
-  // Deduce bin size in minutes (prefer metadata if present)
-  const timeBinMinutes = (() => {
-    const meta = occupancyData?.metadata?.time_bin_minutes;
-    if (typeof meta === 'number' && meta > 0) return meta;
-    try {
-      const [sh, sm] = base[0].startStr.split(':').map(Number);
-      const [eh, em] = base[0].endStr.split(':').map(Number);
-      const s = sh * 60 + sm;
-      let e = eh * 60 + em;
-      if (e < s) e += 24 * 60;
-      return Math.max(1, e - s);
-    } catch { return 60; }
-  })();
+  const timeBinMinutes = inferTimeBinMinutesFromData(occupancyData);
   const binsPerHour = Math.max(1, Math.round(60 / timeBinMinutes));
 
   // Find index of bin that covers current time t
@@ -1231,7 +1292,7 @@ function RegTooltip({ active, payload, label }: { active?: boolean; payload?: Ar
         <p className="font-medium">{label}</p>
         <p className="text-blue-300">Flights: <span className="font-medium">{payload[0].value}</span></p>
         {d?.capacity !== undefined && (
-          <p className="text-yellow-300">Capacity: <span className="font-medium">{d.capacity}</span></p>
+          <p className="text-yellow-300">Anchor capacity: <span className="font-medium">{Math.round(d.capacity)}</span></p>
         )}
       </div>
     );
