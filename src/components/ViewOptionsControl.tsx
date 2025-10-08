@@ -76,13 +76,8 @@ export default function ViewOptionsControl({ embedded = false, className }: View
             <span className="text-xs font-mono">{formatSecondsToHHMMSS(t)}</span>
           </div>
         )}
-        {/* Left: Date, Time, Speed */}
+        {/* Left: Date & Time */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 leading-tight">
-            <div className="text-[10px] tracking-wider uppercase opacity-80">{dow}, {month}</div>
-            <div className="text-xl font-extrabold">{day}</div>
-          </div>
-          <div className="h-6 w-px bg-white/30" />
           <div>
             <button
               ref={timeButtonRef}
@@ -93,7 +88,9 @@ export default function ViewOptionsControl({ embedded = false, className }: View
               aria-haspopup="dialog"
               title="Click to toggle time seeker"
             >
-              <div className="text-[10px] tracking-wider uppercase opacity-70">Operation Time</div>
+              <div className="text-[10px] tracking-wider uppercase">
+                <span className="opacity-70">{dow}, {month}</span> <span className="text-white/100 font-bold">{day}</span>
+              </div>
               <div className="text-xl font-bold tabular-nums">
                 {formatSecondsToHHMMSS(t)} <span className="text-xs opacity-70 ml-1">UTC</span>
               </div>
@@ -136,7 +133,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
         <div className="h-8 w-px bg-white/40" />
 
         {/* Flight Level Range */}
-        <div className="min-w-[240px] w-[240px]">
+        <div className="min-w-[180px] w-[180px]">
           <FlightLevelRangeControl
             className="w-full"
             fromFL={flLowerBound}
