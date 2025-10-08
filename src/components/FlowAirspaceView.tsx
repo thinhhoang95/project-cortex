@@ -681,7 +681,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             </div>
             {windowAnchorCapacityLabel && (
               <div className="text-[11px] opacity-70 mt-1">
-                Window anchors: {windowAnchorCapacityLabel}
+                Range: {windowAnchorCapacityLabel}
               </div>
             )}
           </div>
@@ -712,14 +712,14 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         <div className="bg-white/5 rounded-lg p-4">
           <div className="flex justify-between items-center mb-3">
             <div className="flex items-center gap-2">
-              <h4 className="font-medium text-sm opacity-90">Flight List ({flightTableData.length} flights)</h4>
+              <h4 className="font-medium text-sm opacity-90">List ({flightTableData.length} flights)</h4>
               <FlightStatisticsButton
                 flightIds={flightTableData.map((flight) => flight.flightId)}
                 buttonClassName="border-white/20 text-white/80"
               />
             </div>
             <span className="text-xs bg-blue-500/20 text-blue-200 px-2 py-1 rounded border border-blue-400/30">
-              Window: {formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}
+              {formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}
             </span>
           </div>
           <div className="bg-white/10 border border-white/10 rounded-lg p-2 mb-3">
@@ -848,7 +848,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         {displayChartData.length > 0 && (
           <div className="bg-white/5 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium text-sm opacity-90">Rolling Hour Entrances & Anchor Capacity</h4>
+              <h4 className="font-medium text-sm opacity-90">Rolling Hour Occupancy Count</h4>
               <span className="text-[10px] opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
             </div>
             <div style={{ width: '100%', height: 180 }}>
@@ -868,8 +868,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               </ResponsiveContainer>
             </div>
             <div className="flex items-center justify-center space-x-4 mt-2 text-xs opacity-70">
-              <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Entrances</span></div>
-              <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Anchor Capacity (rolling hour)</span></div>
+              <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Occupancy Count</span></div>
+              <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Capacity</span></div>
             </div>
           </div>
         )}
