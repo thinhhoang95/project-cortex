@@ -1,7 +1,7 @@
 "use client";
 import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import VerticalProfileChart from "@/components/VerticalProfileChart";
 
 interface FlightDetailsPopupProps {
@@ -13,6 +13,33 @@ interface FlightDetailsPopupProps {
 export default function FlightDetailsPopup({ flight, position, onClose }: FlightDetailsPopupProps) {
   const { t } = useSimStore();
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{
+    pointerId: number | null;
+    offsetX: number;
+    offsetY: number;
+  }>({ pointerId: null, offsetX: 0, offsetY: 0 });
+
+  const resetDragState = () => {
+    dragStateRef.current = { pointerId: null, offsetX: 0, offsetY: 0 };
+  };
+  const [currentPosition, setCurrentPosition] = useState<{ x: number; y: number } | null>(
+    position ? { x: position.x + 10, y: position.y + 10 } : null
+  );
+
+  const clampToViewport = (x: number, y: number) => {
+    const panel = panelRef.current;
+    if (!panel) return { x, y };
+
+    const rect = panel.getBoundingClientRect();
+    const padding = 12;
+    const maxX = Math.max(padding, window.innerWidth - rect.width - padding);
+    const maxY = Math.max(padding, window.innerHeight - rect.height - padding);
+
+    return {
+      x: Math.min(Math.max(x, padding), maxX),
+      y: Math.min(Math.max(y, padding), maxY)
+    };
+  };
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, "0");
@@ -71,7 +98,46 @@ export default function FlightDetailsPopup({ flight, position, onClose }: Flight
     };
   }, [flight, position, onClose]);
 
-  if (!flight || !position) return null;
+  useEffect(() => {
+    if (!flight || !position) {
+      const panel = panelRef.current;
+      const activePointerId = dragStateRef.current.pointerId;
+      if (panel && activePointerId !== null && panel.hasPointerCapture?.(activePointerId)) {
+        panel.releasePointerCapture(activePointerId);
+      }
+      resetDragState();
+      setCurrentPosition(null);
+      return;
+    }
+
+    const base = { x: position.x + 10, y: position.y + 10 };
+    setCurrentPosition(base);
+
+    const frame = window.requestAnimationFrame(() => {
+      setCurrentPosition((prev) => {
+        const panel = panelRef.current;
+        const fallback = prev ?? base;
+        if (!panel) return fallback;
+
+        const rect = panel.getBoundingClientRect();
+        let x = base.x;
+        if (base.x + rect.width > window.innerWidth - 12) {
+          x = position.x - rect.width - 10;
+        }
+        let y = base.y;
+        if (base.y + rect.height > window.innerHeight - 12) {
+          y = window.innerHeight - rect.height - 12;
+        }
+        if (x < 12) x = 12;
+        if (y < 12) y = 12;
+        return { x, y };
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [flight, position?.x, position?.y]);
+
+  if (!flight || !position || !currentPosition) return null;
 
   const takeoffTime = flight.t0;
   const elapsedTime = Math.max(0, t - takeoffTime);
@@ -86,18 +152,55 @@ export default function FlightDetailsPopup({ flight, position, onClose }: Flight
        * and handling outside-click via a document-level listener.
        */}
       {null}
-      <div 
+      <div
         className="fixed z-50 min-w-[280px] max-w-[360px]
                    rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md
                    shadow-xl p-4 text-white"
         style={{
-          left: position.x + 10,
-          top: position.y + 10,
-          transform: position.x > window.innerWidth / 2 ? 'translateX(-100%)' : 'none'
+          left: currentPosition.x,
+          top: currentPosition.y
         }}
         ref={panelRef}
+        onPointerMove={(e) => {
+          const state = dragStateRef.current;
+          if (state.pointerId !== e.pointerId) return;
+          const next = clampToViewport(e.clientX - state.offsetX, e.clientY - state.offsetY);
+          setCurrentPosition(next);
+        }}
+        onPointerUp={(e) => {
+          const panel = panelRef.current;
+          if (dragStateRef.current.pointerId !== e.pointerId || !panel) return;
+          panel.releasePointerCapture(e.pointerId);
+          resetDragState();
+        }}
+        onPointerCancel={(e) => {
+          const panel = panelRef.current;
+          if (dragStateRef.current.pointerId !== e.pointerId || !panel) return;
+          panel.releasePointerCapture(e.pointerId);
+          resetDragState();
+        }}
+        onLostPointerCapture={() => {
+          resetDragState();
+        }}
       >
-        <div className="flex items-center justify-between mb-3">
+        <div
+          className="flex items-center justify-between mb-3 cursor-move select-none"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            const panel = panelRef.current;
+            if (!panel) return;
+            const target = e.target as HTMLElement;
+            if (target.closest("button")) return;
+            const rect = panel.getBoundingClientRect();
+            dragStateRef.current = {
+              pointerId: e.pointerId,
+              offsetX: e.clientX - rect.left,
+              offsetY: e.clientY - rect.top
+            };
+            panel.setPointerCapture(e.pointerId);
+            e.preventDefault();
+          }}
+        >
           <h2 className="font-semibold text-lg">Flight Details</h2>
           <button
             onClick={onClose}
