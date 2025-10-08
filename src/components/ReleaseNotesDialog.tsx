@@ -17,7 +17,8 @@ const RELEASE_NOTES_CONTENT = `
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Sub-hourly capacity support (WIP).</strong> As Tailwind now provides sub-hourly capacity data, we have added the ability to see the capacity for each sub-hour.</li>
     <li><strong>Harmonizing color bar.</strong> The traffic overload color bar is now harmonized across all charts: Green for under capacity, Orange for slightly overloaded, Red for overloaded.</li>
-  </ul>
+    <li><strong>A more compact spacetime control.</strong> We made the spacetime control more compact for small screens. You can now do ATFM even from your iPad.</li>
+    </ul>
 
   <h4 class="font-bold mb-4">Other October Updates</h4>
   

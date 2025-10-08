@@ -334,6 +334,8 @@ export default function OriginalCountPage() {
                     showCapacity={rollingHour}
                     viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
                     viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
+                    viewFromTime={viewFromTime}
+                    viewToTime={viewToTime}
                   />
                 ))}
               </div>
@@ -358,6 +360,8 @@ export default function OriginalCountPage() {
                     showCapacity={rollingHour}
                     viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
                     viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
+                    viewFromTime={viewFromTime}
+                    viewToTime={viewToTime}
                   />
                 ))}
               </div>
@@ -371,7 +375,7 @@ export default function OriginalCountPage() {
   );
 }
 
-function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], showCapacity = false, viewFromMin, viewToMin }: { tvId: string; series: number[]; labels: string[]; minutesPerBin: number; capacitySeries?: number[]; showCapacity?: boolean; viewFromMin: number; viewToMin: number }) {
+function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], showCapacity = false, viewFromMin, viewToMin, viewFromTime, viewToTime }: { tvId: string; series: number[]; labels: string[]; minutesPerBin: number; capacitySeries?: number[]; showCapacity?: boolean; viewFromMin: number; viewToMin: number; viewFromTime: string; viewToTime: string }) {
   const rows = useMemo(() => {
     const n = Math.min(series.length, labels.length);
     const arr = new Array(n).fill(0).map((_, i) => {
@@ -478,8 +482,11 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
       </div>
       <div className="mt-4">
         <TrafficOverloadBar
+          fromTime={viewFromTime}
+          toTime={viewToTime}
           data={overloadSegments}
           showTime={overloadSegments.length > 0}
+          showOkWhenNoData={false}
         />
       </div>
       

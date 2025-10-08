@@ -1206,6 +1206,7 @@ function FlightListStatistics({
                             <TrafficOverloadBar
                               data={overloadSegments}
                               showTime={overloadSegments.length > 0}
+                              showOkWhenNoData={false}
                             />
                           </div>
                           <div className="mt-2 text-[11px] text-white/60 flex flex-wrap gap-3">

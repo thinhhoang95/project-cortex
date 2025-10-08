@@ -20,6 +20,9 @@ export interface TrafficOverloadBarProps {
   height?: number;
   style?: React.CSSProperties;
   showTime?: boolean;
+  // When true, and there are no explicit segments in-range, paint the entire
+  // visible range green to indicate "OK". When false, leave it empty.
+  showOkWhenNoData?: boolean;
 }
 
 type ParsedSegment = {
@@ -136,6 +139,7 @@ export default function TrafficOverloadBar({
   height = 12,
   style,
   showTime = false,
+  showOkWhenNoData = true,
 }: TrafficOverloadBarProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
@@ -238,6 +242,10 @@ export default function TrafficOverloadBar({
       gaps.push({ start: cursor, end: range.end });
     }
 
+    // If there are no explicit in-range segments and caller disabled
+    // the empty fallback, show nothing.
+    if (segments.length === 0 && !showOkWhenNoData) return [];
+
     // Turn gaps into green background segments
     const okColor = "#34d399"; // emerald-400/green per reference implementation
     const out: ParsedSegment[] = gaps
@@ -262,7 +270,7 @@ export default function TrafficOverloadBar({
         };
       });
     return out;
-  }, [segments, range.end, range.start]);
+  }, [segments, range.end, range.start, showOkWhenNoData]);
 
   const activeSegment = useMemo<ParsedSegment | null>(() => {
     if (activeIndex === null) return null;

@@ -2379,6 +2379,7 @@ export default function RegulationComparisonPage() {
                                 toTime={viewTo}
                                 data={segs}
                                 showTime={segs.length > 0}
+                                showOkWhenNoData={false}
                               />
                             </div>
                           </div>

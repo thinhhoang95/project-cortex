@@ -1749,6 +1749,7 @@ function FlowEvaluationPageContent() {
                                 toTime={viewTo}
                                 data={overloadSegments}
                                 showTime={overloadSegments.length > 0}
+                                showOkWhenNoData={false}
                               />
                             </div>
                           </div>
