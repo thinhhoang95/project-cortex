@@ -557,6 +557,8 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                       return (
                         <div className="px-2 pt-2">
                           <TrafficOverloadBar
+                            fromTime={fromTime}
+                            toTime={toTime}
                             data={segments}
                             height={16}
                             showTime

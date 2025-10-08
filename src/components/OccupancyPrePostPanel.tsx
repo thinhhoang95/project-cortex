@@ -316,7 +316,7 @@ export default function OccupancyPrePostPanel({
                   <div className="flex items-center gap-2 text-[11px] text-white/70">
                     <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Pre</div>
                     <div className="grow min-w-0">
-                      <TrafficOverloadBar data={preSegments} showTime={preSegments.length > 0} />
+                      <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={preSegments} showTime={preSegments.length > 0} />
                     </div>
                   </div>
                 )}
@@ -324,12 +324,12 @@ export default function OccupancyPrePostPanel({
                   <div className="flex items-center gap-2 text-[11px] text-white/70">
                     <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Post</div>
                     <div className="grow min-w-0">
-                      <TrafficOverloadBar data={postSegments} showTime={postSegments.length > 0} />
+                      <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={postSegments} showTime={postSegments.length > 0} />
                     </div>
                   </div>
                 )}
                 {!hasPreSeries && !hasPostSeries && (
-                  <TrafficOverloadBar data={[]} showTime={false} />
+                  <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={[]} showTime={false} />
                 )}
               </div>
               {!hasData && <div className="text-[11px] text-gray-300 mt-2">No data in selected time window.</div>}

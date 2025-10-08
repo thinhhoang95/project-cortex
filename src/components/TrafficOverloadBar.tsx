@@ -198,7 +198,78 @@ export default function TrafficOverloadBar({
     return result;
   }, [colorPalette, data, range.end, range.start]);
 
-  const activeSegment = activeIndex !== null ? segments[activeIndex] ?? null : null;
+  // Build background "OK" segments (green) for any gaps within the visible range.
+  // This ensures a consistent appearance: green indicates under-capacity/OK.
+  const backgroundSegments = useMemo<ParsedSegment[]>(() => {
+    const SPAN = Math.max(1, range.end - range.start);
+    // If range is degenerate, nothing to render
+    if (SPAN <= 0) return [];
+    // Collect and merge coverage intervals from explicit segments
+    const cov = segments
+      .map((s) => ({ start: s.start, end: s.end }))
+      .filter((s) => s.end > s.start)
+      .sort((a, b) => a.start - b.start);
+    const merged: Array<{ start: number; end: number }> = [];
+    for (const c of cov) {
+      if (merged.length === 0) {
+        merged.push({ ...c });
+        continue;
+      }
+      const last = merged[merged.length - 1];
+      if (c.start <= last.end) {
+        // overlap or touch — merge
+        last.end = Math.max(last.end, c.end);
+      } else {
+        merged.push({ ...c });
+      }
+    }
+
+    // Compute gaps inside [range.start, range.end]
+    const gaps: Array<{ start: number; end: number }> = [];
+    let cursor = range.start;
+    for (const m of merged) {
+      if (m.start > cursor) {
+        gaps.push({ start: cursor, end: Math.min(m.start, range.end) });
+      }
+      cursor = Math.max(cursor, m.end);
+      if (cursor >= range.end) break;
+    }
+    if (cursor < range.end) {
+      gaps.push({ start: cursor, end: range.end });
+    }
+
+    // Turn gaps into green background segments
+    const okColor = "#34d399"; // emerald-400/green per reference implementation
+    const out: ParsedSegment[] = gaps
+      .filter((g) => g.end > g.start)
+      .map((g, i) => {
+        const relativeStart = (g.start - range.start) / SPAN;
+        const relativeEnd = (g.end - range.start) / SPAN;
+        const widthPct = (relativeEnd - relativeStart) * 100;
+        const leftPct = relativeStart * 100;
+        const centerPct = leftPct + widthPct / 2;
+        return {
+          id: `ok-${g.start}-${i}`,
+          start: g.start,
+          end: g.end,
+          widthPct,
+          leftPct,
+          centerPct,
+          color: okColor,
+          metadata: [],
+          periodLabel: `${formatTime(g.start)} - ${formatTime(g.end)}`,
+          label: "Under capacity",
+        };
+      });
+    return out;
+  }, [segments, range.end, range.start]);
+
+  const activeSegment = useMemo<ParsedSegment | null>(() => {
+    if (activeIndex === null) return null;
+    if (activeIndex >= 0) return segments[activeIndex] ?? null;
+    const idx = -activeIndex - 1;
+    return backgroundSegments[idx] ?? null;
+  }, [activeIndex, segments, backgroundSegments]);
 
   useEffect(() => {
     if (!activeSegment) {
@@ -301,6 +372,30 @@ export default function TrafficOverloadBar({
           style={trackStyle}
           onMouseLeave={() => setActiveIndex(null)}
         >
+          {backgroundSegments.map((segment, index) => (
+            <div
+              key={segment.id}
+              className="absolute top-0 bottom-0 cursor-pointer transition-[filter,opacity,transform] duration-150"
+              style={{
+                left: `${segment.leftPct}%`,
+                width: `${segment.widthPct}%`,
+                minWidth: 2,
+                backgroundColor: segment.color,
+                // Background segments slightly dimmer when an explicit segment is active
+                filter: activeIndex === null ? themeTokens.segmentInactiveFilter : themeTokens.segmentInactiveFilter,
+                opacity: themeTokens.segmentInactiveOpacity,
+              }}
+              onMouseEnter={() => setActiveIndex(-(index + 1))}
+              onMouseLeave={() => setActiveIndex((prev) => (prev === -(index + 1) ? null : prev))}
+              onFocus={() => setActiveIndex(-(index + 1))}
+              onBlur={() => setActiveIndex((prev) => (prev === -(index + 1) ? null : prev))}
+              role="button"
+              tabIndex={0}
+              aria-label={segment.label || segment.periodLabel}
+            >
+              <span className="sr-only">{segment.label || segment.periodLabel}</span>
+            </div>
+          ))}
           {segments.map((segment, index) => (
             <div
               key={segment.id}

@@ -670,7 +670,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             </div>
             {windowAnchorCapacityLabel && (
               <div className="text-[11px] opacity-70 mt-1">
-                Window anchors: {windowAnchorCapacityLabel}
+                Range: {windowAnchorCapacityLabel}
               </div>
             )}
           </div>
@@ -900,7 +900,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         {displayChartData.length > 0 && (
           <div className="bg-white/5 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium text-sm opacity-90">Rolling Hour Entrances & Anchor Capacity</h4>
+              <h4 className="font-medium text-sm opacity-90">Rolling Hour Occupancy </h4>
               <span className="text-[10px] opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
             </div>
             <div style={{ width: '100%', height: 180 }}>
@@ -920,8 +920,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               </ResponsiveContainer>
             </div>
             <div className="flex items-center justify-center space-x-4 mt-2 text-xs opacity-70">
-              <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Entrances</span></div>
-              <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Anchor Capacity (rolling hour)</span></div>
+              <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Occupancy Count</span></div>
+              <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Capacity</span></div>
             </div>
           </div>
         )}
@@ -930,6 +930,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           <div className="bg-white/5 rounded-lg p-4">
             <h4 className="font-medium text-sm opacity-90 mb-3">Traffic Volume Load</h4>
             <TrafficOverloadBar
+              fromTime={formatTime(regulationTimeWindow[0])}
+              toTime={formatTime(regulationTimeWindow[1])}
               data={trafficOverloadSegments}
               height={16}
               showTime

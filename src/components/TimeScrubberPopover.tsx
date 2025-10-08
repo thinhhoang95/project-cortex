@@ -11,6 +11,23 @@ import {
 import { createPortal } from "react-dom";
 import { formatSecondsToHHMMSS } from "@/lib/time";
 
+// Parse HH:MM:SS format to seconds with validation
+function parseHHMMSSToSeconds(value?: string): number | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = match[3] ? Number(match[3]) : 0;
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+  if (hours > 23) return null;
+  if (minutes > 59 || seconds > 59) return null;
+  const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+  const SECONDS_PER_DAY = 24 * 3600 - 1;
+  return Math.max(0, Math.min(SECONDS_PER_DAY, totalSeconds));
+}
+
 type TimeScrubberPopoverProps = {
   anchor: HTMLElement | null;
   open: boolean;
@@ -37,10 +54,18 @@ export default function TimeScrubberPopover({
 }: TimeScrubberPopoverProps) {
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
+  const [timeInputValue, setTimeInputValue] = useState("");
+  const [timeInputError, setTimeInputError] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Sync textbox value with prop value
+  useEffect(() => {
+    setTimeInputValue(formatSecondsToHHMMSS(value));
+    setTimeInputError(false);
+  }, [value]);
 
   useEffect(() => {
     if (!open || !anchor) {
@@ -104,6 +129,35 @@ export default function TimeScrubberPopover({
     }
   };
 
+  const handleTimeInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setTimeInputValue(event.target.value);
+    setTimeInputError(false);
+  };
+
+  const handleTimeInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      const parsedSeconds = parseHHMMSSToSeconds(timeInputValue);
+      if (parsedSeconds !== null) {
+        onChange(parsedSeconds);
+        onCommit(parsedSeconds);
+        setTimeInputError(false);
+      } else {
+        setTimeInputError(true);
+      }
+    } else if (event.key === "Escape") {
+      // Revert to current value on Escape
+      setTimeInputValue(formatSecondsToHHMMSS(value));
+      setTimeInputError(false);
+      event.currentTarget.blur();
+    }
+  };
+
+  const handleTimeInputBlur = () => {
+    // Revert to current value on blur if there's an error or empty
+    setTimeInputValue(formatSecondsToHHMMSS(value));
+    setTimeInputError(false);
+  };
+
   return createPortal(
     <div className="fixed inset-0 z-50 pointer-events-none">
       <div
@@ -124,7 +178,17 @@ export default function TimeScrubberPopover({
               onKeyUp={handleKeyUp}
               className="w-[280px] h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer"
             />
-            <span className="text-xs font-mono">{formatSecondsToHHMMSS(value)}</span>
+            <input
+              type="text"
+              value={timeInputValue}
+              onChange={handleTimeInputChange}
+              onKeyDown={handleTimeInputKeyDown}
+              onBlur={handleTimeInputBlur}
+              placeholder="HH:MM:SS"
+              className={`text-xs font-mono px-2 py-1 rounded bg-white/10 border ${
+                timeInputError ? "border-red-500" : "border-white/20"
+              } focus:outline-none focus:border-white/40 w-20 text-center`}
+            />
           </div>
         </div>
       </div>

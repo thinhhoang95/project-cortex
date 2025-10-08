@@ -2219,7 +2219,12 @@ export default function SolutionComparisonPage() {
                               <span className="truncate">{snap.description || 'Untitled'}</span>
                             </div>
                             <div className="grow min-w-0">
-                              <TrafficOverloadBar data={segs} showTime={segs.length > 0} />
+                              <TrafficOverloadBar
+                                fromTime={viewFrom}
+                                toTime={viewTo}
+                                data={segs}
+                                showTime={segs.length > 0}
+                              />
                             </div>
                           </div>
                         );

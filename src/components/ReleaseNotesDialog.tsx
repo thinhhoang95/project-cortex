@@ -11,9 +11,17 @@ const RELEASE_NOTES_CONTENT = `
   <h2 class="text-2xl font-bold mb-4">Highlights</h2>
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
-  
+
+  <h4 class="font-bold mb-4">Wed. 08/10/2025</h4>
+
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Sub-hourly capacity support (WIP).</strong> As Tailwind now provides sub-hourly capacity data, we have added the ability to see the capacity for each sub-hour.</li>
+    <li><strong>Harmonizing color bar.</strong> The traffic overload color bar is now harmonized across all charts: Green for under capacity, Orange for slightly overloaded, Red for overloaded.</li>
+  </ul>
+
+  <h4 class="font-bold mb-4">Other October Updates</h4>
+  
+  <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Color bar feature.</strong> You can now have the usual experience of glancing at the color bar to quickly scan for traffic overloads, similarly in ETFMS/iFlow. The overload color bar is available under everywhere you see a histogram occupancy chart.</li>
     <li><strong>A Smarter Flight Filter.</strong> The intelligent flight querying system is now powered by a more recent checkpoint of a custom fine-tuned model based on Qwen3-32B: faster and more accurate.</li>
     <li><strong>Regulation Proposals.</strong> You can now pick any traffic volume to see automatically generated proposals for regulation.</li>

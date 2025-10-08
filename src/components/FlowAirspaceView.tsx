@@ -878,6 +878,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           <div className="bg-white/5 rounded-lg p-4">
             <h4 className="font-medium text-sm opacity-90 mb-3">Traffic Volume Load</h4>
             <TrafficOverloadBar
+              fromTime={formatTime(regulationTimeWindow[0])}
+              toTime={formatTime(regulationTimeWindow[1])}
               data={trafficOverloadSegments}
               height={16}
               showTime

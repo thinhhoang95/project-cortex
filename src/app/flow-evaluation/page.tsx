@@ -1745,6 +1745,8 @@ function FlowEvaluationPageContent() {
                             </div>
                             <div className="mt-4">
                               <TrafficOverloadBar
+                                fromTime={viewFrom}
+                                toTime={viewTo}
                                 data={overloadSegments}
                                 showTime={overloadSegments.length > 0}
                               />
