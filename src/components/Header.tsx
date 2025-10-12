@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
 import AgentModal from '@/components/AgentModal';
+import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
 
@@ -20,8 +21,10 @@ export default function Header() {
   const [searchResults, setSearchResults] = useState<Array<{id: string, type: 'flight' | 'traffic_volume', flight?: any, trafficVolume?: any}>>([]);
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
   const [showAgent, setShowAgent] = useState(false);
+  const [showAgentSummary, setShowAgentSummary] = useState(false);
+  const [agentSummaryRunId, setAgentSummaryRunId] = useState<string | null>(null);
   const [showFlightQuery, setShowFlightQuery] = useState(false);
-const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
+  const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
   
   const router = useRouter();
   const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout, user } = useSimStore();
@@ -124,6 +127,12 @@ const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
       detail: { trafficVolume } 
     });
     window.dispatchEvent(event);
+  };
+
+  const handleShowAgentSummary = (runId: string) => {
+    setAgentSummaryRunId(runId);
+    setShowAgentSummary(true);
+    setShowAgent(false);
   };
 
   const handleSearchBlur = () => {
@@ -370,7 +379,19 @@ const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
         </div>
       </div>
     </header>
-    <AgentModal open={showAgent} onClose={() => setShowAgent(false)} />
+    <AgentModal
+      open={showAgent}
+      onClose={() => setShowAgent(false)}
+      onShowSummary={handleShowAgentSummary}
+    />
+    <AgentResultSummaryDialog
+      open={showAgentSummary}
+      onClose={() => {
+        setShowAgentSummary(false);
+        setAgentSummaryRunId(null);
+      }}
+      initialRunId={agentSummaryRunId}
+    />
     <FlightQueryDialog
       open={showFlightQuery}
       onClose={() => setShowFlightQuery(false)}
