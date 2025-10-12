@@ -7,6 +7,8 @@ import type { OccupancySeriesByTv } from "@/lib/models";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 
+const PAGE_SIZE = 20;
+
 type SortMode = "total" | "abs_change" | "relative_change" | "exceedance";
 
 export interface OccupancyPrePostPanelProps {
@@ -28,6 +30,7 @@ export interface OccupancyPrePostPanelProps {
   title?: string;
   compact?: boolean;
   showLabels?: boolean; // default true
+  pinnedTvIds?: string[];
 }
 
 interface TvRowPoint {
@@ -60,10 +63,22 @@ export default function OccupancyPrePostPanel({
   title,
   compact,
   showLabels = true,
+  pinnedTvIds,
 }: OccupancyPrePostPanelProps) {
   // Internal state for uncontrolled sort mode
   const [internalSort, setInternalSort] = useState<SortMode>(defaultSortMode);
   const effectiveSort: SortMode = sortMode || internalSort;
+
+  const pinnedSet = useMemo(() => {
+    if (!Array.isArray(pinnedTvIds) || pinnedTvIds.length === 0) return new Set<string>();
+    const set = new Set<string>();
+    pinnedTvIds.forEach((tv) => {
+      if (typeof tv !== "string") return;
+      const trimmed = tv.trim();
+      if (trimmed) set.add(trimmed);
+    });
+    return set;
+  }, [pinnedTvIds]);
 
   const UNION_TVS = useMemo(() => {
     const s = new Set<string>();
@@ -227,15 +242,48 @@ export default function OccupancyPrePostPanel({
     return arr;
   }, [UNION_TVS, scoresByTv, tvOrder]);
 
-  // Pagination
-  const [expanded, setExpanded] = useState<boolean>(false);
-  const displayTvs = expanded ? sortedTvs : sortedTvs.slice(0, initialLimit);
-  const hiddenTvCount = Math.max(0, sortedTvs.length - initialLimit);
+  const pinnedTvs = useMemo(() => sortedTvs.filter((tv) => pinnedSet.has(tv)), [sortedTvs, pinnedSet]);
+  const unpinnedTvs = useMemo(() => sortedTvs.filter((tv) => !pinnedSet.has(tv)), [sortedTvs, pinnedSet]);
+  const unpinnedCount = unpinnedTvs.length;
+
+  const [visibleNonPinnedCount, setVisibleNonPinnedCount] = useState<number>(initialLimit);
+
+  useEffect(() => {
+    setVisibleNonPinnedCount((current) => {
+      const next = Math.min(unpinnedCount, Math.max(initialLimit, current));
+      return next === current ? current : next;
+    });
+  }, [initialLimit, unpinnedCount]);
+
+  const limitedNonPinnedCount = Math.min(unpinnedCount, visibleNonPinnedCount);
+  const displayTvs = useMemo(() => {
+    if (pinnedTvs.length === 0) {
+      return unpinnedTvs.slice(0, limitedNonPinnedCount);
+    }
+    if (limitedNonPinnedCount >= unpinnedCount) {
+      return [...pinnedTvs, ...unpinnedTvs];
+    }
+    return [...pinnedTvs, ...unpinnedTvs.slice(0, limitedNonPinnedCount)];
+  }, [pinnedTvs, unpinnedTvs, limitedNonPinnedCount, unpinnedCount]);
+
+  const hiddenTvCount = Math.max(0, unpinnedCount - limitedNonPinnedCount);
+  const canCollapse = unpinnedCount > initialLimit && limitedNonPinnedCount > initialLimit;
+  const showSeeLess = hiddenTvCount === 0 && canCollapse;
+  const paginationLabel = showSeeLess ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenTvCount);
+  const paginationDisabled = !showSeeLess && hiddenTvCount === 0;
+
+  const handlePagination = () => {
+    if (showSeeLess) {
+      setVisibleNonPinnedCount(initialLimit);
+    } else if (hiddenTvCount > 0) {
+      setVisibleNonPinnedCount((current) =>
+        Math.min(unpinnedCount, current + PAGE_SIZE),
+      );
+    }
+  };
 
   const isLoading = Boolean(loading) || internalLoading;
   const err = error || internalError || null;
-
-  const handleToggleExpand = () => setExpanded((v) => !v);
 
   const canAbsChange = hasBothPrePostForAny;
   const canExceed = hasAnyCapacity;
@@ -254,6 +302,7 @@ export default function OccupancyPrePostPanel({
       {/* Grid of per-TV charts */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
         {displayTvs.map((tv) => {
+          const isPinned = pinnedSet.has(tv);
           const rows = rowsByTv.get(tv) || [];
           const hasData = rows.length > 0;
           const preSegments = buildOverloadSegments(rows, binMinutes, tv, 'pre');
@@ -261,13 +310,25 @@ export default function OccupancyPrePostPanel({
           const hasPreSeries = Array.isArray(effectivePre?.[tv]) && (effectivePre?.[tv] || []).length > 0;
           const hasPostSeries = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
           return (
-            <div key={tv} className="bg-white/5 border border-white/10 rounded-xl p-3">
-              <div className="flex items-center justify-between mb-2">
+            <div
+              key={tv}
+              className={`rounded-xl border p-3 transition ${
+                isPinned
+                  ? "border-emerald-300/60 bg-emerald-500/10 shadow-[0_16px_32px_-28px_rgba(16,185,129,0.6)]"
+                  : "border-white/10 bg-white/5"
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <div className="text-sm font-semibold text-white/90 truncate">
                   <TrafficVolumeInfoTooltip trafficVolumeId={tv} className="truncate max-w-full">
                     <span className="truncate">{tv}</span>
                   </TrafficVolumeInfoTooltip>
                 </div>
+                {isPinned ? (
+                  <span className="shrink-0 rounded-full border border-emerald-300/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
+                    Pinned
+                  </span>
+                ) : null}
               </div>
               <div className={compact ? "h-32" : "h-36"}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -341,11 +402,11 @@ export default function OccupancyPrePostPanel({
       {/* Footer: pagination + sort availability note for external controls */}
       <div className="mt-3 flex items-center text-xs">
         <button
-          className="px-3 py-1 rounded-lg border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
-          onClick={handleToggleExpand}
-          disabled={sortedTvs.length <= initialLimit}
+          className="px-3 py-1 rounded-lg border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={handlePagination}
+          disabled={paginationDisabled}
         >
-          {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenTvCount)}
+          {paginationLabel}
         </button>
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { authFetch } from '@/lib/auth';
+import ShimmeringText from '@/components/ShimmeringText';
 
 interface AgentSolListResponse {
   runs: AgentSolListRun[];
@@ -135,9 +136,13 @@ export default function AgentRunResultsList({
 
       <div className="mt-5 flex-1">
         {loading ? (
-          <div className="glass-panel-muted flex min-h-[180px] flex-col items-center justify-center rounded-2xl px-6 py-12 text-sm text-[color:var(--panel-text-muted)]">
+          <div className="glass-panel-muted flex min-h-[180px] flex-col items-center justify-center rounded-2xl px-6 py-12">
             <div className="mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[color:var(--panel-divider)] border-t-transparent" />
-            Loading agent runs…
+            <ShimmeringText
+              text="Loading agent runs…"
+              className="text-sm text-[color:var(--panel-text-muted)] font-normal"
+              theme="light"
+            />
           </div>
         ) : error ? (
           <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
