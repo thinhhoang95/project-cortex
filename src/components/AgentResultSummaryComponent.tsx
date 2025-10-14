@@ -13,6 +13,7 @@ import FlightListStatistics from '@/components/FlightListStatistics';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
 import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
 import TrafficVolumeInfoTooltip from '@/components/TrafficVolumeInfoTooltip';
+import TrafficVolumeMiniMap from '@/components/TrafficVolumeMiniMap';
 import TimeScaleControl from '@/components/TimeScaleControl';
 import ShimmeringText from '@/components/ShimmeringText';
 import { useSimStore } from '@/components/useSimStore';
@@ -1682,17 +1683,65 @@ export default function AgentResultSummaryComponent({
     return flightRows.map((row) => row.flightId);
   }, [flightRows]);
 
+  const solutionTrafficVolumeIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const step of selectedSolutionSteps) {
+      const cv = getStepControlVolume(step);
+      if (cv) {
+        set.add(cv.trim());
+      }
+    }
+    const regs = Array.isArray(selectedSolution?.regulations)
+      ? selectedSolution.regulations
+      : [];
+    for (const reg of regs) {
+      const cv = getRegControlVolume(reg);
+      if (cv) {
+        set.add(cv.trim());
+      }
+    }
+    return Array.from(set)
+      .filter((id) => id.length > 0)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [selectedSolution?.regulations, selectedSolutionSteps]);
+
   const flightPathsCard = (
     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white/80">Flight Paths</h3>
+        <h3 className="text-sm font-semibold text-white/80">
+          {viewMode === 'whole_plan' ? 'Spatial Overview' : 'Flight Paths'}
+        </h3>
         {detailsLoading && (
           <ShimmeringText text="Loading…" className="text-xs text-white/55 font-normal" />
         )}
       </div>
-      <div className="mt-3 h-[220px] overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
-        <FlightPathsMiniMap flightIds={delayedFlightIds} className="h-full w-full" />
-      </div>
+      {viewMode === 'whole_plan' ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div>
+            <div className="mb-2 text-[11px] uppercase tracking-wide text-white/45">
+              Flight Paths
+            </div>
+            <div className="h-[220px] overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
+              <FlightPathsMiniMap flightIds={delayedFlightIds} className="h-full w-full" />
+            </div>
+          </div>
+          <div>
+            <div className="mb-2 text-[11px] uppercase tracking-wide text-white/45">
+              Traffic Volumes
+            </div>
+            <div className="h-[220px] overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
+              <TrafficVolumeMiniMap
+                trafficVolumeIds={solutionTrafficVolumeIds}
+                className="h-full w-full"
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 h-[220px] overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
+          <FlightPathsMiniMap flightIds={delayedFlightIds} className="h-full w-full" />
+        </div>
+      )}
     </div>
   );
 

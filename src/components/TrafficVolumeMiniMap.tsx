@@ -56,9 +56,12 @@ function collectCoordinates(geometry: GeoJSON.Geometry | null | undefined): [num
   return coords.filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat));
 }
 
-function computeBounds(feature: TrafficVolumeFeature | null): LngLatBoundsLike | null {
-  if (!feature || !feature.geometry) return null;
-  const coords = collectCoordinates(feature.geometry);
+function computeBounds(features: TrafficVolumeFeature[]): LngLatBoundsLike | null {
+  const coords: [number, number][] = [];
+  for (const feature of features) {
+    if (!feature || !feature.geometry) continue;
+    coords.push(...collectCoordinates(feature.geometry));
+  }
   if (coords.length === 0) return null;
   let minLon = Number.POSITIVE_INFINITY;
   let minLat = Number.POSITIVE_INFINITY;
@@ -94,55 +97,109 @@ function computeBounds(feature: TrafficVolumeFeature | null): LngLatBoundsLike |
 
 interface TrafficVolumeMiniMapProps {
   trafficVolumeId?: string | null;
+  trafficVolumeIds?: (string | null | undefined)[];
   className?: string;
 }
 
-export default function TrafficVolumeMiniMap({ trafficVolumeId, className }: TrafficVolumeMiniMapProps) {
+function normalizeIds(
+  trafficVolumeId?: string | null,
+  trafficVolumeIds?: (string | null | undefined)[],
+): string[] {
+  const set = new Set<string>();
+  if (Array.isArray(trafficVolumeIds)) {
+    for (const id of trafficVolumeIds) {
+      const normalized = normalizeId(id);
+      if (normalized) {
+        set.add(normalized);
+      }
+    }
+  }
+  const single = normalizeId(trafficVolumeId);
+  if (single) {
+    set.add(single);
+  }
+  return Array.from(set);
+}
+
+export default function TrafficVolumeMiniMap({
+  trafficVolumeId,
+  trafficVolumeIds,
+  className,
+}: TrafficVolumeMiniMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [loadingFeature, setLoadingFeature] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [feature, setFeature] = useState<TrafficVolumeFeature | null>(() => {
-    const normalized = normalizeId(trafficVolumeId);
-    if (!normalized) return null;
-    return getCachedTrafficVolumeFeature(normalized);
+  const [features, setFeatures] = useState<TrafficVolumeFeature[]>(() => {
+    const normalized = normalizeIds(trafficVolumeId, trafficVolumeIds);
+    if (!normalized.length) return [];
+    const cached: TrafficVolumeFeature[] = [];
+    for (const id of normalized) {
+      const feature = getCachedTrafficVolumeFeature(id);
+      if (feature) {
+        cached.push(feature);
+      }
+    }
+    return cached;
   });
 
   const theme = useThemeStore((state) => state.theme);
 
-  const normalizedId = useMemo(() => normalizeId(trafficVolumeId), [trafficVolumeId]);
+  const normalizedIds = useMemo(
+    () => normalizeIds(trafficVolumeId, trafficVolumeIds),
+    [trafficVolumeId, trafficVolumeIds],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    if (!normalizedId) {
-      setFeature(null);
+    if (!normalizedIds.length) {
+      setFeatures([]);
       setLoadError(null);
       setLoadingFeature(false);
       return () => { cancelled = true; };
     }
 
-    const cached = getCachedTrafficVolumeFeature(normalizedId);
-    if (cached) {
-      setFeature(cached);
+    const cached: TrafficVolumeFeature[] = [];
+    const missingIds: string[] = [];
+    for (const id of normalizedIds) {
+      const feature = getCachedTrafficVolumeFeature(id);
+      if (feature) {
+        cached.push(feature);
+      } else {
+        missingIds.push(id);
+      }
+    }
+
+    if (missingIds.length === 0) {
+      setFeatures(cached);
       setLoadError(null);
       setLoadingFeature(false);
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+      };
     }
 
     setLoadingFeature(true);
     setLoadError(null);
-    fetchTrafficVolumeFeature(normalizedId)
-      .then((result) => {
+
+    Promise.all(missingIds.map((id) => fetchTrafficVolumeFeature(id).catch(() => null)))
+      .then((results) => {
         if (cancelled) return;
-        setFeature(result ?? null);
-        if (!result) {
+        const loaded = results.filter((feature): feature is TrafficVolumeFeature => Boolean(feature));
+        const combined = [...cached, ...loaded];
+        setFeatures(combined);
+        if (combined.length === 0) {
           setLoadError("Traffic volume not found.");
+        } else if (loaded.length !== missingIds.length) {
+          setLoadError("Some traffic volumes could not be loaded.");
+        } else {
+          setLoadError(null);
         }
       })
       .catch((err: any) => {
         if (cancelled) return;
-        setFeature(null);
+        setFeatures(cached);
         setLoadError(err?.message || "Failed to load traffic volume.");
       })
       .finally(() => {
@@ -152,7 +209,7 @@ export default function TrafficVolumeMiniMap({ trafficVolumeId, className }: Tra
     return () => {
       cancelled = true;
     };
-  }, [normalizedId]);
+  }, [normalizedIds]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -186,15 +243,15 @@ export default function TrafficVolumeMiniMap({ trafficVolumeId, className }: Tra
   }, [theme]);
 
   const featureCollection = useMemo(() => {
-    if (!feature) return EMPTY_COLLECTION;
+    if (!features.length) return EMPTY_COLLECTION;
     return {
       type: "FeatureCollection",
-      features: [feature],
+      features,
     } as GeoJSON.FeatureCollection;
-  }, [feature]);
+  }, [features]);
 
-  const bounds = useMemo(() => computeBounds(feature), [feature]);
-  const hasFeature = Boolean(feature);
+  const bounds = useMemo(() => computeBounds(features), [features]);
+  const hasFeature = features.length > 0;
 
   useEffect(() => {
     const map = mapRef.current;
@@ -267,9 +324,9 @@ export default function TrafficVolumeMiniMap({ trafficVolumeId, className }: Tra
 
   const rootClassName = ["relative h-full w-full", className].filter(Boolean).join(" ");
 
-  const showNoSelection = !normalizedId;
-  const showLoading = normalizedId && loadingFeature;
-  const showMissing = normalizedId && !loadingFeature && !hasFeature;
+  const showNoSelection = normalizedIds.length === 0;
+  const showLoading = normalizedIds.length > 0 && loadingFeature;
+  const showMissing = normalizedIds.length > 0 && !loadingFeature && !hasFeature;
 
   return (
     <div className={rootClassName}>
@@ -281,17 +338,17 @@ export default function TrafficVolumeMiniMap({ trafficVolumeId, className }: Tra
       )}
       {mapReady && showNoSelection && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-xs text-white/60">
-          Select a traffic volume to preview
+          Select traffic volume(s) to preview
         </div>
       )}
       {mapReady && showLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-xs text-white/60">
-          Loading traffic volume…
+          Loading traffic volume data…
         </div>
       )}
       {mapReady && showMissing && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-950/60 text-center text-xs text-rose-200">
-          <span>Traffic volume not found.</span>
+          <span>Traffic volume data unavailable.</span>
           {loadError && <span className="text-[11px] text-rose-300/80">{loadError}</span>}
         </div>
       )}
