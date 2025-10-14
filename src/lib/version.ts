@@ -1,2 +1,2 @@
-export const APP_VERSION = "2025.10.08.3";
+export const APP_VERSION = "2025.10.14.0";
 export const VERSION_CODENAME = "autumnrain";

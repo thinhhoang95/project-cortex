@@ -76,6 +76,7 @@ interface AgentSolutionStep {
   timeWindow?: string;
   proposal_rank?: number;
   metadata?: Record<string, unknown>;
+  regulations?: AgentSolutionRegulation[];
   [key: string]: unknown;
 }
 
@@ -184,6 +185,8 @@ interface PinnedTvSummary {
   peakCap: number | null;
   exceedance: number | null;
 }
+
+type ViewMode = 'per_episode' | 'whole_plan';
 
 const FLOW_ID_KEYS = [
   'flow_ids',
@@ -514,6 +517,55 @@ function normalizeTimeWindow(value: string): string {
   return value.trim().replace(/\s+/g, '');
 }
 
+function getStepRegulations(
+  step?: AgentSolutionStep | null,
+): AgentSolutionRegulation[] {
+  if (!step) return [];
+
+  const sources: unknown[] = [
+    (step as Record<string, unknown>).regulations,
+    (step as Record<string, unknown>).flows,
+    step.metadata && (step.metadata as Record<string, unknown>).regulations,
+  ];
+
+  const result: AgentSolutionRegulation[] = [];
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue;
+    for (const entry of source) {
+      if (entry && typeof entry === 'object') {
+        result.push(entry as AgentSolutionRegulation);
+      }
+    }
+  }
+  return result;
+}
+
+function getRegStepNumber(reg?: AgentSolutionRegulation | null): number | null {
+  if (!reg) return null;
+
+  const metadata = (reg as Record<string, unknown>).metadata;
+  const candidates: unknown[] = [
+    reg.step_number,
+    reg.stepNumber,
+    (reg as Record<string, unknown>).step,
+    (reg as Record<string, unknown>).step_index,
+    (reg as Record<string, unknown>).stepIndex,
+  ];
+
+  if (metadata && typeof metadata === 'object') {
+    candidates.push(
+      (metadata as Record<string, unknown>).step_number,
+      (metadata as Record<string, unknown>).stepNumber,
+      (metadata as Record<string, unknown>).step,
+    );
+  }
+
+  const picked = pickNumber(candidates);
+  if (picked === null) return null;
+  const integer = Math.trunc(picked);
+  return Number.isFinite(integer) ? integer : null;
+}
+
 interface SolutionWithTrajectory {
   trajectory?: AgentSolutionStep[];
 }
@@ -546,16 +598,51 @@ function computeStepAggregates(
   if (!solution) return map;
 
   const steps = getSolutionSteps(solution);
-  const regulations = Array.isArray(solution.regulations) ? solution.regulations : [];
+  const topLevelRegulations = Array.isArray(solution.regulations)
+    ? solution.regulations.filter(
+        (entry): entry is AgentSolutionRegulation =>
+          Boolean(entry) && typeof entry === 'object',
+      )
+    : [];
 
   const regsByStep = new Map<number, AgentSolutionRegulation[]>();
-  for (const reg of regulations) {
-    const stepNumber = Number(reg.step_number ?? reg.stepNumber);
-    if (Number.isFinite(stepNumber)) {
-      const arr = regsByStep.get(stepNumber) ?? [];
-      arr.push(reg);
-      regsByStep.set(stepNumber, arr);
+  for (const step of steps) {
+    const stepNumber = getStepNumber(step);
+    if (stepNumber === null) continue;
+    const stepRegs = getStepRegulations(step);
+    if (!stepRegs.length) continue;
+    const existing = regsByStep.get(stepNumber);
+    if (existing) {
+      existing.push(...stepRegs);
+    } else {
+      regsByStep.set(stepNumber, [...stepRegs]);
     }
+  }
+
+  for (const reg of topLevelRegulations) {
+    const stepNumber = getRegStepNumber(reg);
+    if (stepNumber === null) continue;
+    const existing = regsByStep.get(stepNumber);
+    if (existing) {
+      existing.push(reg);
+    } else {
+      regsByStep.set(stepNumber, [reg]);
+    }
+  }
+
+  const allRegulations: AgentSolutionRegulation[] = [];
+  const seen = new Set<AgentSolutionRegulation>();
+  for (const regs of regsByStep.values()) {
+    for (const reg of regs) {
+      if (seen.has(reg)) continue;
+      seen.add(reg);
+      allRegulations.push(reg);
+    }
+  }
+  for (const reg of topLevelRegulations) {
+    if (seen.has(reg)) continue;
+    seen.add(reg);
+    allRegulations.push(reg);
   }
 
   for (const step of steps) {
@@ -568,7 +655,7 @@ function computeStepAggregates(
       const stepCv = normalizeControlVolume(getStepControlVolume(step));
       const stepWindow = normalizeTimeWindow(getStepTimeWindow(step));
 
-      matches = regulations.filter((reg) => {
+      matches = allRegulations.filter((reg) => {
         const regCv = normalizeControlVolume(getRegControlVolume(reg));
         const regWindow = normalizeTimeWindow(getRegTimeWindow(reg));
         const cvMatches = stepCv ? stepCv === regCv : true;
@@ -596,8 +683,13 @@ function computeStepAggregates(
       if (flightCountCandidate !== null) flightFallback += flightCountCandidate;
     }
 
+    const regulationCount = matches.length ? new Set(matches).size : 0;
     const flowCount =
-      flowIdsSet.size > 0 ? flowIdsSet.size : flowFallback > 0 ? flowFallback : 0;
+      flowIdsSet.size > 0
+        ? flowIdsSet.size
+        : flowFallback > 0
+          ? flowFallback
+          : regulationCount;
     const flightCount =
       flightIdsSet.size > 0 ? flightIdsSet.size : flightFallback > 0 ? flightFallback : 0;
 
@@ -692,26 +784,96 @@ function buildFlowGroupsForStep(
     }
   }
 
+  type FlowBucket = {
+    controlVolume?: string;
+    timeWindow?: string;
+    flowId?: string;
+    baselineRate: number | null;
+    allowedRate: number | null;
+    flightIds: Set<string>;
+  };
+
+  const buckets = new Map<string, FlowBucket>();
+  const bucketOrder: string[] = [];
+
+  for (const reg of regs) {
+    const controlVolumeCandidate = getRegControlVolume(reg);
+    const timeWindowCandidate = getRegTimeWindow(reg);
+    const controlVolume =
+      controlVolumeCandidate || getStepControlVolume(selectedStep) || '';
+    const timeWindow =
+      timeWindowCandidate || getStepTimeWindow(selectedStep) || '';
+    const rawFlowId = getRegFlowIdString(reg);
+    const flowId = rawFlowId ? asStringId(rawFlowId) ?? undefined : undefined;
+
+    const ids = Array.from(
+      new Set(
+        collectIdsFromReg(reg, FLIGHT_ID_KEYS)
+          .map((value) => String(value).trim())
+          .filter((value) => value.length > 0),
+      ),
+    );
+    if (ids.length === 0) continue;
+
+    const dedupeKey = [
+      (flowId ?? '').toLowerCase(),
+      controlVolume ? normalizeControlVolume(controlVolume) : '',
+      timeWindow ? normalizeTimeWindow(timeWindow) : '',
+    ].join('||');
+
+    let bucket = buckets.get(dedupeKey);
+    if (!bucket) {
+      bucket = {
+        controlVolume: controlVolume || undefined,
+        timeWindow: timeWindow || undefined,
+        flowId,
+        baselineRate: extractNumeric(reg, REG_BASE_RATE_KEYS),
+        allowedRate: extractNumeric(reg, REG_ALLOWED_RATE_KEYS),
+        flightIds: new Set<string>(),
+      };
+      buckets.set(dedupeKey, bucket);
+      bucketOrder.push(dedupeKey);
+    } else {
+      if (!bucket.controlVolume && controlVolume) {
+        bucket.controlVolume = controlVolume;
+      }
+      if (!bucket.timeWindow && timeWindow) {
+        bucket.timeWindow = timeWindow;
+      }
+      if (!bucket.flowId && flowId) {
+        bucket.flowId = flowId;
+      }
+      if (bucket.baselineRate === null) {
+        const candidate = extractNumeric(reg, REG_BASE_RATE_KEYS);
+        if (candidate !== null) bucket.baselineRate = candidate;
+      }
+      if (bucket.allowedRate === null) {
+        const candidate = extractNumeric(reg, REG_ALLOWED_RATE_KEYS);
+        if (candidate !== null) bucket.allowedRate = candidate;
+      }
+    }
+
+    for (const id of ids) {
+      bucket.flightIds.add(id);
+    }
+  }
+
   const used = new Set<string>();
   const groups: FlowGroup[] = [];
   let autoIndex = 1;
 
-  for (const reg of regs) {
-    const flowId = getRegFlowIdString(reg) ?? `flow-${autoIndex++}`;
-    const controlVolume = getRegControlVolume(reg) || getStepControlVolume(selectedStep) || undefined;
-    const timeWindow = getRegTimeWindow(reg) || getStepTimeWindow(selectedStep) || undefined;
-    const label = `${controlVolume || 'Flow'}${timeWindow ? ` · ${timeWindow}` : ''}${flowId ? ` · #${flowId}` : ''}`;
-    const ids = collectIdsFromReg(reg, FLIGHT_ID_KEYS);
-    if (ids.length === 0) continue;
+  for (const bucketKey of bucketOrder) {
+    const bucket = buckets.get(bucketKey);
+    if (!bucket) continue;
 
-    const baselineRate = extractNumeric(reg, REG_BASE_RATE_KEYS);
-    const allowedRate = extractNumeric(reg, REG_ALLOWED_RATE_KEYS);
+    const controlVolume =
+      bucket.controlVolume || getStepControlVolume(selectedStep) || undefined;
+    const timeWindow =
+      bucket.timeWindow || getStepTimeWindow(selectedStep) || undefined;
 
     const rows: FlowGroupRow[] = [];
-    for (const idRaw of ids) {
-      const id = String(idRaw);
+    for (const id of bucket.flightIds) {
       if (used.has(id)) {
-        // allow duplicates across flows? keep first assignment
         continue;
       }
       const fromDetails = detailsRows.get(id);
@@ -733,6 +895,10 @@ function buildFlowGroupsForStep(
       used.add(id);
     }
 
+    if (rows.length === 0) {
+      continue;
+    }
+
     rows.sort((a, b) => {
       if (a.targeted !== b.targeted) return a.targeted ? -1 : 1;
       if (Math.abs(b.delayMinutes - a.delayMinutes) > 0.001) {
@@ -741,14 +907,19 @@ function buildFlowGroupsForStep(
       return a.callsign.localeCompare(b.callsign);
     });
 
+    const assignedFlowId = bucket.flowId ?? `flow-${autoIndex++}`;
+    const label = `${controlVolume || 'Flow'}${timeWindow ? ` · ${timeWindow}` : ''}${
+      assignedFlowId ? ` · #${assignedFlowId}` : ''
+    }`;
+
     groups.push({
-      key: String(flowId),
+      key: String(assignedFlowId),
       label,
       controlVolume,
       timeWindow,
-      flowId: asStringId(flowId) ?? undefined,
-      baselineRate,
-      allowedRate,
+      flowId: asStringId(assignedFlowId) ?? undefined,
+      baselineRate: bucket.baselineRate,
+      allowedRate: bucket.allowedRate,
       flightIds: rows.map((r) => r.flightId),
       rows,
     });
@@ -977,6 +1148,7 @@ export default function AgentResultSummaryComponent({
 
   const [selectedSolutionRank, setSelectedSolutionRank] = useState<number>(1);
   const [selectedStepNumber, setSelectedStepNumber] = useState<number>(1);
+  const [viewMode, setViewMode] = useState<ViewMode>('per_episode');
   const [bestData, setBestData] = useState<AgentSolBestResponse | null>(null);
   const [bestLoading, setBestLoading] = useState<boolean>(false);
   const [bestError, setBestError] = useState<string | null>(null);
@@ -1157,9 +1329,12 @@ export default function AgentResultSummaryComponent({
 
   useEffect(() => {
     setSelectedFlightIds([]);
-  }, [selectedRunId, selectedSolutionRank, selectedStepNumber]);
+  }, [selectedRunId, selectedSolutionRank, selectedStepNumber, viewMode]);
 
   useEffect(() => {
+    if (viewMode !== 'per_episode') {
+      return;
+    }
     if (!selectedRunId || !selectedSolution) {
       setDetailsData(null);
       setDetailsError(null);
@@ -1216,7 +1391,64 @@ export default function AgentResultSummaryComponent({
     selectedSolutionRank,
     selectedStepNumber,
     selectedSolutionSteps,
+    viewMode,
   ]);
+
+  useEffect(() => {
+    if (viewMode !== 'whole_plan') {
+      return;
+    }
+    if (!selectedRunId || !selectedSolution) {
+      setDetailsData(null);
+      setDetailsError(null);
+      setDetailsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    setDetailsLoading(true);
+    setDetailsError(null);
+    (async () => {
+      try {
+        const params = new URLSearchParams({
+          run_id: selectedRunId,
+          solution_rank: String(selectedSolutionRank),
+        });
+        const response = await authFetch(
+          `/api/agent_sol_details_wholeplan?${params.toString()}`,
+          {
+            method: 'GET',
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          throw new Error(
+            text || `Failed to fetch whole-plan details (${response.status})`,
+          );
+        }
+        const payload = (await response.json()) as AgentSolDetailsResponse;
+        if (!cancelled) setDetailsData(payload);
+      } catch (err) {
+        if (!cancelled && !(err instanceof DOMException && err.name === 'AbortError')) {
+          setDetailsError(
+            err instanceof Error
+              ? err.message
+              : 'Failed to fetch whole-plan details',
+          );
+          setDetailsData(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setDetailsLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [viewMode, selectedRunId, selectedSolution, selectedSolutionRank]);
 
   const stepAggregates = useMemo(
     () => computeStepAggregates(selectedSolution),
@@ -1274,37 +1506,33 @@ export default function AgentResultSummaryComponent({
     const set = new Set<string>();
     const prePost = detailsData?.pre_post;
     if (prePost) {
-      for (const key of Object.keys(prePost.post_counts ?? {})) {
-        set.add(String(key));
-      }
-      for (const key of Object.keys(prePost.pre_counts ?? {})) {
-        set.add(String(key));
-      }
-      for (const key of Object.keys(prePost.capacity ?? {})) {
-        set.add(String(key));
-      }
-      for (const key of prePost.tv_ids_order ?? []) {
-        set.add(String(key));
-      }
+      Object.keys(prePost.post_counts ?? {}).forEach((key) => set.add(String(key)));
+      Object.keys(prePost.pre_counts ?? {}).forEach((key) => set.add(String(key)));
+      Object.keys(prePost.capacity ?? {}).forEach((key) => set.add(String(key)));
+      (prePost.tv_ids_order ?? []).forEach((key) => set.add(String(key)));
     }
-    for (const step of selectedSolutionSteps) {
-      const cv = getStepControlVolume(step);
-      if (cv) {
-        set.add(cv);
+    if (viewMode === 'per_episode') {
+      for (const step of selectedSolutionSteps) {
+        const cv = getStepControlVolume(step);
+        if (cv) {
+          set.add(cv);
+        }
       }
-    }
-    const regs = Array.isArray(selectedSolution?.regulations) ? selectedSolution.regulations : [];
-    for (const reg of regs) {
-      const cv = getRegControlVolume(reg);
-      if (cv) {
-        set.add(cv);
+      const regs = Array.isArray(selectedSolution?.regulations)
+        ? selectedSolution.regulations
+        : [];
+      for (const reg of regs) {
+        const cv = getRegControlVolume(reg);
+        if (cv) {
+          set.add(cv);
+        }
       }
     }
     return Array.from(set)
       .map((value) => value.trim())
       .filter((value) => value.length > 0)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [detailsData?.pre_post, selectedSolution?.regulations, selectedSolutionSteps]);
+  }, [detailsData?.pre_post, selectedSolution?.regulations, selectedSolutionSteps, viewMode]);
 
   const trafficVolumeOptions = useMemo<ChipOption[]>(() => {
     return availableTrafficVolumes.map((tv) => ({
@@ -1374,6 +1602,20 @@ export default function AgentResultSummaryComponent({
     if (delayed.length > 0) return delayed;
     return flightRows.map((row) => row.flightId);
   }, [flightRows]);
+
+  const flightPathsCard = (
+    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white/80">Flight Paths</h3>
+        {detailsLoading && (
+          <ShimmeringText text="Loading…" className="text-xs text-white/55 font-normal" />
+        )}
+      </div>
+      <div className="mt-3 h-[220px] overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
+        <FlightPathsMiniMap flightIds={delayedFlightIds} className="h-full w-full" />
+      </div>
+    </div>
+  );
 
   const binMinutes = useMemo(
     () => Number(detailsData?.pre_post?.time_bin_minutes) || 60,
@@ -1519,24 +1761,24 @@ export default function AgentResultSummaryComponent({
                     </div>
 
                     <div className="mt-4 space-y-3">
-                      {run.solutions.map((solution) => (
-                        <div
-                          key={`${run.run_id}-solution-${solution.rank}`}
-                          className="rounded-xl border border-white/5 bg-black/20 px-4 py-3 transition group-hover:border-white/10"
-                        >
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium text-white/85">
-                              Rank {solution.rank}
-                            </span>
-                            <span className="font-semibold text-emerald-200">
-                              {formatImprovement(solution.total_improvement)}
-                            </span>
+                      {run.solutions.map((solution) => {
+                        const trajectoryLabel = formatTrajectoryLength(solution.trajectory_length);
+                        return (
+                          <div
+                            key={`${run.run_id}-solution-${solution.rank}`}
+                            className="rounded-xl border border-white/5 bg-black/20 px-4 py-3 transition group-hover:border-white/10"
+                          >
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium text-white/85">
+                                {`Rank ${solution.rank} · ${trajectoryLabel}`}
+                              </span>
+                              <span className="font-semibold text-emerald-200">
+                                {formatImprovement(solution.total_improvement)}
+                              </span>
+                            </div>
                           </div>
-                          <div className="mt-1 text-xs text-white/50">
-                            {formatTrajectoryLength(solution.trajectory_length)}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {chartData.length > 0 && (
@@ -1591,6 +1833,32 @@ export default function AgentResultSummaryComponent({
         ) : (
           <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-6">
             <div className="space-y-6">
+              <div className="mb-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('per_episode')}
+                  aria-pressed={viewMode === 'per_episode'}
+                  className={`rounded-md border px-3 py-1.5 text-xs ${
+                    viewMode === 'per_episode'
+                      ? 'border-emerald-400/70 bg-emerald-400/15'
+                      : 'border-white/10 bg-white/5 hover:border-white/20'
+                  }`}
+                >
+                  Per Episode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('whole_plan')}
+                  aria-pressed={viewMode === 'whole_plan'}
+                  className={`rounded-md border px-3 py-1.5 text-xs ${
+                    viewMode === 'whole_plan'
+                      ? 'border-emerald-400/70 bg-emerald-400/15'
+                      : 'border-white/10 bg-white/5 hover:border-white/20'
+                  }`}
+                >
+                  Whole Plan
+                </button>
+              </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_40px_-24px_rgba(15,118,110,0.9)] backdrop-blur-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
@@ -1645,6 +1913,10 @@ export default function AgentResultSummaryComponent({
                         solutionSteps.length > 0
                           ? solutionSteps.length
                           : summary?.trajectory_length ?? null;
+                      const trajectoryLabel =
+                        trajectoryLength !== null && trajectoryLength !== undefined
+                          ? formatTrajectoryLength(trajectoryLength)
+                          : null;
                       return (
                         <button
                           key={`solution-rank-${solution.rank}`}
@@ -1660,6 +1932,7 @@ export default function AgentResultSummaryComponent({
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-sm font-semibold text-white/90">
                               Rank {solution.rank}
+                              {trajectoryLabel ? ` · ${trajectoryLabel}` : ''}
                             </span>
                             {summary ? (
                               <span className="text-xs font-medium text-emerald-300">
@@ -1667,129 +1940,116 @@ export default function AgentResultSummaryComponent({
                               </span>
                             ) : null}
                           </div>
-                          <div className="mt-1 text-[11px] uppercase tracking-wide text-white/50">
-                            {formatTrajectoryLength(trajectoryLength)}
-                          </div>
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
-                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4 flex flex-col">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-white/80">Step Sequence</h3>
-                      {selectedSolutionSteps.length ? (
-                        <span className="text-xs text-white/50">
-                          {selectedSolutionSteps.length} step
-                          {selectedSolutionSteps.length === 1 ? '' : 's'}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="flex-1"/>
-                    {bestError ? (
-                      <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                        {bestError}
-                      </div>
-                    ) : bestLoading && !selectedSolution ? (
-                      <div className="mt-4 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-5">
-                        <ShimmeringText
-                          text="Loading solution preview…"
-                          className="text-sm text-white/60 font-normal"
-                        />
-                      </div>
-                    ) : selectedSolutionSteps.length ? (
-                      <div className="mt-4 flex items-center gap-3 overflow-x-auto pb-2 no-scrollbar">
-                        {selectedSolutionSteps.map((step, index) => {
-                          const stepNumber = getStepNumber(step) ?? index + 1;
-                          const isActive = stepNumber === selectedStepNumber;
-                          const controlVolume = getStepControlVolume(step) || 'Unknown CV';
-                          const timeWindow = getStepTimeWindow(step) || '—';
-                          const aggregate = stepAggregates.get(stepNumber);
-                          const proposalRank = pickNumber([
-                            step.proposal_rank,
-                            (step.metadata || {})?.proposal_rank,
-                          ]);
-                          return (
-                            <div
-                              key={`solution-step-${stepNumber}`}
-                              className="flex items-center gap-2"
-                            >
-                              <button
-                                type="button"
-                                ref={registerStepButton(stepNumber)}
-                                onClick={() => handleStepSelect(stepNumber)}
-                                className={`min-w-[220px] rounded-2xl border px-4 py-3 text-left shadow transition ${
-                                  isActive
-                                    ? 'border-emerald-400/70 bg-emerald-400/15 shadow-[0_18px_30px_-24px_rgba(16,185,129,0.7)]'
-                                    : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <div>
-                                    <div className="text-[11px] uppercase tracking-wide text-white/55">
-                                      Step {stepNumber}
+                <div className="mt-5">
+                  {viewMode === 'per_episode' ? (
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4 flex flex-col">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold text-white/80">Step Sequence</h3>
+                          {selectedSolutionSteps.length ? (
+                            <span className="text-xs text-white/50">
+                              {selectedSolutionSteps.length} step
+                              {selectedSolutionSteps.length === 1 ? '' : 's'}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex-1" />
+                        {bestError ? (
+                          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                            {bestError}
+                          </div>
+                        ) : bestLoading && !selectedSolution ? (
+                          <div className="mt-4 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-5">
+                            <ShimmeringText
+                              text="Loading solution preview…"
+                              className="text-sm text-white/60 font-normal"
+                            />
+                          </div>
+                        ) : selectedSolutionSteps.length ? (
+                          <div className="mt-4 flex items-center gap-3 overflow-x-auto pb-2">
+                            {selectedSolutionSteps.map((step, index) => {
+                              const stepNumber = getStepNumber(step) ?? index + 1;
+                              const isActive = stepNumber === selectedStepNumber;
+                              const controlVolume = getStepControlVolume(step) || 'Unknown CV';
+                              const timeWindow = getStepTimeWindow(step) || '—';
+                              const aggregate = stepAggregates.get(stepNumber);
+                              const proposalRank = pickNumber([
+                                step.proposal_rank,
+                                (step.metadata || {})?.proposal_rank,
+                              ]);
+                              return (
+                                <div
+                                  key={`solution-step-${stepNumber}`}
+                                  className="flex items-center gap-2"
+                                >
+                                  <button
+                                    type="button"
+                                    ref={registerStepButton(stepNumber)}
+                                    onClick={() => handleStepSelect(stepNumber)}
+                                    className={`min-w-[220px] rounded-2xl border px-4 py-3 text-left shadow transition ${
+                                      isActive
+                                        ? 'border-emerald-400/70 bg-emerald-400/15 shadow-[0_18px_30px_-24px_rgba(16,185,129,0.7)]'
+                                        : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div>
+                                        <div className="text-[11px] uppercase tracking-wide text-white/55">
+                                          Step {stepNumber}
+                                        </div>
+                                        <div className="mt-1 text-sm font-semibold text-white/90">
+                                          {controlVolume}
+                                        </div>
+                                        <div className="text-xs text-white/60">
+                                          {timeWindow}
+                                        </div>
+                                      </div>
+                                      {proposalRank !== null && (
+                                        <span className="rounded-lg bg-emerald-500/20 px-2 py-1 text-[11px] font-semibold text-emerald-200">
+                                          Proposal #{proposalRank}
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="mt-1 text-sm font-semibold text-white/90">
-                                      {controlVolume}
+                                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-white/60">
+                                      <span>
+                                        <span className="font-semibold text-white/85">
+                                          {formatCount(aggregate?.flowCount ?? null)}
+                                        </span>{' '}
+                                        flows
+                                      </span>
+                                      <span>
+                                        <span className="font-semibold text-white/85">
+                                          {formatCount(aggregate?.flightCount ?? null)}
+                                        </span>{' '}
+                                        flights
+                                      </span>
                                     </div>
-                                    <div className="text-xs text-white/60">
-                                      {timeWindow}
-                                    </div>
-                                  </div>
-                                  {proposalRank !== null && (
-                                    <span className="rounded-lg bg-emerald-500/20 px-2 py-1 text-[11px] font-semibold text-emerald-200">
-                                      Proposal #{proposalRank}
-                                    </span>
+                                  </button>
+                                  {index < selectedSolutionSteps.length - 1 && (
+                                    <div className="h-0 w-0 border-y-[14px] border-l-[10px] border-y-transparent border-l-white/20 opacity-70" />
                                   )}
                                 </div>
-                                <div className="mt-3 flex flex-wrap gap-3 text-xs text-white/60">
-                                  <span>
-                                    <span className="font-semibold text-white/85">
-                                      {formatCount(aggregate?.flowCount ?? null)}
-                                    </span>{' '}
-                                    flows
-                                  </span>
-                                  <span>
-                                    <span className="font-semibold text-white/85">
-                                      {formatCount(aggregate?.flightCount ?? null)}
-                                    </span>{' '}
-                                    flights
-                                  </span>
-                                </div>
-                              </button>
-                              {index < selectedSolutionSteps.length - 1 && (
-                                <div className="h-0 w-0 border-y-[14px] border-l-[10px] border-y-transparent border-l-white/20 opacity-70" />
-                              )}
-                            </div>
-                          );
-                        })}
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-white/60">
+                            No steps available for this solution.
+                          </div>
+                        )}
+                        <div className="flex-1" />
                       </div>
-                    ) : (
-                      <div className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-white/60">
-                        No steps available for this solution.
-                      </div>
-                    )}
-                    <div className="flex-1"/>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-white/80">Flight Paths</h3>
-                      {detailsLoading && (
-                        <ShimmeringText
-                          text="Loading…"
-                          className="text-xs text-white/55 font-normal"
-                        />
-                      )}
+                      {flightPathsCard}
                     </div>
-                    <div className="mt-3 h-[220px] overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
-                      <FlightPathsMiniMap
-                        flightIds={delayedFlightIds}
-                        className="h-full w-full"
-                      />
-                    </div>
-                  </div>
+                  ) : (
+                    flightPathsCard
+                  )}
                 </div>
               </div>
 
@@ -1800,9 +2060,11 @@ export default function AgentResultSummaryComponent({
                       Occupancy Count Changes
                     </h3>
                     <p className="text-xs text-white/60">
-                      {selectedStep
-                        ? `${getStepControlVolume(selectedStep) || 'Unknown CV'} · ${getStepTimeWindow(selectedStep) || 'Time window TBD'} · Step ${selectedStepNumber}`
-                        : 'Select a step to view traffic volume impacts'}
+                      {viewMode === 'per_episode'
+                        ? selectedStep
+                          ? `${getStepControlVolume(selectedStep) || 'Unknown CV'} · ${getStepTimeWindow(selectedStep) || 'Time window TBD'} · Step ${selectedStepNumber}`
+                          : 'Select a step to view traffic volume impacts'
+                        : 'Whole plan occupancy changes'}
                     </p>
                   </div>
                   {detailsError ? (
@@ -1947,7 +2209,9 @@ export default function AgentResultSummaryComponent({
                       <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-5 text-xs text-white/60">
                         {trafficVolumeOptions.length
                           ? 'No pinned traffic volumes yet. Use the search above to pin the TVs you care about.'
-                          : 'No traffic volume data available for this step.'}
+                          : viewMode === 'per_episode'
+                            ? 'No traffic volume data available for this step.'
+                            : 'No traffic volume data available for this plan.'}
                       </div>
                     )}
                   </div>
@@ -1980,7 +2244,9 @@ export default function AgentResultSummaryComponent({
                       Breakdown by Airport / Routes
                     </h3>
                     <p className="text-xs text-white/60">
-                      Aggregated statistics for delayed flights in this step.
+                      {viewMode === 'per_episode'
+                        ? 'Aggregated statistics for delayed flights in this step.'
+                        : 'Aggregated statistics for delayed flights across the plan.'}
                     </p>
                   </div>
                   <span className="text-xs text-white/55">
@@ -2027,27 +2293,47 @@ export default function AgentResultSummaryComponent({
         ) : (
           <>
             <div className="border-b border-white/10 px-4 py-3">
-              <div className="flex items-baseline justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-white/85">
-                    Flights for Step {selectedStepNumber}
+                    {viewMode === 'per_episode'
+                      ? `Flights for Step ${selectedStepNumber}`
+                      : 'Flights (Whole Plan)'}
                   </h3>
                   <p className="text-xs text-white/55">
-                    {selectedStep
-                      ? `${getStepControlVolume(selectedStep) || 'Unknown CV'} · ${getStepTimeWindow(selectedStep) || 'Time window TBD'}`
-                      : 'Select a step to view impacted flights'}
+                    {viewMode === 'per_episode'
+                      ? selectedStep
+                        ? `${getStepControlVolume(selectedStep) || 'Unknown CV'} · ${getStepTimeWindow(selectedStep) || 'Time window TBD'}`
+                        : 'Select a step to view impacted flights'
+                      : 'All flights with assigned delays across the plan'}
                   </p>
                 </div>
-                <div className="text-right text-[11px] uppercase tracking-wide text-white/45">
-                  <div>{flightRows.length} flights</div>
-                  <div>
-                    {selectedFlightIds.length} selected
+                <div className="flex flex-col items-end gap-1">
+                  {detailsLoading && (
+                    <ShimmeringText
+                      text="Loading flights…"
+                      className="text-[11px] uppercase tracking-wide text-white/60 font-normal"
+                    />
+                  )}
+                  <div className="text-right text-[11px] uppercase tracking-wide text-white/45">
+                    <div>{flightRows.length} flights</div>
+                    <div>
+                      {selectedFlightIds.length} selected
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-4">
+              {detailsLoading && flightRows.length > 0 && (
+                <div className="mb-3">
+                  <ShimmeringText
+                    text="Refreshing flights…"
+                    className="text-[11px] uppercase tracking-wide text-white/60 font-normal"
+                  />
+                </div>
+              )}
               {detailsLoading && flightRows.length === 0 ? (
                 <div className="flex h-full items-center justify-center">
                   <ShimmeringText
@@ -2167,7 +2453,9 @@ export default function AgentResultSummaryComponent({
                 </div>
               ) : (
                 <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-5 text-sm text-white/60">
-                  No flights available for this step.
+                  {viewMode === 'per_episode'
+                    ? 'No flights available for this step.'
+                    : 'No flights available for this plan.'}
                 </div>
               ))}
             </div>
