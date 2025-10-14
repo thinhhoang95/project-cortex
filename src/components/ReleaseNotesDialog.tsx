@@ -12,6 +12,12 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
+  <h4 class="font-bold mb-4">Tue. 14/10/2025</h4>
+
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Regulation Planner.</strong> The Regulation Planner is now fully functional. You can use it to find a regulation set that achieves network-wide Dynamic Capacity Balance (DCB).</li>
+  </ul>
+
   <h4 class="font-bold mb-4">Wed. 08/10/2025</h4>
 
   <ul class="list-disc pl-6 space-y-2 mb-4">

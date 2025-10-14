@@ -31,6 +31,7 @@ interface FlightListStatisticsProps {
   className?: string;
   highlightLabel?: string;
   baselineLabel?: string;
+  show_occupancy_charts?: boolean;
 }
 
 type AirportSlice = {
@@ -418,6 +419,7 @@ function FlightListStatistics({
   className,
   highlightLabel = "Flight list",
   baselineLabel = "Baseline",
+  show_occupancy_charts: showOccupancyCharts = true,
 }: FlightListStatisticsProps) {
   const flights = useSimStore(state => state.flights);
 
@@ -475,6 +477,11 @@ function FlightListStatistics({
   const trafficOptions = useMemo<ChipOption[]>(() => commonTrafficVolumes.map(id => ({ id, label: id })), [commonTrafficVolumes]);
 
   useEffect(() => {
+    if (!showOccupancyCharts) {
+      setTrafficState({ loading: false, error: null, ids: [], metadata: null });
+      setContribCountsState({ loading: false, error: null, data: null });
+      return;
+    }
     if (selectedFlightIds.length === 0) {
       setTrafficState({ loading: false, error: null, ids: [], metadata: null });
       setContribCountsState({ loading: false, error: null, data: null });
@@ -517,18 +524,26 @@ function FlightListStatistics({
     return () => {
       cancelled = true;
     };
-  }, [selectedFlightIds]);
+  }, [selectedFlightIds, showOccupancyCharts]);
 
   useEffect(() => {
+    if (!showOccupancyCharts) return;
     if (selectedTrafficVolumes.length === 0) return;
     const allowed = new Set(commonTrafficVolumes);
     if (selectedTrafficVolumes.some(id => !allowed.has(id))) {
       setSelectedTrafficVolumes(prev => prev.filter(id => allowed.has(id)));
     }
-  }, [commonTrafficVolumes, selectedTrafficVolumes]);
+  }, [showOccupancyCharts, commonTrafficVolumes, selectedTrafficVolumes]);
 
   useEffect(() => {
-    if (selectedFlightIds.length === 0) return;
+    if (!showOccupancyCharts) {
+      setContribCountsState({ loading: false, error: null, data: null });
+      return;
+    }
+    if (selectedFlightIds.length === 0) {
+      setContribCountsState({ loading: false, error: null, data: null });
+      return;
+    }
 
     let cancelled = false;
 
@@ -572,7 +587,7 @@ function FlightListStatistics({
     return () => {
       cancelled = true;
     };
-  }, [selectedFlightIds, selectedTrafficVolumes, rankByParam]);
+  }, [selectedFlightIds, selectedTrafficVolumes, rankByParam, showOccupancyCharts]);
 
   const countsLoading = trafficState.loading || contribCountsState.loading;
   const countsError = contribCountsState.error;
@@ -583,6 +598,9 @@ function FlightListStatistics({
   ), [contribCountsState.data?.metadata?.missing_flight_ids]);
 
   const occupancyComputation = useMemo<TvOccupancyComputation>(() => {
+    if (!showOccupancyCharts) {
+      return { list: [], map: new Map<string, TvOccupancyCard>(), minutesPerBin: 15, startBin: 0, labelCount: 0, minutesMismatch: false };
+    }
     const list: TvOccupancyCard[] = [];
     const map = new Map<string, TvOccupancyCard>();
     const minutesPerBinRaw = Number(contribCountsState.data?.time_bin_minutes);
@@ -670,7 +688,7 @@ function FlightListStatistics({
     }
 
     return { list, map, minutesPerBin, startBin, labelCount, minutesMismatch };
-  }, [contribCountsState.data]);
+  }, [contribCountsState.data, showOccupancyCharts]);
 
   const occupancyCards = occupancyComputation.list;
   const occupancyMap = occupancyComputation.map;
@@ -731,8 +749,9 @@ function FlightListStatistics({
 
   // Reset pagination when filters/sort scope changes
   useEffect(() => {
+    if (!showOccupancyCharts) return;
     setVisibleTvCount(TV_PAGE_SIZE);
-  }, [selectedTrafficVolumes, rankMode, commonTrafficVolumes]);
+  }, [selectedTrafficVolumes, rankMode, commonTrafficVolumes, showOccupancyCharts]);
 
   const visibleRankedCards = useMemo(() => {
     const limit = Math.max(0, Math.min(visibleTvCount, rankedCards.length));
@@ -997,6 +1016,7 @@ function FlightListStatistics({
             ))}
           </div>
 
+          {showOccupancyCharts && (
             <section className="bg-white/5 border border-white/10 rounded-xl p-4">
               <div className="flex flex-col gap-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1234,6 +1254,7 @@ function FlightListStatistics({
                 )}
               </div>
             </section>
+          )}
 
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col">
