@@ -2309,12 +2309,6 @@ export default function AgentResultSummaryComponent({
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  {detailsLoading && (
-                    <ShimmeringText
-                      text="Loading flights…"
-                      className="text-[11px] uppercase tracking-wide text-white/60 font-normal"
-                    />
-                  )}
                   <div className="text-right text-[11px] uppercase tracking-wide text-white/45">
                     <div>{flightRows.length} flights</div>
                     <div>
@@ -2326,16 +2320,8 @@ export default function AgentResultSummaryComponent({
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-4">
-              {detailsLoading && flightRows.length > 0 && (
-                <div className="mb-3">
-                  <ShimmeringText
-                    text="Refreshing flights…"
-                    className="text-[11px] uppercase tracking-wide text-white/60 font-normal"
-                  />
-                </div>
-              )}
-              {detailsLoading && flightRows.length === 0 ? (
-                <div className="flex h-full items-center justify-center">
+              {detailsLoading ? (
+                <div className="flex h-full justify-center">
                   <ShimmeringText
                     text="Loading flights…"
                     className="text-sm text-white/60 font-normal"
