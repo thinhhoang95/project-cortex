@@ -183,17 +183,13 @@ interface FlowGroup {
 
 type FlowGroupMiniMapTooltipProps = {
   flightIds: string[];
-} & HTMLAttributes<HTMLDivElement>;
+  className?: string;
+  children?: React.ReactNode;
+};
 
 function FlowGroupMiniMapTooltip({
   flightIds,
-  children,
   className,
-  onMouseEnter: onMouseEnterProp,
-  onMouseLeave: onMouseLeaveProp,
-  onFocus: onFocusProp,
-  onBlur: onBlurProp,
-  ...restProps
 }: FlowGroupMiniMapTooltipProps) {
   const normalizedFlightIds = useMemo(() => {
     const seen = new Set<string>();
@@ -208,128 +204,51 @@ function FlowGroupMiniMapTooltip({
   }, [flightIds]);
 
   const canShow = normalizedFlightIds.length > 0;
-  const triggerRef = useRef<HTMLDivElement | null>(null);
-  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
-  const [open, setOpen] = useState(false);
-  const [portalNode, setPortalNode] = useState<HTMLDivElement | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
-  const updatePosition = useCallback(() => {
-    const el = triggerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setCoords({
-      left: rect.right + 16,
-      top: rect.top + rect.height / 2,
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    updatePosition();
-    const handle = () => updatePosition();
-    window.addEventListener('scroll', handle, true);
-    window.addEventListener('resize', handle);
-    return () => {
-      window.removeEventListener('scroll', handle, true);
-      window.removeEventListener('resize', handle);
-    };
-  }, [open, updatePosition]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const node = document.createElement('div');
-    node.className = 'flow-group-minimap-tooltip-portal';
-    document.body.appendChild(node);
-    setPortalNode(node);
-    return () => {
-      document.body.removeChild(node);
-      setPortalNode(null);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!canShow) {
-      setOpen(false);
-    }
+  const handleToggle = useCallback(() => {
+    if (!canShow) return;
+    setIsExpanded(prev => !prev);
   }, [canShow]);
 
-  const handleMouseEnter = useCallback(
-    (event: MouseEvent<HTMLDivElement>) => {
-      onMouseEnterProp?.(event);
-      if (event.defaultPrevented) return;
-      if (!canShow) return;
-      updatePosition();
-      setOpen(true);
-    },
-    [canShow, onMouseEnterProp, updatePosition],
-  );
-
-  const handleMouseLeave = useCallback(
-    (event: MouseEvent<HTMLDivElement>) => {
-      onMouseLeaveProp?.(event);
-      if (event.defaultPrevented) return;
-      setOpen(false);
-    },
-    [onMouseLeaveProp],
-  );
-
-  const handleFocus = useCallback(
-    (event: FocusEvent<HTMLDivElement>) => {
-      onFocusProp?.(event);
-      if (event.defaultPrevented) return;
-      if (!canShow) return;
-      updatePosition();
-      setOpen(true);
-    },
-    [canShow, onFocusProp, updatePosition],
-  );
-
-  const handleBlur = useCallback(
-    (event: FocusEvent<HTMLDivElement>) => {
-      onBlurProp?.(event);
-      if (event.defaultPrevented) return;
-      setOpen(false);
-    },
-    [onBlurProp],
-  );
-
-  const tooltip = portalNode && canShow && open
-    ? createPortal(
-        <div
-          className="pointer-events-none fixed z-[10060] min-w-[240px] max-w-[320px] rounded-xl border border-white/15 bg-slate-950/95 p-3 text-white/85 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.65)] backdrop-blur-xl"
-          style={{
-            left: coords?.left ?? -9999,
-            top: coords?.top ?? -9999,
-            transform: 'translate(12px, -50%)',
-          }}
-        >
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/50">
-            Flow preview
-          </div>
-          <div className="mt-2 h-[160px] w-[260px] overflow-hidden rounded-lg border border-white/10 bg-slate-950/80">
-            <FlightPathsMiniMap flightIds={normalizedFlightIds} className="h-full w-full" />
-          </div>
-        </div>,
-        portalNode,
-      )
-    : null;
+  if (!canShow) return null;
 
   return (
-    <>
-      <div
-        {...restProps}
-        ref={triggerRef}
-        className={className}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        aria-haspopup={canShow ? 'dialog' : undefined}
+    <div className={className}>
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="w-full flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 text-left hover:border-white/20 hover:bg-white/[0.12] transition-all"
+        aria-expanded={isExpanded}
       >
-        {children}
-      </div>
-      {tooltip}
-    </>
+        <div className="flex items-center gap-2">
+          <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+            <svg
+              className="w-4 h-4 text-white/60"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+          <span className="text-xs font-medium text-white/70">
+            {isExpanded ? 'Hide' : 'Show'} Flow Preview
+          </span>
+        </div>
+      </button>
+      
+      {isExpanded && (
+        <div className="mt-3 rounded-xl border border-white/15 bg-slate-950/95 p-3 text-white/85 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.65)] backdrop-blur-xl">
+          <div className="text-[10px] font-semibold uppercase text-white/50 mb-2">
+            Flow preview
+          </div>
+          <div className="h-[200px] w-full overflow-hidden rounded-lg border border-white/10 bg-slate-950/80">
+            <FlightPathsMiniMap flightIds={normalizedFlightIds} className="h-full w-full" />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1857,7 +1776,7 @@ export default function AgentResultSummaryComponent({
     <div
       className={`grid min-h-[560px] grid-cols-[minmax(280px,340px)_minmax(0,1fr)_minmax(300px,360px)] text-white ${className}`}
     >
-      <aside className="agent-result-summary__runs-pane flex flex-col overflow-hidden border-r border-white/5 bg-slate-950/70">
+      <aside className="agent-result-summary__runs-pane flex flex-col overflow-hidden border-r border-white/5">
         <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-5">
           {loading && (
             <div className="flex h-full items-center justify-center">
@@ -1974,7 +1893,7 @@ export default function AgentResultSummaryComponent({
         </div>
       </aside>
 
-      <section className="agent-result-summary__details-pane relative flex flex-col bg-slate-950/60">
+      <section className="agent-result-summary__details-pane relative flex flex-col">
         {error ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-red-300">
             {error}
@@ -2445,7 +2364,7 @@ export default function AgentResultSummaryComponent({
         )}
       </section>
 
-      <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5 bg-slate-950/75">
+      <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5">
         {!selectedRun ? (
           <div className="flex h-full items-center justify-center text-sm text-white/60">
             Select a run to view flight impacts.
@@ -2498,16 +2417,11 @@ export default function AgentResultSummaryComponent({
                       key={`${group.key}-${gi}`}
                       className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.08] p-3 shadow-[0_16px_40px_-28px_rgba(56,189,248,0.5)] backdrop-blur-sm"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 backdrop-blur-sm">
-                        <div className="min-w-0">
-                          <FlowGroupMiniMapTooltip
-                            flightIds={group.flightIds}
-                            className="text-sm font-semibold text-white/90 truncate"
-                            title={group.label}
-                            tabIndex={0}
-                          >
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 backdrop-blur-sm">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-white/90 truncate">
                             {group.label}
-                          </FlowGroupMiniMapTooltip>
+                          </div>
                           <div className="text-[11px] uppercase tracking-wide text-white/45">
                             {group.rows.length} flight{group.rows.length === 1 ? '' : 's'}
                           </div>
@@ -2519,6 +2433,10 @@ export default function AgentResultSummaryComponent({
                           </div>
                         ) : null}
                       </div>
+                      <FlowGroupMiniMapTooltip
+                        flightIds={group.flightIds}
+                        className="mt-3"
+                      />
                       <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-slate-950/40">
                         <div className="overflow-x-auto">
                           <table className="min-w-full text-[11px] text-white/85">
