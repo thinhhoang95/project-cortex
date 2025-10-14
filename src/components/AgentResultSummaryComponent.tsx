@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { FocusEvent, HTMLAttributes, MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import FlightListStatistics from '@/components/FlightListStatistics';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
 import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
@@ -159,7 +167,7 @@ interface FlightRowData {
   targeted: boolean;
 }
 
-interface FlowGroupRow extends FlightRowData {}
+type FlowGroupRow = FlightRowData;
 
 interface FlowGroup {
   key: string;
@@ -171,6 +179,158 @@ interface FlowGroup {
   allowedRate?: number | null;
   flightIds: string[];
   rows: FlowGroupRow[];
+}
+
+type FlowGroupMiniMapTooltipProps = {
+  flightIds: string[];
+} & HTMLAttributes<HTMLDivElement>;
+
+function FlowGroupMiniMapTooltip({
+  flightIds,
+  children,
+  className,
+  onMouseEnter: onMouseEnterProp,
+  onMouseLeave: onMouseLeaveProp,
+  onFocus: onFocusProp,
+  onBlur: onBlurProp,
+  ...restProps
+}: FlowGroupMiniMapTooltipProps) {
+  const normalizedFlightIds = useMemo(() => {
+    const seen = new Set<string>();
+    const sanitized: string[] = [];
+    for (const raw of flightIds ?? []) {
+      const value = String(raw ?? '').trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      sanitized.push(value);
+    }
+    return sanitized;
+  }, [flightIds]);
+
+  const canShow = normalizedFlightIds.length > 0;
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [portalNode, setPortalNode] = useState<HTMLDivElement | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setCoords({
+      left: rect.right + 16,
+      top: rect.top + rect.height / 2,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const handle = () => updatePosition();
+    window.addEventListener('scroll', handle, true);
+    window.addEventListener('resize', handle);
+    return () => {
+      window.removeEventListener('scroll', handle, true);
+      window.removeEventListener('resize', handle);
+    };
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const node = document.createElement('div');
+    node.className = 'flow-group-minimap-tooltip-portal';
+    document.body.appendChild(node);
+    setPortalNode(node);
+    return () => {
+      document.body.removeChild(node);
+      setPortalNode(null);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canShow) {
+      setOpen(false);
+    }
+  }, [canShow]);
+
+  const handleMouseEnter = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      onMouseEnterProp?.(event);
+      if (event.defaultPrevented) return;
+      if (!canShow) return;
+      updatePosition();
+      setOpen(true);
+    },
+    [canShow, onMouseEnterProp, updatePosition],
+  );
+
+  const handleMouseLeave = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      onMouseLeaveProp?.(event);
+      if (event.defaultPrevented) return;
+      setOpen(false);
+    },
+    [onMouseLeaveProp],
+  );
+
+  const handleFocus = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      onFocusProp?.(event);
+      if (event.defaultPrevented) return;
+      if (!canShow) return;
+      updatePosition();
+      setOpen(true);
+    },
+    [canShow, onFocusProp, updatePosition],
+  );
+
+  const handleBlur = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      onBlurProp?.(event);
+      if (event.defaultPrevented) return;
+      setOpen(false);
+    },
+    [onBlurProp],
+  );
+
+  const tooltip = portalNode && canShow && open
+    ? createPortal(
+        <div
+          className="pointer-events-none fixed z-[10060] min-w-[240px] max-w-[320px] rounded-xl border border-white/15 bg-slate-950/95 p-3 text-white/85 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.65)] backdrop-blur-xl"
+          style={{
+            left: coords?.left ?? -9999,
+            top: coords?.top ?? -9999,
+            transform: 'translate(12px, -50%)',
+          }}
+        >
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/50">
+            Flow preview
+          </div>
+          <div className="mt-2 h-[160px] w-[260px] overflow-hidden rounded-lg border border-white/10 bg-slate-950/80">
+            <FlightPathsMiniMap flightIds={normalizedFlightIds} className="h-full w-full" />
+          </div>
+        </div>,
+        portalNode,
+      )
+    : null;
+
+  return (
+    <>
+      <div
+        {...restProps}
+        ref={triggerRef}
+        className={className}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        aria-haspopup={canShow ? 'dialog' : undefined}
+      >
+        {children}
+      </div>
+      {tooltip}
+    </>
+  );
 }
 
 interface ViewRange {
@@ -2340,9 +2500,14 @@ export default function AgentResultSummaryComponent({
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 backdrop-blur-sm">
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold text-white/90 truncate" title={group.label}>
+                          <FlowGroupMiniMapTooltip
+                            flightIds={group.flightIds}
+                            className="text-sm font-semibold text-white/90 truncate"
+                            title={group.label}
+                            tabIndex={0}
+                          >
                             {group.label}
-                          </div>
+                          </FlowGroupMiniMapTooltip>
                           <div className="text-[11px] uppercase tracking-wide text-white/45">
                             {group.rows.length} flight{group.rows.length === 1 ? '' : 's'}
                           </div>
