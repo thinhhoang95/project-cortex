@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { FocusEvent, HTMLAttributes, MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import FlightListStatistics from '@/components/FlightListStatistics';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
 import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
@@ -159,7 +167,7 @@ interface FlightRowData {
   targeted: boolean;
 }
 
-interface FlowGroupRow extends FlightRowData {}
+type FlowGroupRow = FlightRowData;
 
 interface FlowGroup {
   key: string;
@@ -171,6 +179,77 @@ interface FlowGroup {
   allowedRate?: number | null;
   flightIds: string[];
   rows: FlowGroupRow[];
+}
+
+type FlowGroupMiniMapTooltipProps = {
+  flightIds: string[];
+  className?: string;
+  children?: React.ReactNode;
+};
+
+function FlowGroupMiniMapTooltip({
+  flightIds,
+  className,
+}: FlowGroupMiniMapTooltipProps) {
+  const normalizedFlightIds = useMemo(() => {
+    const seen = new Set<string>();
+    const sanitized: string[] = [];
+    for (const raw of flightIds ?? []) {
+      const value = String(raw ?? '').trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      sanitized.push(value);
+    }
+    return sanitized;
+  }, [flightIds]);
+
+  const canShow = normalizedFlightIds.length > 0;
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const handleToggle = useCallback(() => {
+    if (!canShow) return;
+    setIsExpanded(prev => !prev);
+  }, [canShow]);
+
+  if (!canShow) return null;
+
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="w-full flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 text-left hover:border-white/20 hover:bg-white/[0.12] transition-all"
+        aria-expanded={isExpanded}
+      >
+        <div className="flex items-center gap-2">
+          <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+            <svg
+              className="w-4 h-4 text-white/60"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+          <span className="text-xs font-medium text-white/70">
+            {isExpanded ? 'Hide' : 'Show'} Flow Preview
+          </span>
+        </div>
+      </button>
+      
+      {isExpanded && (
+        <div className="mt-3 rounded-xl border border-white/15 bg-slate-950/95 p-3 text-white/85 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.65)] backdrop-blur-xl">
+          <div className="text-[10px] font-semibold uppercase text-white/50 mb-2">
+            Flow preview
+          </div>
+          <div className="h-[200px] w-full overflow-hidden rounded-lg border border-white/10 bg-slate-950/80">
+            <FlightPathsMiniMap flightIds={normalizedFlightIds} className="h-full w-full" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface ViewRange {
@@ -1697,7 +1776,7 @@ export default function AgentResultSummaryComponent({
     <div
       className={`grid min-h-[560px] grid-cols-[minmax(280px,340px)_minmax(0,1fr)_minmax(300px,360px)] text-white ${className}`}
     >
-      <aside className="agent-result-summary__runs-pane flex flex-col overflow-hidden border-r border-white/5 bg-slate-950/70">
+      <aside className="agent-result-summary__runs-pane flex flex-col overflow-hidden border-r border-white/5">
         <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-5">
           {loading && (
             <div className="flex h-full items-center justify-center">
@@ -1814,7 +1893,7 @@ export default function AgentResultSummaryComponent({
         </div>
       </aside>
 
-      <section className="agent-result-summary__details-pane relative flex flex-col bg-slate-950/60">
+      <section className="agent-result-summary__details-pane relative flex flex-col">
         {error ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-red-300">
             {error}
@@ -2285,7 +2364,7 @@ export default function AgentResultSummaryComponent({
         )}
       </section>
 
-      <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5 bg-slate-950/75">
+      <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5">
         {!selectedRun ? (
           <div className="flex h-full items-center justify-center text-sm text-white/60">
             Select a run to view flight impacts.
@@ -2338,9 +2417,9 @@ export default function AgentResultSummaryComponent({
                       key={`${group.key}-${gi}`}
                       className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.08] p-3 shadow-[0_16px_40px_-28px_rgba(56,189,248,0.5)] backdrop-blur-sm"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 backdrop-blur-sm">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-white/90 truncate" title={group.label}>
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2 backdrop-blur-sm">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-white/90 truncate">
                             {group.label}
                           </div>
                           <div className="text-[11px] uppercase tracking-wide text-white/45">
@@ -2354,6 +2433,10 @@ export default function AgentResultSummaryComponent({
                           </div>
                         ) : null}
                       </div>
+                      <FlowGroupMiniMapTooltip
+                        flightIds={group.flightIds}
+                        className="mt-3"
+                      />
                       <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-slate-950/40">
                         <div className="overflow-x-auto">
                           <table className="min-w-full text-[11px] text-white/85">

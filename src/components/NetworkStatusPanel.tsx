@@ -9,9 +9,6 @@ import {
   Tooltip,
   BarChart,
   Bar,
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
 
 type DelayCause = {
@@ -85,40 +82,7 @@ export default function NetworkStatusPanel({
   }, [sortedCauses, showAllCauses]);
   const hiddenCauseCount = Math.max(0, sortedCauses.length - displayedCauses.length);
 
-  // Build pie chart slices to cover >= 90% as individual, rest as Others
-  const pieSlices = useMemo(() => {
-    const total = sortedCauses.reduce((acc, c) => acc + c.count, 0) || 1;
-    let running = 0;
-    const slices: { name: string; value: number }[] = [];
-    for (const c of sortedCauses) {
-      const next = running + c.count;
-      const pct = next / total;
-      if (pct <= 0.9) {
-        slices.push({ name: c.cause, value: c.count });
-        running = next;
-      } else {
-        break;
-      }
-    }
-    const used = slices.reduce((acc, s) => acc + s.value, 0);
-    const remaining = Math.max(0, total - used);
-    if (remaining > 0) slices.push({ name: "Others", value: remaining });
-    return slices;
-  }, [sortedCauses]);
-
-  const piePalette = [
-    "#60a5fa",
-    "#f59e0b",
-    "#34d399",
-    "#a78bfa",
-    "#f472b6",
-    "#f87171",
-    "#22d3ee",
-    "#eab308",
-    "#4ade80",
-    "#f97316",
-    "#c084fc",
-  ];
+  
 
   return (
     <div
@@ -160,26 +124,6 @@ export default function NetworkStatusPanel({
                   />
                   <Bar dataKey="count" name="Flights" fill="#60a5fa" />
                 </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="bg-white/0 rounded-lg p-2 mb-4">
-            <h4 className="text-sm font-medium mb-2 opacity-90">Delay Causes (≥90%)</h4>
-            <div className="h-36">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie dataKey="value" nameKey="name" data={pieSlices} innerRadius={40} outerRadius={70} paddingAngle={1}>
-                    {pieSlices.map((entry, index) => (
-                      <Cell key={`slice-${index}`} fill={piePalette[index % piePalette.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: "var(--menu-bg)", border: "1px solid var(--menu-border)", borderRadius: 8, color: "var(--menu-text)" }}
-                    labelStyle={{ color: "var(--menu-text)" }}
-                    itemStyle={{ color: "var(--menu-text)" }}
-                  />
-                </PieChart>
               </ResponsiveContainer>
             </div>
           </div>

@@ -48,7 +48,7 @@ export default function Page() {
       <div className="absolute inset-0 z-20 backdrop-blur-md bg-black/40 flex items-center justify-center p-8">
         <div className="bg-red-900/40 backdrop-blur-xl border border-red-500/40 rounded-2xl shadow-2xl max-w-lg w-full p-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           {/* Error Icon */}
-          <div className="flex justify-center">
+          {/* <div className="flex justify-center">
             <div className="relative">
               <div className="absolute inset-0 bg-red-500/20 blur-xl rounded-full"></div>
               <div className="relative bg-red-500/10 border-2 border-red-500/50 rounded-full p-4">
@@ -57,7 +57,7 @@ export default function Page() {
                 </svg>
               </div>
             </div>
-          </div>
+          </div> */}
           
           {/* Error Message */}
           <div className="space-y-4">

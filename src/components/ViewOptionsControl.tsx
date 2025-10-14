@@ -61,7 +61,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
         (className ?? "")
       }
     >
-      <div className="px-4 py-3 flex items-center gap-4 flex-nowrap whitespace-nowrap">
+      <div className="pl-6 pr-2 py-3 flex items-center gap-3 flex-nowrap whitespace-nowrap">
         {false && (
           <div className="flex items-center gap-2">
             <input
@@ -149,7 +149,7 @@ export default function ViewOptionsControl({ embedded = false, className }: View
         <div className="h-8 w-px bg-white/40" />
 
         {/* Right: Icon Toggles */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <IconToggle
             title="Traffic Volumes"
             active={showTrafficVolumes}
