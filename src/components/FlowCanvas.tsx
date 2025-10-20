@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
+import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
 import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
@@ -39,8 +40,8 @@ export default function FlowCanvas() {
       try {
         // Data
         const [sectors, tracks] = await Promise.all([
-          loadSectors("/data/airspace.geojson"),
-          loadTrajectories("/data/flights_20230801.csv")
+          loadSectors(AIRSPACE_GEOJSON_PATH),
+          loadTrajectories(FLIGHTS_CSV_PATH)
         ]);
 
         // Store flights in global store and compute global time range

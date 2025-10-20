@@ -14,6 +14,7 @@ import {
 } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
+import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
 import {
   ComposedChart,
   Bar,
@@ -466,7 +467,7 @@ function FlowEvaluationPageContent() {
     if (flights.length > 0) return;
     (async () => {
       try {
-        const tracks = await loadTrajectories("/data/flights_20230801.csv");
+        const tracks = await loadTrajectories(FLIGHTS_CSV_PATH);
         if (cancelled) return;
         setFlights(tracks);
         if (tracks && tracks.length > 0) {

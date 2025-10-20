@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import ShimmeringText from "@/components/ShimmeringText";
 import { loadSectors } from "@/lib/airspace";
+import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
@@ -82,7 +83,7 @@ export default function OriginalCountPage() {
     const load = async () => {
       setLoadingOptions(true);
       try {
-        const fc = await loadSectors("/data/airspace.geojson");
+        const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
         if (cancelled) return;
         const opts: ChipOption[] = (fc.features || [])
           .map((f: any) => {

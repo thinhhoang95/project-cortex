@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 import { useThemeStore } from '@/components/useThemeStore';
 import { loadSectors } from '@/lib/airspace';
+import { AIRSPACE_GEOJSON_PATH } from '@/lib/dataPaths';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
@@ -35,7 +36,7 @@ export default function Header() {
   useEffect(() => {
     const loadTrafficVolumes = async () => {
       try {
-        const sectors = await loadSectors("/data/airspace.geojson");
+        const sectors = await loadSectors(AIRSPACE_GEOJSON_PATH);
         setTrafficVolumes(sectors.features);
       } catch (error) {
         console.error("Failed to load traffic volumes:", error);

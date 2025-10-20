@@ -7,6 +7,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import { loadSectors } from "@/lib/airspace";
+import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import ModalDialog from "./ModalDialog";
 
@@ -210,7 +211,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     let cancelled = false;
     const load = async () => {
       try {
-        const fc = await loadSectors("/data/airspace.geojson");
+        const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
         if (!cancelled) setTrafficVolumes(fc.features || []);
       } catch (e) {
         // ignore
