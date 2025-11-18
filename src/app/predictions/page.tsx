@@ -6,7 +6,7 @@ import { useSimStore } from "@/components/useSimStore";
 import PredictionsMapCanvas from "@/components/PredictionsMapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
 import PredictionSettingsPanel from "@/components/PredictionSettingsPanel";
-import RightControl1 from "@/components/RightControl1";
+import StochasticTrafficVolumePanel from "@/components/StochasticTrafficVolumePanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
@@ -46,7 +46,7 @@ export default function Page() {
       <StateResetOnPageLoad />
       <Header />
       <PredictionsMapCanvas />
-      
+
       <SidePanelToggleButton
         side="left"
         minimized={leftPanelsMinimized}
@@ -76,7 +76,7 @@ export default function Page() {
           {isAlternativeRoutesPanelOpen && selectedFlightForAnalysis ? (
             <AlternativeRoutesPanel embedded />
           ) : (
-            <RightControl1 embedded />
+            <StochasticTrafficVolumePanel embedded />
           )}
         </div>
       </div>

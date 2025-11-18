@@ -1,0 +1,43 @@
+"use client";
+import StochasticAirspaceInfo from "@/components/StochasticAirspaceInfo";
+import { useSimStore } from "@/components/useSimStore";
+
+type StochasticTrafficVolumePanelProps = { embedded?: boolean };
+
+export default function StochasticTrafficVolumePanel({ embedded = false }: StochasticTrafficVolumePanelProps) {
+    const { selectedTrafficVolume, setSelectedTrafficVolume, setFocusMode, setFocusFlightIds } = useSimStore();
+
+    const handleClose = () => {
+        setSelectedTrafficVolume(null);
+        // Turn off focus mode and show all trajectories
+        setFocusMode(false);
+        setFocusFlightIds(new Set());
+        // Also clear any highlighting in the MapCanvas by dispatching a custom event
+        window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
+    };
+
+    if (!selectedTrafficVolume) {
+        return null;
+    }
+
+    return (
+        <div className={embedded
+            ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+            : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
+            <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
+                <h2 className="font-semibold">Stochastic Airspace Info</h2>
+                <button
+                    onClick={handleClose}
+                    className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
+                    title="Close panel"
+                >
+                    ✕
+                </button>
+            </div>
+
+            <div className="p-4 flex-1">
+                <StochasticAirspaceInfo />
+            </div>
+        </div>
+    );
+}

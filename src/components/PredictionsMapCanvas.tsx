@@ -17,7 +17,7 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, setSelectedTrafficVolume, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
@@ -534,7 +534,7 @@ export default function MapCanvas() {
     const map = mapRef.current;
     if (!map) return;
 
-    const handleClick = (e: maplibregl.MapMouseEvent & maplibregl.EventData) => {
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: ["flight-lines", "plane-icons"] });
       if (!features || features.length === 0) return;
       const props = features[0].properties as Record<string, any> | undefined;
@@ -568,6 +568,64 @@ export default function MapCanvas() {
       map.getCanvas().style.cursor = "";
     };
   }, [setSelectedFlightForAnalysis]);
+
+  // Click interactions for traffic volumes (sectors)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
+      // Prioritize flight clicks if both are present? 
+      // Usually flights are on top, but let's check if we clicked a flight first.
+      // Actually, maplibre handles event propagation. If we have separate listeners, both might fire.
+      // But here we are in a separate effect.
+
+      // Let's check if we clicked a sector
+      const features = map.queryRenderedFeatures(e.point, { layers: ["sector-fill", "sector-labels"] });
+      if (!features || features.length === 0) return;
+
+      // If we also clicked a flight, maybe we should prefer the flight?
+      // The flight listener is in a separate effect. 
+      // Let's assume if the user clicks a flight line, they want the flight.
+      // If they click the empty space in a sector, they want the sector.
+      // Checking for flight features here might be good to avoid conflict.
+      const flightFeatures = map.queryRenderedFeatures(e.point, { layers: ["flight-lines", "plane-icons"] });
+      if (flightFeatures && flightFeatures.length > 0) return;
+
+      const props = features[0].properties;
+      // The sector-fill layer has traffic_volume_id. The sector-labels layer has label (which is tv_id).
+      const tvId = props?.traffic_volume_id || props?.label;
+
+      if (tvId) {
+        setSelectedTrafficVolume(tvId);
+        setHighlightedTrafficVolume(tvId);
+      }
+    };
+
+    const handleMouseEnter = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+
+    const handleMouseLeave = () => {
+      map.getCanvas().style.cursor = "";
+    };
+
+    const layers = ["sector-fill", "sector-labels"];
+    layers.forEach((layer) => {
+      map.on("click", layer, handleClick);
+      map.on("mouseenter", layer, handleMouseEnter);
+      map.on("mouseleave", layer, handleMouseLeave);
+    });
+
+    return () => {
+      layers.forEach((layer) => {
+        map.off("click", layer, handleClick);
+        map.off("mouseenter", layer, handleMouseEnter);
+        map.off("mouseleave", layer, handleMouseLeave);
+      });
+      // Don't reset cursor here as it might interfere with other layers
+    };
+  }, [setSelectedTrafficVolume]);
 
   // Update highlight layer when highlighted traffic volume changes
   useEffect(() => {
