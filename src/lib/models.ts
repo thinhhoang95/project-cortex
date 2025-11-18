@@ -182,3 +182,28 @@ export interface PrePostOccupancyData {
   capacity?: OccupancySeriesByTv;
   tv_ids_order?: string[];
 }
+
+export interface AlternativeRouteSegment {
+  segment_identifier: string;
+  origin_aerodrome: string;
+  destination_aerodrome: string;
+  time_begin_segment: number;
+  time_end_segment: number;
+  flight_level_begin: number;
+  flight_level_end: number;
+  latitude_begin: number;
+  longitude_begin: number;
+  latitude_end: number;
+  longitude_end: number;
+  route: string;
+  p_route: number;
+}
+
+export interface AlternativeRouteResponse {
+  flight_identifier: string;
+  segments: AlternativeRouteSegment[];
+  metadata: {
+    num_segments: number;
+    bq_table: string;
+  };
+}
