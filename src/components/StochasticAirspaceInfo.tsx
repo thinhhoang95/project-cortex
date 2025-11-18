@@ -37,28 +37,27 @@ interface ChartDataPoint {
     lowerBound: number;
 }
 
-interface FlightIdentifiersData {
-    [timeWindow: string]: string[];
+interface DemandFlight {
+    flight_id: string;
+    crossing_probability: number;
+    mean_crossing_time_abs: number;
+    mean_crossing_time_str: string;
+    mean_crossing_time_from_takeoff: number;
 }
 
-interface OrderedFlightsData {
-    traffic_volume_id: string;
-    ref_time_str: string;
-    ordered_flights: string[];
-    details: {
-        flight_id: string;
-        arrival_time: string;
-        arrival_seconds: number;
-        delta_seconds: number;
+interface DemandFlightListResponse {
+    flights: DemandFlight[];
+    metadata: {
+        count: number;
+        traffic_volume_id: string;
         time_window: string;
-    }[];
+    };
 }
 
 export default function StochasticAirspaceInfo() {
     const { selectedTrafficVolume, selectedTrafficVolumeData, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT, setFlowPreviewFlightId } = useSimStore();
     const [demandData, setDemandData] = useState<DemandData | null>(null);
-    const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
-    const [orderedFlightsData, setOrderedFlightsData] = useState<OrderedFlightsData | null>(null);
+    const [demandFlightList, setDemandFlightList] = useState<DemandFlightListResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [flightListLoading, setFlightListLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -71,15 +70,14 @@ export default function StochasticAirspaceInfo() {
     useEffect(() => {
         if (selectedTrafficVolume) {
             fetchDemandData(selectedTrafficVolume);
-            fetchFlightIdentifiers(selectedTrafficVolume);
+            fetchDemandFlightList(selectedTrafficVolume);
         } else {
             setDemandData(null);
-            setFlightIdentifiersData(null);
-            setOrderedFlightsData(null);
+            setDemandFlightList(null);
             setError(null);
             setFlightListError(null);
         }
-    }, [selectedTrafficVolume, t]);
+    }, [selectedTrafficVolume, t, interestWindowLength]);
 
     // Clear flight preview on unmount or when TV changes
     useEffect(() => {
@@ -108,34 +106,27 @@ export default function StochasticAirspaceInfo() {
         }
     };
 
-    const fetchFlightIdentifiers = async (trafficVolumeId: string) => {
+    const fetchDemandFlightList = async (trafficVolumeId: string) => {
         setFlightListLoading(true);
         setFlightListError(null);
 
         try {
-            // Format current time as HHMMSS for the new API
-            const currentTimeStr = formatTimeForAPI(t);
-            const response = await authFetch(`/api/tv_flights?traffic_volume_id=${trafficVolumeId}&ref_time_str=${currentTimeStr}`);
+            const fromTime = formatTime(t);
+            const windowSeconds = getInterestWindowSeconds(interestWindowLength);
+            const toTime = formatTime(t + windowSeconds);
+
+            const response = await authFetch(`/api/demand_flight_list?traffic_volume_id=${trafficVolumeId}&from_time=${fromTime}&to_time=${toTime}`);
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                throw new Error(errorData.error || `Failed to fetch flight data: ${response.statusText}`);
+                throw new Error(errorData.error || `Failed to fetch flight list: ${response.statusText}`);
             }
 
-            const data = await response.json();
-
-            // Check if we got the new ordered format or legacy format
-            if (data.ordered_flights && data.details) {
-                setOrderedFlightsData(data as OrderedFlightsData);
-                setFlightIdentifiersData(null);
-            } else {
-                setFlightIdentifiersData(data as FlightIdentifiersData);
-                setOrderedFlightsData(null);
-            }
+            const data: DemandFlightListResponse = await response.json();
+            setDemandFlightList(data);
         } catch (err) {
-            setFlightListError(err instanceof Error ? err.message : 'Failed to fetch flight identifiers');
-            setFlightIdentifiersData(null);
-            setOrderedFlightsData(null);
+            setFlightListError(err instanceof Error ? err.message : 'Failed to fetch flight list');
+            setDemandFlightList(null);
         } finally {
             setFlightListLoading(false);
         }
@@ -196,46 +187,24 @@ export default function StochasticAirspaceInfo() {
 
 
     // Format flight data for table display
+    // Format flight data for table display
     const formatFlightData = () => {
-        if (flights.length === 0) return [];
+        if (!demandFlightList || !demandFlightList.flights) return [];
 
-        // Use ordered flights data if available (new API), otherwise fall back to legacy format
-        if (orderedFlightsData) {
-            return orderedFlightsData.ordered_flights.map(flightId => {
-                const flight = flights.find(f => String(f.flightId) === String(flightId));
-                const detail = orderedFlightsData.details.find(d => d.flight_id === flightId);
-                return {
-                    flightId,
-                    callsign: flight?.callSign || 'N/A',
-                    origin: flight?.origin || 'N/A',
-                    destination: flight?.destination || 'N/A',
-                    takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
-                    arrivalTime: detail?.arrival_time || 'N/A',
-                    deltaSeconds: detail?.delta_seconds || 0
-                };
-            }).slice(0, 500); // Limit to 500 flights for performance
-        }
-
-        // Legacy format fallback
-        if (!flightIdentifiersData) return [];
-
-        const allFlightIds = new Set<string>();
-        Object.values(flightIdentifiersData).forEach(timeWindowFlights => {
-            timeWindowFlights.forEach(id => allFlightIds.add(id));
-        });
-
-        return Array.from(allFlightIds).map(flightId => {
-            const flight = flights.find(f => String(f.flightId) === String(flightId));
+        return demandFlightList.flights.map(dFlight => {
+            const flight = flights.find(f => String(f.flightId) === String(dFlight.flight_id));
             return {
-                flightId,
+                flightId: dFlight.flight_id,
                 callsign: flight?.callSign || 'N/A',
                 origin: flight?.origin || 'N/A',
                 destination: flight?.destination || 'N/A',
                 takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
-                arrivalTime: 'N/A',
-                deltaSeconds: 0
+                crossingProbability: dFlight.crossing_probability,
+                meanCrossingTime: dFlight.mean_crossing_time_str.split(' ')[1]?.substring(0, 5) || 'N/A',
+                // For sorting/filtering
+                arrivalSeconds: dFlight.mean_crossing_time_abs
             };
-        }).slice(0, 50); // Limit to 50 flights for performance
+        });
     };
 
     const flightTableData = formatFlightData();
@@ -250,7 +219,7 @@ export default function StochasticAirspaceInfo() {
     // Reset expansion when the underlying dataset changes materially
     useEffect(() => {
         setExpanded(false);
-    }, [selectedTrafficVolume, focusMode, interestWindowLength, orderedFlightsData, flightIdentifiersData]);
+    }, [selectedTrafficVolume, focusMode, interestWindowLength, demandFlightList]);
 
     // Helper function to format seconds to HH:MM format for display
     function formatTime(seconds: number): string {
@@ -286,6 +255,46 @@ export default function StochasticAirspaceInfo() {
         return true;
     }
 
+    // Helper for normal CDF to calculate probability
+    function normalCDF(x: number): number {
+        const t = 1 / (1 + 0.2316419 * Math.abs(x));
+        const d = 0.3989423 * Math.exp(-x * x / 2);
+        let prob = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+        if (x > 0) prob = 1 - prob;
+        return prob;
+    }
+
+    const currentStats = useMemo(() => {
+        if (!demandData || chartData.length === 0) return null;
+
+        const timeBinMinutes = demandData.metadata.time_bin_minutes || 15;
+        const binDuration = timeBinMinutes * 60;
+
+        // Find the bin that contains the current time t
+        // If t is exactly on the boundary, it usually belongs to the next bin, but let's be consistent with chart logic
+        const match = chartData.find(d => d.timeSeconds <= t && t < d.timeSeconds + binDuration);
+
+        if (!match) return null;
+
+        const { mean, stdDev, capacity } = match;
+
+        let probOverload = 0;
+        if (stdDev === 0) {
+            probOverload = mean > capacity ? 1 : 0;
+        } else {
+            // P(X > Capacity) = 1 - P(X <= Capacity)
+            const z = (capacity - mean) / stdDev;
+            probOverload = 1 - normalCDF(z);
+        }
+
+        return {
+            mean,
+            stdDev,
+            capacity,
+            probOverload
+        };
+    }, [chartData, t, demandData]);
+
     // Filter data based on focus mode using useMemo to prevent infinite re-renders
     const { chartData: displayChartData, flightTableData: displayFlightTableData, filteredFlightIds } = useMemo(() => {
         if (!focusMode || !demandData) {
@@ -306,102 +315,41 @@ export default function StochasticAirspaceInfo() {
 
         const filteredFlightIds = new Set<string>();
 
-        // Handle new ordered format
-        if (orderedFlightsData) {
-            orderedFlightsData.details.forEach(detail => {
-                if (detail.arrival_seconds >= t && detail.arrival_seconds <= windowEndTime) {
-                    filteredFlightIds.add(detail.flight_id);
-                }
-            });
-        }
-        // Handle legacy format
-        else if (flightIdentifiersData) {
-            Object.entries(flightIdentifiersData).forEach(([timeWindow, flightIds]) => {
-                const [startTime] = timeWindow.split('-');
-                const [hours, minutes] = startTime.split(':').map(Number);
-                const timeWindowSeconds = hours * 3600 + minutes * 60;
+        // With the new API, the list is already filtered by the time window requested (from_time, to_time)
+        // However, we might want to double check or just use the returned list.
+        // The API takes from_time and to_time. We pass t and t+window.
+        // So demandFlightList should already be filtered.
 
-                if (timeWindowSeconds >= t && timeWindowSeconds <= windowEndTime) {
-                    flightIds.forEach(id => filteredFlightIds.add(id));
-                }
-            });
+        if (demandFlightList && demandFlightList.flights) {
+            demandFlightList.flights.forEach(f => filteredFlightIds.add(f.flight_id));
         }
 
-        // Create filtered flight table data; prefer ordering by proximity to current time
-        let filteredFlightTableData;
-        if (orderedFlightsData) {
-            const filteredDetails = orderedFlightsData.details
-                .filter(detail => filteredFlightIds.has(detail.flight_id))
-                .sort((a, b) => Math.abs(a.delta_seconds) - Math.abs(b.delta_seconds));
+        // Create filtered flight table data
+        // Since the API already filters, we just use the formatted data
+        // But we might want to sort it? The API doesn't guarantee order?
+        // Let's sort by mean crossing time
 
-            filteredFlightTableData = filteredDetails.slice(0, 500).map(detail => {
-                const flightId = detail.flight_id;
-                const flight = flights.find(f => String(f.flightId) === String(flightId));
-                return {
-                    flightId,
-                    callsign: flight?.callSign || 'N/A',
-                    origin: flight?.origin || 'N/A',
-                    destination: flight?.destination || 'N/A',
-                    takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
-                    arrivalTime: detail.arrival_time || 'N/A',
-                    deltaSeconds: detail.delta_seconds || 0
-                };
-            });
-        } else {
-            filteredFlightTableData = Array.from(filteredFlightIds).map(flightId => {
-                const flight = flights.find(f => String(f.flightId) === String(flightId));
-                return {
-                    flightId,
-                    callsign: flight?.callSign || 'N/A',
-                    origin: flight?.origin || 'N/A',
-                    destination: flight?.destination || 'N/A',
-                    takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
-                    arrivalTime: 'N/A',
-                };
-            }).slice(0, 500);
-        }
+        const filteredFlightTableData = flightTableData
+            .filter(f => filteredFlightIds.has(f.flightId))
+            .sort((a, b) => a.arrivalSeconds - b.arrivalSeconds);
 
         return {
             chartData: filteredChartData,
             flightTableData: filteredFlightTableData,
             filteredFlightIds
         };
-    }, [focusMode, demandData, chartData, flightTableData, interestWindowLength, t, flightIdentifiersData, orderedFlightsData, flights]);
+    }, [focusMode, demandData, chartData, flightTableData, interestWindowLength, t, demandFlightList]);
 
     const hiddenFlightCount = Math.max(0, displayFlightTableData.length - MAX_VISIBLE);
 
     // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
+    // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
     const hourGlassData = useMemo(() => {
-        // Prefer ordered format with explicit arrival times
-        if (orderedFlightsData && orderedFlightsData.details && displayFlightTableData.length > 0) {
-            const want = new Set(displayFlightTableData.map(f => String(f.flightId)));
-            const arr: string[] = [];
-            for (const d of orderedFlightsData.details) {
-                if (want.has(String(d.flight_id)) && d.arrival_time) {
-                    // Use HH:MM:SS string so HourGlass labels render as time
-                    arr.push(String(d.arrival_time));
-                }
-            }
-            return arr;
-        }
-        // Legacy: infer from time-window bins by assigning each flight the window start time
-        if (flightIdentifiersData && displayFlightTableData.length > 0) {
-            const idToStart = new Map<string, string>();
-            for (const [timeWindow, ids] of Object.entries(flightIdentifiersData)) {
-                const start = String(timeWindow.split('-')[0] || '').trim();
-                for (const id of ids) {
-                    if (!idToStart.has(String(id))) idToStart.set(String(id), start);
-                }
-            }
-            const arr: string[] = [];
-            for (const row of displayFlightTableData) {
-                const s = idToStart.get(String(row.flightId));
-                if (s) arr.push(s);
-            }
-            return arr;
+        if (displayFlightTableData.length > 0) {
+            return displayFlightTableData.map(f => f.meanCrossingTime);
         }
         return [] as string[];
-    }, [orderedFlightsData, flightIdentifiersData, displayFlightTableData]);
+    }, [displayFlightTableData]);
 
     // Update focus flight IDs in store when they change
     useEffect(() => {
@@ -518,6 +466,28 @@ export default function StochasticAirspaceInfo() {
 
                     {demandData && !loading && !error && (
                         <div className="space-y-4">
+                            {/* Summary Stats */}
+                            {currentStats && (
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="bg-white/10 rounded-lg p-3">
+                                        <p className="text-xs opacity-70">Mean ± STD</p>
+                                        <p className="text-lg font-semibold">
+                                            {currentStats.mean.toFixed(1)} <span className="text-sm opacity-70">± {currentStats.stdDev.toFixed(1)}</span>
+                                        </p>
+                                    </div>
+                                    <div className="bg-white/10 rounded-lg p-3">
+                                        <p className="text-xs opacity-70">Capacity</p>
+                                        <p className="text-lg font-semibold">{Math.round(currentStats.capacity)}</p>
+                                    </div>
+                                    <div className="bg-white/10 rounded-lg p-3">
+                                        <p className="text-xs opacity-70">Prob. Overload</p>
+                                        <p className={`text-lg font-semibold ${currentStats.probOverload > 0.5 ? 'text-red-400' : 'text-green-400'}`}>
+                                            {currentStats.probOverload.toFixed(2)}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Chart */}
                             <div className="bg-white/5 rounded-lg p-4">
                                 <h4 className="font-medium text-sm mb-3 opacity-90">Rolling Hour Demand (Mean & Variance)</h4>
@@ -659,7 +629,8 @@ export default function StochasticAirspaceInfo() {
                                             <th className="text-left p-2 font-semibold">Ori.</th>
                                             <th className="text-left p-2 font-semibold">Des.</th>
                                             <th className="text-left p-2 font-semibold">T/O</th>
-                                            {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arr.</th>}
+                                            <th className="text-left p-2 font-semibold">PX</th>
+                                            <th className="text-left p-2 font-semibold">EX</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -684,7 +655,8 @@ export default function StochasticAirspaceInfo() {
                                                 <td className="p-2">{flight.origin}</td>
                                                 <td className="p-2">{flight.destination}</td>
                                                 <td className="p-2 text-right font-mono">{flight.takeoffTime}</td>
-                                                {orderedFlightsData && <td className="p-2 text-right font-mono">{flight.arrivalTime}</td>}
+                                                <td className="p-2 text-right font-mono">{flight.crossingProbability.toFixed(2)}</td>
+                                                <td className="p-2 text-right font-mono">{flight.meanCrossingTime}</td>
                                             </tr>
                                         ))}
                                         {displayFlightTableData.length > MAX_VISIBLE && (
@@ -692,7 +664,7 @@ export default function StochasticAirspaceInfo() {
                                                 className="border-t border-white/10 cursor-pointer hover:bg-white/10"
                                                 onClick={() => setExpanded(!expanded)}
                                             >
-                                                <td colSpan={orderedFlightsData ? 5 : 4} className="p-2 text-center text-blue-300 hover:text-blue-200 transition-colors">
+                                                <td colSpan={6} className="p-2 text-center text-blue-300 hover:text-blue-200 transition-colors">
                                                     {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                                                 </td>
                                             </tr>
