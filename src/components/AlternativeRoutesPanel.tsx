@@ -1,4 +1,5 @@
 import { useSimStore } from "@/components/useSimStore";
+import PanelCloseButton from "@/components/PanelCloseButton";
 
 type Props = {
   embedded?: boolean;
@@ -51,15 +52,7 @@ export default function AlternativeRoutesPanel({ embedded = false }: Props) {
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <h2 className="font-semibold text-lg tracking-tight">Alternative Routes</h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={closeAlternativeRoutesPanel}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
-            aria-label="Close"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <PanelCloseButton onClick={closeAlternativeRoutesPanel} ariaLabel="Close alternative routes panel" title="Close panel" />
         </div>
       </div>
 

@@ -5,6 +5,7 @@ import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
+import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 
@@ -630,8 +631,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             </div>
           )}
         </div>
-        <button
-          onClick={() => { 
+        <PanelCloseButton
+          onClick={() => {
             setSelectedTrafficVolume(null);
             setFocusMode(false);
             setFocusFlightIds(new Set());
@@ -649,11 +650,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             setFlowColorByCommunity(null);
             window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
           }}
-          className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-          title="Close panel"
-        >
-          ✕
-        </button>
+        />
       </div>
 
       <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 flex-1 space-y-4"}>

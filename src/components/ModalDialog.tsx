@@ -1,6 +1,7 @@
 "use client";
 import React from "react";
 import { createPortal } from "react-dom";
+import PanelCloseButton from "@/components/PanelCloseButton";
 
 interface ModalDialogProps {
   open: boolean;
@@ -36,13 +37,11 @@ export default function ModalDialog({
                 <p className="text-xs text-white/60 mt-0.5">{description}</p>
               )}
             </div>
-            <button
+            <PanelCloseButton
               onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"
-              aria-label="Close dialog"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </button>
+              ariaLabel="Close dialog"
+              title="Close dialog"
+            />
           </div>
           <div className="overflow-y-auto flex-1">
             {children}

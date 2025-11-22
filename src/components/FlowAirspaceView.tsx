@@ -4,6 +4,7 @@ import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Toolti
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
@@ -642,8 +643,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 </g>
               </svg>
             </button>
-            <button
-              onClick={() => { 
+            <PanelCloseButton
+              onClick={() => {
                 setSelectedTrafficVolume(null);
                 setFocusMode(false);
                 setFocusFlightIds(new Set());
@@ -655,11 +656,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 setFlowPreviewFlightId(null);
                 window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
               }}
-              className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-              title="Close panel"
-            >
-              ✕
-            </button>
+            />
           </div>
           {proposalTriggerError && (
             <div className="text-[11px] text-red-200 text-right">{proposalTriggerError}</div>
