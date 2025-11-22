@@ -226,11 +226,10 @@ export default function PredictedCountPage() {
               <button
                 onClick={handleQuery}
                 disabled={querying}
-                className={`px-3 py-2 rounded-lg text-sm font-bold transition-colors ${
-                  querying
+                className={`px-3 py-2 rounded-lg text-sm font-bold transition-colors ${querying
                     ? "bg-gradient-to-r from-blue-500 to-cyan-400 text-white opacity-80 cursor-wait"
                     : "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 hover:from-blue-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
-                }`}
+                  }`}
               >
                 {querying ? <ShimmeringText text="Querying..." /> : "Query"}
               </button>
@@ -239,7 +238,7 @@ export default function PredictedCountPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-end">
               <div className="md:col-span-2">
-                <div className="text-[11px] opacity-80 mb-1 text-white">Traffic Volumes (tv_filter)</div>
+                <div className="text-[11px] opacity-80 mb-1 text-white">Traffic Volumes</div>
                 <MultiSelectWithChips
                   options={options}
                   selectedIds={selectedTVs}
@@ -273,8 +272,8 @@ export default function PredictedCountPage() {
                     onChange={(e) => setTvSorting(e.currentTarget.value)}
                     className="w-full appearance-none pl-3 pr-10 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
                   >
-                    <option value="highest_mean_exceedance">Highest mean exceedance</option>
-                    <option value="highest_mean_demand">Highest mean demand</option>
+                    <option value="highest_mean_exceedance">Highest Mean Exceedance</option>
+                    <option value="highest_mean_demand">Highest Mean Demand</option>
                   </select>
                   <SelectChevron />
                 </div>
@@ -340,7 +339,14 @@ export default function PredictedCountPage() {
                 <div className="text-sm uppercase tracking-wider text-gray-300">Traffic Volumes</div>
                 <div className="text-xs text-gray-300">
                   {data?.metadata?.count ? `${data.metadata.count} returned` : "Run a query to load demand."}
-                  {data?.metadata?.sorting ? ` · Sorted by ${data.metadata.sorting}` : ""}
+                  {data?.metadata?.sorting
+                    ? ` · Sorted by ${data.metadata.sorting === "highest_mean_exceedance"
+                      ? "Highest Mean Exceedance"
+                      : data.metadata.sorting === "highest_mean_demand"
+                        ? "Highest Mean Demand"
+                        : data.metadata.sorting
+                    }`
+                    : ""}
                 </div>
               </div>
               {scenarioLabel && (
@@ -447,7 +453,7 @@ function ChartCard({
         period: `${formatMinutesToHHMM(startMinutes)}-${formatMinutesToHHMMWith24(endMinutes)}`,
         color,
         metadata: [
-          `Mean demand: ${occupancy.toFixed(1)}`,
+          `Mean demand: ${Math.round(occupancy)}`,
           `Capacity: ${capacity.toFixed(1)}`,
           `Exceedance: ${(occupancy - capacity).toFixed(1)}`,
         ],
@@ -486,7 +492,10 @@ function ChartCard({
                 borderRadius: 8,
                 color: "white",
               }}
-              formatter={(value: any, name: any) => [String(value), name === "capacity" ? "Capacity" : "Mean demand"]}
+              formatter={(value: any, name: any) => [
+                name === "capacity" ? String(value) : String(Math.round(Number(value))),
+                name === "capacity" ? "Capacity" : "Mean demand",
+              ]}
               labelFormatter={(_, payload) => (payload && payload[0]?.payload?.rangeLabel) || ""}
             />
             <Bar dataKey="value" fill="#60a5fa" />
