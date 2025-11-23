@@ -135,3 +135,8 @@ a {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Adaptive time input icon */
+[data-theme='dark'] input[type="time"] {
+  color-scheme: dark;
+}

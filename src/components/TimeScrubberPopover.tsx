@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { formatSecondsToHHMMSS } from "@/lib/time";
+import { Slider } from "@/components/Slider";
 
 // Parse HH:MM:SS format to seconds with validation
 function parseHHMMSSToSeconds(value?: string): number | null {
@@ -181,8 +182,7 @@ export default function TimeScrubberPopover({
       >
         <div className={`transform ${position.centerX ? "-translate-x-1/2" : ""} -translate-y-full -mt-3 px-3 py-2 rounded-xl border border-white/20 bg-white/[0.04] backdrop-blur-md shadow-lg`}>
           <div className="flex items-center gap-2">
-            <input
-              type="range"
+            <Slider
               min={SLIDER_MIN}
               max={SLIDER_MAX}
               step={SLIDER_STEP}
@@ -191,7 +191,7 @@ export default function TimeScrubberPopover({
               onPointerUp={handlePointerUp}
               onBlur={handleBlur}
               onKeyUp={handleKeyUp}
-              className="w-[280px] h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer"
+              className="w-[280px]"
             />
             <input
               type="text"
@@ -200,9 +200,8 @@ export default function TimeScrubberPopover({
               onKeyDown={handleTimeInputKeyDown}
               onBlur={handleTimeInputBlur}
               placeholder="HH:MM:SS"
-              className={`text-xs font-mono px-2 py-1 rounded bg-white/10 border ${
-                timeInputError ? "border-red-500" : "border-white/20"
-              } focus:outline-none focus:border-white/40 w-20 text-center`}
+              className={`text-xs font-mono px-2 py-1 rounded bg-white/10 border ${timeInputError ? "border-red-500" : "border-white/20"
+                } focus:outline-none focus:border-white/40 w-20 text-center`}
             />
           </div>
         </div>

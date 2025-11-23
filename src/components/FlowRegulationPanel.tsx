@@ -76,7 +76,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
             return {
               id: String(id),
               label: String(id),
-              description: (minFL != null && maxFL != null) ? `FL${String(minFL).padStart(3,'0')}-FL${String(maxFL).padStart(3,'0')}` : undefined,
+              description: (minFL != null && maxFL != null) ? `FL${String(minFL).padStart(3, '0')}-FL${String(maxFL).padStart(3, '0')}` : undefined,
             } as ChipOption;
           })
           .filter(Boolean) as ChipOption[];
@@ -405,7 +405,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 value={fromTime}
                 onChange={(e) => setFromTime(e.currentTarget.value)}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                style={{ colorScheme: "dark" }}
               />
             </div>
             <div>
@@ -415,7 +414,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 value={toTime}
                 onChange={(e) => setToTime(e.currentTarget.value)}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                style={{ colorScheme: "dark" }}
               />
             </div>
           </div>
@@ -570,43 +568,44 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                     <div className="px-2 pb-2">
                       <div className="rounded-lg border border-white/10 overflow-hidden">
                         <table className="w-full text-[11px]">
-                        <thead>
-                          <tr className="bg-white/10">
-                            <th className="text-left p-2 font-semibold">CS</th>
-                            <th className="text-left p-2 font-semibold">Ori.</th>
-                            <th className="text-left p-2 font-semibold">Des.</th>
-                            <th className="text-left p-2 font-semibold">Requested Bin</th>
-                            <th className="text-left p-2 font-semibold">Earliest Crossing</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(flow.flights || []).map((fl, idx) => {
-                          const full = flights?.find((ff: any) => String(ff.flightId) === String(fl.flight_id));
-                          const callsign = full?.callSign || String(fl.flight_id);
-                          const origin = full?.origin || 'N/A';
-                          const destination = full?.destination || 'N/A';
-                          const earliest = extractTimeFromDateTime(fl.earliest_crossing_time) || 'N/A';
-                          return (
-                            <tr
-                              key={`${flow.flow_id}-${fl.flight_id}`}
-                              className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
-                              onMouseEnter={() => setFlowPreviewFlightId(String(fl.flight_id))}
-                              onMouseLeave={() => setFlowPreviewFlightId(null)}
-                            >
-                              <td className="p-2 font-mono">{callsign}</td>
-                              <td className="p-2">{origin}</td>
-                              <td className="p-2">{destination}</td>
-                              <td className="p-2 text-right font-mono">{fl.requested_bin}</td>
-                              <td className="p-2 text-right font-mono">{earliest}</td>
+                          <thead>
+                            <tr className="bg-white/10">
+                              <th className="text-left p-2 font-semibold">CS</th>
+                              <th className="text-left p-2 font-semibold">Ori.</th>
+                              <th className="text-left p-2 font-semibold">Des.</th>
+                              <th className="text-left p-2 font-semibold">Requested Bin</th>
+                              <th className="text-left p-2 font-semibold">Earliest Crossing</th>
                             </tr>
-                          );
-                        })}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {(flow.flights || []).map((fl, idx) => {
+                              const full = flights?.find((ff: any) => String(ff.flightId) === String(fl.flight_id));
+                              const callsign = full?.callSign || String(fl.flight_id);
+                              const origin = full?.origin || 'N/A';
+                              const destination = full?.destination || 'N/A';
+                              const earliest = extractTimeFromDateTime(fl.earliest_crossing_time) || 'N/A';
+                              return (
+                                <tr
+                                  key={`${flow.flow_id}-${fl.flight_id}`}
+                                  className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
+                                  onMouseEnter={() => setFlowPreviewFlightId(String(fl.flight_id))}
+                                  onMouseLeave={() => setFlowPreviewFlightId(null)}
+                                >
+                                  <td className="p-2 font-mono">{callsign}</td>
+                                  <td className="p-2">{origin}</td>
+                                  <td className="p-2">{destination}</td>
+                                  <td className="p-2 text-right font-mono">{fl.requested_bin}</td>
+                                  <td className="p-2 text-right font-mono">{earliest}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );})}
+                );
+              })}
             </div>
           </div>
         )}
@@ -812,7 +811,7 @@ function AddToBasketMenu({
         className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1"
         title="Add this flow to Flow Basket"
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" /></svg>
         <span className="hidden sm:inline">Add</span>
       </button>
       {isOpen && (

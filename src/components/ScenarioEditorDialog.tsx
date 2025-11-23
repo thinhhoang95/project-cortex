@@ -3,7 +3,8 @@ import React, { useState, useEffect } from "react";
 import ModalDialog from "./ModalDialog";
 import ShimmeringText from "./ShimmeringText";
 import { authFetch } from "@/lib/auth";
-import { Scenario, GroundJitterConfig, GroundHoldConfig, JitterParameters, GroundHoldWindow } from "@/types/scenarios";
+import { Scenario, GroundJitterConfig, GroundHoldConfig, JitterParameters, GroundHoldWindow, TrafficVolumeRegulation } from "@/types/scenarios";
+import TVRegulationsTab from "./TVRegulationsTab";
 
 interface ScenarioEditorDialogProps {
     open: boolean;
@@ -30,6 +31,7 @@ const DEFAULT_SCENARIO: Scenario = {
         windows_by_airport: {},
         version: new Date().toISOString().split("T")[0],
     },
+    regulations: [],
 };
 
 function ensureJitterConfig(config?: GroundJitterConfig | null): GroundJitterConfig {
@@ -56,6 +58,7 @@ function sanitizeScenarioData(scenario: Scenario): Scenario {
     );
 
     const safeJitter = ensureJitterConfig(scenario.jitter);
+    const safeRegulations = Array.isArray(scenario.regulations) ? scenario.regulations : [];
 
     return {
         ...scenario,
@@ -65,6 +68,7 @@ function sanitizeScenarioData(scenario: Scenario): Scenario {
             windows_by_airport: sanitizedWindows,
             version: scenario.hold?.version || new Date().toISOString().split("T")[0],
         },
+        regulations: safeRegulations,
     };
 }
 
@@ -84,7 +88,7 @@ export default function ScenarioEditorDialog({
     initialScenario,
 }: ScenarioEditorDialogProps) {
     const [scenario, setScenario] = useState<Scenario>(DEFAULT_SCENARIO);
-    const [activeTab, setActiveTab] = useState<"jitter" | "hold">("jitter");
+    const [activeTab, setActiveTab] = useState<"jitter" | "hold" | "regulations">("jitter");
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -161,6 +165,15 @@ export default function ScenarioEditorDialog({
                         >
                             Ground Hold
                         </button>
+                        <button
+                            onClick={() => setActiveTab("regulations")}
+                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === "regulations"
+                                ? "bg-blue-500/20 text-blue-200 shadow-sm"
+                                : "text-white/60 hover:text-white hover:bg-white/5"
+                                }`}
+                        >
+                            TV Regulations
+                        </button>
                     </div>
                 </div>
 
@@ -171,10 +184,15 @@ export default function ScenarioEditorDialog({
                             config={scenario.jitter}
                             onChange={(newConfig) => setScenario({ ...scenario, jitter: newConfig })}
                         />
-                    ) : (
+                    ) : activeTab === "hold" ? (
                         <HoldEditor
                             config={scenario.hold}
                             onChange={(newConfig) => setScenario({ ...scenario, hold: newConfig })}
+                        />
+                    ) : (
+                        <TVRegulationsTab
+                            regulations={scenario.regulations || []}
+                            onChange={(newRegs) => setScenario({ ...scenario, regulations: newRegs })}
                         />
                     )}
                 </div>

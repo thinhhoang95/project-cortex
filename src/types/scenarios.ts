@@ -30,9 +30,17 @@ export interface GroundHoldConfig {
     version?: string;
 }
 
+export interface TrafficVolumeRegulation {
+    traffic_volume_id: string;
+    start_time: string; // HH:MM
+    end_time: string; // HH:MM
+    rate_fph: number;
+}
+
 export interface Scenario {
     id: string;
     name: string;
     jitter: GroundJitterConfig;
     hold: GroundHoldConfig;
+    regulations: TrafficVolumeRegulation[];
 }
