@@ -7,6 +7,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import { loadSectors } from "@/lib/airspace";
+import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import ModalDialog from "./ModalDialog";
 
@@ -210,7 +211,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     let cancelled = false;
     const load = async () => {
       try {
-        const fc = await loadSectors("/data/airspace.geojson");
+        const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
         if (!cancelled) setTrafficVolumes(fc.features || []);
       } catch (e) {
         // ignore
@@ -492,7 +493,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         className="rounded-lg border border-white/15 bg-white/5 p-2 text-white/70 transition hover:border-red-300/40 hover:bg-red-500/20 hover:text-red-100"
                         title="Delete saved plan"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
                       </button>
                     </div>
                   </div>
@@ -578,9 +579,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
               >
                 {/* Eye icon */}
                 {basketView ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" /></svg>
                 ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" /></svg>
                 )}
               </button>
             </div>
@@ -641,7 +642,6 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         value={pendingFrom}
                         onChange={(e) => setPendingFrom(padHHMM(e.currentTarget.value))}
                         className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                        style={{ colorScheme: "dark" }}
                       />
                     </div>
                     <div>
@@ -651,7 +651,6 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         value={pendingTo}
                         onChange={(e) => setPendingTo(padHHMM(e.currentTarget.value))}
                         className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                        style={{ colorScheme: "dark" }}
                       />
                     </div>
                   </div>
@@ -688,7 +687,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         title="Remove cell"
                         onClick={() => removeTargetCell(cell.id)}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
                       </button>
                     </div>
                   ))}
@@ -707,7 +706,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 className="px-2 py-1 rounded-lg bg-white/10 border border-white/20 text-white shadow hover:bg-white/15 flex items-center gap-1 text-xs"
                 title="Create new empty flow"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" /></svg>
                 New flow
               </button>
             </div>
@@ -761,7 +760,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     hoverOrigCommunitiesRef.current = st.flowCommunities;
                     hoverOrigGroupsRef.current = st.flowGroups;
                     hoverOrigEnabledRef.current = st.flowViewEnabled;
-    hoverOrigColorsRef.current = st.flowColorByCommunity;
+                    hoverOrigColorsRef.current = st.flowColorByCommunity;
                     // Build temp mapping for this basket flow
                     const ids = flowItems
                       .map(it => resolveByKey(it.key)?.flightId)
@@ -801,7 +800,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                             title="Delete flow"
                             onClick={() => { restoreFlowPreview(); removeFlowBasket(bf.id); }}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
                           </button>
                         </div>
                       </div>
@@ -860,7 +859,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                                             title="Remove from this flow"
                                             onClick={() => removeFlightFromBasketFlow(bf.id, flightKey)}
                                           >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
                                           </button>
                                         </div>
                                       </td>
@@ -959,7 +958,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 title="Open Flow Impact Evaluation"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M8 5v14l11-7z" fill="currentColor"/>
+                  <path d="M8 5v14l11-7z" fill="currentColor" />
                 </svg>
                 Preview Baseline
               </button>
@@ -981,8 +980,8 @@ function padHHMM(v: string): string {
 function isValidTimeRange(from: string, to: string): boolean {
   const [fh, fm] = (from || '00:00').split(':').map(n => Number(n) || 0);
   const [th, tm] = (to || '00:00').split(':').map(n => Number(n) || 0);
-  const fs = fh*3600 + fm*60;
-  const ts = th*3600 + tm*60;
+  const fs = fh * 3600 + fm * 60;
+  const ts = th * 3600 + tm * 60;
   return ts > fs;
 }
 
@@ -1019,7 +1018,7 @@ function MoveFlightMenu({ flows, currentFlowId, onMove }: { flows: Array<{ id: s
         onClick={() => setOpen((o) => !o)}
       >
         {/* Move icon */}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M6 6l3 3M15 15l3 3M6 18l3-3M15 9l3-3" stroke="currentColor" strokeWidth="1.5"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M6 6l3 3M15 15l3 3M6 18l3-3M15 9l3-3" stroke="currentColor" strokeWidth="1.5" /></svg>
       </button>
       {open && (
         <div className="absolute right-0 mt-1 w-40 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-10">
@@ -1042,7 +1041,7 @@ function hhmmToMinutes(v: string): number {
   const [h, m] = String(v || '00:00').split(':').map((x) => Number(x));
   const hh = Number.isFinite(h) ? h : 0;
   const mm = Number.isFinite(m) ? m : 0;
-  return Math.max(0, Math.min(1439, hh*60 + mm));
+  return Math.max(0, Math.min(1439, hh * 60 + mm));
 }
 
 function encodePayloadParam(obj: any): string {
@@ -1060,7 +1059,7 @@ function minutesToHHMM(mins: number): string {
   const m = Math.max(0, Math.min(1439, Math.floor(mins)));
   const hh = Math.floor(m / 60);
   const mm = m % 60;
-  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function formatDateTime(ts: number): string {
@@ -1084,7 +1083,7 @@ function loadSavedPlansFromStorage(): SavedFlowPlan[] {
     const normalized = parsed
       .map((plan: any): SavedFlowPlan | null => {
         if (!plan || typeof plan !== "object") return null;
-        const id = typeof plan.id === "string" ? plan.id : `plan-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+        const id = typeof plan.id === "string" ? plan.id : `plan-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const label = typeof plan.label === "string" && plan.label.trim() ? plan.label : "Untitled plan";
         const savedAt = typeof plan.savedAt === "number" ? plan.savedAt : Date.now();
         const data = plan.data && typeof plan.data === "object" ? plan.data : {};

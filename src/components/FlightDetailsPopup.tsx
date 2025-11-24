@@ -3,6 +3,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { Trajectory } from "@/lib/models";
 import { useEffect, useRef, useState } from "react";
 import VerticalProfileChart from "@/components/VerticalProfileChart";
+import PanelCloseButton from "@/components/PanelCloseButton";
 
 interface FlightDetailsPopupProps {
   flight: Trajectory | null;
@@ -202,13 +203,7 @@ export default function FlightDetailsPopup({ flight, position, onClose }: Flight
           }}
         >
           <h2 className="font-semibold text-lg">Flight Details</h2>
-          <button
-            onClick={onClose}
-            className="px-2 py-1 rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-            title="Close panel"
-          >
-            ✕
-          </button>
+          <PanelCloseButton onClick={onClose} title="Close panel" />
         </div>
 
         <div className="space-y-2 text-sm">

@@ -24,6 +24,7 @@ import {
 } from "@/lib/reg-comparison";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
+import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
@@ -371,7 +372,7 @@ export default function RegulationComparisonPage() {
     let cancelled = false;
     (async () => {
       try {
-        const tracks = await loadTrajectories("/data/flights_20230801.csv");
+        const tracks = await loadTrajectories(FLIGHTS_CSV_PATH);
         if (cancelled) return;
         setFlights(tracks);
         if (tracks && tracks.length > 0) {

@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import ShimmeringText from "@/components/ShimmeringText";
 import { loadSectors } from "@/lib/airspace";
+import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
@@ -82,7 +83,7 @@ export default function OriginalCountPage() {
     const load = async () => {
       setLoadingOptions(true);
       try {
-        const fc = await loadSectors("/data/airspace.geojson");
+        const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
         if (cancelled) return;
         const opts: ChipOption[] = (fc.features || [])
           .map((f: any) => {
@@ -93,7 +94,7 @@ export default function OriginalCountPage() {
             return {
               id: String(id),
               label: String(id),
-              description: (minFL != null && maxFL != null) ? `FL${String(minFL).padStart(3,'0')}-FL${String(maxFL).padStart(3,'0')}` : undefined,
+              description: (minFL != null && maxFL != null) ? `FL${String(minFL).padStart(3, '0')}-FL${String(maxFL).padStart(3, '0')}` : undefined,
             } as ChipOption;
           })
           .filter(Boolean) as ChipOption[];
@@ -244,7 +245,6 @@ export default function OriginalCountPage() {
                   value={fromTime}
                   onChange={(e) => setFromTime(e.currentTarget.value)}
                   className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                  style={{ colorScheme: 'dark' }}
                 />
               </div>
               <div>
@@ -254,7 +254,6 @@ export default function OriginalCountPage() {
                   value={toTime}
                   onChange={(e) => setToTime(e.currentTarget.value)}
                   className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                  style={{ colorScheme: 'dark' }}
                 />
               </div>
               <div>
@@ -306,17 +305,17 @@ export default function OriginalCountPage() {
               </div>
             )}
 
-          {/* Histogram view control */}
-          <div className="mt-6">
-            <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Histogram View Range</div>
-            <TimeScaleControl
-              time_from={viewFromTime}
-              time_to={viewToTime}
-              stepMinutes={data?.time_bin_minutes ?? 1}
-              onCommit={(f, t) => { setViewFromTime(f); setViewToTime(t); }}
-            />
+            {/* Histogram view control */}
+            <div className="mt-6">
+              <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Histogram View Range</div>
+              <TimeScaleControl
+                time_from={viewFromTime}
+                time_to={viewToTime}
+                stepMinutes={data?.time_bin_minutes ?? 1}
+                onCommit={(f, t) => { setViewFromTime(f); setViewToTime(t); }}
+              />
+            </div>
           </div>
-        </div>
 
           {/* Mentioned TVs */}
           <section className="mb-8">
@@ -332,8 +331,8 @@ export default function OriginalCountPage() {
                     labels={labels}
                     minutesPerBin={data?.time_bin_minutes ?? 15}
                     showCapacity={rollingHour}
-                    viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
-                    viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
+                    viewFromMin={Math.floor(hhmmToSec(viewFromTime) / 60)}
+                    viewToMin={Math.floor(hhmmToSec(viewToTime) / 60)}
                     viewFromTime={viewFromTime}
                     viewToTime={viewToTime}
                   />
@@ -358,8 +357,8 @@ export default function OriginalCountPage() {
                     labels={labels}
                     minutesPerBin={data?.time_bin_minutes ?? 15}
                     showCapacity={rollingHour}
-                    viewFromMin={Math.floor(hhmmToSec(viewFromTime)/60)}
-                    viewToMin={Math.floor(hhmmToSec(viewToTime)/60)}
+                    viewFromMin={Math.floor(hhmmToSec(viewFromTime) / 60)}
+                    viewToMin={Math.floor(hhmmToSec(viewToTime) / 60)}
                     viewFromTime={viewFromTime}
                     viewToTime={viewToTime}
                   />
@@ -489,7 +488,7 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
           showOkWhenNoData={false}
         />
       </div>
-      
+
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import { loadSectors } from "./airspace";
 import type { SectorFeatureProps } from "./models";
+import { AIRSPACE_PATH_CANDIDATES } from "./dataPaths";
 
 export type TrafficVolumeFeature = GeoJSON.Feature<GeoJSON.Geometry, SectorFeatureProps>;
 
-const TRAFFIC_VOLUME_URL_CANDIDATES = ["/data/airspace.geojson", "/data/airspace.json"] as const;
+const TRAFFIC_VOLUME_URL_CANDIDATES = AIRSPACE_PATH_CANDIDATES;
 
 let trafficVolumeFeatureCollection: GeoJSON.FeatureCollection | null = null;
 let trafficVolumeFeatureMap: Map<string, TrafficVolumeFeature> | null = null;

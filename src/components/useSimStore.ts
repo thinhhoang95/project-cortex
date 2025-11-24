@@ -1,7 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse } from "@/lib/models";
+import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse, AlternativeRouteResponse, AlternativeRouteSegment } from "@/lib/models";
 import {
   collectAllProposalFlights,
   collectProposalFlights,
@@ -98,6 +98,13 @@ type State = {
   flights: Trajectory[];
   focusMode: boolean;
   focusFlightIds: Set<string>;
+  // Alternative Routes State
+  selectedFlightForAnalysis: string | null;
+  alternativeRoutes: Record<string, AlternativeRouteSegment[]> | null;
+  isAlternativeRoutesPanelOpen: boolean;
+  alternativeRoutesLoading: boolean;
+  alternativeRoutesError: string | null;
+  hoveredAlternativeRoute: string | null;
   showHotspots: boolean;
   hotspots: Hotspot[];
   hotspotsLoading: boolean;
@@ -245,6 +252,11 @@ type State = {
   removeFlightFromBasketFlow: (id: string, key: string) => void;
   moveFlightBetweenBasketFlows: (fromId: string, toId: string, key: string) => void;
   setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => void;
+  // Alternative Routes actions
+  setSelectedFlightForAnalysis: (flightId: string | null) => void;
+  closeAlternativeRoutesPanel: () => void;
+  setHoveredAlternativeRoute: (route: string | null) => void;
+  fetchAlternativeRoutes: (flightId: string) => Promise<void>;
   setUser: (user: User | null) => void;
 };
 
@@ -274,6 +286,12 @@ const defaultState: Pick<State,
   | 'flights'
   | 'focusMode'
   | 'focusFlightIds'
+  | 'selectedFlightForAnalysis'
+  | 'alternativeRoutes'
+  | 'isAlternativeRoutesPanelOpen'
+  | 'alternativeRoutesLoading'
+  | 'alternativeRoutesError'
+  | 'hoveredAlternativeRoute'
   | 'showHotspots'
   | 'hotspots'
   | 'hotspotsLoading'
@@ -339,6 +357,12 @@ const defaultState: Pick<State,
   flights: [],
   focusMode: false,
   focusFlightIds: new Set<string>(),
+  selectedFlightForAnalysis: null,
+  alternativeRoutes: null,
+  isAlternativeRoutesPanelOpen: false,
+  alternativeRoutesLoading: false,
+  alternativeRoutesError: null,
+  hoveredAlternativeRoute: null,
   showHotspots: false,
   hotspots: [],
   hotspotsLoading: false,
@@ -491,6 +515,86 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setFlights: (flights) => set({ flights }),
   setFocusMode: (enabled) => set({ focusMode: enabled }),
   setFocusFlightIds: (flightIds) => set({ focusFlightIds: flightIds }),
+  setSelectedFlightForAnalysis: (flightId) => {
+    if (flightId) {
+      set({
+        selectedFlightForAnalysis: flightId,
+        selectedTrafficVolume: null,
+        focusMode: true,
+        focusFlightIds: new Set([flightId]),
+        isAlternativeRoutesPanelOpen: true,
+        alternativeRoutesError: null,
+        hoveredAlternativeRoute: null,
+      });
+      get().fetchAlternativeRoutes(flightId);
+    } else {
+      set({
+        selectedFlightForAnalysis: null,
+        alternativeRoutes: null,
+        alternativeRoutesError: null,
+        isAlternativeRoutesPanelOpen: false,
+        alternativeRoutesLoading: false,
+        hoveredAlternativeRoute: null,
+        focusMode: false,
+        focusFlightIds: new Set<string>(),
+      });
+    }
+  },
+  closeAlternativeRoutesPanel: () => {
+    get().setSelectedFlightForAnalysis(null);
+  },
+  setHoveredAlternativeRoute: (route) => set({ hoveredAlternativeRoute: route }),
+  fetchAlternativeRoutes: async (flightId: string) => {
+    const { user } = get();
+    if (!user || !user.token) return;
+
+    set({
+      alternativeRoutesLoading: true,
+      alternativeRoutesError: null,
+      alternativeRoutes: null,
+      hoveredAlternativeRoute: null,
+    });
+
+    try {
+      const response = await fetch(
+        `/api/predict_single_flight?flight_identifier=${encodeURIComponent(flightId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${user.token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+
+      const data: AlternativeRouteResponse = await response.json();
+      const grouped: Record<string, AlternativeRouteSegment[]> = {};
+
+      (data.segments || []).forEach((seg) => {
+        const routeKey = seg.route || "unknown";
+        if (!grouped[routeKey]) {
+          grouped[routeKey] = [];
+        }
+        grouped[routeKey].push(seg);
+      });
+
+      Object.values(grouped).forEach((segments) => {
+        segments.sort((a, b) => a.time_begin_segment - b.time_begin_segment);
+      });
+
+      set({
+        alternativeRoutes: grouped,
+        alternativeRoutesLoading: false,
+      });
+    } catch (err: any) {
+      set({
+        alternativeRoutesError: err?.message ? String(err.message) : String(err),
+        alternativeRoutesLoading: false,
+      });
+    }
+  },
   setT: (t) => set({ t }),
   tick: (dtMs) => {
     const { playing, speed, t, range } = get();

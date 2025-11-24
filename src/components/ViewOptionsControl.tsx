@@ -5,6 +5,7 @@ import FlightLevelRangeControl from "@/components/FlightLevelRangeControl";
 import TimeScrubberPopover from "@/components/TimeScrubberPopover";
 import { useSimStore } from "@/components/useSimStore";
 import { formatSecondsToHHMMSS } from "@/lib/time";
+import { Slider } from "@/components/Slider";
 
 type ViewOptionsControlProps = {
   embedded?: boolean;
@@ -64,14 +65,13 @@ export default function ViewOptionsControl({ embedded = false, className }: View
       <div className="pl-6 pr-2 py-3 flex items-center gap-3 flex-nowrap whitespace-nowrap">
         {false && (
           <div className="flex items-center gap-2">
-            <input
-              type="range"
+            <Slider
               min={0}
               max={24 * 3600 - 1}
               step={60}
               value={Math.floor(t)}
               onChange={(e) => setT(Number(e.currentTarget.value))}
-              className="w-[240px] h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer"
+              className="w-[240px]"
             />
             <span className="text-xs font-mono">{formatSecondsToHHMMSS(t)}</span>
           </div>
@@ -234,11 +234,10 @@ export default function ViewOptionsControl({ embedded = false, className }: View
       {timeScrubberPopover}
       <div className="fixed left-1/2 bottom-0 -translate-x-1/2 z-40 pointer-events-none">
         <div
-          className={`transform transition-all duration-300 ease-in-out ${
-            minimized
+          className={`transform transition-all duration-300 ease-in-out ${minimized
               ? "translate-y-full opacity-0 pointer-events-none"
               : "-translate-y-6 opacity-100 pointer-events-auto"
-          }`}
+            }`}
         >
           {panelCard}
         </div>

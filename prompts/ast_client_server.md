@@ -428,7 +428,7 @@ User: “call sign contains \"AF\"”
 
 ## ETL outline (for your dataset)
 - Script reads:
-  - `public/data/flights_20230801.csv`
+  - `public/data/flights_20230717_0000-2359.csv`
   - `/Volumes/CrucialX/project-tailwind/output/so6_occupancy_matrix_with_times.json`
 - Joins on `flight_identifier` (CSV) ↔ keys in occupancy JSON when available; otherwise heuristics: `(origin, destination, departureDate ~ takeoff_time date, time proximity)`.
 - Emits `public/data/flights.json` with the canonical fields above.
