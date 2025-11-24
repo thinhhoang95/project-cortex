@@ -16,8 +16,8 @@ export interface GroundJitterConfig {
 }
 
 export interface GroundHoldWindow {
-    start: string; // ISO timestamp
-    end: string; // ISO timestamp
+    start: string; // HH:MM
+    end: string; // HH:MM
     rate_fph: number;
     airport: string;
     regulation_id?: string;

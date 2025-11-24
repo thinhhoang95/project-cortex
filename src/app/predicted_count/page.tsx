@@ -49,7 +49,20 @@ type ChartItem = {
   tvId: string;
   series: number[];
   capacitySeries: number[];
+  varianceSeries: number[];
   timeBins: number[];
+};
+
+type ChartRow = {
+  idx: number;
+  value: number;
+  capacity: number | null;
+  variance: number;
+  stdDev: number;
+  probOverload: number | null;
+  startMin: number;
+  rangeLabel: string;
+  startLabel: string;
 };
 
 export default function PredictedCountPage() {
@@ -141,6 +154,7 @@ export default function PredictedCountPage() {
       tvId,
       series: tvData?.demand_mean || [],
       capacitySeries: tvData?.capacity || [],
+      varianceSeries: tvData?.demand_var || [],
       timeBins: tvData?.time_bins || [],
     }));
   }, [data]);
@@ -360,12 +374,13 @@ export default function PredictedCountPage() {
             </div>
             {trafficVolumeItems.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
-                {trafficVolumeItems.map(({ tvId, series, capacitySeries, timeBins }) => (
+                {trafficVolumeItems.map(({ tvId, series, capacitySeries, varianceSeries, timeBins }) => (
                   <ChartCard
                     key={tvId}
                     tvId={tvId}
                     series={series}
                     capacitySeries={capacitySeries}
+                    varianceSeries={varianceSeries}
                     timeBins={timeBins}
                     minutesPerBin={data?.metadata?.time_bin_minutes ?? 15}
                     showCapacity={true}
@@ -390,6 +405,7 @@ function ChartCard({
   tvId,
   series,
   capacitySeries,
+  varianceSeries,
   timeBins,
   minutesPerBin,
   showCapacity = true,
@@ -401,6 +417,7 @@ function ChartCard({
   tvId: string;
   series: number[];
   capacitySeries: number[];
+  varianceSeries: number[];
   timeBins: number[];
   minutesPerBin: number;
   showCapacity?: boolean;
@@ -411,16 +428,24 @@ function ChartCard({
 }) {
   const rows = useMemo(() => {
     const n = Math.min(series.length, timeBins.length);
-    const arr = new Array(n).fill(0).map((_, i) => {
+    const arr: ChartRow[] = new Array(n).fill(0).map((_, i) => {
       const startMin = Number.isFinite(timeBins[i])
         ? Math.max(0, Math.floor(timeBins[i] * minutesPerBin))
         : i * minutesPerBin;
       const capacityVal = Number(capacitySeries[i]);
       const capacity = Number.isFinite(capacityVal) && capacityVal >= 0 ? capacityVal : null;
+      const varianceVal = Number(varianceSeries[i]);
+      const variance = Number.isFinite(varianceVal) && varianceVal >= 0 ? varianceVal : 0;
+      const stdDev = Math.sqrt(variance);
+      const value = Number(series[i] ?? 0);
+      const probOverload = capacity != null ? probabilityOfOverload(value, stdDev, capacity) : null;
       return {
         idx: i,
-        value: Number(series[i] ?? 0),
+        value,
         capacity,
+        variance,
+        stdDev,
+        probOverload,
         startMin,
         rangeLabel: binIndexToRangeLabel(timeBins[i] ?? i, minutesPerBin),
         startLabel: formatMinutesToHHMM(startMin),
@@ -429,7 +454,7 @@ function ChartCard({
     const vFrom = Math.max(0, Math.floor(viewFromMin));
     const vTo = Math.min(24 * 60, Math.floor(viewToMin));
     return arr.filter((r) => r.startMin >= vFrom && r.startMin <= vTo);
-  }, [series, capacitySeries, timeBins, minutesPerBin, viewFromMin, viewToMin]);
+  }, [series, capacitySeries, varianceSeries, timeBins, minutesPerBin, viewFromMin, viewToMin]);
 
   const overloadSegments = useMemo(() => {
     const segments: TrafficOverloadDatum[] = [];
@@ -463,6 +488,35 @@ function ChartCard({
     return segments;
   }, [rows, minutesPerBin, tvId]);
 
+  const renderTooltip = ({ active, payload }: { active?: boolean; payload?: any[] }) => {
+    if (!active || !payload?.length) return null;
+    const datum: ChartRow | undefined = payload[0]?.payload;
+    if (!datum) return null;
+
+    return (
+      <div className="bg-slate-900/90 backdrop-blur-sm border border-white/15 rounded-lg p-2 text-white text-xs">
+        <div className="text-[11px] uppercase tracking-wide text-white/70 mb-1">{datum.rangeLabel}</div>
+        <div className="text-sm text-blue-100">
+          Mean Demand: <span className="font-semibold text-white">{Math.round(datum.value)}</span>
+        </div>
+        <div className="text-xs text-blue-200">
+          Std Dev: <span className="font-semibold text-white">{datum.stdDev.toFixed(1)}</span>{" "}
+          <span className="opacity-70">(Var {datum.variance.toFixed(1)})</span>
+        </div>
+        {datum.capacity != null && (
+          <div className="text-xs text-amber-200">
+            Capacity: <span className="font-semibold text-white">{datum.capacity.toFixed(1)}</span>
+          </div>
+        )}
+        {datum.capacity != null && datum.probOverload != null && (
+          <div className={`text-xs ${datum.probOverload > 0.5 ? "text-red-200" : "text-emerald-200"}`}>
+            Prob. Overload: <span className="font-semibold text-white">{(datum.probOverload * 100).toFixed(1)}%</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
       <div className="flex items-center justify-between mb-2">
@@ -484,21 +538,9 @@ function ChartCard({
               interval="preserveStartEnd"
             />
             <YAxis tick={{ fontSize: 10 }} axisLine={true} tickLine={true} allowDecimals={false} width={32} />
-            <Tooltip
-              wrapperStyle={{ zIndex: 9999 }}
-              contentStyle={{
-                background: "rgba(15,23,42,0.95)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                borderRadius: 8,
-                color: "white",
-              }}
-              formatter={(value: any, name: any) => [
-                name === "capacity" ? String(value) : String(Math.round(Number(value))),
-                name === "capacity" ? "Capacity" : "Mean demand",
-              ]}
-              labelFormatter={(_, payload) => (payload && payload[0]?.payload?.rangeLabel) || ""}
-            />
-            <Bar dataKey="value" fill="#60a5fa" />
+            <Tooltip wrapperStyle={{ zIndex: 9999 }} content={renderTooltip} />
+            <Bar dataKey="value" fill="#60a5fa" stackId="demand" />
+            <Bar dataKey="stdDev" fill="#38bdf8" stackId="demand" fillOpacity={0.55} />
             {showCapacity && (
               <Line
                 type="stepAfter"
@@ -530,6 +572,22 @@ function hhmmToSec(hhmm: string): number {
   const hh = Number.isFinite(h) ? h : 0;
   const mm = Number.isFinite(m) ? m : 0;
   return Math.max(0, hh * 3600 + mm * 60);
+}
+
+function probabilityOfOverload(mean: number, stdDev: number, capacity: number): number {
+  if (stdDev <= 0) {
+    return mean > capacity ? 1 : 0;
+  }
+  const z = (capacity - mean) / stdDev;
+  return 1 - normalCDF(z);
+}
+
+function normalCDF(x: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp((-x * x) / 2);
+  let prob = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  if (x > 0) prob = 1 - prob;
+  return prob;
 }
 
 function formatMinutesToHHMM(totalMinutes: number): string {

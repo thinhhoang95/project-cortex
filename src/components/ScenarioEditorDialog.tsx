@@ -52,7 +52,12 @@ function sanitizeScenarioData(scenario: Scenario): Scenario {
                 const parsedRate = Number(window.rate_fph);
                 const safeRate = Number.isFinite(parsedRate) ? parsedRate : 0;
 
-                return { ...window, rate_fph: safeRate };
+                return {
+                    ...window,
+                    rate_fph: safeRate,
+                    start: window.start?.includes("T") ? window.start.split("T")[1].substring(0, 5) : (window.start || "00:00"),
+                    end: window.end?.includes("T") ? window.end.split("T")[1].substring(0, 5) : (window.end || "00:00"),
+                };
             }),
         ])
     );
@@ -482,8 +487,8 @@ function HoldEditor({
                                     const newWindows = [
                                         ...windows,
                                         {
-                                            start: new Date().toISOString(),
-                                            end: new Date(Date.now() + 3600000).toISOString(),
+                                            start: "08:00",
+                                            end: "09:00",
                                             rate_fph: 30,
                                             airport: airport,
                                         },
@@ -525,18 +530,18 @@ function HoldWindowRow({
     return (
         <div className="grid grid-cols-12 gap-4 items-end bg-black/20 p-3 rounded-lg">
             <div className="col-span-4">
-                <label className="block text-[10px] uppercase tracking-wider text-white/40 mb-1">Start Time (ISO)</label>
+                <label className="block text-[10px] uppercase tracking-wider text-white/40 mb-1">Start Time</label>
                 <input
-                    type="text"
+                    type="time"
                     value={window.start}
                     onChange={(e) => onUpdate({ ...window, start: e.target.value })}
                     className="w-full bg-white/5 rounded px-2 py-1 text-xs border border-white/10 focus:border-blue-400 focus:outline-none font-mono"
                 />
             </div>
             <div className="col-span-4">
-                <label className="block text-[10px] uppercase tracking-wider text-white/40 mb-1">End Time (ISO)</label>
+                <label className="block text-[10px] uppercase tracking-wider text-white/40 mb-1">End Time</label>
                 <input
-                    type="text"
+                    type="time"
                     value={window.end}
                     onChange={(e) => onUpdate({ ...window, end: e.target.value })}
                     className="w-full bg-white/5 rounded px-2 py-1 text-xs border border-white/10 focus:border-blue-400 focus:outline-none font-mono"
