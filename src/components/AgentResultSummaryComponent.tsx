@@ -238,7 +238,7 @@ function FlowGroupMiniMapTooltip({
           </span>
         </div>
       </button>
-      
+
       {isExpanded && (
         <div className="mt-3 rounded-xl border border-white/15 bg-slate-950/95 p-3 text-white/85 shadow-[0_24px_48px_-24px_rgba(14,165,233,0.65)] backdrop-blur-xl">
           <div className="text-[10px] font-semibold uppercase text-white/50 mb-2">
@@ -266,7 +266,7 @@ interface PinnedTvSummary {
   exceedance: number | null;
 }
 
-type ViewMode = 'per_episode' | 'whole_plan';
+type ViewMode = 'per_episode' | 'whole_plan' | 'unselected';
 
 const FLOW_ID_KEYS = [
   'flow_ids',
@@ -680,9 +680,9 @@ function computeStepAggregates(
   const steps = getSolutionSteps(solution);
   const topLevelRegulations = Array.isArray(solution.regulations)
     ? solution.regulations.filter(
-        (entry): entry is AgentSolutionRegulation =>
-          Boolean(entry) && typeof entry === 'object',
-      )
+      (entry): entry is AgentSolutionRegulation =>
+        Boolean(entry) && typeof entry === 'object',
+    )
     : [];
 
   const regsByStep = new Map<number, AgentSolutionRegulation[]>();
@@ -988,9 +988,8 @@ function buildFlowGroupsForStep(
     });
 
     const assignedFlowId = bucket.flowId ?? `flow-${autoIndex++}`;
-    const label = `${controlVolume || 'Flow'}${timeWindow ? ` · ${timeWindow}` : ''}${
-      assignedFlowId ? ` · #${assignedFlowId}` : ''
-    }`;
+    const label = `${controlVolume || 'Flow'}${timeWindow ? ` · ${timeWindow}` : ''}${assignedFlowId ? ` · #${assignedFlowId}` : ''
+      }`;
 
     groups.push({
       key: String(assignedFlowId),
@@ -1228,7 +1227,7 @@ export default function AgentResultSummaryComponent({
 
   const [selectedSolutionRank, setSelectedSolutionRank] = useState<number>(1);
   const [selectedStepNumber, setSelectedStepNumber] = useState<number>(1);
-  const [viewMode, setViewMode] = useState<ViewMode>('per_episode');
+  const [viewMode, setViewMode] = useState<ViewMode>('unselected');
   const [bestData, setBestData] = useState<AgentSolBestResponse | null>(null);
   const [bestLoading, setBestLoading] = useState<boolean>(false);
   const [bestError, setBestError] = useState<string | null>(null);
@@ -1578,8 +1577,11 @@ export default function AgentResultSummaryComponent({
   );
 
   const flowGroups = useMemo(
-    () => buildFlowGroupsForStep(selectedSolution, selectedStep, detailsData, flightsById),
-    [selectedSolution, selectedStep, detailsData, flightsById],
+    () => {
+      if (viewMode === 'whole_plan' || viewMode === 'unselected') return [];
+      return buildFlowGroupsForStep(selectedSolution, selectedStep, detailsData, flightsById);
+    },
+    [selectedSolution, selectedStep, detailsData, flightsById, viewMode],
   );
 
   const availableTrafficVolumes = useMemo(() => {
@@ -1857,7 +1859,7 @@ export default function AgentResultSummaryComponent({
                     }),
                     value:
                       entry.best_total_improvement !== null &&
-                      entry.best_total_improvement !== undefined
+                        entry.best_total_improvement !== undefined
                         ? entry.best_total_improvement
                         : Number.NaN,
                   })) ?? [];
@@ -1868,11 +1870,10 @@ export default function AgentResultSummaryComponent({
                     type="button"
                     onClick={() => setSelectedRunId(run.run_id)}
                     aria-pressed={isSelected}
-                    className={`group block w-full rounded-2xl border px-5 py-4 text-left transition-all duration-150 ${
-                      isSelected
-                        ? 'border-emerald-400/70 bg-emerald-400/10 shadow-[0_18px_40px_-24px_rgba(16,185,129,0.8)]'
-                        : 'border-white/10 bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.06]'
-                    }`}
+                    className={`group block w-full rounded-2xl border px-5 py-4 text-left transition-all duration-150 ${isSelected
+                      ? 'border-emerald-400/70 bg-emerald-400/10 shadow-[0_18px_40px_-24px_rgba(16,185,129,0.8)]'
+                      : 'border-white/10 bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.06]'
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -1966,11 +1967,10 @@ export default function AgentResultSummaryComponent({
                   type="button"
                   onClick={() => setViewMode('per_episode')}
                   aria-pressed={viewMode === 'per_episode'}
-                  className={`rounded-md border px-3 py-1.5 text-xs ${
-                    viewMode === 'per_episode'
-                      ? 'border-emerald-400/70 bg-emerald-400/15'
-                      : 'border-white/10 bg-white/5 hover:border-white/20'
-                  }`}
+                  className={`rounded-md border px-3 py-1.5 text-xs ${viewMode === 'per_episode'
+                    ? 'border-emerald-400/70 bg-emerald-400/15'
+                    : 'border-white/10 bg-white/5 hover:border-white/20'
+                    }`}
                 >
                   Per Episode
                 </button>
@@ -1978,11 +1978,10 @@ export default function AgentResultSummaryComponent({
                   type="button"
                   onClick={() => setViewMode('whole_plan')}
                   aria-pressed={viewMode === 'whole_plan'}
-                  className={`rounded-md border px-3 py-1.5 text-xs ${
-                    viewMode === 'whole_plan'
-                      ? 'border-emerald-400/70 bg-emerald-400/15'
-                      : 'border-white/10 bg-white/5 hover:border-white/20'
-                  }`}
+                  className={`rounded-md border px-3 py-1.5 text-xs ${viewMode === 'whole_plan'
+                    ? 'border-emerald-400/70 bg-emerald-400/15'
+                    : 'border-white/10 bg-white/5 hover:border-white/20'
+                    }`}
                 >
                   Whole Plan
                 </button>
@@ -2051,11 +2050,10 @@ export default function AgentResultSummaryComponent({
                           type="button"
                           onClick={() => setSelectedSolutionRank(solution.rank)}
                           aria-pressed={isSelected}
-                          className={`min-w-[150px] rounded-xl border px-4 py-3 text-left transition ${
-                            isSelected
-                              ? 'border-emerald-400/70 bg-emerald-500/15 shadow-[0_14px_30px_-18px_rgba(16,185,129,0.9)]'
-                              : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                          }`}
+                          className={`min-w-[150px] rounded-xl border px-4 py-3 text-left transition ${isSelected
+                            ? 'border-emerald-400/70 bg-emerald-500/15 shadow-[0_14px_30px_-18px_rgba(16,185,129,0.9)]'
+                            : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                            }`}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-sm font-semibold text-white/90">
@@ -2075,7 +2073,57 @@ export default function AgentResultSummaryComponent({
                 </div>
 
                 <div className="mt-5">
-                  {viewMode === 'per_episode' ? (
+                  {viewMode === 'unselected' ? (
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('whole_plan')}
+                        className="group relative flex flex-col items-start justify-between overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-8 text-left transition-all hover:border-emerald-500/50 hover:bg-emerald-500/[0.04] hover:shadow-[0_0_40px_-10px_rgba(16,185,129,0.3)]"
+                      >
+                        <div className="relative z-10">
+                          <div className="mb-6 inline-flex rounded-2xl bg-emerald-500/10 p-4 text-emerald-400 ring-1 ring-inset ring-emerald-500/20 transition-colors group-hover:bg-emerald-500/20 group-hover:text-emerald-300">
+                            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605" />
+                            </svg>
+                          </div>
+                          <h3 className="text-xl font-bold text-white group-hover:text-emerald-300">Whole Plan View</h3>
+                          <p className="mt-3 text-sm leading-relaxed text-white/60 group-hover:text-white/80">
+                            Analyze aggregated statistics, flight paths, and occupancy impacts across the entire plan duration.
+                          </p>
+                        </div>
+                        <div className="mt-8 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-white/40 group-hover:text-emerald-400">
+                          Select View
+                          <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                          </svg>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('per_episode')}
+                        className="group relative flex flex-col items-start justify-between overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-8 text-left transition-all hover:border-blue-500/50 hover:bg-blue-500/[0.04] hover:shadow-[0_0_40px_-10px_rgba(59,130,246,0.3)]"
+                      >
+                        <div className="relative z-10">
+                          <div className="mb-6 inline-flex rounded-2xl bg-blue-500/10 p-4 text-blue-400 ring-1 ring-inset ring-blue-500/20 transition-colors group-hover:bg-blue-500/20 group-hover:text-blue-300">
+                            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                            </svg>
+                          </div>
+                          <h3 className="text-xl font-bold text-white group-hover:text-blue-300">Per Episode View</h3>
+                          <p className="mt-3 text-sm leading-relaxed text-white/60 group-hover:text-white/80">
+                            Inspect detailed step-by-step decisions, regulations, and flow changes for each episode.
+                          </p>
+                        </div>
+                        <div className="mt-8 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-white/40 group-hover:text-blue-400">
+                          Select View
+                          <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                          </svg>
+                        </div>
+                      </button>
+                    </div>
+                  ) : viewMode === 'per_episode' ? (
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
                       <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4 flex flex-col">
                         <div className="flex items-center justify-between">
@@ -2120,11 +2168,10 @@ export default function AgentResultSummaryComponent({
                                     type="button"
                                     ref={registerStepButton(stepNumber)}
                                     onClick={() => handleStepSelect(stepNumber)}
-                                    className={`min-w-[220px] rounded-2xl border px-4 py-3 text-left shadow transition ${
-                                      isActive
-                                        ? 'border-emerald-400/70 bg-emerald-400/15 shadow-[0_18px_30px_-24px_rgba(16,185,129,0.7)]'
-                                        : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                                    }`}
+                                    className={`min-w-[220px] rounded-2xl border px-4 py-3 text-left shadow transition ${isActive
+                                      ? 'border-emerald-400/70 bg-emerald-400/15 shadow-[0_18px_30px_-24px_rgba(16,185,129,0.7)]'
+                                      : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                                      }`}
                                   >
                                     <div className="flex items-center justify-between gap-3">
                                       <div>
@@ -2181,233 +2228,236 @@ export default function AgentResultSummaryComponent({
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_40px_-24px_rgba(14,116,144,0.8)] backdrop-blur-sm">
-                <div className="flex flex-wrap items-baseline justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-white/90">
-                      Occupancy Count Changes
-                    </h3>
-                    <p className="text-xs text-white/60">
-                      {viewMode === 'per_episode'
-                        ? selectedStep
-                          ? `${getStepControlVolume(selectedStep) || 'Unknown CV'} · ${getStepTimeWindow(selectedStep) || 'Time window TBD'} · Step ${selectedStepNumber}`
-                          : 'Select a step to view traffic volume impacts'
-                        : 'Whole plan occupancy changes'}
-                    </p>
-                  </div>
-                  {detailsError ? (
-                    <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs text-red-200">
-                      {detailsError}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-white/50">
-                      View {viewFrom} → {viewTo}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(280px,1fr)_minmax(220px,260px)] items-end">
-                  <div>
-                    <TimeScaleControl
-                      time_from={viewFrom}
-                      time_to={viewTo}
-                      stepMinutes={binMinutes}
-                      onCommit={(f, t) => {
-                        setViewFrom(f);
-                        setViewTo(t);
-                      }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-start lg:justify-end gap-2">
-                    <select
-                      className="h-[40px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
-                      value={occSortMode}
-                      aria-label="Occupancy pre-post sort"
-                      onChange={(e) => setOccSortMode(e.currentTarget.value as 'total' | 'abs_change' | 'relative_change' | 'exceedance')}
-                    >
-                      <option value="total">Rank by Total</option>
-                      <option
-                        value="abs_change"
-                        disabled={!canRankOccAllChanges}
-                        title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
-                      >
-                        Rank by Absolute Changes
-                      </option>
-                      <option
-                        value="relative_change"
-                        disabled={!canRankOccAllChanges}
-                        title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
-                      >
-                        Rank by Relative Changes
-                      </option>
-                      <option value="exceedance">By Exceedances</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <h4 className="text-sm font-semibold text-white/85">Pinned TVs</h4>
-                      <p className="text-xs text-white/55">
-                        Pin traffic volumes to keep them handy while exploring occupancy changes.
-                      </p>
+              {viewMode !== 'unselected' && (
+                <>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_40px_-24px_rgba(14,116,144,0.8)] backdrop-blur-sm">
+                    <div className="flex flex-wrap items-baseline justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-semibold text-white/90">
+                          Occupancy Count Changes
+                        </h3>
+                        <p className="text-xs text-white/60">
+                          {viewMode === 'per_episode'
+                            ? selectedStep
+                              ? `${getStepControlVolume(selectedStep) || 'Unknown CV'} · ${getStepTimeWindow(selectedStep) || 'Time window TBD'} · Step ${selectedStepNumber}`
+                              : 'Select a step to view traffic volume impacts'
+                            : 'Whole plan occupancy changes'}
+                        </p>
+                      </div>
+                      {detailsError ? (
+                        <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs text-red-200">
+                          {detailsError}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-white/50">
+                          View {viewFrom} → {viewTo}
+                        </span>
+                      )}
                     </div>
-                    <div className="w-full max-w-sm">
-                      <MultiSelectWithChips
-                        options={trafficVolumeOptions}
-                        selectedIds={pinnedTrafficVolumes}
-                        onChange={handlePinnedTrafficVolumesChange}
-                        placeholder={
-                          trafficVolumeOptions.length
-                            ? 'Search traffic volumes...'
-                            : 'No traffic volumes available'
-                        }
-                        disabled={!trafficVolumeOptions.length}
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    {pinnedSummaries.length > 0 ? (
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                        {pinnedSummaries.map((item) => (
-                          <TrafficVolumeInfoTooltip
-                            key={`pinned-tv-${item.tv}`}
-                            trafficVolumeId={item.tv}
-                            className="block"
+
+                    <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(280px,1fr)_minmax(220px,260px)] items-end">
+                      <div>
+                        <TimeScaleControl
+                          time_from={viewFrom}
+                          time_to={viewTo}
+                          stepMinutes={binMinutes}
+                          onCommit={(f, t) => {
+                            setViewFrom(f);
+                            setViewTo(t);
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-start lg:justify-end gap-2">
+                        <select
+                          className="h-[40px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                          value={occSortMode}
+                          aria-label="Occupancy pre-post sort"
+                          onChange={(e) => setOccSortMode(e.currentTarget.value as 'total' | 'abs_change' | 'relative_change' | 'exceedance')}
+                        >
+                          <option value="total">Rank by Total</option>
+                          <option
+                            value="abs_change"
+                            disabled={!canRankOccAllChanges}
+                            title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
                           >
-                            <div className="rounded-xl border border-white/10 bg-white/[0.05] p-4 transition hover:border-white/20">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="text-sm font-semibold text-white/90">
-                                  TV {item.tv}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUnpinTrafficVolume(item.tv)}
-                                  className="text-xs text-white/60 transition hover:text-red-200"
-                                >
-                                  Unpin
-                                </button>
-                              </div>
-                              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] text-white/70">
-                                {item.peakPost !== null ? (
-                                  <div>
-                                    <dt className="uppercase tracking-wide text-white/45">Post peak</dt>
-                                    <dd className="font-semibold text-white/90">
-                                      {formatCount(item.peakPost)}
-                                    </dd>
-                                  </div>
-                                ) : null}
-                                {item.peakPre !== null ? (
-                                  <div>
-                                    <dt className="uppercase tracking-wide text-white/45">Pre peak</dt>
-                                    <dd className="font-semibold text-white/90">
-                                      {formatCount(item.peakPre)}
-                                    </dd>
-                                  </div>
-                                ) : null}
-                                {item.peakCap !== null ? (
-                                  <div>
-                                    <dt className="uppercase tracking-wide text-white/45">Capacity</dt>
-                                    <dd className="font-semibold text-white/90">
-                                      {formatCount(item.peakCap)}
-                                    </dd>
-                                  </div>
-                                ) : null}
-                                {item.exceedance !== null ? (
-                                  <div>
-                                    <dt className="uppercase tracking-wide text-white/45">Max exceed.</dt>
-                                    <dd
-                                      className={`font-semibold ${
-                                        item.exceedance > 0 ? 'text-amber-300' : 'text-white/80'
-                                      }`}
+                            Rank by Absolute Changes
+                          </option>
+                          <option
+                            value="relative_change"
+                            disabled={!canRankOccAllChanges}
+                            title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
+                          >
+                            Rank by Relative Changes
+                          </option>
+                          <option value="exceedance">By Exceedances</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <h4 className="text-sm font-semibold text-white/85">Pinned TVs</h4>
+                          <p className="text-xs text-white/55">
+                            Pin traffic volumes to keep them handy while exploring occupancy changes.
+                          </p>
+                        </div>
+                        <div className="w-full max-w-sm">
+                          <MultiSelectWithChips
+                            options={trafficVolumeOptions}
+                            selectedIds={pinnedTrafficVolumes}
+                            onChange={handlePinnedTrafficVolumesChange}
+                            placeholder={
+                              trafficVolumeOptions.length
+                                ? 'Search traffic volumes...'
+                                : 'No traffic volumes available'
+                            }
+                            disabled={!trafficVolumeOptions.length}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        {pinnedSummaries.length > 0 ? (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            {pinnedSummaries.map((item) => (
+                              <TrafficVolumeInfoTooltip
+                                key={`pinned-tv-${item.tv}`}
+                                trafficVolumeId={item.tv}
+                                className="block"
+                              >
+                                <div className="rounded-xl border border-white/10 bg-white/[0.05] p-4 transition hover:border-white/20">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="text-sm font-semibold text-white/90">
+                                      TV {item.tv}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUnpinTrafficVolume(item.tv)}
+                                      className="text-xs text-white/60 transition hover:text-red-200"
                                     >
-                                      {item.exceedance > 0
-                                        ? `+${formatCount(item.exceedance)}`
-                                        : formatCount(item.exceedance)}
-                                    </dd>
+                                      Unpin
+                                    </button>
                                   </div>
-                                ) : null}
-                              </dl>
-                            </div>
-                          </TrafficVolumeInfoTooltip>
-                        ))}
+                                  <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] text-white/70">
+                                    {item.peakPost !== null ? (
+                                      <div>
+                                        <dt className="uppercase tracking-wide text-white/45">Post peak</dt>
+                                        <dd className="font-semibold text-white/90">
+                                          {formatCount(item.peakPost)}
+                                        </dd>
+                                      </div>
+                                    ) : null}
+                                    {item.peakPre !== null ? (
+                                      <div>
+                                        <dt className="uppercase tracking-wide text-white/45">Pre peak</dt>
+                                        <dd className="font-semibold text-white/90">
+                                          {formatCount(item.peakPre)}
+                                        </dd>
+                                      </div>
+                                    ) : null}
+                                    {item.peakCap !== null ? (
+                                      <div>
+                                        <dt className="uppercase tracking-wide text-white/45">Capacity</dt>
+                                        <dd className="font-semibold text-white/90">
+                                          {formatCount(item.peakCap)}
+                                        </dd>
+                                      </div>
+                                    ) : null}
+                                    {item.exceedance !== null ? (
+                                      <div>
+                                        <dt className="uppercase tracking-wide text-white/45">Max exceed.</dt>
+                                        <dd
+                                          className={`font-semibold ${item.exceedance > 0 ? 'text-amber-300' : 'text-white/80'
+                                            }`}
+                                        >
+                                          {item.exceedance > 0
+                                            ? `+${formatCount(item.exceedance)}`
+                                            : formatCount(item.exceedance)}
+                                        </dd>
+                                      </div>
+                                    ) : null}
+                                  </dl>
+                                </div>
+                              </TrafficVolumeInfoTooltip>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-5 text-xs text-white/60">
+                            {trafficVolumeOptions.length
+                              ? 'No pinned traffic volumes yet. Use the search above to pin the TVs you care about.'
+                              : viewMode === 'per_episode'
+                                ? 'No traffic volume data available for this step.'
+                                : 'No traffic volume data available for this plan.'}
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-5 text-xs text-white/60">
-                        {trafficVolumeOptions.length
-                          ? 'No pinned traffic volumes yet. Use the search above to pin the TVs you care about.'
-                          : viewMode === 'per_episode'
-                            ? 'No traffic volume data available for this step.'
-                            : 'No traffic volume data available for this plan.'}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                    </div>
 
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-                  <OccupancyPrePostPanel
-                    postCounts={detailsData?.pre_post?.post_counts ?? {}}
-                    preCounts={detailsData?.pre_post?.pre_counts ?? undefined}
-                    capacity={detailsData?.pre_post?.capacity ?? undefined}
-                    tvOrder={detailsData?.pre_post?.tv_ids_order ?? undefined}
-                    binMinutes={binMinutes}
-                    viewFrom={viewFrom}
-                    viewTo={viewTo}
-                    sortMode={occSortMode}
-                    onSortModeChange={(m) => setOccSortMode(m)}
-                    pinnedTvIds={pinnedTrafficVolumes}
-                    loading={detailsLoading}
-                    error={detailsError}
-                    compact
-                    showLabels={false}
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_10px_32px_-20px_rgba(8,145,178,0.7)] backdrop-blur-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-white/90">
-                      Breakdown by Airport / Routes
-                    </h3>
-                    <p className="text-xs text-white/60">
-                      {viewMode === 'per_episode'
-                        ? 'Aggregated statistics for delayed flights in this step.'
-                        : 'Aggregated statistics for delayed flights across the plan.'}
-                    </p>
-                  </div>
-                  <span className="text-xs text-white/55">
-                    {flightRows.length} flight
-                    {flightRows.length === 1 ? '' : 's'}
-                  </span>
-                </div>
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  {detailsLoading && flightRows.length === 0 ? (
-                    <div className="flex h-[160px] items-center justify-center">
-                      <ShimmeringText
-                        text="Loading flight statistics…"
-                        className="text-sm text-white/60 font-normal"
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
+                      <OccupancyPrePostPanel
+                        postCounts={detailsData?.pre_post?.post_counts ?? {}}
+                        preCounts={detailsData?.pre_post?.pre_counts ?? undefined}
+                        capacity={detailsData?.pre_post?.capacity ?? undefined}
+                        tvOrder={detailsData?.pre_post?.tv_ids_order ?? undefined}
+                        binMinutes={binMinutes}
+                        viewFrom={viewFrom}
+                        viewTo={viewTo}
+                        sortMode={occSortMode}
+                        onSortModeChange={(m) => setOccSortMode(m)}
+                        pinnedTvIds={pinnedTrafficVolumes}
+                        loading={detailsLoading}
+                        error={detailsError}
+                        compact
+                        showLabels={false}
                       />
                     </div>
-                  ) : detailsError && flightRows.length === 0 ? (
-                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                      {detailsError}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_10px_32px_-20px_rgba(8,145,178,0.7)] backdrop-blur-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-semibold text-white/90">
+                          Breakdown by Airport / Routes
+                        </h3>
+                        <p className="text-xs text-white/60">
+                          {viewMode === 'per_episode'
+                            ? 'Aggregated statistics for delayed flights in this step.'
+                            : 'Aggregated statistics for delayed flights across the plan.'}
+                        </p>
+                      </div>
+                      <span className="text-xs text-white/55">
+                        {flightRows.length} flight
+                        {flightRows.length === 1 ? '' : 's'}
+                      </span>
                     </div>
-                  ) : flightRows.length > 0 ? (
-                    <FlightListStatistics
-                      flightIds={flightRows.map((row) => row.flightId)}
-                      metadata={detailsData?.metadata ?? undefined}
-                      className="bg-transparent"
-                      show_occupancy_charts={false}
-                    />
-                  ) : (
-                    <div className="flex h-[120px] items-center justify-center text-sm text-white/60">
-                      No flight metrics available yet.
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+                      {detailsLoading && flightRows.length === 0 ? (
+                        <div className="flex h-[160px] items-center justify-center">
+                          <ShimmeringText
+                            text="Loading flight statistics…"
+                            className="text-sm text-white/60 font-normal"
+                          />
+                        </div>
+                      ) : detailsError && flightRows.length === 0 ? (
+                        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                          {detailsError}
+                        </div>
+                      ) : flightRows.length > 0 ? (
+                        <FlightListStatistics
+                          flightIds={flightRows.map((row) => row.flightId)}
+                          metadata={detailsData?.metadata ?? undefined}
+                          className="bg-transparent"
+                          show_occupancy_charts={false}
+                        />
+                      ) : (
+                        <div className="flex h-[120px] items-center justify-center text-sm text-white/60">
+                          No flight metrics available yet.
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -2476,7 +2526,7 @@ export default function AgentResultSummaryComponent({
                           </div>
                         </div>
                         {(group.baselineRate !== null && group.baselineRate !== undefined) ||
-                        (group.allowedRate !== null && group.allowedRate !== undefined) ? (
+                          (group.allowedRate !== null && group.allowedRate !== undefined) ? (
                           <div className="rounded-lg bg-emerald-400/15 px-3 py-1 text-xs font-semibold text-emerald-200">
                             {formatRate(group.baselineRate)} → {formatRate(group.allowedRate)}
                           </div>
@@ -2504,7 +2554,7 @@ export default function AgentResultSummaryComponent({
                                 return (
                                   <tr
                                     key={`${group.key}-${row.flightId}`}
-                                  className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/10'} hover:bg-emerald-500/20 cursor-pointer transition`}
+                                    className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/10'} hover:bg-emerald-500/20 cursor-pointer transition`}
                                     onClick={() => handleFlightRowClick(row.flightId)}
                                   >
                                     <td className="px-3 py-2 font-mono">
@@ -2544,13 +2594,12 @@ export default function AgentResultSummaryComponent({
                           <tr
                             key={row.flightId}
                             onClick={() => handleFlightRowClick(row.flightId)}
-                            className={`cursor-pointer border-t border-white/10 text-sm transition ${
-                              showCheck
-                                ? 'bg-emerald-500/15 hover:bg-emerald-500/20'
-                                : index % 2 === 0
-                                  ? 'bg-white/5 hover:bg-white/10'
-                                  : 'bg-white/10 hover:bg-white/15'
-                            }`}
+                            className={`cursor-pointer border-t border-white/10 text-sm transition ${showCheck
+                              ? 'bg-emerald-500/15 hover:bg-emerald-500/20'
+                              : index % 2 === 0
+                                ? 'bg-white/5 hover:bg-white/10'
+                                : 'bg-white/10 hover:bg-white/15'
+                              }`}
                           >
                             <td className="px-3 py-2 text-center text-sm font-semibold text-white/90">
                               {showCheck ? '✓' : ''}
@@ -2580,6 +2629,6 @@ export default function AgentResultSummaryComponent({
           </>
         )}
       </aside>
-    </div>
+    </div >
   );
 }
