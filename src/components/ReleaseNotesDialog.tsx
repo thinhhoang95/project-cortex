@@ -12,6 +12,14 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
+  <h4 class="font-bold mb-4">Tue. 25/11/2025</h4>
+
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Entry counts.</strong> We have refactored all demands to entry counts (compared to occupancy count as previously). This is more in line with ETFMS/NEST implementation.</li>
+    <li><strong>Agent's Result summary.</strong> The Agent's Result summary now lets you choose between the whole-plan view and per-episode view before retrieving data.</li>
+    <li><strong>Prediction results.</strong> Prediction results are now available following the GA status of Project Silverdrizzle.</li>
+  </ul>
+
   <h4 class="font-bold mb-4">Tue. 14/10/2025</h4>
 
   <ul class="list-disc pl-6 space-y-2 mb-4">

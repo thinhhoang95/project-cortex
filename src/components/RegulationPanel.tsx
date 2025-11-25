@@ -115,7 +115,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     load();
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTrafficVolume]);
 
   // Load flight identifiers for this TV (ordered when possible)
@@ -177,7 +177,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
       const capacity = occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey];
       return { time: timeRange, count: count as number, hour, capacity };
-    }).sort((a,b) => a.hour - b.hour);
+    }).sort((a, b) => a.hour - b.hour);
     return arr;
   }, [occupancyData]);
 
@@ -202,12 +202,12 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     const [from, to] = regulationTimeWindow;
     const windowDuration = to - from;
     const currentTime = t;
-    
+
     // Create symmetric range around current time for display,
     // using the full regulation window on each side of t
     const displayFrom = currentTime - windowDuration;
     const displayTo = currentTime + windowDuration;
-    
+
     return chartData.filter(d => {
       const sec = d.hour * 3600;
       return sec >= displayFrom && sec <= displayTo;
@@ -376,13 +376,13 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       return;
     }
     applyPreset(activePreset);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePreset]);
   // Auto-apply preset anchored at current t only if not editing from a payload
   useEffect(() => {
     if (suppressAutoPresetRef.current) return;
     applyPreset(activePreset);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
 
   function parseDurationPresetToSeconds(preset: string): number {
@@ -579,7 +579,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   useEffect(() => {
     if (!flowViewEnabled) return;
     requestFlowExtraction();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationListedFlightIds]);
 
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
@@ -627,7 +627,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           <div className="text-lg font-semibold">{selectedTrafficVolume}</div>
           {selectedTrafficVolumeData?.properties && (
             <div className="text-xs opacity-80">
-              FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3,'0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3,'0')}
+              FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3, '0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3, '0')}
             </div>
           )}
         </div>
@@ -782,7 +782,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                   className="text-gray-300 hover:text-white"
                   title="Add flight"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor" /></svg>
                 </button>
                 <button
                   onClick={() => setMagicSearchOpen(true)}
@@ -858,36 +858,38 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           {selectedFlights.length === 0 ? (
             <div className="text-xs opacity-70">No flights targeted. Click lines on map or enter callsign.</div>
           ) : (
-            <div className={embedded ? "" : "max-h-52 overflow-y-auto no-scrollbar"}>
-              <table className="w-full text-xs">
-                <thead className="sticky top-0">
-                  <tr className="bg-blue-900 text-white">
-                    <th className="text-left p-2 font-semibold">CS</th>
-                    <th className="text-left p-2 font-semibold">Ori.</th>
-                    <th className="text-left p-2 font-semibold">Des.</th>
-                    <th className="text-left p-2 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedFlights.map((f) => (
-                    <tr
-                      key={String(f.flightId)}
-                      className="border-b border-white/10 hover:bg-white/5 cursor-pointer"
-                      onMouseEnter={() => setFlowPreviewFlightId(String(f.flightId))}
-                      onMouseLeave={() => setFlowPreviewFlightId(null)}
-                    >
-                      <td className="p-2 font-mono">{f.callSign || f.flightId}</td>
-                      <td className="p-2">{f.origin || 'N/A'}</td>
-                      <td className="p-2">{f.destination || 'N/A'}</td>
-                      <td className="p-2">
-                        <button onClick={() => removeRegulationTargetFlight(String(f.flightId))} className="text-red-300 hover:text-red-200">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
-                        </button>
-                      </td>
+            <div className="rounded-lg border border-white/10 overflow-hidden">
+              <div className={embedded ? "overflow-x-auto" : "max-h-52 overflow-y-auto no-scrollbar overflow-x-auto"}>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-900/90 backdrop-blur-sm select-none border-b border-white/10">
+                      <th className="text-left p-2 font-semibold">CS</th>
+                      <th className="text-left p-2 font-semibold">Ori.</th>
+                      <th className="text-left p-2 font-semibold">Des.</th>
+                      <th className="text-left p-2 font-semibold">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {selectedFlights.map((f, index) => (
+                      <tr
+                        key={String(f.flightId)}
+                        className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer transition-colors`}
+                        onMouseEnter={() => setFlowPreviewFlightId(String(f.flightId))}
+                        onMouseLeave={() => setFlowPreviewFlightId(null)}
+                      >
+                        <td className="p-2 font-mono">{f.callSign || f.flightId}</td>
+                        <td className="p-2">{f.origin || 'N/A'}</td>
+                        <td className="p-2">{f.destination || 'N/A'}</td>
+                        <td className="p-2">
+                          <button onClick={() => removeRegulationTargetFlight(String(f.flightId))} className="text-red-300 hover:text-red-200">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
           <div className="text-[10px] opacity-70 mt-2">Selected flight lines are shown in bright red on the map.</div>
@@ -907,7 +909,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                   <XAxis dataKey="time" tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} height={16} />
                   <YAxis tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} width={26} />
                   <Tooltip content={<RegTooltip />} />
-                  <Bar dataKey="count" fill="#06b6d4" radius={[2,2,0,0]} onClick={(_, index: number) => {
+                  <Bar dataKey="count" fill="#06b6d4" radius={[2, 2, 0, 0]} onClick={(_, index: number) => {
                     const point: any = displayChartData[index as any];
                     if (point && point.hour !== undefined) setT(point.hour * 3600);
                   }} style={{ cursor: 'pointer' }} />
@@ -955,12 +957,12 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
         {/* Add Button */}
         <div className="flex justify-end">
-          <button 
+          <button
             onClick={handlePreviewRegulation}
             disabled={!selectedTrafficVolume || selectedFlights.length === 0}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium shadow hover:opacity-90 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
             Add
           </button>
         </div>
@@ -1088,7 +1090,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                       aria-haspopup="menu"
                       aria-expanded={openMenuFor === g.cid}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" /></svg>
                       <span className="hidden sm:inline">Add</span>
                     </button>
                     {openMenuFor === g.cid && (
@@ -1147,35 +1149,35 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
               <div className={embedded ? "" : "max-h-40 overflow-y-auto no-scrollbar"}>
                 <div className="rounded-lg border border-white/10 overflow-hidden">
                   <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="bg-white/10">
-                      <th className="text-left p-2 font-semibold">CS</th>
-                      <th className="text-left p-2 font-semibold">Ori.</th>
-                      <th className="text-left p-2 font-semibold">Des.</th>
-                      <th className="text-left p-2 font-semibold">TV Arr.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {g.ids.slice(0, 50).map((fid, idx) => {
-                    const f = flightById.get(String(fid));
-                    return (
-                      <tr
-                        key={String(fid)}
-                        className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
-                        onMouseEnter={() => setFlowPreviewFlightId(String(fid))}
-                        onMouseLeave={() => setFlowPreviewFlightId(null)}
-                      >
-                        <td className="p-2 font-mono">{f?.callSign || fid}</td>
-                        <td className="p-2">{f?.origin || 'N/A'}</td>
-                        <td className="p-2">{f?.destination || 'N/A'}</td>
-                        <td className="p-2 text-right font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
+                    <thead>
+                      <tr className="bg-white/10">
+                        <th className="text-left p-2 font-semibold">CS</th>
+                        <th className="text-left p-2 font-semibold">Ori.</th>
+                        <th className="text-left p-2 font-semibold">Des.</th>
+                        <th className="text-left p-2 font-semibold">TV Arr.</th>
                       </tr>
-                    );
-                  })}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {g.ids.slice(0, 50).map((fid, idx) => {
+                        const f = flightById.get(String(fid));
+                        return (
+                          <tr
+                            key={String(fid)}
+                            className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
+                            onMouseEnter={() => setFlowPreviewFlightId(String(fid))}
+                            onMouseLeave={() => setFlowPreviewFlightId(null)}
+                          >
+                            <td className="p-2 font-mono">{f?.callSign || fid}</td>
+                            <td className="p-2">{f?.origin || 'N/A'}</td>
+                            <td className="p-2">{f?.destination || 'N/A'}</td>
+                            <td className="p-2 text-right font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
             </div>
           );
         })}
@@ -1187,7 +1189,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
 function formatTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}`;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
 function parseTimeToSeconds(value: string): number {
