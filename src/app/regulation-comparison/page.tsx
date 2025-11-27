@@ -25,6 +25,7 @@ import {
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import { normalizeCapacity } from "@/lib/capacity";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
@@ -1091,8 +1092,8 @@ export default function RegulationComparisonPage() {
           const startMin = i * binMinutes;
           if (startMin < viewFromMin || startMin > viewToMin) continue;
           const occ = Number(series[i] ?? 0);
-          const cap = Number(capacity?.[i] ?? Number.NaN);
-          if (!Number.isFinite(cap) || cap < 0) continue; // cannot determine overload without capacity
+          const cap = normalizeCapacity(capacity?.[i]);
+          if (cap == null) continue; // cannot determine overload without capacity
           if (!Number.isFinite(occ) || occ <= cap) continue; // only highlight overloads
           const ratio = cap > 0 ? occ / cap : Infinity;
           let color = "#fb923c"; // amber for mild overload
@@ -1161,8 +1162,8 @@ export default function RegulationComparisonPage() {
           const start = i * minutesPerBin;
           if (start < viewFromMin || start > viewToMin) continue;
           const val = Number(series[i] ?? 0) || 0;
-          const cap = Number(capacity?.[i] ?? Number.POSITIVE_INFINITY);
-          const exceed = Math.max(0, val - (Number.isFinite(cap) ? cap : 0));
+          const cap = normalizeCapacity(capacity?.[i]);
+          const exceed = Math.max(0, val - (cap ?? 0));
           if (exceed > maxExceedance) maxExceedance = exceed;
           if (val > maxPeak) maxPeak = val;
         }
@@ -2296,8 +2297,11 @@ export default function RegulationComparisonPage() {
                     entry[snap.id] = val;
                   });
                   if (capacitySeries && Array.isArray(capacitySeries)) {
-                    entry.capacity = Number(capacitySeries[i] ?? 0);
-                    if (entry.capacity) hasValue = true;
+                    const cap = normalizeCapacity(capacitySeries[i]);
+                    if (cap != null) {
+                      entry.capacity = cap;
+                      hasValue = true;
+                    }
                   }
                   if (hasValue) chartData.push(entry);
                 }
@@ -2313,15 +2317,15 @@ export default function RegulationComparisonPage() {
                     if (start < viewFromMin || start > viewToMin) continue;
                     const val = Number(series[i] ?? 0) || 0;
                     if (val > peak) peak = val;
-                    const cap = Number(capacity?.[i] ?? Number.POSITIVE_INFINITY);
-                    if (Number.isFinite(cap)) {
+                    const cap = normalizeCapacity(capacity?.[i]);
+                    if (cap != null) {
                       exceedance += Math.max(0, val - cap) * normalizationFactor;
                     }
                   }
                   return { snap, peak, exceedance };
                 });
 
-                const hasCapacity = Array.isArray(capacitySeries) && capacitySeries.length > 0;
+                const hasCapacity = Array.isArray(capacitySeries) && capacitySeries.some((cap) => normalizeCapacity(cap) != null);
                 const hasSeries = alignedSnapshots.some((snap) => (tvSeriesBySnapshot.get(snap.id)?.[tvId] || []).length > 0);
                 // Build per-snapshot overload segments for this TV
 

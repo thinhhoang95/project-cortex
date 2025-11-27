@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line, Area } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
+import { normalizeCapacity } from "@/lib/capacity";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
@@ -152,7 +153,7 @@ export default function StochasticAirspaceInfo() {
 
             const mean = tvData.demand_mean[idx] || 0;
             const variance = tvData.demand_var[idx] || 0;
-            const capacity = tvData.capacity[idx] || 0;
+            const capacity = normalizeCapacity(tvData.capacity[idx]);
             const stdDev = Math.sqrt(variance);
 
             return {
@@ -277,6 +278,15 @@ export default function StochasticAirspaceInfo() {
         if (!match) return null;
 
         const { mean, stdDev, capacity } = match;
+
+        if (capacity == null) {
+            return {
+                mean,
+                stdDev,
+                capacity: null,
+                probOverload: null
+            };
+        }
 
         let probOverload = 0;
         if (stdDev === 0) {
@@ -468,23 +478,35 @@ export default function StochasticAirspaceInfo() {
                         <div className="space-y-4">
                             {/* Summary Stats */}
                             {currentStats && (
-                                <div className="grid grid-cols-3 gap-3">
+                                <div
+                                    className={`grid gap-3 ${
+                                        (typeof currentStats.capacity === 'number' && typeof currentStats.probOverload === 'number')
+                                            ? 'grid-cols-3'
+                                            : (typeof currentStats.capacity === 'number' || typeof currentStats.probOverload === 'number')
+                                                ? 'grid-cols-2'
+                                                : 'grid-cols-1'
+                                    }`}
+                                >
                                     <div className="bg-white/10 rounded-lg p-3">
                                         <p className="text-xs opacity-70">Mean ± STD</p>
                                         <p className="text-lg font-semibold">
                                             {currentStats.mean.toFixed(1)} <span className="text-sm opacity-70">± {currentStats.stdDev.toFixed(1)}</span>
                                         </p>
                                     </div>
-                                    <div className="bg-white/10 rounded-lg p-3">
-                                        <p className="text-xs opacity-70">Capacity</p>
-                                        <p className="text-lg font-semibold">{Math.round(currentStats.capacity)}</p>
-                                    </div>
-                                    <div className="bg-white/10 rounded-lg p-3">
-                                        <p className="text-xs opacity-70">Prob. Overload</p>
-                                        <p className={`text-lg font-semibold ${currentStats.probOverload > 0.5 ? 'text-red-400' : 'text-green-400'}`}>
-                                            {currentStats.probOverload.toFixed(2)}
-                                        </p>
-                                    </div>
+                                    {typeof currentStats.capacity === 'number' && (
+                                        <div className="bg-white/10 rounded-lg p-3">
+                                            <p className="text-xs opacity-70">Capacity</p>
+                                            <p className="text-lg font-semibold">{Math.round(currentStats.capacity)}</p>
+                                        </div>
+                                    )}
+                                    {typeof currentStats.probOverload === 'number' && (
+                                        <div className="bg-white/10 rounded-lg p-3">
+                                            <p className="text-xs opacity-70">Prob. Overload</p>
+                                            <p className={`text-lg font-semibold ${currentStats.probOverload > 0.5 ? 'text-red-400' : 'text-green-400'}`}>
+                                                {currentStats.probOverload.toFixed(2)}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

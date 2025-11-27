@@ -6,6 +6,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
+import { normalizeCapacity } from "@/lib/capacity";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
@@ -176,7 +177,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       const hour = hours + minutes / 60;
       const anchorKey = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
       const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
-      const capacity = occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey];
+      const capacity = normalizeCapacity(
+        occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey]
+      );
       return { time: timeRange, count: count as number, hour, capacity };
     }).sort((a,b) => a.hour - b.hour);
     return arr;
@@ -955,7 +958,7 @@ function anchorCapacityForTime(
   const minutes = binStartMinutes % 60;
   const anchorKey = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
   const hourKey = `${hours.toString().padStart(2, "0")}:00-${(hours + 1).toString().padStart(2, "0")}:00`;
-  return anchorCapacity?.[anchorKey] ?? hourlyCapacity?.[hourKey];
+  return normalizeCapacity(anchorCapacity?.[anchorKey] ?? hourlyCapacity?.[hourKey]);
 }
 
 function currentCountForTime(occupancyData: any, t: number): number | undefined {

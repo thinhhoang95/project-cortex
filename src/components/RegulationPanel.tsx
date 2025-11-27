@@ -8,6 +8,7 @@ import FlightQueryDialog from "@/components/FlightQueryDialog";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import { normalizeCapacity } from "@/lib/capacity";
 
 type RegulationPanelProps = { embedded?: boolean };
 
@@ -175,7 +176,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       const hour = hours + minutes / 60;
       const anchorKey = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
       const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
-      const capacity = occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey];
+      const capacity = normalizeCapacity(
+        occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey]
+      );
       return { time: timeRange, count: count as number, hour, capacity };
     }).sort((a, b) => a.hour - b.hour);
     return arr;
@@ -1235,7 +1238,7 @@ function anchorCapacityForTime(
   const minutes = binStartMinutes % 60;
   const anchorKey = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
   const hourKey = `${hours.toString().padStart(2, "0")}:00-${(hours + 1).toString().padStart(2, "0")}:00`;
-  return anchorCapacity?.[anchorKey] ?? hourlyCapacity?.[hourKey];
+  return normalizeCapacity(anchorCapacity?.[anchorKey] ?? hourlyCapacity?.[hourKey]);
 }
 
 function currentCountForTime(occupancyData: any, t: number): number | undefined {

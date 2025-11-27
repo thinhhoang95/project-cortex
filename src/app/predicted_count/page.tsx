@@ -11,6 +11,7 @@ import SelectChevron from "@/components/SelectChevron";
 import { useSimStore } from "@/components/useSimStore";
 import { loadSectors } from "@/lib/airspace";
 import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
+import { normalizeCapacity } from "@/lib/capacity";
 import {
   CartesianGrid,
   ComposedChart,
@@ -432,8 +433,7 @@ function ChartCard({
       const startMin = Number.isFinite(timeBins[i])
         ? Math.max(0, Math.floor(timeBins[i] * minutesPerBin))
         : i * minutesPerBin;
-      const capacityVal = Number(capacitySeries[i]);
-      const capacity = Number.isFinite(capacityVal) && capacityVal >= 0 ? capacityVal : null;
+      const capacity = normalizeCapacity(capacitySeries[i]);
       const varianceVal = Number(varianceSeries[i]);
       const variance = Number.isFinite(varianceVal) && varianceVal >= 0 ? varianceVal : 0;
       const stdDev = Math.sqrt(variance);

@@ -15,6 +15,7 @@ import {
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import { normalizeCapacity } from "@/lib/capacity";
 import {
   ComposedChart,
   Bar,
@@ -1553,13 +1554,12 @@ function FlowEvaluationPageContent() {
                     }
                     entry.other = Math.max(0, total - sumFlows);
                     if (capAvail) {
-                      const raw = capSeries?.[i];
-                      const capNum = Number(raw);
-                      entry.capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
+                      entry.capacity = normalizeCapacity(capSeries?.[i]);
                     }
                     return entry;
                   });
                   const filtered = rows.filter(r => r.startMin >= vFrom && r.startMin <= vTo);
+                  const hasCapacity = capAvail && filtered.some(r => typeof r.capacity === "number");
                   // Flow totals for ordering within this TV
                   const flowTotals: Array<{ fid: number; total: number }> = (Object.keys(perFlow).map(k => Number(k))).map(fid => ({
                     fid,
@@ -1570,7 +1570,7 @@ function FlowEvaluationPageContent() {
                     const flowsSum = flowTotals.reduce((s, f) => s + (Number(r[`f_${f.fid}`]) || 0), 0);
                     return flowsSum > (Number(r.total) || 0);
                   });
-                  return { rows: filtered, flowTotals, hasOverlap, hasCapacity: capAvail };
+                  return { rows: filtered, flowTotals, hasOverlap, hasCapacity };
                 }
 
                 // Determine TV order: controlled first; then by selected metric within view window
@@ -1657,9 +1657,9 @@ function FlowEvaluationPageContent() {
                         const overloadSegments: TrafficOverloadDatum[] = [];
                         const binMinutes = Math.max(1, minutesPerBin);
                         rows.forEach((row) => {
-                          const cap = Number(row.capacity);
+                          const cap = normalizeCapacity(row.capacity);
                           const occ = Number(row.total);
-                          if (!Number.isFinite(cap) || cap < 0) return;
+                          if (cap == null) return;
                           if (!Number.isFinite(occ) || occ <= cap) return;
                           const ratio = cap > 0 ? occ / cap : Infinity;
                           let color = "#fb923c";
