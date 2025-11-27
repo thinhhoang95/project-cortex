@@ -56,13 +56,13 @@ export default function MapCanvas() {
         id: "sector-fill",
         type: "fill",
         source: "sectors",
-        paint: { "fill-color": "#3b82f6", "fill-opacity": 0.01 }
+        paint: { "fill-color": "#3b82f6", "fill-opacity": 0.04 }
       });
       map.addLayer({
         id: "sector-outline",
         type: "line",
         source: "sectors",
-        paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.05 }
+        paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.12 }
       });
       // center labels via centroid points
       const centroids = {
