@@ -1,7 +1,7 @@
 "use client";
 import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
@@ -11,9 +11,10 @@ import { useThemeStore } from "@/components/useThemeStore";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
+import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
 
 export default function FlowCanvas() {
-  const mapRef = useRef<maplibregl.Map|null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
@@ -24,6 +25,7 @@ export default function FlowCanvas() {
   const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   const theme = useThemeStore((state) => state.theme);
+  const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
 
   // init map
   useEffect(() => {
@@ -87,6 +89,8 @@ export default function FlowCanvas() {
         map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
 
         applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
+        const sim = useSimStore.getState();
+        applyTrafficVolumeFilters(map, getTrafficVolumeFilter(sim.flLowerBound, sim.flUpperBound, sim.t));
 
         // --- Flight lines (static geometry) ---
         const lineFC: GeoJSON.FeatureCollection = {
@@ -97,11 +101,11 @@ export default function FlowCanvas() {
             const lastCoord = tr.coords[tr.coords.length - 1];
             const deltaLon = lastCoord[0] - firstCoord[0];
             const deltaLat = lastCoord[1] - firstCoord[1];
-            
+
             // Determine which direction is dominant by comparing absolute changes
             const absLonChange = Math.abs(deltaLon);
             const absLatChange = Math.abs(deltaLat);
-            
+
             let color = "#10b981"; // default green
             if (absLonChange > absLatChange) {
               // Longitude change is dominant
@@ -110,12 +114,12 @@ export default function FlowCanvas() {
               // Latitude change is dominant
               color = deltaLat > 0 ? "#ec4899" : "#10b981"; // North: pink, South: green
             }
-            
+
             return {
               type: "Feature",
-              geometry: { type: "LineString", coordinates: tr.coords.map((c: any)=>[c[0], c[1]]) },
-              properties: { 
-                flightId: tr.flightId, 
+              geometry: { type: "LineString", coordinates: tr.coords.map((c: any) => [c[0], c[1]]) },
+              properties: {
+                flightId: tr.flightId,
                 callSign: tr.callSign ?? tr.flightId,
                 lineColor: color
               }
@@ -201,7 +205,7 @@ export default function FlowCanvas() {
 
         // Fit to data
         const b = new maplibregl.LngLatBounds();
-        lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x,y]: [number, number]) => b.extend([x,y])));
+        lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x, y]: [number, number]) => b.extend([x, y])));
         if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
         // Ensure first render after sources are fully ready
         map.once("idle", () => {
@@ -227,7 +231,7 @@ export default function FlowCanvas() {
       map.remove();
       mapRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
@@ -309,14 +313,14 @@ export default function FlowCanvas() {
     let cancelled = false;
     const waitForReady = () => {
       if (!map.isStyleLoaded()) return;
-      try { map.off("render", waitForReady); } catch {}
+      try { map.off("render", waitForReady); } catch { }
       if (!cancelled) apply();
     };
 
     map.on("render", waitForReady);
     return () => {
       cancelled = true;
-      try { map.off("render", waitForReady); } catch {}
+      try { map.off("render", waitForReady); } catch { }
     };
   }, [weatherOverlay, t, date]);
 
@@ -328,31 +332,35 @@ export default function FlowCanvas() {
     }
   }, [showFlightLineLabels]);
 
-  // on FL range change, filter traffic volumes
+  // on FL range change or time change, filter traffic volumes based on vertical intersection AND capacity
   useEffect(() => {
-    if (mapRef.current && mapRef.current.getSource("sectors")) {
-      const filterExpression: any = [
-        "all",
-        [">=", ["get", "max_fl"], flLowerBound],
-        ["<=", ["get", "min_fl"], flUpperBound]
-      ];
-      if (mapRef.current.getLayer("sector-fill")) mapRef.current.setFilter("sector-fill", filterExpression);
-      if (mapRef.current.getLayer("sector-outline")) mapRef.current.setFilter("sector-outline", filterExpression);
-      if (mapRef.current.getLayer("sector-labels")) mapRef.current.setFilter("sector-labels", filterExpression);
-      // (Slack layer removed) no sector-slack filter
-      // Ensure highlight and hover layers are also absolutely filtered by FL range
-      const hlFilter: any = highlightedTrafficVolume
-        ? ["all", ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
-        : ["==", ["get", "traffic_volume_id"], ""];
-      const hvFilter: any = hoveredTrafficVolume
-        ? ["all", ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
-        : ["==", ["get", "traffic_volume_id"], ""];
-      if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", hlFilter as any);
-      if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", hlFilter as any);
-      if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hvFilter as any);
-      if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hvFilter as any);
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      if (!map.getSource("sectors")) return;
+      const filterExpression = getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin);
+      applyTrafficVolumeFilters(map, filterExpression);
+    };
+
+    if (map.isStyleLoaded()) {
+      apply();
+      return;
     }
-  }, [flLowerBound, flUpperBound]);
+
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      try { map.off("render", waitForReady); } catch { }
+      if (!cancelled) apply();
+    };
+
+    map.on("render", waitForReady);
+    return () => {
+      cancelled = true;
+      try { map.off("render", waitForReady); } catch { }
+    };
+  }, [flLowerBound, flUpperBound, currentTrafficVolumeBin]);
 
   // Update highlight/hover layers when state changes
   useEffect(() => {
@@ -362,7 +370,7 @@ export default function FlowCanvas() {
       : ["==", ["get", "traffic_volume_id"], ""];
     if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", highlightFilter as any);
     if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
-  }, [highlightedTrafficVolume]);
+  }, [highlightedTrafficVolume, flLowerBound, flUpperBound]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -371,15 +379,15 @@ export default function FlowCanvas() {
       : ["==", ["get", "traffic_volume_id"], ""];
     if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hoverFilter as any);
     if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hoverFilter as any);
-  }, [hoveredTrafficVolume]);
+  }, [hoveredTrafficVolume, flLowerBound, flUpperBound]);
 
   // Update hotspot layers when hotspots/time/FL range changes
   useEffect(() => {
     if (!mapRef.current) return;
     const activeHotspots = getActiveHotspots();
     const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
-    const hotspotFilter = hotspotTrafficVolumeIds.length > 0 
-      ? [ "all", ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound] ]
+    const hotspotFilter = hotspotTrafficVolumeIds.length > 0
+      ? ["all", ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
       : ["==", ["get", "traffic_volume_id"], ""];
     if (mapRef.current.getLayer("sector-hotspot")) mapRef.current.setFilter("sector-hotspot", hotspotFilter as any);
     if (mapRef.current.getLayer("sector-hotspot-outline")) mapRef.current.setFilter("sector-hotspot-outline", hotspotFilter as any);
@@ -435,22 +443,22 @@ export default function FlowCanvas() {
     <>
       <div id="map" className="absolute inset-0" />
       {/* Regulation panels and slack controls removed in FlowCanvas */}
-      
+
       <PageLoadingIndicator visible={baseDataLoading} />
     </>
   );
 }
 
 function updateFlightLineFilters(map: maplibregl.Map | null) {
-  if (!map){
+  if (!map) {
     return;
   }
-  if (!map.isStyleLoaded()){
+  if (!map.isStyleLoaded()) {
     try {
       map.once("idle", () => {
         try { updateFlightLineFilters(map); } catch (e) { console.error("Deferred updateFlightLineFilters error:", e); }
       });
-    } catch {}
+    } catch { }
     return;
   }
   const sim = useSimStore.getState();
@@ -537,7 +545,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
           console.error("Deferred updateFlowRendering error:", err);
         }
       });
-    } catch {}
+    } catch { }
     return;
   }
   const sim = useSimStore.getState();
@@ -647,6 +655,14 @@ function updateFlowRendering(map: maplibregl.Map | null) {
 }
 
 // (Slack overlay and helpers removed in FlowCanvas)
+
+function applyTrafficVolumeFilters(map: maplibregl.Map, filterExpression: any[]) {
+  const layerIds = ['sector-fill', 'sector-outline', 'sector-labels'];
+  for (const layerId of layerIds) {
+    if (!map.getLayer(layerId)) continue;
+    map.setFilter(layerId, filterExpression as any);
+  }
+}
 
 function applyTrafficVolumeVisibility(map: maplibregl.Map, visible: boolean) {
   const visibility = visible ? 'visible' : 'none';
