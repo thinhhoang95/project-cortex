@@ -318,14 +318,17 @@ function FlowEvaluationPageContent() {
   const occAllCapacityForView = useMemo<Record<string, number[]> | undefined>(() => {
     const src = occAllState.data?.capacity;
     if (!src) return undefined;
-    if (!hasTvFilter) return src;
-    const filtered: Record<string, number[]> = {};
+    const result: Record<string, number[]> = {};
     Object.entries(src).forEach(([tv, series]) => {
-      if (selectedTvSet.has(String(tv))) {
-        filtered[tv] = series;
-      }
+      if (hasTvFilter && !selectedTvSet.has(String(tv))) return;
+      // Filter out capacity values >998 so they don't affect y-axis scaling
+      // Values >998 (like 9999 for unopened traffic volumes) are set to NaN
+      // which will be treated as null in OccupancyPrePostPanel
+      result[tv] = Array.isArray(series) 
+        ? series.map((cap: number) => Number.isFinite(cap) && cap > 998 ? NaN : cap)
+        : series;
     });
-    return filtered;
+    return Object.keys(result).length > 0 ? result : undefined;
   }, [occAllState.data?.capacity, hasTvFilter, selectedTvSet]);
 
   const occAllTvOrderForView = useMemo<string[]>(() => {

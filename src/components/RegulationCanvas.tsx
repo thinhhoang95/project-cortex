@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
-import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import { Trajectory } from "@/lib/models";
@@ -14,6 +13,18 @@ import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
+import {
+  addTrafficVolumeLayers,
+  addTrafficVolumeSources,
+  applyTrafficVolumeFilters,
+  applyTrafficVolumeHighlight,
+  applyTrafficVolumeHover,
+  applyTrafficVolumeHotspots,
+  applyTrafficVolumeVisibility,
+  getTrafficVolumeCenter,
+  getTrafficVolumeCenterFromMap,
+  TRAFFIC_VOLUME_LAYER_IDS,
+} from "@/lib/trafficVolumeLayers";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -57,36 +68,10 @@ export default function RegulationCanvas() {
       setRange([minT, maxT], minT);
 
       // --- Airspace polygons + labels ---
-      map.addSource("sectors", { type: "geojson", data: sectors });
-      (map as any).__sectors = sectors;
+      addTrafficVolumeSources(map, sectors);
+      addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
 
-      map.addLayer({ id: "sector-fill", type: "fill", source: "sectors", paint: { "fill-color": "#3b82f6", "fill-opacity": 0.04 } });
-      map.addLayer({ id: "sector-outline", type: "line", source: "sectors", paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.12 } });
-      // center labels via centroid points
-      const centroids = {
-        type: "FeatureCollection",
-        features: (sectors.features as any[]).map((f) => {
-          const c = turf.centroid(f as any);
-          c.properties = { ...f.properties, label: f.properties?.traffic_volume_id || "" };
-          return c;
-        })
-      } as GeoJSON.FeatureCollection;
-      map.addSource("sector-centroids", { type: "geojson", data: centroids });
-      map.addLayer({
-        id: "sector-labels",
-        type: "symbol",
-        source: "sector-centroids",
-        layout: { "text-field": ["get", "label"], "text-size": 12, "text-font": ["Noto Sans Regular"] },
-        paint: { "text-color": "#60a5fa", "text-halo-color": "#0f172a", "text-halo-width": 2 }
-      });
-
-      // Add highlight and hover layers for traffic volumes
-      map.addLayer({ id: "sector-highlight", type: "fill", source: "sectors", paint: { "fill-color": "#fbbf24", "fill-opacity": 0.3 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-highlight-outline", type: "line", source: "sectors", paint: { "line-color": "#fbbf24", "line-width": 3, "line-opacity": 0.8 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-hover", type: "fill", source: "sectors", paint: { "fill-color": "#06b6d4", "fill-opacity": 0.2 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-hover-outline", type: "line", source: "sectors", paint: { "line-color": "#06b6d4", "line-width": 2, "line-opacity": 0.6 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-
-      // Slack overlay layer (initially hidden). Place BELOW labels so clicks work.
+      // Slack overlay layer (initially hidden). Place below points + labels so clicks work.
       if (!map.getLayer("sector-slack")) {
         map.addLayer({
           id: "sector-slack",
@@ -94,16 +79,12 @@ export default function RegulationCanvas() {
           source: "sectors",
           layout: { visibility: "none" },
           paint: { "fill-color": "#facc15", "fill-opacity": 0.03 }
-        }, "sector-labels");
+        }, TRAFFIC_VOLUME_LAYER_IDS.point);
       }
 
-      // Add hotspot layers for traffic volumes
-      map.addLayer({ id: "sector-hotspot", type: "fill", source: "sectors", paint: { "fill-color": "#ef4444", "fill-opacity": 0.1 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-      map.addLayer({ id: "sector-hotspot-outline", type: "line", source: "sectors", paint: { "line-color": "#ef4444", "line-width": 3, "line-opacity": 0.9 }, filter: ["==", ["get", "traffic_volume_id"], ""] });
-
-      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
+      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
       const sim = useSimStore.getState();
-      applyTrafficVolumeFilters(map, getTrafficVolumeFilter(sim.flLowerBound, sim.flUpperBound, sim.t));
+      applyTrafficVolumeFilters(map, getTrafficVolumeFilter(sim.flLowerBound, sim.flUpperBound, sim.t), { includeSlack: true });
 
       // --- Flight lines (static geometry) ---
       const lineFC: GeoJSON.FeatureCollection = {
@@ -197,56 +178,63 @@ export default function RegulationCanvas() {
         fetchAndApplySlack(map, trafficVolumeId, refStr, sign, dMin, sim.setIsFetchingSlack, setSlackMetaByTv, showNow);
       };
 
-      // Click handler: only labels select a TV (disallow fills/overlays)
-      map.on('click', 'sector-labels', (e) => {
-        // If a flight line (including highlighted) is under the cursor, let that take precedence
-        const lineHits = map.queryRenderedFeatures(e.point, { layers: ['reg-target-lines', 'flight-lines'] });
-        if (lineHits && lineHits.length > 0) return;
-        if (e.features && e.features.length > 0) {
-          // Choose the closest label feature to the click point to avoid wrong selection when labels overlap
-          const candidates = e.features as any[];
-          let chosen = candidates[0];
-          if (candidates.length > 1) {
-            let minDist2 = Infinity;
-            for (const f of candidates) {
-              const geom: any = f.geometry;
-              if (geom && geom.type === 'Point' && Array.isArray(geom.coordinates)) {
-                const p = map.project({ lng: geom.coordinates[0], lat: geom.coordinates[1] } as any);
-                const dx = p.x - e.point.x;
-                const dy = p.y - e.point.y;
-                const d2 = dx * dx + dy * dy;
-                if (d2 < minDist2) { minDist2 = d2; chosen = f; }
-              }
+      const pickClosestTrafficVolumeId = (e: maplibregl.MapLayerMouseEvent) => {
+        const candidates = (e.features as any[]) || [];
+        if (!candidates.length) return null;
+        let chosen = candidates[0];
+        if (candidates.length > 1) {
+          let minDist2 = Infinity;
+          for (const f of candidates) {
+            const geom: any = f.geometry;
+            if (geom && geom.type === 'Point' && Array.isArray(geom.coordinates)) {
+              const p = map.project({ lng: geom.coordinates[0], lat: geom.coordinates[1] } as any);
+              const dx = p.x - e.point.x;
+              const dy = p.y - e.point.y;
+              const d2 = dx * dx + dy * dy;
+              if (d2 < minDist2) { minDist2 = d2; chosen = f; }
             }
           }
-          const trafficVolumeId = (chosen as any)?.properties?.label;
-          if (trafficVolumeId) selectTrafficVolume(String(trafficVolumeId));
         }
-      });
+        const rawId = (chosen as any)?.properties?.traffic_volume_id ?? (chosen as any)?.properties?.label;
+        return rawId != null ? String(rawId) : null;
+      };
 
-      // Hover effects for sector labels and fills
-      map.on('mouseenter', 'sector-labels', (e) => {
+      const handleTrafficVolumeClick = (e: maplibregl.MapLayerMouseEvent) => {
+        const lineHits = map.queryRenderedFeatures(e.point, { layers: ['reg-target-lines', 'flight-lines'] });
+        if (lineHits && lineHits.length > 0) return;
+        const trafficVolumeId = pickClosestTrafficVolumeId(e);
+        if (trafficVolumeId) selectTrafficVolume(String(trafficVolumeId));
+      };
+
+      map.on('click', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeClick);
+      map.on('click', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeClick);
+      map.on('click', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeClick);
+
+      const handleTrafficVolumeHover = (e: maplibregl.MapLayerMouseEvent) => {
         map.getCanvas().style.cursor = 'pointer';
-        if (e.features && e.features.length > 0) {
-          const feature = e.features[0];
-          const trafficVolumeId = feature.properties?.label;
-          if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
-          if (e.point && useSimStore.getState().slackMode !== 'off') {
-            setHoverLabelPoint({ x: (e.point as any).x, y: (e.point as any).y });
-          }
-        }
-      });
-      map.on('mousemove', 'sector-labels', (e) => {
-        if (e.features && e.features.length > 0) {
-          const feature = e.features[0];
-          const trafficVolumeId = feature.properties?.label;
-          if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
-        }
+        const trafficVolumeId = pickClosestTrafficVolumeId(e);
+        if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
         if (e.point && useSimStore.getState().slackMode !== 'off') {
           setHoverLabelPoint({ x: (e.point as any).x, y: (e.point as any).y });
         }
-      });
-      map.on('mouseleave', 'sector-labels', () => { map.getCanvas().style.cursor = ''; setHoveredTrafficVolume(null); setHoverLabelPoint(null); });
+      };
+
+      map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
+      map.on('mousemove', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
+      map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHover);
+      map.on('mousemove', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHover);
+      map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
+      map.on('mousemove', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
+
+      const handleTrafficVolumeHoverExit = () => {
+        map.getCanvas().style.cursor = '';
+        setHoveredTrafficVolume(null);
+        setHoverLabelPoint(null);
+      };
+
+      map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
+      map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
+      map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
       // Fills and slack overlay are not clickable; keep default cursor
 
       // Fit to data
@@ -376,7 +364,7 @@ export default function RegulationCanvas() {
     const apply = () => {
       if (!map.getSource("sectors")) return;
       const filterExpression = getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin);
-      applyTrafficVolumeFilters(map, filterExpression);
+      applyTrafficVolumeFilters(map, filterExpression, { includeSlack: true });
     };
 
     if (map.isStyleLoaded()) {
@@ -400,33 +388,24 @@ export default function RegulationCanvas() {
 
   // Update highlight/hover layers when state changes
   useEffect(() => {
-    if (!mapRef.current) return;
-    const highlightFilter = highlightedTrafficVolume
-      ? ["all", ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
-      : ["==", ["get", "traffic_volume_id"], ""];
-    if (mapRef.current.getLayer("sector-highlight")) mapRef.current.setFilter("sector-highlight", highlightFilter as any);
-    if (mapRef.current.getLayer("sector-highlight-outline")) mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
+    const map = mapRef.current;
+    if (!map) return;
+    applyTrafficVolumeHighlight(map, highlightedTrafficVolume, flLowerBound, flUpperBound, true);
   }, [highlightedTrafficVolume, flLowerBound, flUpperBound]);
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    const hoverFilter = hoveredTrafficVolume
-      ? ["all", ["==", ["get", "traffic_volume_id"], hoveredTrafficVolume], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
-      : ["==", ["get", "traffic_volume_id"], ""];
-    if (mapRef.current.getLayer("sector-hover")) mapRef.current.setFilter("sector-hover", hoverFilter as any);
-    if (mapRef.current.getLayer("sector-hover-outline")) mapRef.current.setFilter("sector-hover-outline", hoverFilter as any);
+    const map = mapRef.current;
+    if (!map) return;
+    applyTrafficVolumeHover(map, hoveredTrafficVolume, flLowerBound, flUpperBound, true);
   }, [hoveredTrafficVolume, flLowerBound, flUpperBound]);
 
   // Update hotspot layers when hotspots/time/FL range changes
   useEffect(() => {
-    if (!mapRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
     const activeHotspots = getActiveHotspots();
     const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
-    const hotspotFilter = hotspotTrafficVolumeIds.length > 0
-      ? ["all", ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]], [">=", ["get", "max_fl"], flLowerBound], ["<=", ["get", "min_fl"], flUpperBound]]
-      : ["==", ["get", "traffic_volume_id"], ""];
-    if (mapRef.current.getLayer("sector-hotspot")) mapRef.current.setFilter("sector-hotspot", hotspotFilter as any);
-    if (mapRef.current.getLayer("sector-hotspot-outline")) mapRef.current.setFilter("sector-hotspot-outline", hotspotFilter as any);
+    applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
   }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
 
   // Listen for dialog close events to clear highlighting and hide slack overlay
@@ -472,11 +451,10 @@ export default function RegulationCanvas() {
       lastSlackKeyRef.current = `${tvId}|${refStr}|${sign}|${dMin}`;
       const showNow = sim.slackMode !== 'off';
       fetchAndApplySlack(map, tvId, refStr, sign, dMin, sim.setIsFetchingSlack, setSlackMetaByTv, showNow);
-      if (tvGeometry && tvGeometry.type === 'Polygon') {
-        const coords = (tvGeometry as any).coordinates[0];
-        let centerLon = 0, centerLat = 0;
-        for (const coord of coords) { centerLon += coord[0]; centerLat += coord[1]; }
-        const center: [number, number] = [centerLon / coords.length, centerLat / coords.length];
+      const center = tvGeometry
+        ? getTrafficVolumeCenter(tvGeometry)
+        : getTrafficVolumeCenterFromMap(map, tvId);
+      if (center) {
         map.flyTo({ center, zoom: Math.max(map.getZoom(), 7), duration: 1500 });
       }
     };
@@ -718,7 +696,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
     map.setLayoutProperty('reg-target-lines', 'visibility', vis);
   }
 
-  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
+  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes, { includeSlack: true });
   if (!sim.showTrafficVolumes) {
     if (map.getLayer('sector-slack')) {
       map.setLayoutProperty('sector-slack', 'visibility', 'none');
@@ -731,6 +709,8 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sectorFillId = 'sector-fill';
   const sectorOutlineId = 'sector-outline';
   const sectorLabelsId = 'sector-labels';
+  const sectorPointId = TRAFFIC_VOLUME_LAYER_IDS.point;
+  const sectorPointLabelsId = TRAFFIC_VOLUME_LAYER_IDS.pointLabel;
 
   if (sim.flowViewEnabled && !sim.regulationPreviewActive) {
     // While flow coloring is active (and no regulation preview), hide base sector visuals
@@ -739,6 +719,9 @@ function updateFlowRendering(map: maplibregl.Map | null) {
     }
     if (map.getLayer(sectorOutlineId)) {
       map.setPaintProperty(sectorOutlineId, 'line-opacity', 0);
+    }
+    if (map.getLayer(sectorPointId)) {
+      map.setPaintProperty(sectorPointId, 'circle-opacity', 0);
     }
 
     // Show labels only for selected TV or active hotspots at current time
@@ -752,6 +735,9 @@ function updateFlowRendering(map: maplibregl.Map | null) {
       if (allowedIds.length === 0) {
         // If nothing is selected or a hotspot, hide all labels to minimize clutter
         map.setPaintProperty(sectorLabelsId, 'text-opacity', 0 as any);
+        if (map.getLayer(sectorPointLabelsId)) {
+          map.setPaintProperty(sectorPointLabelsId, 'text-opacity', 0 as any);
+        }
       } else {
         // Data-driven opacity: 1 for selected/hotspot labels, 0 otherwise
         const labelOpacityExpr: any = [
@@ -761,6 +747,9 @@ function updateFlowRendering(map: maplibregl.Map | null) {
           0
         ];
         map.setPaintProperty(sectorLabelsId, 'text-opacity', labelOpacityExpr as any);
+        if (map.getLayer(sectorPointLabelsId)) {
+          map.setPaintProperty(sectorPointLabelsId, 'text-opacity', labelOpacityExpr as any);
+        }
       }
     }
   } else {
@@ -773,6 +762,12 @@ function updateFlowRendering(map: maplibregl.Map | null) {
     }
     if (map.getLayer(sectorLabelsId)) {
       map.setPaintProperty(sectorLabelsId, 'text-opacity', 1 as any);
+    }
+    if (map.getLayer(sectorPointId)) {
+      map.setPaintProperty(sectorPointId, 'circle-opacity', 0.9);
+    }
+    if (map.getLayer(sectorPointLabelsId)) {
+      map.setPaintProperty(sectorPointLabelsId, 'text-opacity', 1 as any);
     }
   }
 }
@@ -871,7 +866,7 @@ function applySlackOverlay(map: maplibregl.Map, slackByTv: Map<string, number>) 
       source: 'sectors',
       layout: { visibility: 'none' },
       paint: { 'fill-color': '#facc15', 'fill-opacity': 0.03 }
-    }, 'sector-highlight');
+    }, TRAFFIC_VOLUME_LAYER_IDS.point);
   }
   if (map.getLayer('sector-slack')) {
     const colorExpr: any = [
@@ -890,37 +885,5 @@ function hideSlackOverlay(map: maplibregl.Map) {
   if (!map || !map.isStyleLoaded()) return;
   if (map.getLayer('sector-slack')) {
     map.setLayoutProperty('sector-slack', 'visibility', 'none');
-  }
-}
-
-function applyTrafficVolumeFilters(map: maplibregl.Map, filterExpression: any[]) {
-  const layerIds = ['sector-fill', 'sector-outline', 'sector-labels', 'sector-slack'];
-  for (const layerId of layerIds) {
-    if (!map.getLayer(layerId)) continue;
-    map.setFilter(layerId, filterExpression as any);
-  }
-}
-
-function applyTrafficVolumeVisibility(map: maplibregl.Map, visible: boolean) {
-  const visibility = visible ? 'visible' : 'none';
-  const layerIds = [
-    'sector-fill',
-    'sector-outline',
-    'sector-labels',
-    'sector-highlight',
-    'sector-highlight-outline',
-    'sector-hover',
-    'sector-hover-outline',
-    'sector-hotspot',
-    'sector-hotspot-outline',
-  ];
-
-  for (const layerId of layerIds) {
-    if (!map.getLayer(layerId)) continue;
-    try {
-      map.setLayoutProperty(layerId, 'visibility', visibility);
-    } catch (err) {
-      console.warn(`Unable to update visibility for layer ${layerId}`, err);
-    }
   }
 }

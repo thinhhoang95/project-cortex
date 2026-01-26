@@ -8,6 +8,16 @@ export function getHourBin(t: number): string {
     return `${pad(h)}:00-${pad(nextH)}:00`;
 }
 
+export function getTrafficVolumeFlIntersectionFilter(flLowerBound: number, flUpperBound: number): any[] {
+    const minFl = ["to-number", ["coalesce", ["get", "min_fl"], 0], 0];
+    const maxFl = ["to-number", ["coalesce", ["get", "max_fl"], 9999], 9999];
+    return [
+        "all",
+        [">=", maxFl, flLowerBound],
+        ["<=", minFl, flUpperBound]
+    ];
+}
+
 /**
  * Returns a MapLibre filter expression for traffic volumes based on:
  * 1. Flight Level (FL) range intersection
@@ -23,9 +33,11 @@ export function getTrafficVolumeFilter(flLowerBound: number, flUpperBound: numbe
         return `capacity_${toHHMM(start)}_${toHHMM(end)}`;
     };
 
-    const capRaw = ["get", formatCapacityKey(hourBin)];
-
-    console.log(formatCapacityKey(hourBin))
+    const capRaw = [
+        "coalesce",
+        ["get", formatCapacityKey(hourBin)],
+        ["get", hourBin, ["get", "capacity"]]
+    ];
 
     // null/missing -> 9999, numeric strings -> number, other junk -> 9999
     const cap = [
@@ -35,11 +47,7 @@ export function getTrafficVolumeFilter(flLowerBound: number, flUpperBound: numbe
         ["to-number", capRaw, 9999]
     ];
 
-    return [
-        "all",
-        [">=", ["get", "max_fl"], flLowerBound],
-        ["<=", ["get", "min_fl"], flUpperBound],
-        ["<", cap, 999]
-    ];
+    const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);
+    return ["all", flFilter, ["<", cap, 999]];
 
 }

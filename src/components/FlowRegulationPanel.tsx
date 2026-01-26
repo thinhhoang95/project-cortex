@@ -361,9 +361,12 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   if (!open) return null;
 
   return (
-    <div className={embedded
-      ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
-      : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
+    <div 
+      className={embedded
+        ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+        : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}
+      style={{ transform: 'translateZ(0)' }}
+    >
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-70">Traffic Flows</div>

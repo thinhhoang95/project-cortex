@@ -12,6 +12,7 @@ import AgentModal from '@/components/AgentModal';
 import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
+import { formatFlightLevelRange } from '@/lib/trafficVolumeFormat';
 
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -265,41 +266,50 @@ export default function Header() {
                     </div>
                   ) : searchResults.length > 0 ? (
                     <div className="py-2">
-                      {searchResults.map((result) => (
-                        <button
-                          key={result.id}
-                          onClick={() => result.type === 'flight' ? handleFlightSelect(result.flight) : handleTrafficVolumeSelect(result.trafficVolume)}
-                          className="w-full px-4 py-3 text-left transition-colors border-b border-[var(--menu-border)] last:border-b-0 hover:bg-[var(--menu-hover-bg)]"
-                        >
-                          {result.type === 'flight' ? (
-                            <>
-                              <div className="text-sm font-medium text-[var(--menu-text)]">
-                                <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-                                {result.flight.flightId}
-                              </div>
-                              <div className="text-xs text-[var(--menu-text-muted)]">
-                                {result.flight.callSign && `Callsign: ${result.flight.callSign}`}
-                                {result.flight.origin && result.flight.destination &&
-                                  ` • ${result.flight.origin} → ${result.flight.destination}`
-                                }
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="text-sm font-medium text-[var(--menu-text)]">
-                                <span className="inline-block w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
-                                {result.trafficVolume.properties.traffic_volume_id}
-                              </div>
-                              <div className="text-xs text-[var(--menu-text-muted)]">
-                                Traffic Volume • FL {result.trafficVolume.properties.min_fl}-{result.trafficVolume.properties.max_fl}
-                                {result.trafficVolume.properties.airspace_id &&
-                                  ` • ${result.trafficVolume.properties.airspace_id}`
-                                }
-                              </div>
-                            </>
-                          )}
-                        </button>
-                      ))}
+                      {searchResults.map((result) => {
+                        const flRange = result.type === 'traffic_volume'
+                          ? formatFlightLevelRange(
+                            result.trafficVolume.properties?.min_fl,
+                            result.trafficVolume.properties?.max_fl
+                          )
+                          : null;
+                        return (
+                          <button
+                            key={result.id}
+                            onClick={() => result.type === 'flight' ? handleFlightSelect(result.flight) : handleTrafficVolumeSelect(result.trafficVolume)}
+                            className="w-full px-4 py-3 text-left transition-colors border-b border-[var(--menu-border)] last:border-b-0 hover:bg-[var(--menu-hover-bg)]"
+                          >
+                            {result.type === 'flight' ? (
+                              <>
+                                <div className="text-sm font-medium text-[var(--menu-text)]">
+                                  <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                                  {result.flight.flightId}
+                                </div>
+                                <div className="text-xs text-[var(--menu-text-muted)]">
+                                  {result.flight.callSign && `Callsign: ${result.flight.callSign}`}
+                                  {result.flight.origin && result.flight.destination &&
+                                    ` • ${result.flight.origin} → ${result.flight.destination}`
+                                  }
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="text-sm font-medium text-[var(--menu-text)]">
+                                  <span className="inline-block w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
+                                  {result.trafficVolume.properties.traffic_volume_id}
+                                </div>
+                                <div className="text-xs text-[var(--menu-text-muted)]">
+                                  Traffic Volume
+                                  {flRange && ` • ${flRange}`}
+                                  {result.trafficVolume.properties.airspace_id &&
+                                    ` • ${result.trafficVolume.properties.airspace_id}`
+                                  }
+                                </div>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="py-4 px-4 text-sm text-[var(--menu-text-muted)]">

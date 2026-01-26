@@ -9,6 +9,7 @@ import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
+import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 
@@ -66,6 +67,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const [expanded, setExpanded] = useState(false);
   const MAX_VISIBLE = 20;
   const [proposalTriggerError, setProposalTriggerError] = useState<string | null>(null);
+  const flightLevelRange = formatFlightLevelRange(
+    selectedTrafficVolumeData?.properties?.min_fl,
+    selectedTrafficVolumeData?.properties?.max_fl
+  );
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -582,10 +587,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-70">Reference TV</div>
           <div className="text-lg font-semibold">{selectedTrafficVolume}</div>
-          {selectedTrafficVolumeData?.properties && (
-            <div className="text-xs opacity-80">
-              FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3,'0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3,'0')}
-            </div>
+          {flightLevelRange && (
+            <div className="text-xs opacity-80">{flightLevelRange}</div>
           )}
         </div>
         <div className="flex flex-col items-end gap-1">

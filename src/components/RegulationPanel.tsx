@@ -9,6 +9,7 @@ import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import { normalizeCapacity } from "@/lib/capacity";
+import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 
 type RegulationPanelProps = { embedded?: boolean };
 
@@ -77,6 +78,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [magicSearchOpen, setMagicSearchOpen] = useState(false);
   const [showOnlyTargeted, setShowOnlyTargeted] = useState(false);
   const [communityReviewContext, setCommunityReviewContext] = useState<CommunityReviewContext | null>(null);
+  const flightLevelRange = formatFlightLevelRange(
+    selectedTrafficVolumeData?.properties?.min_fl,
+    selectedTrafficVolumeData?.properties?.max_fl
+  );
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -628,10 +633,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-70">Reference TV</div>
           <div className="text-lg font-semibold">{selectedTrafficVolume}</div>
-          {selectedTrafficVolumeData?.properties && (
-            <div className="text-xs opacity-80">
-              FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3, '0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3, '0')}
-            </div>
+          {flightLevelRange && (
+            <div className="text-xs opacity-80">{flightLevelRange}</div>
           )}
         </div>
         <PanelCloseButton

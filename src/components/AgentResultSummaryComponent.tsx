@@ -1656,6 +1656,24 @@ export default function AgentResultSummaryComponent({
   const postCounts = detailsData?.pre_post?.post_counts ?? {};
   const capacityCounts = detailsData?.pre_post?.capacity ?? {};
 
+  // Filter out capacity values >998 so they don't affect y-axis scaling
+  // Values >998 (like 9999 for unopened traffic volumes) are set to NaN
+  // which will be treated as null in OccupancyPrePostPanel
+  const filteredCapacityCounts = useMemo<Record<string, number[]> | undefined>(() => {
+    if (!capacityCounts || Object.keys(capacityCounts).length === 0) return undefined;
+    const filtered: Record<string, number[]> = {};
+    Object.entries(capacityCounts).forEach(([tv, series]) => {
+      if (Array.isArray(series)) {
+        filtered[tv] = series.map((cap: number) => 
+          Number.isFinite(cap) && cap > 998 ? NaN : cap
+        );
+      } else {
+        filtered[tv] = series;
+      }
+    });
+    return Object.keys(filtered).length > 0 ? filtered : undefined;
+  }, [capacityCounts]);
+
   const pinnedSummaries = useMemo<PinnedTvSummary[]>(() => {
     if (!pinnedTrafficVolumes.length) return [];
     const summaries: PinnedTvSummary[] = [];
@@ -2397,7 +2415,7 @@ export default function AgentResultSummaryComponent({
                       <OccupancyPrePostPanel
                         postCounts={detailsData?.pre_post?.post_counts ?? {}}
                         preCounts={detailsData?.pre_post?.pre_counts ?? undefined}
-                        capacity={detailsData?.pre_post?.capacity ?? undefined}
+                        capacity={filteredCapacityCounts}
                         tvOrder={detailsData?.pre_post?.tv_ids_order ?? undefined}
                         binMinutes={binMinutes}
                         viewFrom={viewFrom}

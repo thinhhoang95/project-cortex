@@ -967,7 +967,14 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
               const id = String(tv.traffic_volume_id);
               preCounts[id] = Array.isArray(tv.pre_rolling_counts) ? tv.pre_rolling_counts : [];
               postCounts[id] = Array.isArray(tv.post_rolling_counts) ? tv.post_rolling_counts : [];
-              if (Array.isArray(tv.capacity_per_bin)) capacity[id] = tv.capacity_per_bin;
+              if (Array.isArray(tv.capacity_per_bin)) {
+                // Filter out capacity values >998 so they don't affect y-axis scaling
+                // Values >998 (like 9999 for unopened traffic volumes) are set to NaN
+                // which will be treated as null in OccupancyPrePostPanel
+                capacity[id] = tv.capacity_per_bin.map((cap: number) => 
+                  Number.isFinite(cap) && cap > 998 ? NaN : cap
+                );
+              }
             }
             const binMinutes = Number(result?.metadata?.time_bin_minutes ?? 15);
             const tvOrder = Object.keys(postCounts).sort((a, b) => {

@@ -8,10 +8,12 @@ import { createMapStyle } from "@/lib/mapStyle";
 import { useThemeStore } from "./useThemeStore";
 import { fetchTrafficVolumeFeature, getCachedTrafficVolumeFeature } from "@/lib/trafficVolumes";
 import type { TrafficVolumeFeature } from "@/lib/trafficVolumes";
+import { getTrafficVolumeTheme } from "@/lib/trafficVolumeLayers";
 
 const SOURCE_ID = "mini-traffic-volume";
 const FILL_LAYER_ID = "mini-traffic-volume-fill";
 const OUTLINE_LAYER_ID = "mini-traffic-volume-outline";
+const POINT_LAYER_ID = "mini-traffic-volume-point";
 
 const EMPTY_COLLECTION: GeoJSON.FeatureCollection = {
   type: "FeatureCollection",
@@ -256,6 +258,7 @@ export default function TrafficVolumeMiniMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+    const colors = getTrafficVolumeTheme(theme);
 
     if (!map.getSource(SOURCE_ID)) {
       map.addSource(SOURCE_ID, {
@@ -273,7 +276,7 @@ export default function TrafficVolumeMiniMap({
         type: "fill",
         source: SOURCE_ID,
         paint: {
-          "fill-color": "#38bdf8",
+          "fill-color": colors.polygonFill,
           "fill-opacity": 0.3,
         },
       });
@@ -286,13 +289,29 @@ export default function TrafficVolumeMiniMap({
           type: "line",
           source: SOURCE_ID,
           paint: {
-            "line-color": "#38bdf8",
+            "line-color": colors.polygonOutline,
             "line-width": 2.5,
             "line-opacity": 0.85,
           },
         },
         FILL_LAYER_ID,
       );
+    }
+
+    if (!map.getLayer(POINT_LAYER_ID)) {
+      map.addLayer({
+        id: POINT_LAYER_ID,
+        type: "circle",
+        source: SOURCE_ID,
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-color": colors.pointFill,
+          "circle-radius": 6,
+          "circle-opacity": 0.9,
+          "circle-stroke-color": colors.pointStroke,
+          "circle-stroke-width": 1.5,
+        },
+      });
     }
 
     if (hasFeature && bounds) {
@@ -304,7 +323,7 @@ export default function TrafficVolumeMiniMap({
     } else if (!hasFeature) {
       map.easeTo({ center: [3, 45], zoom: 3.5, duration: 0 });
     }
-  }, [featureCollection, hasFeature, bounds, mapReady]);
+  }, [featureCollection, hasFeature, bounds, mapReady, theme]);
 
   useEffect(() => {
     const map = mapRef.current;

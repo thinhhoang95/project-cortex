@@ -5,6 +5,7 @@ import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
@@ -66,6 +67,10 @@ export default function StochasticAirspaceInfo() {
     const [interestWindowLength, setInterestWindowLength] = useState<string>('1h');
     const [expanded, setExpanded] = useState(false);
     const MAX_VISIBLE = 20;
+    const flightLevelRange = formatFlightLevelRange(
+        selectedTrafficVolumeData?.properties?.min_fl,
+        selectedTrafficVolumeData?.properties?.max_fl
+    );
 
     // Fetch data when traffic volume selection changes or time changes
     useEffect(() => {
@@ -210,13 +215,6 @@ export default function StochasticAirspaceInfo() {
 
     const flightTableData = formatFlightData();
 
-    // Visible subset with expand/collapse toggle
-    const visibleFlightTableData = useMemo(() => {
-        if (!flightTableData) return [] as ReturnType<typeof formatFlightData>;
-        if (!expanded && flightTableData.length > MAX_VISIBLE) return flightTableData.slice(0, MAX_VISIBLE);
-        return flightTableData;
-    }, [flightTableData, expanded]);
-
     // Reset expansion when the underlying dataset changes materially
     useEffect(() => {
         setExpanded(false);
@@ -352,6 +350,15 @@ export default function StochasticAirspaceInfo() {
 
     const hiddenFlightCount = Math.max(0, displayFlightTableData.length - MAX_VISIBLE);
 
+    // Visible subset with expand/collapse toggle
+    const visibleFlightTableData = useMemo(() => {
+        if (!displayFlightTableData) return [] as typeof displayFlightTableData;
+        if (!expanded && displayFlightTableData.length > MAX_VISIBLE) {
+            return displayFlightTableData.slice(0, MAX_VISIBLE);
+        }
+        return displayFlightTableData;
+    }, [displayFlightTableData, expanded]);
+
     // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
     // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
     const hourGlassData = useMemo(() => {
@@ -416,10 +423,8 @@ export default function StochasticAirspaceInfo() {
                             <div>
                                 <h3 className="font-medium text-sm opacity-90">Selected Traffic Volume</h3>
                                 <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
-                                {selectedTrafficVolumeData?.properties && (
-                                    <p className="text-xs opacity-70 mt-1">
-                                        FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3, '0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3, '0')}
-                                    </p>
+                                {flightLevelRange && (
+                                    <p className="text-xs opacity-70 mt-1">{flightLevelRange}</p>
                                 )}
                             </div>
                             <button
