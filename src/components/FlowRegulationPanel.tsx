@@ -407,7 +407,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 type="time"
                 value={fromTime}
                 onChange={(e) => setFromTime(e.currentTarget.value)}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white [color-scheme:dark]"
               />
             </div>
             <div>
@@ -416,7 +416,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 type="time"
                 value={toTime}
                 onChange={(e) => setToTime(e.currentTarget.value)}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white [color-scheme:dark]"
               />
             </div>
           </div>

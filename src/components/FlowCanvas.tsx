@@ -481,7 +481,7 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
-    filterExpr = ["==", 1, 0];
+    filterExpr = ["==", ["to-string", ["get", "flightId"]], "__no_match__"];
   } else {
     filterExpr = [
       "in",
