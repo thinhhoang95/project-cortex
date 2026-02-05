@@ -1,4 +1,5 @@
 import type maplibregl from "maplibre-gl";
+import type { FilterSpecification } from "maplibre-gl";
 import * as turf from "@turf/turf";
 import type { ThemeName } from "@/styles/theme";
 import { getTrafficVolumeFlIntersectionFilter } from "@/lib/mapUtils";
@@ -65,21 +66,23 @@ export function getTrafficVolumeTheme(theme: ThemeName): TrafficVolumeTheme {
   return TRAFFIC_VOLUME_THEMES[theme] ?? TRAFFIC_VOLUME_THEMES.light;
 }
 
-const POLYGON_ONLY_FILTER: any[] = ["!=", ["get", "source_geom_type"], "Point"];
-const NONAS_POINT_FILTER: any[] = [
+type NullableFilter = FilterSpecification | null | undefined;
+
+const POLYGON_ONLY_FILTER: FilterSpecification = ["!=", ["get", "source_geom_type"], "Point"];
+const NONAS_POINT_FILTER: FilterSpecification = [
   "all",
   ["==", ["get", "source_geom_type"], "Point"],
   ["==", ["get", "tv_kind"], "nonas"],
 ];
 
-function mergeFilters(filters: Array<any[] | null | undefined>): any[] {
-  const active = filters.filter(Boolean) as any[][];
-  if (active.length === 0) return ["==", 1, 0];
+function mergeFilters(filters: NullableFilter[]): FilterSpecification {
+  const active = filters.filter(Boolean) as FilterSpecification[];
+  if (active.length === 0) return ["==", 1, 0] as FilterSpecification;
   if (active.length === 1) return active[0];
-  return ["all", ...active];
+  return ["all", ...active] as FilterSpecification;
 }
 
-function getBaseFilterForLayer(layerId: string): any[] | null {
+function getBaseFilterForLayer(layerId: string): FilterSpecification | null {
   switch (layerId) {
     case TRAFFIC_VOLUME_LAYER_IDS.fill:
     case TRAFFIC_VOLUME_LAYER_IDS.outline:
@@ -359,10 +362,10 @@ export function addTrafficVolumeLayers(
 
 export function applyTrafficVolumeFilters(
   map: maplibregl.Map,
-  filterExpression: any[],
+  filterExpression: FilterSpecification,
   options: { includeSlack?: boolean } = {}
 ): void {
-  const layerIds = [
+  const layerIds: string[] = [
     TRAFFIC_VOLUME_LAYER_IDS.fill,
     TRAFFIC_VOLUME_LAYER_IDS.outline,
     TRAFFIC_VOLUME_LAYER_IDS.label,
@@ -376,7 +379,7 @@ export function applyTrafficVolumeFilters(
     if (!map.getLayer(layerId)) continue;
     const baseFilter = getBaseFilterForLayer(layerId);
     const merged = baseFilter ? mergeFilters([baseFilter, filterExpression]) : filterExpression;
-    map.setFilter(layerId, merged as any);
+    map.setFilter(layerId, merged);
   }
 }
 
@@ -386,7 +389,7 @@ export function applyTrafficVolumeVisibility(
   options: { includeSlack?: boolean } = {}
 ): void {
   const visibility = visible ? "visible" : "none";
-  const layerIds = [
+  const layerIds: string[] = [
     TRAFFIC_VOLUME_LAYER_IDS.fill,
     TRAFFIC_VOLUME_LAYER_IDS.outline,
     TRAFFIC_VOLUME_LAYER_IDS.label,
@@ -420,22 +423,22 @@ function buildTrafficVolumeIdFilter(
   trafficVolumeId: string,
   flLowerBound?: number,
   flUpperBound?: number
-): any[] {
-  const base = ["==", ["get", "traffic_volume_id"], trafficVolumeId];
+): FilterSpecification {
+  const base: FilterSpecification = ["==", ["get", "traffic_volume_id"], trafficVolumeId];
   if (flLowerBound == null || flUpperBound == null) return base;
   const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);
-  return ["all", base, ...flFilter.slice(1)];
+  return ["all", base, ...(flFilter as any[]).slice(1)] as FilterSpecification;
 }
 
 function buildTrafficVolumeIdListFilter(
   trafficVolumeIds: string[],
   flLowerBound?: number,
   flUpperBound?: number
-): any[] {
-  const base = ["in", ["get", "traffic_volume_id"], ["literal", trafficVolumeIds]];
+): FilterSpecification {
+  const base: FilterSpecification = ["in", ["get", "traffic_volume_id"], ["literal", trafficVolumeIds]];
   if (flLowerBound == null || flUpperBound == null) return base;
   const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);
-  return ["all", base, ...flFilter.slice(1)];
+  return ["all", base, ...(flFilter as any[]).slice(1)] as FilterSpecification;
 }
 
 export function applyTrafficVolumeHighlight(
@@ -450,14 +453,14 @@ export function applyTrafficVolumeHighlight(
     TRAFFIC_VOLUME_LAYER_IDS.highlightOutline,
     TRAFFIC_VOLUME_LAYER_IDS.pointHighlight,
   ];
-  const baseIdFilter = trafficVolumeId
+  const baseIdFilter: FilterSpecification = trafficVolumeId
     ? buildTrafficVolumeIdFilter(trafficVolumeId, includeFlRange ? flLowerBound : undefined, includeFlRange ? flUpperBound : undefined)
-    : ["==", ["get", "traffic_volume_id"], ""];
+    : ["==", ["get", "traffic_volume_id"], ""] as FilterSpecification;
   for (const layerId of layers) {
     if (!map.getLayer(layerId)) continue;
     const baseFilter = getBaseFilterForLayer(layerId);
     const merged = mergeFilters([baseFilter, baseIdFilter]);
-    map.setFilter(layerId, merged as any);
+    map.setFilter(layerId, merged);
   }
 }
 
@@ -474,14 +477,14 @@ export function applyTrafficVolumeHover(
     TRAFFIC_VOLUME_LAYER_IDS.pointHover,
     TRAFFIC_VOLUME_LAYER_IDS.pointHoverLabel,
   ];
-  const baseIdFilter = trafficVolumeId
+  const baseIdFilter: FilterSpecification = trafficVolumeId
     ? buildTrafficVolumeIdFilter(trafficVolumeId, includeFlRange ? flLowerBound : undefined, includeFlRange ? flUpperBound : undefined)
-    : ["==", ["get", "traffic_volume_id"], ""];
+    : ["==", ["get", "traffic_volume_id"], ""] as FilterSpecification;
   for (const layerId of layers) {
     if (!map.getLayer(layerId)) continue;
     const baseFilter = getBaseFilterForLayer(layerId);
     const merged = mergeFilters([baseFilter, baseIdFilter]);
-    map.setFilter(layerId, merged as any);
+    map.setFilter(layerId, merged);
   }
 }
 
@@ -497,14 +500,14 @@ export function applyTrafficVolumeHotspots(
     TRAFFIC_VOLUME_LAYER_IDS.hotspotOutline,
     TRAFFIC_VOLUME_LAYER_IDS.pointHotspot,
   ];
-  const baseIdFilter = trafficVolumeIds.length > 0
+  const baseIdFilter: FilterSpecification = trafficVolumeIds.length > 0
     ? buildTrafficVolumeIdListFilter(trafficVolumeIds, includeFlRange ? flLowerBound : undefined, includeFlRange ? flUpperBound : undefined)
-    : ["==", ["get", "traffic_volume_id"], ""];
+    : ["==", ["get", "traffic_volume_id"], ""] as FilterSpecification;
   for (const layerId of layers) {
     if (!map.getLayer(layerId)) continue;
     const baseFilter = getBaseFilterForLayer(layerId);
     const merged = mergeFilters([baseFilter, baseIdFilter]);
-    map.setFilter(layerId, merged as any);
+    map.setFilter(layerId, merged);
   }
 }
 

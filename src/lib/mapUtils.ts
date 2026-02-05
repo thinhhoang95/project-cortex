@@ -1,3 +1,5 @@
+import type { FilterSpecification } from "maplibre-gl";
+
 /**
  * Helper to get "HH:00-HH+1:00" bin from seconds t
  */
@@ -8,14 +10,14 @@ export function getHourBin(t: number): string {
     return `${pad(h)}:00-${pad(nextH)}:00`;
 }
 
-export function getTrafficVolumeFlIntersectionFilter(flLowerBound: number, flUpperBound: number): any[] {
+export function getTrafficVolumeFlIntersectionFilter(flLowerBound: number, flUpperBound: number): FilterSpecification {
     const minFl = ["to-number", ["coalesce", ["get", "min_fl"], 0], 0];
     const maxFl = ["to-number", ["coalesce", ["get", "max_fl"], 9999], 9999];
     return [
         "all",
         [">=", maxFl, flLowerBound],
         ["<=", minFl, flUpperBound]
-    ];
+    ] as unknown as FilterSpecification;
 }
 
 /**
@@ -23,7 +25,7 @@ export function getTrafficVolumeFlIntersectionFilter(flLowerBound: number, flUpp
  * 1. Flight Level (FL) range intersection
  * 2. Capacity availability for the current time bin (capacity not equal to 999/9999)
  */
-export function getTrafficVolumeFilter(flLowerBound: number, flUpperBound: number, tOrHourBin: number | string): any[] {
+export function getTrafficVolumeFilter(flLowerBound: number, flUpperBound: number, tOrHourBin: number | string): FilterSpecification {
     const hourBin = typeof tOrHourBin === "string" ? tOrHourBin : getHourBin(tOrHourBin);
     const formatCapacityKey = (bin: string) => {
         if (bin.startsWith("capacity_")) return bin; // already flattened
@@ -48,6 +50,6 @@ export function getTrafficVolumeFilter(flLowerBound: number, flUpperBound: numbe
     ];
 
     const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);
-    return ["all", flFilter, ["<", cap, 999]];
+    return ["all", flFilter, ["<", cap, 999]] as unknown as FilterSpecification;
 
 }

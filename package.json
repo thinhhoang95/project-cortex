@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --turbo",
     "build": "next build",
-    "start": "next start",
+    "start": "PORT=${PORT:-6020} next start",
     "lint": "next lint",
     "test": "vitest"
   },
