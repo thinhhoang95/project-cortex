@@ -35,8 +35,10 @@ export interface Trajectory {
 export interface SectorFeatureProps {
   traffic_volume_id: string;
   name?: string;
-  min_fl: number;
-  max_fl: number;
+  min_fl?: number | string;
+  max_fl?: number | string;
+  tv_kind?: string;
+  capacity?: Record<string, number | string>;
   [k: string]: unknown;
 }
 

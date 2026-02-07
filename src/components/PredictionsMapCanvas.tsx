@@ -6,12 +6,20 @@ import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
 import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
-import * as turf from "@turf/turf";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
+import {
+  addTrafficVolumeLayers,
+  addTrafficVolumeSources,
+  applyTrafficVolumeHighlight,
+  applyTrafficVolumeVisibility,
+  getTrafficVolumeCenter,
+  getTrafficVolumeCenterFromMap,
+  TRAFFIC_VOLUME_LAYER_IDS,
+} from "@/lib/trafficVolumeLayers";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -50,89 +58,8 @@ export default function MapCanvas() {
       setRange([minT, maxT], minT);
 
       // --- Airspace polygons + labels ---
-      map.addSource("sectors", { type: "geojson", data: sectors });
-
-      map.addLayer({
-        id: "sector-fill",
-        type: "fill",
-        source: "sectors",
-        paint: { "fill-color": "#3b82f6", "fill-opacity": 0.01 }
-      });
-      map.addLayer({
-        id: "sector-outline",
-        type: "line",
-        source: "sectors",
-        paint: { "line-color": "#3b82f6", "line-width": 1.5, "line-opacity": 0.05 }
-      });
-      // center labels via centroid points
-      const centroids = {
-        type: "FeatureCollection",
-        features: (sectors.features as any[]).map((f) => {
-          const c = turf.centroid(f as any);
-          c.properties = { ...f.properties, label: f.properties?.traffic_volume_id || "" };
-          return c;
-        })
-      } as GeoJSON.FeatureCollection;
-      map.addSource("sector-centroids", { type: "geojson", data: centroids });
-      map.addLayer({
-        id: "sector-labels",
-        type: "symbol",
-        source: "sector-centroids",
-        layout: {
-          "text-field": ["get", "label"],
-          "text-size": 12,
-          "text-font": ["Noto Sans Regular"]
-        },
-        paint: { "text-color": "#60a5fa", "text-halo-color": "#0f172a", "text-halo-width": 2 }
-      });
-
-      // Add highlight layer for selected traffic volume
-      map.addLayer({
-        id: "sector-highlight",
-        type: "fill",
-        source: "sectors",
-        paint: {
-          "fill-color": "#fbbf24",
-          "fill-opacity": 0.3
-        },
-        filter: ["==", ["get", "traffic_volume_id"], ""]
-      });
-
-      map.addLayer({
-        id: "sector-highlight-outline",
-        type: "line",
-        source: "sectors",
-        paint: {
-          "line-color": "#fbbf24",
-          "line-width": 3,
-          "line-opacity": 0.8
-        },
-        filter: ["==", ["get", "traffic_volume_id"], ""]
-      });
-
-      // Add hotspot layers for traffic volumes
-      map.addLayer({
-        id: "sector-hotspot",
-        type: "fill",
-        source: "sectors",
-        paint: {
-          "fill-color": "#ef4444",
-          "fill-opacity": 0.1
-        },
-        filter: ["==", ["get", "traffic_volume_id"], ""]
-      });
-
-      map.addLayer({
-        id: "sector-hotspot-outline",
-        type: "line",
-        source: "sectors",
-        paint: {
-          "line-color": "#ef4444",
-          "line-width": 3,
-          "line-opacity": 0.9
-        },
-        filter: ["==", ["get", "traffic_volume_id"], ""]
-      });
+      addTrafficVolumeSources(map, sectors);
+      addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
 
       applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
 
@@ -316,6 +243,62 @@ export default function MapCanvas() {
       // Save trajectories on map for the animation step
       (map as any).__trajectories = tracks;
 
+      const selectTrafficVolume = (trafficVolumeId: string) => {
+        const sectorFeatures = map.querySourceFeatures('sectors', {
+          filter: ['==', 'traffic_volume_id', trafficVolumeId]
+        });
+        const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
+        const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
+        setSelectedTrafficVolume(trafficVolumeId, tvData);
+        setHighlightedTrafficVolume(prev => (prev === trafficVolumeId ? null : trafficVolumeId));
+      };
+
+      const getTrafficVolumeIdFromEvent = (e: maplibregl.MapLayerMouseEvent) => {
+        const feature = e.features && e.features.length > 0 ? e.features[0] : null;
+        const rawId = feature?.properties?.traffic_volume_id ?? feature?.properties?.label;
+        return rawId != null ? String(rawId) : null;
+      };
+
+      const handleTrafficVolumeClick = (e: maplibregl.MapLayerMouseEvent) => {
+        const trafficVolumeId = getTrafficVolumeIdFromEvent(e);
+        if (trafficVolumeId) selectTrafficVolume(trafficVolumeId);
+      };
+
+      map.on('click', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeClick);
+      map.on('click', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeClick);
+      map.on('click', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeClick);
+
+      map.on('click', 'plane-icons', (e) => {
+        if (e.features && e.features.length > 0) {
+          const feature = e.features[0];
+          const flightId = feature.properties?.flightId;
+          if (flightId != null) {
+            setSelectedFlightForAnalysis(String(flightId));
+          }
+        }
+      });
+
+      const handleTrafficVolumeHover = () => {
+        map.getCanvas().style.cursor = 'pointer';
+      };
+
+      const handleTrafficVolumeHoverExit = () => {
+        map.getCanvas().style.cursor = '';
+      };
+
+      map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
+      map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHover);
+      map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
+      map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
+      map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
+      map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
+
+      map.on('mouseenter', 'plane-icons', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'plane-icons', () => {
+        map.getCanvas().style.cursor = '';
+      });
 
       // Base airspace and flight data are loaded; hide the page-loading indicator
       setBaseDataLoading(false);
@@ -474,6 +457,12 @@ export default function MapCanvas() {
     };
   }, [showTrafficVolumes]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyTrafficVolumeHighlight(map, highlightedTrafficVolume);
+  }, [highlightedTrafficVolume]);
+
   // on showWaypoints change, toggle waypoint visibility via paint properties
   useEffect(() => {
     if (mapRef.current) {
@@ -501,236 +490,7 @@ export default function MapCanvas() {
     }
   }, [showWaypoints]);
 
-  // on FL range change, filter traffic volumes based on vertical intersection
-  useEffect(() => {
-    if (mapRef.current && mapRef.current.getSource("sectors")) {
-      // Create filter expression to show only sectors that intersect with FL range
-      // A sector intersects if: max_fl >= flLowerBound AND min_fl <= flUpperBound
-      const filterExpression: any = [
-        "all",
-        [">=", ["get", "max_fl"], flLowerBound],
-        ["<=", ["get", "min_fl"], flUpperBound]
-      ];
 
-      if (mapRef.current.getLayer("sector-fill")) {
-        mapRef.current.setFilter("sector-fill", filterExpression);
-      }
-      if (mapRef.current.getLayer("sector-outline")) {
-        mapRef.current.setFilter("sector-outline", filterExpression);
-      }
-      if (mapRef.current.getLayer("sector-labels")) {
-        mapRef.current.setFilter("sector-labels", filterExpression);
-      }
-    }
-  }, [flLowerBound, flUpperBound]);
-
-  // Also refresh plane positions and line/icon filters when FL range changes
-  useEffect(() => {
-    updatePlanePositions(mapRef.current);
-  }, [flLowerBound, flUpperBound]);
-
-  // Click interactions for retrieving alternative routes
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const handleClick = (e: maplibregl.MapMouseEvent) => {
-      const features = map.queryRenderedFeatures(e.point, { layers: ["flight-lines", "plane-icons"] });
-      if (!features || features.length === 0) return;
-      const props = features[0].properties as Record<string, any> | undefined;
-      const flightId = props?.flightId;
-      if (flightId) {
-        setSelectedFlightForAnalysis(String(flightId));
-      }
-    };
-
-    const handleMouseEnter = () => {
-      map.getCanvas().style.cursor = "pointer";
-    };
-
-    const handleMouseLeave = () => {
-      map.getCanvas().style.cursor = "";
-    };
-
-    const layers = ["flight-lines", "plane-icons"];
-    layers.forEach((layer) => {
-      map.on("click", layer, handleClick);
-      map.on("mouseenter", layer, handleMouseEnter);
-      map.on("mouseleave", layer, handleMouseLeave);
-    });
-
-    return () => {
-      layers.forEach((layer) => {
-        map.off("click", layer, handleClick);
-        map.off("mouseenter", layer, handleMouseEnter);
-        map.off("mouseleave", layer, handleMouseLeave);
-      });
-      map.getCanvas().style.cursor = "";
-    };
-  }, [setSelectedFlightForAnalysis]);
-
-  // Click interactions for traffic volumes (sectors)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const handleClick = (e: maplibregl.MapMouseEvent) => {
-      // Prioritize flight clicks if both are present? 
-      // Usually flights are on top, but let's check if we clicked a flight first.
-      // Actually, maplibre handles event propagation. If we have separate listeners, both might fire.
-      // But here we are in a separate effect.
-
-      // Let's check if we clicked a sector
-      const features = map.queryRenderedFeatures(e.point, { layers: ["sector-fill", "sector-labels"] });
-      if (!features || features.length === 0) return;
-
-      // If we also clicked a flight, maybe we should prefer the flight?
-      // The flight listener is in a separate effect. 
-      // Let's assume if the user clicks a flight line, they want the flight.
-      // If they click the empty space in a sector, they want the sector.
-      // Checking for flight features here might be good to avoid conflict.
-      const flightFeatures = map.queryRenderedFeatures(e.point, { layers: ["flight-lines", "plane-icons"] });
-      if (flightFeatures && flightFeatures.length > 0) return;
-
-      const props = features[0].properties;
-      // The sector-fill layer has traffic_volume_id. The sector-labels layer has label (which is tv_id).
-      const tvId = props?.traffic_volume_id || props?.label;
-
-      if (tvId) {
-        setSelectedTrafficVolume(tvId);
-        setHighlightedTrafficVolume(tvId);
-      }
-    };
-
-    const handleMouseEnter = () => {
-      map.getCanvas().style.cursor = "pointer";
-    };
-
-    const handleMouseLeave = () => {
-      map.getCanvas().style.cursor = "";
-    };
-
-    const layers = ["sector-fill", "sector-labels"];
-    layers.forEach((layer) => {
-      map.on("click", layer, handleClick);
-      map.on("mouseenter", layer, handleMouseEnter);
-      map.on("mouseleave", layer, handleMouseLeave);
-    });
-
-    return () => {
-      layers.forEach((layer) => {
-        map.off("click", layer, handleClick);
-        map.off("mouseenter", layer, handleMouseEnter);
-        map.off("mouseleave", layer, handleMouseLeave);
-      });
-      // Don't reset cursor here as it might interfere with other layers
-    };
-  }, [setSelectedTrafficVolume]);
-
-  // Update highlight layer when highlighted traffic volume changes
-  useEffect(() => {
-    if (mapRef.current) {
-      const highlightFilter = highlightedTrafficVolume
-        ? ["==", ["get", "traffic_volume_id"], highlightedTrafficVolume]
-        : ["==", ["get", "traffic_volume_id"], ""];
-
-      if (mapRef.current.getLayer("sector-highlight")) {
-        mapRef.current.setFilter("sector-highlight", highlightFilter as any);
-      }
-      if (mapRef.current.getLayer("sector-highlight-outline")) {
-        mapRef.current.setFilter("sector-highlight-outline", highlightFilter as any);
-      }
-    }
-  }, [highlightedTrafficVolume]);
-
-  // Update hotspot layers when hotspots change, FL range changes, or time changes
-  useEffect(() => {
-    if (mapRef.current) {
-      // Get only the active hotspots for the current time
-      const activeHotspots = getActiveHotspots();
-      const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
-
-      const hotspotFilter = hotspotTrafficVolumeIds.length > 0
-        ? [
-          "all",
-          ["in", ["get", "traffic_volume_id"], ["literal", hotspotTrafficVolumeIds]],
-          [">=", ["get", "max_fl"], flLowerBound],
-          ["<=", ["get", "min_fl"], flUpperBound]
-        ]
-        : ["==", ["get", "traffic_volume_id"], ""];
-
-      if (mapRef.current.getLayer("sector-hotspot")) {
-        mapRef.current.setFilter("sector-hotspot", hotspotFilter as any);
-      }
-      if (mapRef.current.getLayer("sector-hotspot-outline")) {
-        mapRef.current.setFilter("sector-hotspot-outline", hotspotFilter as any);
-      }
-    }
-  }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
-
-  // Listen for dialog close events to clear highlighting
-  useEffect(() => {
-    const handleClearHighlight = () => {
-      setHighlightedTrafficVolume(null);
-    };
-
-    window.addEventListener('clearTrafficVolumeHighlight', handleClearHighlight);
-    return () => {
-      window.removeEventListener('clearTrafficVolumeHighlight', handleClearHighlight);
-    };
-  }, []);
-
-  // Listen for flight search selection events
-  useEffect(() => {
-    const handleFlightSearchSelect = (event: any) => {
-      const { flight } = event.detail;
-      const map = mapRef.current;
-      if (!map || !flight) return;
-
-      // Get current flight position at time t
-      const { t } = useSimStore.getState();
-      const currentTime = Math.max(t, flight.t0); // Use flight start time if current time is before it
-
-      // Find the flight position at current time
-      let position: [number, number] | null = null;
-      for (let i = 0; i < flight.times.length - 1; i++) {
-        if (currentTime >= flight.times[i] && currentTime <= flight.times[i + 1]) {
-          // Interpolate between the two points
-          const t1 = flight.times[i];
-          const t2 = flight.times[i + 1];
-          const ratio = (currentTime - t1) / (t2 - t1);
-
-          const [lon1, lat1] = flight.coords[i];
-          const [lon2, lat2] = flight.coords[i + 1];
-
-          position = [
-            lon1 + (lon2 - lon1) * ratio,
-            lat1 + (lat2 - lat1) * ratio
-          ];
-          break;
-        }
-      }
-
-      // If no position found (flight not active at this time), use the start position
-      if (!position && flight.coords.length > 0) {
-        position = [flight.coords[0][0], flight.coords[0][1]];
-      }
-
-      if (position) {
-        // Pan to flight location
-        map.flyTo({
-          center: position,
-          zoom: Math.max(map.getZoom(), 8),
-          duration: 1500
-        });
-      }
-    };
-
-    window.addEventListener('flight-search-select', handleFlightSearchSelect);
-    return () => {
-      window.removeEventListener('flight-search-select', handleFlightSearchSelect);
-    };
-  }, []);
 
   // Render alternative route overlays when panel is active
   useEffect(() => {
@@ -897,12 +657,10 @@ export default function MapCanvas() {
       // Highlight the traffic volume (same as clicking on it)
       setHighlightedTrafficVolume(tvId);
 
-      // If we have geometry, pan to its centroid
-      if (tvGeometry && tvGeometry.type === 'Polygon') {
-        const coords = (tvGeometry as any).coordinates[0];
-        let centerLon = 0, centerLat = 0;
-        for (const coord of coords) { centerLon += coord[0]; centerLat += coord[1]; }
-        const center: [number, number] = [centerLon / coords.length, centerLat / coords.length];
+      const center = tvGeometry
+        ? getTrafficVolumeCenter(tvGeometry)
+        : getTrafficVolumeCenterFromMap(map, tvId);
+      if (center) {
         map.flyTo({ center, zoom: Math.max(map.getZoom(), 7), duration: 1500 });
       }
     };
@@ -939,28 +697,6 @@ export default function MapCanvas() {
       </div> */}
     </>
   );
-}
-
-function applyTrafficVolumeVisibility(map: maplibregl.Map, visible: boolean) {
-  const visibility = visible ? "visible" : "none";
-  const layerIds = [
-    "sector-fill",
-    "sector-outline",
-    "sector-labels",
-    "sector-highlight",
-    "sector-highlight-outline",
-    "sector-hotspot",
-    "sector-hotspot-outline",
-  ];
-
-  for (const layerId of layerIds) {
-    if (!map.getLayer(layerId)) continue;
-    try {
-      map.setLayoutProperty(layerId, "visibility", visibility);
-    } catch (err) {
-      console.warn(`Unable to update visibility for layer ${layerId}`, err);
-    }
-  }
 }
 
 function emptyFC(): GeoJSON.FeatureCollection { return { type: "FeatureCollection", features: [] }; }
@@ -1077,9 +813,10 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     // Only show if currently active and within FL range
     lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
   } else if (sim.focusMode) {
-    lineIdsToShow = Array.from(sim.focusFlightIds)
-      .map(String)
-      .filter((id) => insideRangeActiveSet.has(id));
+    // Show ALL focusFlightIds without filtering by current time - flights may pass through
+    // a traffic volume at different times within the focus window, and we want to show
+    // their full trajectories regardless of whether they're active at current sim time t.
+    lineIdsToShow = Array.from(sim.focusFlightIds).map(String);
   } else {
     lineIdsToShow = Array.from(insideRangeActiveSet);
   }

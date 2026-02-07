@@ -3,7 +3,9 @@ import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line, Area } from 'recharts';
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
+import { normalizeCapacity } from "@/lib/capacity";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
@@ -65,6 +67,10 @@ export default function StochasticAirspaceInfo() {
     const [interestWindowLength, setInterestWindowLength] = useState<string>('1h');
     const [expanded, setExpanded] = useState(false);
     const MAX_VISIBLE = 20;
+    const flightLevelRange = formatFlightLevelRange(
+        selectedTrafficVolumeData?.properties?.min_fl,
+        selectedTrafficVolumeData?.properties?.max_fl
+    );
 
     // Fetch data when traffic volume selection changes or time changes
     useEffect(() => {
@@ -152,7 +158,7 @@ export default function StochasticAirspaceInfo() {
 
             const mean = tvData.demand_mean[idx] || 0;
             const variance = tvData.demand_var[idx] || 0;
-            const capacity = tvData.capacity[idx] || 0;
+            const capacity = normalizeCapacity(tvData.capacity[idx]);
             const stdDev = Math.sqrt(variance);
 
             return {
@@ -208,13 +214,6 @@ export default function StochasticAirspaceInfo() {
     };
 
     const flightTableData = formatFlightData();
-
-    // Visible subset with expand/collapse toggle
-    const visibleFlightTableData = useMemo(() => {
-        if (!flightTableData) return [] as ReturnType<typeof formatFlightData>;
-        if (!expanded && flightTableData.length > MAX_VISIBLE) return flightTableData.slice(0, MAX_VISIBLE);
-        return flightTableData;
-    }, [flightTableData, expanded]);
 
     // Reset expansion when the underlying dataset changes materially
     useEffect(() => {
@@ -277,6 +276,15 @@ export default function StochasticAirspaceInfo() {
         if (!match) return null;
 
         const { mean, stdDev, capacity } = match;
+
+        if (capacity == null) {
+            return {
+                mean,
+                stdDev,
+                capacity: null,
+                probOverload: null
+            };
+        }
 
         let probOverload = 0;
         if (stdDev === 0) {
@@ -342,6 +350,15 @@ export default function StochasticAirspaceInfo() {
 
     const hiddenFlightCount = Math.max(0, displayFlightTableData.length - MAX_VISIBLE);
 
+    // Visible subset with expand/collapse toggle
+    const visibleFlightTableData = useMemo(() => {
+        if (!displayFlightTableData) return [] as typeof displayFlightTableData;
+        if (!expanded && displayFlightTableData.length > MAX_VISIBLE) {
+            return displayFlightTableData.slice(0, MAX_VISIBLE);
+        }
+        return displayFlightTableData;
+    }, [displayFlightTableData, expanded]);
+
     // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
     // Build arrival-time distribution for HourGlass (depends on displayFlightTableData)
     const hourGlassData = useMemo(() => {
@@ -406,10 +423,8 @@ export default function StochasticAirspaceInfo() {
                             <div>
                                 <h3 className="font-medium text-sm opacity-90">Selected Traffic Volume</h3>
                                 <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
-                                {selectedTrafficVolumeData?.properties && (
-                                    <p className="text-xs opacity-70 mt-1">
-                                        FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3, '0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3, '0')}
-                                    </p>
+                                {flightLevelRange && (
+                                    <p className="text-xs opacity-70 mt-1">{flightLevelRange}</p>
                                 )}
                             </div>
                             <button
@@ -468,23 +483,35 @@ export default function StochasticAirspaceInfo() {
                         <div className="space-y-4">
                             {/* Summary Stats */}
                             {currentStats && (
-                                <div className="grid grid-cols-3 gap-3">
+                                <div
+                                    className={`grid gap-3 ${
+                                        (typeof currentStats.capacity === 'number' && typeof currentStats.probOverload === 'number')
+                                            ? 'grid-cols-3'
+                                            : (typeof currentStats.capacity === 'number' || typeof currentStats.probOverload === 'number')
+                                                ? 'grid-cols-2'
+                                                : 'grid-cols-1'
+                                    }`}
+                                >
                                     <div className="bg-white/10 rounded-lg p-3">
                                         <p className="text-xs opacity-70">Mean ± STD</p>
                                         <p className="text-lg font-semibold">
                                             {currentStats.mean.toFixed(1)} <span className="text-sm opacity-70">± {currentStats.stdDev.toFixed(1)}</span>
                                         </p>
                                     </div>
-                                    <div className="bg-white/10 rounded-lg p-3">
-                                        <p className="text-xs opacity-70">Capacity</p>
-                                        <p className="text-lg font-semibold">{Math.round(currentStats.capacity)}</p>
-                                    </div>
-                                    <div className="bg-white/10 rounded-lg p-3">
-                                        <p className="text-xs opacity-70">Prob. Overload</p>
-                                        <p className={`text-lg font-semibold ${currentStats.probOverload > 0.5 ? 'text-red-400' : 'text-green-400'}`}>
-                                            {currentStats.probOverload.toFixed(2)}
-                                        </p>
-                                    </div>
+                                    {typeof currentStats.capacity === 'number' && (
+                                        <div className="bg-white/10 rounded-lg p-3">
+                                            <p className="text-xs opacity-70">Capacity</p>
+                                            <p className="text-lg font-semibold">{Math.round(currentStats.capacity)}</p>
+                                        </div>
+                                    )}
+                                    {typeof currentStats.probOverload === 'number' && (
+                                        <div className="bg-white/10 rounded-lg p-3">
+                                            <p className="text-xs opacity-70">Prob. Overload</p>
+                                            <p className={`text-lg font-semibold ${currentStats.probOverload > 0.5 ? 'text-red-400' : 'text-green-400'}`}>
+                                                {currentStats.probOverload.toFixed(2)}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

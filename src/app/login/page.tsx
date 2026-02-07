@@ -40,7 +40,7 @@ export default function LoginPage() {
           {/* Left: Illustration */}
           <div className="relative hidden md:block">
             <Image
-              src="/assets/login_art.webp"
+              src="/assets/login_art.png"
               width={512}
               height={768}
               
@@ -69,7 +69,7 @@ export default function LoginPage() {
             Visit the Kitchen&apos;s Blog
           </Link>
           <span className="text-sm text-white/40 mx-2">·</span>
-          <span className="text-sm text-white/50">Proudly made in Toulouse.</span>
+          <span className="text-sm text-white/50">Province of Ninh Binh, Vietnam</span>
         </div>
       </section>
 

@@ -22,6 +22,7 @@ import {
 } from "recharts";
 import { Trajectory } from "@/lib/models";
 import { authFetch } from "@/lib/auth";
+import { normalizeCapacity } from "@/lib/capacity";
 import { binIndexToRangeLabel } from "@/lib/time";
 
 interface FlightListStatisticsProps {
@@ -628,12 +629,7 @@ function FlightListStatistics({
 
       const totalSeries = new Array(n).fill(0).map((_, idx) => clampNonNegative(totalsRaw[idx]));
       const selectedSeries = new Array(n).fill(0).map((_, idx) => clampNonNegative(selectedRaw[idx]));
-      const capacitySeries = new Array(n).fill(null).map((_, idx) => {
-        const raw = capacityRaw[idx];
-        if (raw === undefined || raw === null) return null;
-        const num = Number(raw);
-        return Number.isFinite(num) && num >= 0 ? num : null;
-      });
+      const capacitySeries = new Array(n).fill(null).map((_, idx) => normalizeCapacity(capacityRaw[idx]));
 
       const rows: TvOccupancyRow[] = [];
       let totalSum = 0;

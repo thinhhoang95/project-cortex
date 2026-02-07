@@ -11,7 +11,7 @@ export const FLIGHTS_CSV_PATH = "/data/flights_20230717_0000-2359.csv";
 /**
  * Primary path to the airspace GeoJSON file
  */
-export const AIRSPACE_GEOJSON_PATH = "/data/airspace.geojson";
+export const AIRSPACE_GEOJSON_PATH = "/data/wxm_sm_ih_maxpool_plus_nonas.geojson";
 
 /**
  * Fallback path to the airspace JSON file (for backwards compatibility)
@@ -25,4 +25,3 @@ export const AIRSPACE_PATH_CANDIDATES = [
   AIRSPACE_GEOJSON_PATH,
   AIRSPACE_JSON_PATH,
 ] as const;
-

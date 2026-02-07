@@ -11,6 +11,7 @@ import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import SelectChevron from "@/components/SelectChevron";
+import { normalizeCapacity } from "@/lib/capacity";
 import {
   ComposedChart,
   Bar,
@@ -378,9 +379,7 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
   const rows = useMemo(() => {
     const n = Math.min(series.length, labels.length);
     const arr = new Array(n).fill(0).map((_, i) => {
-      const rawCap = capacitySeries[i];
-      const capNum = Number(rawCap);
-      const capacity = Number.isFinite(capNum) && capNum >= 0 ? capNum : null;
+      const capacity = normalizeCapacity(capacitySeries[i]);
       const label = String(labels[i] || "");
       // Try to parse start HH:MM from label; accept formats like "HH:MM" or "HH:MM-HH:MM"
       let startLabel = label;

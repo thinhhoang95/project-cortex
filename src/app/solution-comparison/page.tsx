@@ -25,6 +25,7 @@ import {
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
 import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import { normalizeCapacity } from "@/lib/capacity";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
@@ -1003,8 +1004,8 @@ export default function SolutionComparisonPage() {
           const startMin = i * binMinutes;
           if (startMin < viewFromMin || startMin > viewToMin) continue;
           const occupancy = Number(series[i] ?? 0);
-          const capacity = Number(capacitySeries?.[i] ?? Number.NaN);
-          if (!Number.isFinite(capacity) || capacity < 0) continue;
+          const capacity = normalizeCapacity(capacitySeries?.[i]);
+          if (capacity == null) continue;
           if (!Number.isFinite(occupancy) || occupancy <= capacity) continue;
           const ratio = capacity > 0 ? occupancy / capacity : Infinity;
           let color = "#fb923c";
@@ -2143,8 +2144,11 @@ export default function SolutionComparisonPage() {
                     entry[snap.id] = val;
                   });
                   if (capacitySeries && Array.isArray(capacitySeries)) {
-                    entry.capacity = Number(capacitySeries[i] ?? 0);
-                    if (entry.capacity) hasValue = true;
+                    const cap = normalizeCapacity(capacitySeries[i]);
+                    if (cap != null) {
+                      entry.capacity = cap;
+                      hasValue = true;
+                    }
                   }
                   if (hasValue) chartData.push(entry);
                 }
@@ -2160,15 +2164,15 @@ export default function SolutionComparisonPage() {
                     if (start < viewFromMin || start > viewToMin) continue;
                     const val = Number(series[i] ?? 0) || 0;
                     if (val > peak) peak = val;
-                    const cap = Number(capacity?.[i] ?? Number.POSITIVE_INFINITY);
-                    if (Number.isFinite(cap)) {
+                    const cap = normalizeCapacity(capacity?.[i]);
+                    if (cap != null) {
                       exceedance += Math.max(0, val - cap) * normalizationFactor;
                     }
                   }
                   return { snap, peak, exceedance };
                 });
 
-                const hasCapacity = Array.isArray(capacitySeries) && capacitySeries.length > 0;
+                const hasCapacity = Array.isArray(capacitySeries) && capacitySeries.some((cap) => normalizeCapacity(cap) != null);
                 const hasSeries = alignedSnapshots.some((snap) => (tvSeriesBySnapshot.get(snap.id)?.[tvId] || []).length > 0);
                 return (
                   <div key={tvId} className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-3">

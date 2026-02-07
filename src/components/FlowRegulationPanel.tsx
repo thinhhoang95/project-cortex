@@ -361,9 +361,12 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   if (!open) return null;
 
   return (
-    <div className={embedded
-      ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
-      : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
+    <div 
+      className={embedded
+        ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+        : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}
+      style={{ transform: 'translateZ(0)' }}
+    >
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-70">Traffic Flows</div>
@@ -404,7 +407,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 type="time"
                 value={fromTime}
                 onChange={(e) => setFromTime(e.currentTarget.value)}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white [color-scheme:dark]"
               />
             </div>
             <div>
@@ -413,7 +416,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                 type="time"
                 value={toTime}
                 onChange={(e) => setToTime(e.currentTarget.value)}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white [color-scheme:dark]"
               />
             </div>
           </div>

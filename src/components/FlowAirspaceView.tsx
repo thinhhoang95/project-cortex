@@ -6,8 +6,10 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
+import { normalizeCapacity } from "@/lib/capacity";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
+import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 
@@ -65,6 +67,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const [expanded, setExpanded] = useState(false);
   const MAX_VISIBLE = 20;
   const [proposalTriggerError, setProposalTriggerError] = useState<string | null>(null);
+  const flightLevelRange = formatFlightLevelRange(
+    selectedTrafficVolumeData?.properties?.min_fl,
+    selectedTrafficVolumeData?.properties?.max_fl
+  );
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -176,7 +182,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       const hour = hours + minutes / 60;
       const anchorKey = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
       const hourKey = `${hours.toString().padStart(2, '0')}:00-${(hours + 1).toString().padStart(2, '0')}:00`;
-      const capacity = occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey];
+      const capacity = normalizeCapacity(
+        occupancyData.anchor_capacity?.[anchorKey] ?? occupancyData.hourly_capacity?.[hourKey]
+      );
       return { time: timeRange, count: count as number, hour, capacity };
     }).sort((a,b) => a.hour - b.hour);
     return arr;
@@ -579,10 +587,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-70">Reference TV</div>
           <div className="text-lg font-semibold">{selectedTrafficVolume}</div>
-          {selectedTrafficVolumeData?.properties && (
-            <div className="text-xs opacity-80">
-              FL{selectedTrafficVolumeData.properties.min_fl.toString().padStart(3,'0')}-FL{selectedTrafficVolumeData.properties.max_fl.toString().padStart(3,'0')}
-            </div>
+          {flightLevelRange && (
+            <div className="text-xs opacity-80">{flightLevelRange}</div>
           )}
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -604,8 +610,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             >
               <svg height="16" fill="currentColor" width="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <g>
-                <line fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="12" x2="12" y1="19" y2="5"/>
-                <line fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="5" x2="19" y1="12" y2="12"/>
+                <line fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" x1="12" x2="12" y1="19" y2="5"/>
+                <line fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" x1="5" x2="19" y1="12" y2="12"/>
                 </g>
               </svg>
             </button>
@@ -955,7 +961,7 @@ function anchorCapacityForTime(
   const minutes = binStartMinutes % 60;
   const anchorKey = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
   const hourKey = `${hours.toString().padStart(2, "0")}:00-${(hours + 1).toString().padStart(2, "0")}:00`;
-  return anchorCapacity?.[anchorKey] ?? hourlyCapacity?.[hourKey];
+  return normalizeCapacity(anchorCapacity?.[anchorKey] ?? hourlyCapacity?.[hourKey]);
 }
 
 function currentCountForTime(occupancyData: any, t: number): number | undefined {
