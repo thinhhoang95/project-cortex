@@ -23,7 +23,7 @@ const RELEASE_NOTES_CONTENT = `
   <h4 class="font-bold mb-4">Tue. 14/10/2025</h4>
 
   <ul class="list-disc pl-6 space-y-2 mb-4">
-    <li><strong>Regulation Planner.</strong> The Regulation Planner is now fully functional. You can use it to find a regulation set that achieves network-wide Dynamic Capacity Balance (DCB). The planner uses a variant of Monte Carlo Tree Search (MCTS) to find the ordered regulations to achieve network-wide DCB. By default, four runs with slightly varying hyperparameters are used to find the best regulation set. Time to run ranges from 30 minutes to 2 hours.</li>
+    <li><strong>Regulation Planner.</strong> The Regulation Planner is now fully functional. You can use it to find a regulation set that achieves network-wide Demand Capacity Balance (DCB). The planner uses a variant of Monte Carlo Tree Search (MCTS) to find the ordered regulations to achieve network-wide DCB. By default, four runs with slightly varying hyperparameters are used to find the best regulation set. Time to run ranges from 30 minutes to 2 hours.</li>
   </ul>
 
   <h4 class="font-bold mb-4">Wed. 08/10/2025</h4>

@@ -119,7 +119,7 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
       <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 space-y-4 flex-1 min-h-0"}>
       
       <div className={embedded ? "bg-white/5 rounded-lg p-4 flex flex-col" : "bg-white/5 rounded-lg p-4 flex-1 flex flex-col"}>
-        <h2 className="font-semibold mb-3">Dynamic Capacity Balancing</h2>
+        <h2 className="font-semibold mb-3">Demand Capacity Balancing</h2>
         
         <div className="flex items-center gap-2 mb-4">
           <button
