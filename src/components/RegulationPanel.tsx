@@ -8,6 +8,7 @@ import FlightQueryDialog from "@/components/FlightQueryDialog";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 
@@ -24,6 +25,18 @@ type CommunityHeuristicsSummary = {
   slack15: number | null;
   slack30: number | null;
   flights: number | null;
+  mvtv15: MostVulnerableTvItem[];
+  mvtv30: MostVulnerableTvItem[];
+};
+
+type FlowHeuristicsDiagnostics = {
+  v_tilde?: number | null;
+  Slack_G15?: number | null;
+  Slack_G30?: number | null;
+  num_flights?: number | null;
+  MVTV15?: MostVulnerableTvItem[] | null;
+  MVTV30?: MostVulnerableTvItem[] | null;
+  [key: string]: unknown;
 };
 
 type FlowExtractionResponse = {
@@ -32,13 +45,7 @@ type FlowExtractionResponse = {
   flows?: Array<{
     flow_id: number | string;
     heuristics?: {
-      diagnostics?: {
-        v_tilde?: number | null;
-        Slack_G15?: number | null;
-        Slack_G30?: number | null;
-        num_flights?: number | null;
-        [key: string]: number | null | undefined;
-      } | null;
+      diagnostics?: FlowHeuristicsDiagnostics | null;
     } | null;
   }>;
 };
@@ -609,6 +616,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             slack15: normalizeHeuristicValue(diagnostics?.Slack_G15),
             slack30: normalizeHeuristicValue(diagnostics?.Slack_G30),
             flights: normalizeHeuristicValue(diagnostics?.num_flights),
+            mvtv15: normalizeMostVulnerableTvItems(diagnostics?.MVTV15),
+            mvtv30: normalizeMostVulnerableTvItems(diagnostics?.MVTV30),
           };
         }
         setCommunityHeuristics(nextHeuristics);
@@ -1251,6 +1260,12 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                   <span>{formatHeuristicMetric(heuristicFlightCount, 0)}</span>
                 </div>
               </div>
+              <div className={flightListOpen ? "px-2 pt-2" : "px-2 pt-2 pb-2"}>
+                <MostVulnerableTvList
+                  mvtv15={heuristics?.mvtv15 || []}
+                  mvtv30={heuristics?.mvtv30 || []}
+                />
+              </div>
               {flightListOpen && (
                 <div className={embedded ? "pt-2" : "max-h-40 overflow-y-auto no-scrollbar pt-2"}>
                   <div className="rounded-lg border border-white/10 overflow-hidden">
@@ -1296,6 +1311,31 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
 function normalizeHeuristicValue(value: number | null | undefined): number | null {
   if (typeof value !== "number" || Number.isNaN(value)) return null;
   return value;
+}
+
+function normalizeMostVulnerableTvItems(value: unknown): MostVulnerableTvItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): MostVulnerableTvItem | null => {
+      if (!item || typeof item !== "object") return null;
+      const candidate = item as Record<string, unknown>;
+      const tvIdRaw = candidate.traffic_volume_id;
+      const traffic_volume_id = tvIdRaw == null ? null : String(tvIdRaw).trim() || null;
+      const normalize = (input: unknown): number | null => {
+        const num = Number(input);
+        return Number.isFinite(num) ? num : null;
+      };
+      return {
+        traffic_volume_id,
+        time_bin: normalize(candidate.time_bin),
+        slack: normalize(candidate.slack),
+        rolling_hour_occupancy: normalize(candidate.rolling_hour_occupancy),
+        capacity_per_bin: normalize(candidate.capacity_per_bin),
+        demand15: normalize(candidate.demand15),
+        demand30: normalize(candidate.demand30),
+      };
+    })
+    .filter((item): item is MostVulnerableTvItem => Boolean(item));
 }
 
 function formatHeuristicMetric(value: number | null | undefined, digits = 2): string {

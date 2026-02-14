@@ -10,6 +10,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import type { FlowBasketItem } from "@/components/useSimStore";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
@@ -28,7 +29,9 @@ type FlowHeuristicsDiagnostics = {
   Slack_G15?: number | null;
   Slack_G30?: number | null;
   num_flights?: number | null;
-  [key: string]: number | null | undefined;
+  MVTV15?: MostVulnerableTvItem[] | null;
+  MVTV30?: MostVulnerableTvItem[] | null;
+  [key: string]: unknown;
 };
 
 export default function FlowRegulationPanel({ embedded = false }: FlowRegulationPanelProps) {
@@ -172,16 +175,27 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     try {
       const data = await fetchFlows({
         tvs: selectedTVs.join(','),
-        from_time_str: hhmmToHHMMSS(fromTime),
-        to_time_str: hhmmToHHMMSS(toTime),
-        threshold: String(Math.min(10, Math.max(0.1, flowThreshold))),
+        threshold: String(Math.min(1, Math.max(0, flowThreshold))),
         resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
       });
-      setFlowResults(data);
+      let finalData = data;
+      if (Number.isFinite(data.num_time_bins) && data.num_time_bins > 0) {
+        const selectedBins = deriveIntersectingTimeBins(fromTime, toTime, data.num_time_bins);
+        const shouldFilterByTimeBins = selectedBins.length > 0 && selectedBins.length < data.num_time_bins;
+        if (shouldFilterByTimeBins) {
+          finalData = await fetchFlows({
+            tvs: selectedTVs.join(','),
+            timebins: selectedBins.join(','),
+            threshold: String(Math.min(1, Math.max(0, flowThreshold))),
+            resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
+          });
+        }
+      }
+      setFlowResults(finalData);
       // Build community/group mapping for global store so map can color and filter
       const communities: Record<string, number> = {};
       const groups: Record<string, string[]> = {};
-      for (const f of data.flows || []) {
+      for (const f of finalData.flows || []) {
         const fidList = (f.flights || []).map(ff => String(ff.flight_id));
         groups[String(f.flow_id)] = fidList;
         for (const fid of fidList) communities[String(fid)] = Number(f.flow_id);
@@ -459,14 +473,14 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
               <div className="text-[11px] opacity-80 mb-1">Threshold</div>
               <input
                 type="number"
-                min={0.1}
-                max={10}
+                min={0}
+                max={1}
                 step={0.05}
                 value={flowThreshold}
                 onChange={(e) => {
                   const v = Number(e.currentTarget.value);
                   if (!Number.isFinite(v)) return;
-                  setFlowThreshold(Math.min(10, Math.max(0.1, v)));
+                  setFlowThreshold(Math.min(1, Math.max(0, v)));
                 }}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />
@@ -619,6 +633,12 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         <span>{formatHeuristicValue(flowFlightCount, 0)}</span>
                       </div>
                     </div>
+                    <div className={flightListOpen ? "px-2 pt-2" : "px-2 pt-2 pb-2"}>
+                      <MostVulnerableTvList
+                        mvtv15={Array.isArray(diagnostics?.MVTV15) ? diagnostics.MVTV15 : []}
+                        mvtv30={Array.isArray(diagnostics?.MVTV30) ? diagnostics.MVTV30 : []}
+                      />
+                    </div>
                     {flightListOpen && (
                       <div className="px-2 pb-2 pt-2">
                         <div className="rounded-lg border border-white/10 overflow-hidden">
@@ -690,14 +710,6 @@ function hhmmToSec(hhmm: string): number {
   return (isFinite(h) ? h : 0) * 3600 + (isFinite(m) ? m : 0) * 60;
 }
 
-function hhmmToHHMMSS(hhmm: string): string {
-  const [h, m] = hhmm.split(":");
-  const hh = (h || '00').padStart(2, '0');
-  const mm = (m || '00').padStart(2, '0');
-  const ss = '00';
-  return `${hh}${mm}${ss}`;
-}
-
 // Parse "HH:MM" or "HH:MM:SS" to seconds of day
 function hhmmOrHHMMSSec(s: string): number {
   const parts = String(s).split(":").map((p) => Number.parseInt(p, 10));
@@ -732,11 +744,10 @@ type FlowsResponse = {
   }>;
 };
 
-async function fetchFlows(params: { tvs: string; from_time_str?: string; to_time_str?: string; threshold?: string; resolution?: string }) {
+async function fetchFlows(params: { tvs: string; timebins?: string; threshold?: string; resolution?: string }) {
   const usp = new URLSearchParams();
   usp.set('tvs', params.tvs);
-  if (params.from_time_str) usp.set('from_time_str', params.from_time_str);
-  if (params.to_time_str) usp.set('to_time_str', params.to_time_str);
+  if (params.timebins) usp.set('timebins', params.timebins);
   if (params.threshold) usp.set('threshold', params.threshold);
   if (params.resolution) usp.set('resolution', params.resolution);
   const res = await authFetch(`/api/flows?${usp.toString()}`);
@@ -745,6 +756,24 @@ async function fetchFlows(params: { tvs: string; from_time_str?: string; to_time
     throw new Error(text || `Request failed: ${res.status}`);
   }
   return (await res.json()) as FlowsResponse;
+}
+
+function deriveIntersectingTimeBins(fromTime: string, toTime: string, numTimeBins: number): number[] {
+  if (!Number.isFinite(numTimeBins) || numTimeBins <= 0) return [];
+
+  const fromSec = hhmmToSec(fromTime);
+  const toSec = hhmmToSec(toTime);
+  if (!Number.isFinite(fromSec) || !Number.isFinite(toSec) || toSec <= fromSec) return [];
+
+  const secondsPerBin = (24 * 3600) / numTimeBins;
+  const bins: number[] = [];
+  for (let i = 0; i < numTimeBins; i += 1) {
+    const binStart = i * secondsPerBin;
+    const binEnd = binStart + secondsPerBin;
+    const intersects = binEnd > fromSec && binStart < toSec;
+    if (intersects) bins.push(i);
+  }
+  return bins;
 }
 
 // Formatters
