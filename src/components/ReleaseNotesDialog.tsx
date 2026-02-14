@@ -12,6 +12,14 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
+
+  <h4 class="font-bold mb-4">Sat. 14/12/2026</h4>
+  <p>This will also be my last update to Project Cortex for a while. My research at ENAC had been finished, and I'm moving on to the next chapter of my career.</p>
+
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Flow Heuristics.</strong> We now show the flow heuristics by default, with the option to toggle flight lists manually.</li>
+  </ul>
+
   <h4 class="font-bold mb-4">Tue. 25/11/2025</h4>
 
   <ul class="list-disc pl-6 space-y-2 mb-4">

@@ -5,10 +5,12 @@ import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const tvs = (searchParams.get('tvs') || '').trim();
+  const timebinsRaw = (searchParams.get('timebins') || '').trim();
   const fromTimeStr = (searchParams.get('from_time_str') || '').trim();
   const toTimeStr = (searchParams.get('to_time_str') || '').trim();
   const threshold = (searchParams.get('threshold') || '').trim();
   const resolution = (searchParams.get('resolution') || '').trim();
+  let parsedTimebins: number[] | null = null;
 
   // Basic validation mirroring backend contract
   if (!tvs) {
@@ -16,6 +18,23 @@ export async function GET(request: NextRequest) {
       { error: 'tvs parameter is required' },
       { status: 400 }
     );
+  }
+
+  if (timebinsRaw) {
+    const tokens = timebinsRaw.split(',').map((token) => token.trim());
+    if (tokens.length === 0 || tokens.some((token) => !/^-?\d+$/.test(token))) {
+      return NextResponse.json(
+        { error: 'timebins must be a comma-separated list of integers' },
+        { status: 400 }
+      );
+    }
+    parsedTimebins = tokens.map((token) => Number.parseInt(token, 10));
+    if (parsedTimebins.some((value) => !Number.isInteger(value) || value < 0)) {
+      return NextResponse.json(
+        { error: 'timebins must contain non-negative integers' },
+        { status: 400 }
+      );
+    }
   }
 
   // Validate time string params (expected format HHMMSS as zero-padded digits)
@@ -67,6 +86,7 @@ export async function GET(request: NextRequest) {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
     const params = new URLSearchParams();
     params.set('tvs', tvs);
+    if (parsedTimebins && parsedTimebins.length > 0) params.set('timebins', parsedTimebins.join(','));
     if (fromTimeStr) params.set('from_time_str', fromTimeStr);
     if (toTimeStr) params.set('to_time_str', toTimeStr);
     if (threshold) params.set('threshold', threshold);

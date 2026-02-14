@@ -10,6 +10,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import type { FlowBasketItem } from "@/components/useSimStore";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
@@ -21,6 +22,16 @@ type FlowReviewContext = {
   periodFrom?: string | null;
   periodTo?: string | null;
   tvs: string[];
+};
+
+type FlowHeuristicsDiagnostics = {
+  v_tilde?: number | null;
+  Slack_G15?: number | null;
+  Slack_G30?: number | null;
+  num_flights?: number | null;
+  MVTV15?: MostVulnerableTvItem[] | null;
+  MVTV30?: MostVulnerableTvItem[] | null;
+  [key: string]: unknown;
 };
 
 export default function FlowRegulationPanel({ embedded = false }: FlowRegulationPanelProps) {
@@ -56,6 +67,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [flowResults, setFlowResults] = useState<FlowsResponse | null>(null);
+  const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<FlowReviewContext | null>(null);
 
@@ -159,19 +171,31 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setExtractError(null);
     setExtracting(true);
     setFlowResults(null);
+    setExpandedFlightLists({});
     try {
       const data = await fetchFlows({
         tvs: selectedTVs.join(','),
-        from_time_str: hhmmToHHMMSS(fromTime),
-        to_time_str: hhmmToHHMMSS(toTime),
-        threshold: String(Math.min(10, Math.max(0.1, flowThreshold))),
+        threshold: String(Math.min(1, Math.max(0, flowThreshold))),
         resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
       });
-      setFlowResults(data);
+      let finalData = data;
+      if (Number.isFinite(data.num_time_bins) && data.num_time_bins > 0) {
+        const selectedBins = deriveIntersectingTimeBins(fromTime, toTime, data.num_time_bins);
+        const shouldFilterByTimeBins = selectedBins.length > 0 && selectedBins.length < data.num_time_bins;
+        if (shouldFilterByTimeBins) {
+          finalData = await fetchFlows({
+            tvs: selectedTVs.join(','),
+            timebins: selectedBins.join(','),
+            threshold: String(Math.min(1, Math.max(0, flowThreshold))),
+            resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
+          });
+        }
+      }
+      setFlowResults(finalData);
       // Build community/group mapping for global store so map can color and filter
       const communities: Record<string, number> = {};
       const groups: Record<string, string[]> = {};
-      for (const f of data.flows || []) {
+      for (const f of finalData.flows || []) {
         const fidList = (f.flights || []).map(ff => String(ff.flight_id));
         groups[String(f.flow_id)] = fidList;
         for (const fid of fidList) communities[String(fid)] = Number(f.flow_id);
@@ -333,6 +357,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   useEffect(() => {
     if (selectedTVs.length === 0) {
       setFlowResults(null);
+      setExpandedFlightLists({});
       setFlowCommunities(null, null);
       setFlowViewEnabled(false);
       setFlowError(null);
@@ -448,14 +473,14 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
               <div className="text-[11px] opacity-80 mb-1">Threshold</div>
               <input
                 type="number"
-                min={0.1}
-                max={10}
+                min={0}
+                max={1}
                 step={0.05}
                 value={flowThreshold}
                 onChange={(e) => {
                   const v = Number(e.currentTarget.value);
                   if (!Number.isFinite(v)) return;
-                  setFlowThreshold(Math.min(10, Math.max(0.1, v)));
+                  setFlowThreshold(Math.min(1, Math.max(0, v)));
                 }}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />
@@ -491,10 +516,16 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
             <div className="text-[11px] opacity-70 mb-2">The extracted flows also include dwelling flights.</div>
             <div className="space-y-3">
               {sortedFlows.map((flow) => {
+                const flowId = String(flow.flow_id);
                 const arrivalTimes = (flow.flights || [])
                   .map((fl) => extractTimeFromDateTime(fl.earliest_crossing_time))
                   .filter(Boolean) as string[];
                 const statsFlightIds = (flow.flights || []).map((fl) => String(fl.flight_id)).filter(Boolean);
+                const diagnostics: FlowHeuristicsDiagnostics | null | undefined = flow.heuristics?.diagnostics;
+                const flowFlightCount = typeof diagnostics?.num_flights === "number"
+                  ? diagnostics.num_flights
+                  : (flow.flights?.length || 0);
+                const flightListOpen = expandedFlightLists[flowId] ?? false;
                 const fromSec = hhmmToSec(fromTime);
                 const toSec = hhmmToSec(toTime);
                 const anyInRange = arrivalTimes.some((s) => {
@@ -505,13 +536,13 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                   <div key={flow.flow_id} className="border border-white/10 rounded-md">
                     <div
                       className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
-                      onMouseEnter={() => setFlowPreviewGroupId(String(flow.flow_id))}
+                      onMouseEnter={() => setFlowPreviewGroupId(flowId)}
                       onMouseLeave={() => setFlowPreviewGroupId(null)}
                     >
                       <div className="flex items-center gap-2 text-xs">
                         <span
                           className="inline-block w-3 h-3 rounded-sm"
-                          style={{ backgroundColor: (flowColorByCommunity && (flowColorByCommunity as any)[String(flow.flow_id)]) || '#9ca3af' }}
+                          style={{ backgroundColor: (flowColorByCommunity && (flowColorByCommunity as any)[flowId]) || '#9ca3af' }}
                           title={`Flow ${flow.flow_id}`}
                         />
                         <span className="opacity-80">Flow {flow.flow_id}</span>
@@ -526,8 +557,24 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                           ariaLabel={`Open flight statistics for flow ${flow.flow_id}`}
                           title="Open flight statistics"
                         />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedFlightLists((prev) => ({ ...prev, [flowId]: !(prev[flowId] ?? false) }));
+                          }}
+                          type="button"
+                          aria-label={flightListOpen ? "Hide flight list" : "Show flight list"}
+                          title={flightListOpen ? "Hide flight list" : "Show flight list"}
+                          className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${flightListOpen
+                            ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
+                            : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                        </button>
                         <AddToBasketMenu
-                          flowId={String(flow.flow_id)}
+                          flowId={flowId}
                           flowLabel={`Flow ${flow.flow_id}`}
                           items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
                           tvs={selectedTVs}
@@ -568,44 +615,70 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         </div>
                       );
                     })()}
-                    <div className="px-2 pb-2">
-                      <div className="rounded-lg border border-white/10 overflow-hidden">
-                        <table className="w-full text-[11px]">
-                          <thead>
-                            <tr className="bg-white/10">
-                              <th className="text-left p-2 font-semibold">CS</th>
-                              <th className="text-left p-2 font-semibold">Ori.</th>
-                              <th className="text-left p-2 font-semibold">Des.</th>
-                              <th className="text-left p-2 font-semibold">Requested Bin</th>
-                              <th className="text-left p-2 font-semibold">Earliest Crossing</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(flow.flights || []).map((fl, idx) => {
-                              const full = flights?.find((ff: any) => String(ff.flightId) === String(fl.flight_id));
-                              const callsign = full?.callSign || String(fl.flight_id);
-                              const origin = full?.origin || 'N/A';
-                              const destination = full?.destination || 'N/A';
-                              const earliest = extractTimeFromDateTime(fl.earliest_crossing_time) || 'N/A';
-                              return (
-                                <tr
-                                  key={`${flow.flow_id}-${fl.flight_id}`}
-                                  className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
-                                  onMouseEnter={() => setFlowPreviewFlightId(String(fl.flight_id))}
-                                  onMouseLeave={() => setFlowPreviewFlightId(null)}
-                                >
-                                  <td className="p-2 font-mono">{callsign}</td>
-                                  <td className="p-2">{origin}</td>
-                                  <td className="p-2">{destination}</td>
-                                  <td className="p-2 text-right font-mono">{fl.requested_bin}</td>
-                                  <td className="p-2 text-right font-mono">{earliest}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                    <div className={`grid grid-cols-2 gap-x-6 gap-y-1.5 px-2 pt-2 text-[11px] ${flightListOpen ? "" : "pb-2"}`}>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">V:</span>
+                        <span>{formatHeuristicValue(diagnostics?.v_tilde)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">Slack15:</span>
+                        <span>{formatHeuristicValue(diagnostics?.Slack_G15)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">Slack30:</span>
+                        <span>{formatHeuristicValue(diagnostics?.Slack_G30)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">N. Flights:</span>
+                        <span>{formatHeuristicValue(flowFlightCount, 0)}</span>
                       </div>
                     </div>
+                    <div className={flightListOpen ? "px-2 pt-2" : "px-2 pt-2 pb-2"}>
+                      <MostVulnerableTvList
+                        mvtv15={Array.isArray(diagnostics?.MVTV15) ? diagnostics.MVTV15 : []}
+                        mvtv30={Array.isArray(diagnostics?.MVTV30) ? diagnostics.MVTV30 : []}
+                      />
+                    </div>
+                    {flightListOpen && (
+                      <div className="px-2 pb-2 pt-2">
+                        <div className="rounded-lg border border-white/10 overflow-hidden">
+                          <table className="w-full text-[11px]">
+                            <thead>
+                              <tr className="bg-white/10">
+                                <th className="text-left p-2 font-semibold">CS</th>
+                                <th className="text-left p-2 font-semibold">Ori.</th>
+                                <th className="text-left p-2 font-semibold">Des.</th>
+                                <th className="text-left p-2 font-semibold">Requested Bin</th>
+                                <th className="text-left p-2 font-semibold">Earliest Crossing</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(flow.flights || []).map((fl, idx) => {
+                                const full = flights?.find((ff: any) => String(ff.flightId) === String(fl.flight_id));
+                                const callsign = full?.callSign || String(fl.flight_id);
+                                const origin = full?.origin || 'N/A';
+                                const destination = full?.destination || 'N/A';
+                                const earliest = extractTimeFromDateTime(fl.earliest_crossing_time) || 'N/A';
+                                return (
+                                  <tr
+                                    key={`${flow.flow_id}-${fl.flight_id}`}
+                                    className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
+                                    onMouseEnter={() => setFlowPreviewFlightId(String(fl.flight_id))}
+                                    onMouseLeave={() => setFlowPreviewFlightId(null)}
+                                  >
+                                    <td className="p-2 font-mono">{callsign}</td>
+                                    <td className="p-2">{origin}</td>
+                                    <td className="p-2">{destination}</td>
+                                    <td className="p-2 text-right font-mono">{fl.requested_bin}</td>
+                                    <td className="p-2 text-right font-mono">{earliest}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -637,14 +710,6 @@ function hhmmToSec(hhmm: string): number {
   return (isFinite(h) ? h : 0) * 3600 + (isFinite(m) ? m : 0) * 60;
 }
 
-function hhmmToHHMMSS(hhmm: string): string {
-  const [h, m] = hhmm.split(":");
-  const hh = (h || '00').padStart(2, '0');
-  const mm = (m || '00').padStart(2, '0');
-  const ss = '00';
-  return `${hh}${mm}${ss}`;
-}
-
 // Parse "HH:MM" or "HH:MM:SS" to seconds of day
 function hhmmOrHHMMSSec(s: string): number {
   const parts = String(s).split(":").map((p) => Number.parseInt(p, 10));
@@ -652,6 +717,11 @@ function hhmmOrHHMMSSec(s: string): number {
   const m = parts[1] || 0;
   const sec = parts[2] || 0;
   return h * 3600 + m * 60 + sec;
+}
+
+function formatHeuristicValue(value: number | null | undefined, digits = 2): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "–";
+  return value.toFixed(digits);
 }
 
 // Types for flows API response
@@ -663,6 +733,9 @@ type FlowsResponse = {
     flow_id: number;
     controlled_volume: string | null;
     demand: number[];
+    heuristics?: {
+      diagnostics?: FlowHeuristicsDiagnostics | null;
+    } | null;
     flights: Array<{
       flight_id: string;
       requested_bin: number;
@@ -671,11 +744,10 @@ type FlowsResponse = {
   }>;
 };
 
-async function fetchFlows(params: { tvs: string; from_time_str?: string; to_time_str?: string; threshold?: string; resolution?: string }) {
+async function fetchFlows(params: { tvs: string; timebins?: string; threshold?: string; resolution?: string }) {
   const usp = new URLSearchParams();
   usp.set('tvs', params.tvs);
-  if (params.from_time_str) usp.set('from_time_str', params.from_time_str);
-  if (params.to_time_str) usp.set('to_time_str', params.to_time_str);
+  if (params.timebins) usp.set('timebins', params.timebins);
   if (params.threshold) usp.set('threshold', params.threshold);
   if (params.resolution) usp.set('resolution', params.resolution);
   const res = await authFetch(`/api/flows?${usp.toString()}`);
@@ -684,6 +756,24 @@ async function fetchFlows(params: { tvs: string; from_time_str?: string; to_time
     throw new Error(text || `Request failed: ${res.status}`);
   }
   return (await res.json()) as FlowsResponse;
+}
+
+function deriveIntersectingTimeBins(fromTime: string, toTime: string, numTimeBins: number): number[] {
+  if (!Number.isFinite(numTimeBins) || numTimeBins <= 0) return [];
+
+  const fromSec = hhmmToSec(fromTime);
+  const toSec = hhmmToSec(toTime);
+  if (!Number.isFinite(fromSec) || !Number.isFinite(toSec) || toSec <= fromSec) return [];
+
+  const secondsPerBin = (24 * 3600) / numTimeBins;
+  const bins: number[] = [];
+  for (let i = 0; i < numTimeBins; i += 1) {
+    const binStart = i * secondsPerBin;
+    const binEnd = binStart + secondsPerBin;
+    const intersects = binEnd > fromSec && binStart < toSec;
+    if (intersects) bins.push(i);
+  }
+  return bins;
 }
 
 // Formatters

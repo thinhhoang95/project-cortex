@@ -8,6 +8,7 @@ import FlightQueryDialog from "@/components/FlightQueryDialog";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 
@@ -17,6 +18,36 @@ type CommunityReviewContext = {
   communityId: string;
   flightIds: string[];
   label: string;
+};
+
+type CommunityHeuristicsSummary = {
+  vTilde: number | null;
+  slack15: number | null;
+  slack30: number | null;
+  flights: number | null;
+  mvtv15: MostVulnerableTvItem[];
+  mvtv30: MostVulnerableTvItem[];
+};
+
+type FlowHeuristicsDiagnostics = {
+  v_tilde?: number | null;
+  Slack_G15?: number | null;
+  Slack_G30?: number | null;
+  num_flights?: number | null;
+  MVTV15?: MostVulnerableTvItem[] | null;
+  MVTV30?: MostVulnerableTvItem[] | null;
+  [key: string]: unknown;
+};
+
+type FlowExtractionResponse = {
+  communities?: Record<string, number>;
+  groups?: Record<string, string[]>;
+  flows?: Array<{
+    flow_id: number | string;
+    heuristics?: {
+      diagnostics?: FlowHeuristicsDiagnostics | null;
+    } | null;
+  }>;
 };
 
 export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
@@ -78,6 +109,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [magicSearchOpen, setMagicSearchOpen] = useState(false);
   const [showOnlyTargeted, setShowOnlyTargeted] = useState(false);
   const [communityReviewContext, setCommunityReviewContext] = useState<CommunityReviewContext | null>(null);
+  const [communityHeuristics, setCommunityHeuristics] = useState<Record<string, CommunityHeuristicsSummary>>({});
   const flightLevelRange = formatFlightLevelRange(
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
@@ -354,6 +386,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setFlowCommunities(null, null);
     setFlowColorByCommunity(null);
     setFlowError(null);
+    setCommunityHeuristics({});
     setFlowPreviewFlightId(null);
     setFlowPreviewGroupId(null);
   }, [selectedTrafficVolume, setRegulationPreviewActive, clearRegulationTargetFlights, setFocusFlightIds, setFocusMode, setFlowViewEnabled, setFlowCommunities, setFlowColorByCommunity, setFlowError, setFlowPreviewFlightId, setFlowPreviewGroupId]);
@@ -553,6 +586,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     const ids = Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : [];
     if (ids.length === 0) {
       setFlowError('No flights available to extract flows.');
+      setCommunityHeuristics({});
       return;
     }
     setFlowLoading(true);
@@ -568,15 +602,32 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       });
       const res = await (await import("@/lib/auth")).authFetch(`/api/flow_extraction?${params.toString()}`);
       if (!res.ok) throw new Error(`Failed: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as FlowExtractionResponse;
       // Expect data.communities: { flightId: communityId }, data.groups: { comId: [flightIds] }
       if (data && data.communities) {
         setFlowCommunities(data.communities, data.groups || null);
+        const nextHeuristics: Record<string, CommunityHeuristicsSummary> = {};
+        for (const flow of data.flows || []) {
+          const flowId = String(flow?.flow_id ?? "");
+          if (!flowId) continue;
+          const diagnostics = flow.heuristics?.diagnostics;
+          nextHeuristics[flowId] = {
+            vTilde: normalizeHeuristicValue(diagnostics?.v_tilde),
+            slack15: normalizeHeuristicValue(diagnostics?.Slack_G15),
+            slack30: normalizeHeuristicValue(diagnostics?.Slack_G30),
+            flights: normalizeHeuristicValue(diagnostics?.num_flights),
+            mvtv15: normalizeMostVulnerableTvItems(diagnostics?.MVTV15),
+            mvtv30: normalizeMostVulnerableTvItems(diagnostics?.MVTV30),
+          };
+        }
+        setCommunityHeuristics(nextHeuristics);
         setFlowViewEnabled(true);
       } else {
+        setCommunityHeuristics({});
         setFlowError('Flow extraction returned no communities.');
       }
     } catch (e: any) {
+      setCommunityHeuristics({});
       setFlowError(e?.message || 'Failed to extract flows');
     } finally {
       setFlowLoading(false);
@@ -648,6 +699,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             setFlowCommunities(null, null);
             setFlowColorByCommunity(null);
             setFlowError(null);
+            setCommunityHeuristics({});
             setFlowPreviewFlightId(null);
             setFlowPreviewGroupId(null);
             clearRegulationTargetFlights();
@@ -705,6 +757,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                   setFlowCommunities(null, null);
                   setFlowColorByCommunity(null);
                   setFlowError(null);
+                  setCommunityHeuristics({});
                   setFlowPreviewGroupId(null);
                   setFlowPreviewFlightId(null);
                 } else {
@@ -759,6 +812,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             flowCommunities={flowCommunities}
             flowGroups={flowGroups}
             flowColorByCommunity={flowColorByCommunity}
+            communityHeuristics={communityHeuristics}
             flights={flights}
             orderedFlightsData={orderedFlightsData}
             regulationTimeWindow={regulationTimeWindow}
@@ -1000,9 +1054,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   );
 }
 
-function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, flights, orderedFlightsData, regulationTimeWindow, embedded, onReviewCommunity }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number]; embedded?: boolean; onReviewCommunity: (context: CommunityReviewContext) => void; }) {
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, communityHeuristics, flights, orderedFlightsData, regulationTimeWindow, embedded, onReviewCommunity }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; communityHeuristics: Record<string, CommunityHeuristicsSummary>; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number]; embedded?: boolean; onReviewCommunity: (context: CommunityReviewContext) => void; }) {
   const { setFlowPreviewFlightId, setFlowPreviewGroupId, regulationTargetFlightIds, setRegulationTargetFlightIds } = useSimStore();
   const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
+  const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
   // Derive community sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -1036,6 +1091,22 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
     }
   }, [openMenuFor, topGroups]);
 
+  useEffect(() => {
+    setExpandedFlightLists((prev) => {
+      const validIds = new Set(topGroups.map((g) => g.cid));
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        if (validIds.has(key)) {
+          next[key] = value;
+          continue;
+        }
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [topGroups]);
+
   // Use centralized color mapping from the store; default gray for others
   const colorMap = useMemo(() => new Map<string, string>(Object.entries(flowColorByCommunity || {})), [flowColorByCommunity]);
 
@@ -1066,6 +1137,9 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
       <div className={embedded ? "space-y-3" : "space-y-3 max-h-64 overflow-y-auto no-scrollbar"}>
         {topGroups.map((g) => {
           const statsFlightIds = g.ids.map((fid) => String(fid)).filter(Boolean);
+          const heuristics = communityHeuristics[g.cid];
+          const flightListOpen = expandedFlightLists[g.cid] ?? false;
+          const heuristicFlightCount = heuristics?.flights ?? g.size;
           return (
             <div key={g.cid} className="border border-white/10 rounded-md">
               <div
@@ -1085,6 +1159,22 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                     ariaLabel={`Open flight statistics for community ${g.cid}`}
                     title="Open flight statistics"
                   />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedFlightLists((prev) => ({ ...prev, [g.cid]: !(prev[g.cid] ?? false) }));
+                    }}
+                    type="button"
+                    aria-label={flightListOpen ? "Hide flight list" : "Show flight list"}
+                    title={flightListOpen ? "Hide flight list" : "Show flight list"}
+                    className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${flightListOpen
+                      ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
+                      : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                  </button>
                   <div className="relative inline-block text-[11px]">
                     <button
                       onClick={(e) => {
@@ -1152,44 +1242,105 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                   height={12}
                 />
               </div>
-              <div className={embedded ? "" : "max-h-40 overflow-y-auto no-scrollbar"}>
-                <div className="rounded-lg border border-white/10 overflow-hidden">
-                  <table className="w-full text-[11px]">
-                    <thead>
-                      <tr className="bg-white/10">
-                        <th className="text-left p-2 font-semibold">CS</th>
-                        <th className="text-left p-2 font-semibold">Ori.</th>
-                        <th className="text-left p-2 font-semibold">Des.</th>
-                        <th className="text-left p-2 font-semibold">TV Arr.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {g.ids.slice(0, 50).map((fid, idx) => {
-                        const f = flightById.get(String(fid));
-                        return (
-                          <tr
-                            key={String(fid)}
-                            className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
-                            onMouseEnter={() => setFlowPreviewFlightId(String(fid))}
-                            onMouseLeave={() => setFlowPreviewFlightId(null)}
-                          >
-                            <td className="p-2 font-mono">{f?.callSign || fid}</td>
-                            <td className="p-2">{f?.origin || 'N/A'}</td>
-                            <td className="p-2">{f?.destination || 'N/A'}</td>
-                            <td className="p-2 text-right font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+              <div className={`grid grid-cols-2 gap-x-6 gap-y-1.5 px-2 pt-2 text-[11px] ${flightListOpen ? "" : "pb-2"}`}>
+                <div className="flex justify-between">
+                  <span className="text-white/60">V:</span>
+                  <span>{formatHeuristicMetric(heuristics?.vTilde)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">Slack15:</span>
+                  <span>{formatHeuristicMetric(heuristics?.slack15)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">Slack30:</span>
+                  <span>{formatHeuristicMetric(heuristics?.slack30)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">N. Flights:</span>
+                  <span>{formatHeuristicMetric(heuristicFlightCount, 0)}</span>
                 </div>
               </div>
+              <div className={flightListOpen ? "px-2 pt-2" : "px-2 pt-2 pb-2"}>
+                <MostVulnerableTvList
+                  mvtv15={heuristics?.mvtv15 || []}
+                  mvtv30={heuristics?.mvtv30 || []}
+                />
+              </div>
+              {flightListOpen && (
+                <div className={embedded ? "pt-2" : "max-h-40 overflow-y-auto no-scrollbar pt-2"}>
+                  <div className="rounded-lg border border-white/10 overflow-hidden">
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr className="bg-white/10">
+                          <th className="text-left p-2 font-semibold">CS</th>
+                          <th className="text-left p-2 font-semibold">Ori.</th>
+                          <th className="text-left p-2 font-semibold">Des.</th>
+                          <th className="text-left p-2 font-semibold">TV Arr.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.ids.slice(0, 50).map((fid, idx) => {
+                          const f = flightById.get(String(fid));
+                          return (
+                            <tr
+                              key={String(fid)}
+                              className={`border-t border-white/10 ${idx % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
+                              onMouseEnter={() => setFlowPreviewFlightId(String(fid))}
+                              onMouseLeave={() => setFlowPreviewFlightId(null)}
+                            >
+                              <td className="p-2 font-mono">{f?.callSign || fid}</td>
+                              <td className="p-2">{f?.origin || 'N/A'}</td>
+                              <td className="p-2">{f?.destination || 'N/A'}</td>
+                              <td className="p-2 text-right font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
     </div>
   );
+}
+
+function normalizeHeuristicValue(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  return value;
+}
+
+function normalizeMostVulnerableTvItems(value: unknown): MostVulnerableTvItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): MostVulnerableTvItem | null => {
+      if (!item || typeof item !== "object") return null;
+      const candidate = item as Record<string, unknown>;
+      const tvIdRaw = candidate.traffic_volume_id;
+      const traffic_volume_id = tvIdRaw == null ? null : String(tvIdRaw).trim() || null;
+      const normalize = (input: unknown): number | null => {
+        const num = Number(input);
+        return Number.isFinite(num) ? num : null;
+      };
+      return {
+        traffic_volume_id,
+        time_bin: normalize(candidate.time_bin),
+        slack: normalize(candidate.slack),
+        rolling_hour_occupancy: normalize(candidate.rolling_hour_occupancy),
+        capacity_per_bin: normalize(candidate.capacity_per_bin),
+        demand15: normalize(candidate.demand15),
+        demand30: normalize(candidate.demand30),
+      };
+    })
+    .filter((item): item is MostVulnerableTvItem => Boolean(item));
+}
+
+function formatHeuristicMetric(value: number | null | undefined, digits = 2): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "–";
+  return value.toFixed(digits);
 }
 
 function formatTime(seconds: number): string {
