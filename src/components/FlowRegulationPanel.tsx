@@ -11,6 +11,7 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
+import { formatDwellingTime } from "@/lib/dwellTime";
 import type { FlowBasketItem } from "@/components/useSimStore";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
@@ -649,6 +650,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                                 <th className="text-left p-2 font-semibold">Des.</th>
                                 <th className="text-left p-2 font-semibold">Requested Bin</th>
                                 <th className="text-left p-2 font-semibold">Earliest Crossing</th>
+                                <th className="text-left p-2 font-semibold">Dwell</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -670,6 +672,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                                     <td className="p-2">{destination}</td>
                                     <td className="p-2 text-right font-mono">{fl.requested_bin}</td>
                                     <td className="p-2 text-right font-mono">{earliest}</td>
+                                    <td className="p-2 text-right font-mono">{formatDwellingTime(fl.dwell_seconds ?? null)}</td>
                                   </tr>
                                 );
                               })}
@@ -739,6 +742,7 @@ type FlowsResponse = {
       flight_id: string;
       requested_bin: number;
       earliest_crossing_time: string | null;
+      dwell_seconds?: number | null;
     }>;
   }>;
 };

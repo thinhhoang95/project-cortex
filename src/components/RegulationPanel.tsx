@@ -7,6 +7,7 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
+import { formatDwellingTime } from "@/lib/dwellTime";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import { normalizeCapacity } from "@/lib/capacity";
@@ -1129,6 +1130,20 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
     return m;
   }, [orderedFlightsData]);
 
+  const dwellSecondsById = useMemo(() => {
+    const m = new Map<string, number | null>();
+    const details = orderedFlightsData?.details || [];
+    for (const d of details) {
+      const fid = String(d.flight_id);
+      if (!fid) continue;
+      const dwell = typeof d.dwell_seconds === "number" && Number.isFinite(d.dwell_seconds)
+        ? d.dwell_seconds
+        : null;
+      m.set(fid, dwell);
+    }
+    return m;
+  }, [orderedFlightsData]);
+
   if (!topGroups || topGroups.length === 0) return null;
 
   return (
@@ -1276,6 +1291,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                           <th className="text-left p-2 font-semibold">Ori.</th>
                           <th className="text-left p-2 font-semibold">Des.</th>
                           <th className="text-left p-2 font-semibold">TV Arr.</th>
+                          <th className="text-left p-2 font-semibold">Dwell</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1292,6 +1308,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                               <td className="p-2">{f?.origin || 'N/A'}</td>
                               <td className="p-2">{f?.destination || 'N/A'}</td>
                               <td className="p-2 text-right font-mono">{arrivalTimeById.get(String(fid)) || 'N/A'}</td>
+                              <td className="p-2 text-right font-mono">{formatDwellingTime(dwellSecondsById.get(String(fid)) ?? null)}</td>
                             </tr>
                           );
                         })}

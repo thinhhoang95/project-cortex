@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
+import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import HourGlass from "@/components/HourGlass";
@@ -45,6 +46,7 @@ interface OrderedFlightsData {
     arrival_seconds: number;
     delta_seconds: number;
     time_window: string;
+    dwell_seconds?: number | null;
   }[];
 }
 
@@ -216,7 +218,8 @@ export default function AirspaceInfo() {
           destination: flight?.destination || 'N/A',
           takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
           arrivalTime: detail?.arrival_time || 'N/A',
-          deltaSeconds: detail?.delta_seconds || 0
+          deltaSeconds: detail?.delta_seconds || 0,
+          dwellSeconds: detail?.dwell_seconds ?? null
         };
       }).slice(0, 500); // Limit to 500 flights for performance
     }
@@ -238,7 +241,8 @@ export default function AirspaceInfo() {
         destination: flight?.destination || 'N/A',
         takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
         arrivalTime: 'N/A',
-        deltaSeconds: 0
+        deltaSeconds: 0,
+        dwellSeconds: null
       };
     }).slice(0, 50); // Limit to 50 flights for performance
   };
@@ -345,7 +349,8 @@ export default function AirspaceInfo() {
           destination: flight?.destination || 'N/A',
           takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
           arrivalTime: detail.arrival_time || 'N/A',
-          deltaSeconds: detail.delta_seconds || 0
+          deltaSeconds: detail.delta_seconds || 0,
+          dwellSeconds: detail.dwell_seconds ?? null
         };
       });
     } else {
@@ -358,7 +363,8 @@ export default function AirspaceInfo() {
           destination: flight?.destination || 'N/A',
           takeoffTime: flight ? formatTime(flight.t0) : 'N/A',
           arrivalTime: 'N/A',
-          deltaSeconds: 0
+          deltaSeconds: 0,
+          dwellSeconds: null
         };
       }).slice(0, 500);
     }
@@ -777,6 +783,7 @@ export default function AirspaceInfo() {
                       <th className="text-left p-2 font-semibold">Des.</th>
                       <th className="text-left p-2 font-semibold">T/O</th>
                       {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arr.</th>}
+                      {orderedFlightsData && <th className="text-left p-2 font-semibold">Dwell</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -802,6 +809,7 @@ export default function AirspaceInfo() {
                         <td className="p-2">{flight.destination}</td>
                         <td className="p-2 text-right font-mono">{flight.takeoffTime}</td>
                         {orderedFlightsData && <td className="p-2 text-right font-mono">{flight.arrivalTime}</td>}
+                        {orderedFlightsData && <td className="p-2 text-right font-mono">{formatDwellingTime(flight.dwellSeconds)}</td>}
                       </tr>
                     ))}
                     {displayFlightTableData.length > MAX_VISIBLE && (
@@ -811,7 +819,7 @@ export default function AirspaceInfo() {
                       >
                         <td
                           className="p-2 text-center italic opacity-80"
-                          colSpan={orderedFlightsData ? 5 : 4}
+                          colSpan={orderedFlightsData ? 6 : 4}
                         >
                           {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                         </td>

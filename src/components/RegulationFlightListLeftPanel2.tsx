@@ -5,6 +5,7 @@ import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import ShimmeringText from "@/components/ShimmeringText";
 import { authFetch } from "@/lib/auth";
+import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 
@@ -13,6 +14,7 @@ interface RankedFlight {
   arrival_time: string; // HH:MM or HH:MM:SS
   time_window: string; // HH:MM-HH:MM
   delta_seconds: number;
+  dwell_seconds?: number | null;
 }
 
 interface RankedFlightsResponse {
@@ -113,6 +115,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 					origin: flight?.origin || 'N/A',
 					destination: flight?.destination || 'N/A',
 					arrivalTime: rf.arrival_time || 'N/A',
+          dwellSeconds: rf.dwell_seconds ?? null,
 				};
 			});
 		}
@@ -206,6 +209,9 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                           {rankingData && (
                             <th className="text-left p-2 font-semibold">TV Arr.</th>
                           )}
+                          {rankingData && (
+                            <th className="text-left p-2 font-semibold">Dwell</th>
+                          )}
                           {/* Score/components columns removed (API no longer returns them) */}
                         </tr>
                       </thead>
@@ -235,6 +241,9 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                               {rankingData && (
                                 <td className="p-2 text-right font-mono">{row.arrivalTime}</td>
                               )}
+                              {rankingData && (
+                                <td className="p-2 text-right font-mono">{formatDwellingTime(row.dwellSeconds)}</td>
+                              )}
                               {/* Score/components cells removed */}
                             </tr>
                           );
@@ -246,7 +255,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                           >
                             <td
                               className="p-2 text-center italic opacity-80"
-                              colSpan={rankingData ? 5 : 4}
+                              colSpan={rankingData ? 6 : 4}
                             >
                               {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenRowCount)}
                             </td>

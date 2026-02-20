@@ -7,6 +7,7 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
+import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
@@ -331,6 +332,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     takeoffTime: string;
     arrivalTime?: string;
     deltaSeconds?: number;
+    dwellSeconds?: number | null;
   };
   const flightTableData = useMemo<FlightRow[]>(() => {
     if (flights.length === 0) return [] as Array<{
@@ -360,6 +362,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             takeoffTime: f ? formatTime(f.t0) : 'N/A',
             arrivalTime: d.arrival_time || 'N/A',
             deltaSeconds: d.delta_seconds || 0,
+            dwellSeconds: d.dwell_seconds ?? null,
           };
         });
       return rows;
@@ -375,6 +378,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         takeoffTime: f ? formatTime(f.t0) : 'N/A',
         arrivalTime: 'N/A',
         deltaSeconds: 0,
+        dwellSeconds: null,
       };
     }).slice(0, 500);
     return rows;
@@ -794,6 +798,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       <th className="text-left p-2 font-semibold">Des.</th>
                       <th className="text-left p-2 font-semibold">T/O</th>
                       {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arr.</th>}
+                      {orderedFlightsData && <th className="text-left p-2 font-semibold">Dwell</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -815,6 +820,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                         <td className="p-2">{flight.destination}</td>
                         <td className="p-2 text-right font-mono">{flight.takeoffTime}</td>
                         {orderedFlightsData && <td className="p-2 text-right font-mono">{flight.arrivalTime}</td>}
+                        {orderedFlightsData && <td className="p-2 text-right font-mono">{formatDwellingTime(flight.dwellSeconds)}</td>}
                       </tr>
                     ))}
                     {flightTableData.length > MAX_VISIBLE && (
@@ -824,7 +830,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       >
                         <td
                           className="p-2 text-center italic opacity-80"
-                          colSpan={orderedFlightsData ? 5 : 4}
+                          colSpan={orderedFlightsData ? 6 : 4}
                         >
                           {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                         </td>
