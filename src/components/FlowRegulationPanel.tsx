@@ -168,29 +168,28 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
       setExtractError('Please select at least one traffic volume.');
       return;
     }
+    if (!valid) {
+      setExtractError('Invalid extraction period: end time must be after start time.');
+      return;
+    }
+    const fromTimeStr = hhmmToHHMMSS(fromTime);
+    const toTimeStr = hhmmToHHMMSS(toTime);
+    if (!fromTimeStr || !toTimeStr) {
+      setExtractError('Invalid extraction period format.');
+      return;
+    }
     setExtractError(null);
     setExtracting(true);
     setFlowResults(null);
     setExpandedFlightLists({});
     try {
-      const data = await fetchFlows({
+      const finalData = await fetchFlows({
         tvs: selectedTVs.join(','),
+        from_time_str: fromTimeStr,
+        to_time_str: toTimeStr,
         threshold: String(Math.min(1, Math.max(0, flowThreshold))),
         resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
       });
-      let finalData = data;
-      if (Number.isFinite(data.num_time_bins) && data.num_time_bins > 0) {
-        const selectedBins = deriveIntersectingTimeBins(fromTime, toTime, data.num_time_bins);
-        const shouldFilterByTimeBins = selectedBins.length > 0 && selectedBins.length < data.num_time_bins;
-        if (shouldFilterByTimeBins) {
-          finalData = await fetchFlows({
-            tvs: selectedTVs.join(','),
-            timebins: selectedBins.join(','),
-            threshold: String(Math.min(1, Math.max(0, flowThreshold))),
-            resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
-          });
-        }
-      }
       setFlowResults(finalData);
       // Build community/group mapping for global store so map can color and filter
       const communities: Record<string, number> = {};
@@ -458,7 +457,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
             <div className="font-medium text-sm opacity-90">Flow Extraction</div>
             <button
               onClick={handleExtractFlows}
-              disabled={extracting || selectedTVs.length === 0}
+              disabled={extracting || selectedTVs.length === 0 || !valid}
               className={`px-3 py-1 rounded-lg border text-xs ${extracting ? 'border-blue-400/50 bg-blue-500/20 text-blue-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
             >
               {extracting ? (
@@ -744,10 +743,19 @@ type FlowsResponse = {
   }>;
 };
 
-async function fetchFlows(params: { tvs: string; timebins?: string; threshold?: string; resolution?: string }) {
+async function fetchFlows(params: {
+  tvs: string;
+  timebins?: string;
+  from_time_str?: string;
+  to_time_str?: string;
+  threshold?: string;
+  resolution?: string;
+}) {
   const usp = new URLSearchParams();
   usp.set('tvs', params.tvs);
   if (params.timebins) usp.set('timebins', params.timebins);
+  if (params.from_time_str) usp.set('from_time_str', params.from_time_str);
+  if (params.to_time_str) usp.set('to_time_str', params.to_time_str);
   if (params.threshold) usp.set('threshold', params.threshold);
   if (params.resolution) usp.set('resolution', params.resolution);
   const res = await authFetch(`/api/flows?${usp.toString()}`);
@@ -758,22 +766,15 @@ async function fetchFlows(params: { tvs: string; timebins?: string; threshold?: 
   return (await res.json()) as FlowsResponse;
 }
 
-function deriveIntersectingTimeBins(fromTime: string, toTime: string, numTimeBins: number): number[] {
-  if (!Number.isFinite(numTimeBins) || numTimeBins <= 0) return [];
-
-  const fromSec = hhmmToSec(fromTime);
-  const toSec = hhmmToSec(toTime);
-  if (!Number.isFinite(fromSec) || !Number.isFinite(toSec) || toSec <= fromSec) return [];
-
-  const secondsPerBin = (24 * 3600) / numTimeBins;
-  const bins: number[] = [];
-  for (let i = 0; i < numTimeBins; i += 1) {
-    const binStart = i * secondsPerBin;
-    const binEnd = binStart + secondsPerBin;
-    const intersects = binEnd > fromSec && binStart < toSec;
-    if (intersects) bins.push(i);
+function hhmmToHHMMSS(hhmm: string): string | null {
+  const m = String(hhmm).match(/^(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number.parseInt(m[1], 10);
+  const mm = Number.parseInt(m[2], 10);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    return null;
   }
-  return bins;
+  return `${String(hh).padStart(2, "0")}${String(mm).padStart(2, "0")}00`;
 }
 
 // Formatters
