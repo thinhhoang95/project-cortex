@@ -14,6 +14,7 @@ type FlightStatisticsButtonProps = {
   buttonClassName?: string;
   iconClassName?: string;
   disabled?: boolean;
+  sourceTrafficVolumeId?: string | null;
 };
 
 export default function FlightStatisticsButton({
@@ -24,6 +25,7 @@ export default function FlightStatisticsButton({
   buttonClassName,
   iconClassName = "h-3.5 w-3.5",
   disabled,
+  sourceTrafficVolumeId,
 }: FlightStatisticsButtonProps) {
   const [open, setOpen] = useState(false);
 
@@ -69,6 +71,7 @@ export default function FlightStatisticsButton({
               onClose={() => setOpen(false)}
               flightIds={normalizedFlightIds}
               fullScreen={fullScreen}
+              sourceTrafficVolumeId={sourceTrafficVolumeId}
             />,
             portalTarget
           )

@@ -621,6 +621,7 @@ export default function StochasticAirspaceInfo() {
                                 <h4 className="font-medium text-sm opacity-90">Flight List</h4>
                                 <FlightStatisticsButton
                                     flightIds={displayFlightTableData.map((flight) => flight.flightId)}
+                                    sourceTrafficVolumeId={selectedTrafficVolume}
                                     buttonClassName="border-white/20 text-white/80"
                                 />
                             </div>

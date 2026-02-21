@@ -722,6 +722,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               <h4 className="font-medium text-sm opacity-90">List ({flightTableData.length} flights)</h4>
               <FlightStatisticsButton
                 flightIds={flightTableData.map((flight) => flight.flightId)}
+                sourceTrafficVolumeId={selectedTrafficVolume}
                 buttonClassName="border-white/20 text-white/80"
               />
             </div>

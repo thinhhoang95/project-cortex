@@ -24,6 +24,7 @@ import { Trajectory } from "@/lib/models";
 import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
 import { binIndexToRangeLabel } from "@/lib/time";
+import { formatDwellingTime } from "@/lib/dwellTime";
 
 interface FlightListStatisticsProps {
   flightIds: string[];
@@ -33,6 +34,7 @@ interface FlightListStatisticsProps {
   highlightLabel?: string;
   baselineLabel?: string;
   show_occupancy_charts?: boolean;
+  sourceTrafficVolumeId?: string | null;
 }
 
 type AirportSlice = {
@@ -91,10 +93,25 @@ type ContribCountsResponse = {
   total_counts?: Record<string, number[]>;
   flight_list_counts?: Record<string, number[]>;
   capacity?: Record<string, number[]>;
+  dwell_seconds_stats?: Record<string, {
+    n?: number;
+    mean?: number | null;
+    std?: number | null;
+    n_missing?: number;
+  }>;
   metadata?: (Record<string, any> & {
     ranked_tv_ids?: string[];
     missing_flight_ids?: string[];
   }) | null;
+};
+
+type DwellHistogramRow = {
+  key: string;
+  label: string;
+  minSeconds: number | null;
+  maxSeconds: number | null;
+  count: number;
+  share: number;
 };
 
 type TrafficVolumesState = {
@@ -421,6 +438,7 @@ function FlightListStatistics({
   highlightLabel = "Flight list",
   baselineLabel = "Baseline",
   show_occupancy_charts: showOccupancyCharts = true,
+  sourceTrafficVolumeId,
 }: FlightListStatisticsProps) {
   const flights = useSimStore(state => state.flights);
 
@@ -438,6 +456,11 @@ function FlightListStatistics({
     ids.sort();
     return ids;
   }, [analysis.selectedFlights]);
+  const normalizedSourceTrafficVolumeId = useMemo(() => {
+    if (!sourceTrafficVolumeId) return null;
+    const normalized = String(sourceTrafficVolumeId).trim();
+    return normalized.length > 0 ? normalized : null;
+  }, [sourceTrafficVolumeId]);
 
   const baselineAnalysis = useMemo<FlightListAnalysis | null>(() => {
     if (!baselineFlightIds || baselineFlightIds.length === 0) return null;
@@ -553,9 +576,22 @@ function FlightListStatistics({
       rank_by: rankByParam,
       rolling_hour: true,
     };
-    // Optional focus filter: only include if user selected at least one TV
-    if (selectedTrafficVolumes.length > 0) {
-      payload.traffic_volume_ids = selectedTrafficVolumes;
+    // Optional focus filter. For TV-scoped launches always include source TV at the end.
+    const requestedTvIds: string[] = [];
+    const seenTvIds = new Set<string>();
+    for (const tvId of selectedTrafficVolumes) {
+      const normalized = String(tvId).trim();
+      if (!normalized) continue;
+      if (normalizedSourceTrafficVolumeId && normalized === normalizedSourceTrafficVolumeId) continue;
+      if (seenTvIds.has(normalized)) continue;
+      seenTvIds.add(normalized);
+      requestedTvIds.push(normalized);
+    }
+    if (normalizedSourceTrafficVolumeId) {
+      requestedTvIds.push(normalizedSourceTrafficVolumeId);
+    }
+    if (requestedTvIds.length > 0) {
+      payload.traffic_volume_ids = requestedTvIds;
     }
 
     setContribCountsState(prev => ({ ...prev, loading: true, error: null }));
@@ -588,7 +624,7 @@ function FlightListStatistics({
     return () => {
       cancelled = true;
     };
-  }, [selectedFlightIds, selectedTrafficVolumes, rankByParam, showOccupancyCharts]);
+  }, [selectedFlightIds, selectedTrafficVolumes, rankByParam, showOccupancyCharts, normalizedSourceTrafficVolumeId]);
 
   const countsLoading = trafficState.loading || contribCountsState.loading;
   const countsError = contribCountsState.error;
@@ -767,6 +803,91 @@ function FlightListStatistics({
     );
   }, [rankedCards]);
 
+  const sourceDwellStats = useMemo(() => {
+    if (!normalizedSourceTrafficVolumeId) return null;
+    const raw = contribCountsState.data?.dwell_seconds_stats?.[normalizedSourceTrafficVolumeId];
+    if (!raw || typeof raw !== "object") return null;
+    const nRaw = Number(raw.n);
+    const meanRaw = Number(raw.mean);
+    const stdRaw = Number(raw.std);
+    const nMissingRaw = Number(raw.n_missing);
+    return {
+      n: Number.isFinite(nRaw) && nRaw > 0 ? Math.round(nRaw) : 0,
+      mean: Number.isFinite(meanRaw) && meanRaw >= 0 ? meanRaw : null,
+      std: Number.isFinite(stdRaw) && stdRaw >= 0 ? stdRaw : null,
+      nMissing: Number.isFinite(nMissingRaw) && nMissingRaw > 0 ? Math.round(nMissingRaw) : 0,
+    };
+  }, [contribCountsState.data?.dwell_seconds_stats, normalizedSourceTrafficVolumeId]);
+
+  const dwellHistogramRows = useMemo<DwellHistogramRow[]>(() => {
+    if (!normalizedSourceTrafficVolumeId) return [];
+    const bins: Array<Pick<DwellHistogramRow, "key" | "label" | "minSeconds" | "maxSeconds">> = [
+      { key: "lt3", label: "<3min", minSeconds: null, maxSeconds: 180 },
+      { key: "3to10", label: "3-10min", minSeconds: 180, maxSeconds: 600 },
+      { key: "10to20", label: "10-20min", minSeconds: 600, maxSeconds: 1200 },
+      { key: "20to30", label: "20-30min", minSeconds: 1200, maxSeconds: 1800 },
+      { key: "30to45", label: "30-45min", minSeconds: 1800, maxSeconds: 2700 },
+      { key: "gt45", label: ">45min", minSeconds: 2700, maxSeconds: null },
+    ];
+
+    const emptyRows = bins.map((bin) => ({
+      ...bin,
+      count: 0,
+      share: 0,
+    }));
+    if (!sourceDwellStats || sourceDwellStats.n <= 0) return emptyRows;
+
+    const n = sourceDwellStats.n;
+    const mean = sourceDwellStats.mean;
+    const std = sourceDwellStats.std;
+
+    // If dispersion is unavailable, allocate all events to the bucket containing mean.
+    if (mean === null || std === null || std <= 0) {
+      const rows = emptyRows.map((row) => ({ ...row }));
+      const value = mean ?? 0;
+      const idx = rows.findIndex((row) => (
+        (row.minSeconds === null || value >= row.minSeconds) &&
+        (row.maxSeconds === null || value < row.maxSeconds)
+      ));
+      const targetIndex = idx >= 0 ? idx : rows.length - 1;
+      rows[targetIndex].count = n;
+      rows[targetIndex].share = 1;
+      return rows;
+    }
+
+    const expected = bins.map((bin) => {
+      const lowerCdf = bin.minSeconds === null ? 0 : normalCdf((bin.minSeconds - mean) / std);
+      const upperCdf = bin.maxSeconds === null ? 1 : normalCdf((bin.maxSeconds - mean) / std);
+      const prob = Math.max(0, upperCdf - lowerCdf);
+      return prob * n;
+    });
+    const floorCounts = expected.map((value) => Math.floor(value));
+    let remainder = Math.max(0, n - floorCounts.reduce((sum, value) => sum + value, 0));
+    const remainders = expected.map((value, idx) => ({ idx, rem: value - floorCounts[idx] }));
+    remainders.sort((a, b) => {
+      if (b.rem !== a.rem) return b.rem - a.rem;
+      return a.idx - b.idx;
+    });
+    for (let i = 0; i < remainders.length && remainder > 0; i += 1, remainder -= 1) {
+      floorCounts[remainders[i].idx] += 1;
+    }
+
+    return bins.map((bin, idx) => {
+      const count = floorCounts[idx];
+      return {
+        ...bin,
+        count,
+        share: n > 0 ? count / n : 0,
+      };
+    });
+  }, [normalizedSourceTrafficVolumeId, sourceDwellStats]);
+
+  const showDwellSection = Boolean(normalizedSourceTrafficVolumeId && showOccupancyCharts);
+  const dwellTotalEvents = sourceDwellStats ? sourceDwellStats.n + sourceDwellStats.nMissing : 0;
+  const dwellCoverage = dwellTotalEvents > 0 && sourceDwellStats
+    ? sourceDwellStats.n / dwellTotalEvents
+    : null;
+
   const matchedCount = analysis.selectedFlights.length;
   const title = `Flight List Insights${analysis.requestedUniqueCount > 0 ? ` (${formatCount(matchedCount)})` : ""}`;
 
@@ -920,6 +1041,35 @@ function FlightListStatistics({
     },
   ];
 
+  const dwellCards = showDwellSection
+    ? [
+        {
+          key: "dwellEvents",
+          label: "TV dwell events",
+          highlightValue: sourceDwellStats ? formatCount(sourceDwellStats.n) : "—",
+          highlightHelper: normalizedSourceTrafficVolumeId
+            ? `TV ${normalizedSourceTrafficVolumeId}`
+            : undefined,
+        },
+        {
+          key: "dwellMean",
+          label: "Mean dwell",
+          highlightValue: sourceDwellStats?.mean != null ? formatDwellingTime(sourceDwellStats.mean) : "N/A",
+          highlightHelper: sourceDwellStats
+            ? `Std ${sourceDwellStats.std != null ? formatDwellingTime(sourceDwellStats.std) : "N/A"}`
+            : "Awaiting dwell statistics",
+        },
+        {
+          key: "dwellCoverage",
+          label: "Dwell coverage",
+          highlightValue: dwellCoverage != null ? formatPercent(dwellCoverage) : "N/A",
+          highlightHelper: sourceDwellStats
+            ? `${formatCount(sourceDwellStats.nMissing)} missing events`
+            : undefined,
+        },
+      ]
+    : [];
+
   return (
     <div className={containerClassName}>
       <div className="flex flex-wrap items-start justify-between gap-6">
@@ -1011,6 +1161,31 @@ function FlightListStatistics({
               </div>
             ))}
           </div>
+
+          {dwellCards.length > 0 && (
+            <section className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <div className="mb-3">
+                <div className="text-[11px] uppercase tracking-wider text-white/60">Dwell Time (Selected TV)</div>
+                <div className="text-sm text-white/80">
+                  TV {normalizedSourceTrafficVolumeId}
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {dwellCards.map((card) => (
+                  <div
+                    key={card.key}
+                    className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-3"
+                  >
+                    <div className="text-[11px] uppercase tracking-wider text-white/60">{card.label}</div>
+                    <div className="text-xl font-semibold text-white">{card.highlightValue}</div>
+                    {card.highlightHelper && (
+                      <div className="text-[11px] text-white/60">{card.highlightHelper}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {showOccupancyCharts && (
             <section className="bg-white/5 border border-white/10 rounded-xl p-4">
@@ -1429,6 +1604,59 @@ function FlightListStatistics({
                 )}
               </div>
 
+              {showDwellSection && (
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[11px] uppercase tracking-wider text-white/60">Dwell distribution</div>
+                    <div className="text-xs text-white/60 text-right">
+                      TV {normalizedSourceTrafficVolumeId}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dwellHistogramRows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                          <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fontSize: 11, fill: "#e2e8f0" }}
+                            axisLine={{ stroke: "rgba(255,255,255,0.2)" }}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 11, fill: "#e2e8f0" }}
+                            axisLine={{ stroke: "rgba(255,255,255,0.2)" }}
+                            tickLine={false}
+                            allowDecimals={false}
+                          />
+                          <Tooltip
+                            formatter={(value: number, _name, item: any) => {
+                              const numeric = Number(value);
+                              const share = Number(item?.payload?.share ?? 0);
+                              return [`${formatCount(numeric)} events (${formatPercent(share)})`, "Dwell events"];
+                            }}
+                            contentStyle={{
+                              background: "rgba(15,23,42,0.95)",
+                              border: "1px solid rgba(255,255,255,0.15)",
+                              borderRadius: 8,
+                              color: "white",
+                            }}
+                            itemStyle={{ color: "white" }}
+                            labelStyle={{ color: "white" }}
+                          />
+                          <Bar dataKey="count" name="Dwell events" fill="#38bdf8" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-[11px] text-white/60">
+                    {sourceDwellStats
+                      ? `Estimated from mean/std: ${formatCount(sourceDwellStats.n)} events${sourceDwellStats.nMissing > 0 ? ` • Missing ${formatCount(sourceDwellStats.nMissing)}` : ""}`
+                      : "Dwell statistics unavailable for this TV context."}
+                  </div>
+                </div>
+              )}
+
               <div className="md:col-span-2 xl:col-span-3 bg-white/5 border border-white/10 rounded-xl p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <div className="text-[11px] uppercase tracking-wider text-white/60">Airport involvement</div>
@@ -1764,6 +1992,21 @@ function formatNumber(value: unknown): string {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
   });
+}
+
+// Approximate standard normal CDF using Abramowitz-Stegun formula.
+function normalCdf(x: number): number {
+  if (!Number.isFinite(x)) return x > 0 ? 1 : 0;
+  const sign = x < 0 ? -1 : 1;
+  const z = Math.abs(x) / Math.sqrt(2);
+  const t = 1 / (1 + 0.3275911 * z);
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const erf = 1 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * Math.exp(-z * z);
+  return 0.5 * (1 + sign * erf);
 }
 
 function formatPercent(value: number): string {

@@ -273,6 +273,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
           open={statsOpen}
           onClose={() => setStatsOpen(false)}
           flightIds={rows.map(r => String(r.flightId))}
+          sourceTrafficVolumeId={selectedTrafficVolume}
           fullScreen
         />,
         document.body

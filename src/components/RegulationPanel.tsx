@@ -816,6 +816,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             communityHeuristics={communityHeuristics}
             flights={flights}
             orderedFlightsData={orderedFlightsData}
+            selectedTrafficVolume={selectedTrafficVolume}
             regulationTimeWindow={regulationTimeWindow}
             embedded={embedded}
             onReviewCommunity={handleReviewCommunity}
@@ -876,6 +877,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               <div className="font-medium text-sm opacity-90">Targeted Flights ({selectedFlights.length})</div>
               <FlightStatisticsButton
                 flightIds={selectedFlights.map((flight) => flight.flightId)}
+                sourceTrafficVolumeId={selectedTrafficVolume}
                 buttonClassName="border-white/20 text-white/80"
               />
               <button
@@ -1055,7 +1057,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   );
 }
 
-function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, communityHeuristics, flights, orderedFlightsData, regulationTimeWindow, embedded, onReviewCommunity }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; communityHeuristics: Record<string, CommunityHeuristicsSummary>; flights: any[]; orderedFlightsData: any | null; regulationTimeWindow: [number, number]; embedded?: boolean; onReviewCommunity: (context: CommunityReviewContext) => void; }) {
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, communityHeuristics, flights, orderedFlightsData, selectedTrafficVolume, regulationTimeWindow, embedded, onReviewCommunity }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; communityHeuristics: Record<string, CommunityHeuristicsSummary>; flights: any[]; orderedFlightsData: any | null; selectedTrafficVolume: string | null; regulationTimeWindow: [number, number]; embedded?: boolean; onReviewCommunity: (context: CommunityReviewContext) => void; }) {
   const { setFlowPreviewFlightId, setFlowPreviewGroupId, regulationTargetFlightIds, setRegulationTargetFlightIds } = useSimStore();
   const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
   const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
@@ -1170,6 +1172,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                   <div className="text-[10px] opacity-70">{g.size} flights</div>
                   <FlightStatisticsButton
                     flightIds={statsFlightIds}
+                    sourceTrafficVolumeId={selectedTrafficVolume}
                     buttonClassName="border-white/20 text-white/80"
                     ariaLabel={`Open flight statistics for community ${g.cid}`}
                     title="Open flight statistics"

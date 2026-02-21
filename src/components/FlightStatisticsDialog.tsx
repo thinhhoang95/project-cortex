@@ -12,6 +12,7 @@ interface FlightStatisticsDialogProps {
   flightIds: string[];
   baselineFlightIds?: string[];
   fullScreen?: boolean;
+  sourceTrafficVolumeId?: string | null;
 }
 
 export default function FlightStatisticsDialog({
@@ -20,6 +21,7 @@ export default function FlightStatisticsDialog({
   flightIds,
   baselineFlightIds,
   fullScreen = false,
+  sourceTrafficVolumeId,
 }: FlightStatisticsDialogProps) {
   const flights = useSimStore((state) => state.flights);
 
@@ -50,6 +52,7 @@ export default function FlightStatisticsDialog({
           <FlightListStatistics
             flightIds={flightIds}
             baselineFlightIds={baselineFlightIds}
+            sourceTrafficVolumeId={sourceTrafficVolumeId}
             className="space-y-6"
           />
         </div>
