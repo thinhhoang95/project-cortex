@@ -72,6 +72,7 @@ export default function MapCanvas() {
     focusMode,
     focusFlightIds,
     showFlightLines,
+    showWaypoints,
     selectedTrafficVolume,
     selectedCollapsedSector,
   } = useSimStore();
@@ -314,6 +315,13 @@ export default function MapCanvas() {
           "text-halo-width": 2
         }
       });
+      // Apply initial waypoint visibility based on store defaults
+      try {
+        const { showWaypoints } = useSimStore.getState();
+        map.setLayoutProperty("wp-points", "visibility", showWaypoints ? "visible" : "none");
+        map.setLayoutProperty("wp-labels", "visibility", showWaypoints ? "visible" : "none");
+      } catch { }
+
       // Apply initial plane label visibility based on store defaults
       try {
         const { showCallsigns } = useSimStore.getState();
@@ -555,6 +563,15 @@ export default function MapCanvas() {
       mapRef.current.setPaintProperty("plane-icons", "text-halo-width", showCallsigns ? 2 : 0);
     }
   }, [showCallsigns]);
+
+  // on showWaypoints change, toggle waypoint layer visibility
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const visibility = showWaypoints ? "visible" : "none";
+    if (map.getLayer("wp-points")) map.setLayoutProperty("wp-points", "visibility", visibility);
+    if (map.getLayer("wp-labels")) map.setLayoutProperty("wp-labels", "visibility", visibility);
+  }, [showWaypoints]);
 
   // Apply TV/ES map filters when FL range, time bin, or display mode changes.
   useEffect(() => {
