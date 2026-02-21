@@ -7,6 +7,7 @@ import { normalizeCapacity } from "@/lib/capacity";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
+import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
@@ -61,6 +62,7 @@ export default function AirspaceInfo() {
   const [flightListError, setFlightListError] = useState<string | null>(null);
   const [interestWindowLength, setInterestWindowLength] = useState<string>('1h');
   const [expanded, setExpanded] = useState(false);
+  const [capacityRangeLabel, setCapacityRangeLabel] = useState<string | null>(null);
   const MAX_VISIBLE = 20;
   const flightLevelRange = formatFlightLevelRange(
     selectedTrafficVolumeData?.properties?.min_fl,
@@ -80,6 +82,24 @@ export default function AirspaceInfo() {
       setFlightListError(null);
     }
   }, [selectedTrafficVolume, t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedTrafficVolume) {
+      setCapacityRangeLabel(null);
+      return;
+    }
+    getDerivedCapacityRangeForTvAsync(selectedTrafficVolume)
+      .then((label) => {
+        if (!cancelled) setCapacityRangeLabel(label);
+      })
+      .catch(() => {
+        if (!cancelled) setCapacityRangeLabel(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTrafficVolume]);
 
   // Clear flight preview on unmount or when TV changes
   useEffect(() => {
@@ -572,6 +592,9 @@ export default function AirspaceInfo() {
                 <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
                 {flightLevelRange && (
                   <p className="text-xs opacity-70 mt-1">{flightLevelRange}</p>
+                )}
+                {capacityRangeLabel && (
+                  <p className="text-xs opacity-70 mt-1">Capacity range: {capacityRangeLabel}</p>
                 )}
               </div>
               <button

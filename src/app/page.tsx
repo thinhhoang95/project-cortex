@@ -147,7 +147,7 @@ export default function Page() {
           <RightControl1 embedded />
         </div>
       </div>
-      <ViewOptionsControl />
+      <ViewOptionsControl showAirspaceDisplayToggle />
       <ReleaseNotesDialog />
     </main>
   );

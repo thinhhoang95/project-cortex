@@ -20,6 +20,7 @@ import type {
 import { createPortal } from "react-dom";
 import type { SectorFeatureProps } from "@/lib/models";
 import { fetchTrafficVolumeFeature, getCachedTrafficVolumeFeature } from "@/lib/trafficVolumes";
+import { getDerivedCapacityRangeForTv, getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import TrafficVolumeMiniMap from "./TrafficVolumeMiniMap";
 
 type TrafficVolumeInfoTooltipProps = {
@@ -62,6 +63,7 @@ export default function TrafficVolumeInfoTooltip({
     return "loading";
   });
   const [meta, setMeta] = useState<SectorFeatureProps | null>(() => cached);
+  const [capacityRangeLabel, setCapacityRangeLabel] = useState<string | null>(() => getDerivedCapacityRangeForTv(normalizedId));
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
@@ -110,6 +112,29 @@ export default function TrafficVolumeInfoTooltip({
         setError(err?.message || "Failed to load traffic volume");
       });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!normalizedId) {
+      setCapacityRangeLabel(null);
+      return;
+    }
+    const cachedLabel = getDerivedCapacityRangeForTv(normalizedId);
+    if (cachedLabel) {
+      setCapacityRangeLabel(cachedLabel);
+      return;
+    }
+    getDerivedCapacityRangeForTvAsync(normalizedId)
+      .then((label) => {
+        if (!cancelled) setCapacityRangeLabel(label);
+      })
+      .catch(() => {
+        if (!cancelled) setCapacityRangeLabel(null);
+      });
     return () => {
       cancelled = true;
     };
@@ -218,6 +243,12 @@ export default function TrafficVolumeInfoTooltip({
                         <span className="font-mono text-white/80">
                           {formattedMin} – {formattedMax}
                         </span>
+                      </div>
+                    )}
+                    {capacityRangeLabel && (
+                      <div className="flex gap-2 flex-col">
+                        <span className="text-white/60">Capacity range</span>
+                        <span className="font-mono text-white/80">{capacityRangeLabel}</span>
                       </div>
                     )}
                   </div>

@@ -997,6 +997,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                 sortMode={sortMode}
                 defaultSortMode="abs_change"
                 initialLimit={12}
+                showReliefMap
+                reliefMapTitle="Traffic Volume Relief Map"
                 compact
               />
             );

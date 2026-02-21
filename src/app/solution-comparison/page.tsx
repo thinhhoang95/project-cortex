@@ -8,6 +8,7 @@ import ModalDialog from "@/components/ModalDialog";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
+import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import {
   SolutionSnapshot,
   loadSnapshots,
@@ -28,6 +29,7 @@ import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
 import { normalizeCapacity } from "@/lib/capacity";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
+import { computeNetDeltaByTv } from "@/lib/trafficVolumeRelief";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import {
   ResponsiveContainer,
@@ -289,6 +291,7 @@ export default function SolutionComparisonPage() {
   const [airportChartMetric, setAirportChartMetric] = useState<'delay' | 'flights'>('delay');
   const [tvScope, setTvScope] = useState<OccupancyScope>("aggregate");
   const [tvSort, setTvSort] = useState<TvSortMode>("exceedance");
+  const [reliefSnapshotId, setReliefSnapshotId] = useState<string>("");
   const [visibleTvCount, setVisibleTvCount] = useState(6);
   const [selectedTvFilters, setSelectedTvFilters] = useState<string[]>([]);
   const [flightSort, setFlightSort] = useState<FlightSortMode>("max");
@@ -395,6 +398,15 @@ export default function SolutionComparisonPage() {
     if (!minutesBySnapshot.dominant) return selectedSnapshots;
     return selectedSnapshots.filter((snap) => snap.minutesPerBin === minutesBySnapshot.dominant);
   }, [selectedSnapshots, minutesBySnapshot]);
+
+  useEffect(() => {
+    if (alignedSnapshots.length === 0) {
+      if (reliefSnapshotId !== "") setReliefSnapshotId("");
+      return;
+    }
+    if (alignedSnapshots.some((snap) => snap.id === reliefSnapshotId)) return;
+    setReliefSnapshotId(alignedSnapshots[0].id);
+  }, [alignedSnapshots, reliefSnapshotId]);
 
   const minutesPerBin = minutesBySnapshot.dominant || (alignedSnapshots[0]?.minutesPerBin ?? 15);
   const viewFromMin = hhmmToMinutesSafe(viewFrom);
@@ -1064,6 +1076,55 @@ export default function SolutionComparisonPage() {
 
   const selectedTvSet = useMemo(() => new Set(selectedTvFilters.map(String)), [selectedTvFilters]);
   const hasTvFilter = selectedTvFilters.length > 0;
+  const selectedReliefSnapshot = useMemo(
+    () => alignedSnapshots.find((snap) => snap.id === reliefSnapshotId) ?? alignedSnapshots[0] ?? null,
+    [alignedSnapshots, reliefSnapshotId],
+  );
+
+  const reliefDeltasByTv = useMemo(() => {
+    if (tvScope !== "aggregate") return {};
+    if (!selectedReliefSnapshot) return {};
+    const occupancy = selectedReliefSnapshot.aggregatedOccupancy;
+    if (!occupancy?.pre_counts || !occupancy?.post_counts) return {};
+    const binMinutes = Number(
+      occupancy.time_bin_minutes || minutesPerBin || selectedReliefSnapshot.minutesPerBin || 15,
+    );
+    return computeNetDeltaByTv({
+      preCounts: occupancy.pre_counts,
+      postCounts: occupancy.post_counts,
+      binMinutes,
+      viewFrom,
+      viewTo,
+      tvIds: hasTvFilter ? Array.from(selectedTvSet) : undefined,
+    });
+  }, [
+    tvScope,
+    selectedReliefSnapshot,
+    minutesPerBin,
+    viewFrom,
+    viewTo,
+    hasTvFilter,
+    selectedTvSet,
+  ]);
+
+  const reliefMapEmptyMessage = useMemo(() => {
+    if (tvScope !== "aggregate") {
+      return "Relief map is available only for Aggregate occupancy scope.";
+    }
+    if (!selectedReliefSnapshot) {
+      return "Select at least one snapshot to display the relief map.";
+    }
+    const occupancy = selectedReliefSnapshot.aggregatedOccupancy;
+    const preCount = Object.keys(occupancy?.pre_counts || {}).length;
+    const postCount = Object.keys(occupancy?.post_counts || {}).length;
+    if (preCount === 0 || postCount === 0) {
+      return "Selected snapshot is missing baseline or post aggregate counts.";
+    }
+    if (hasTvFilter) {
+      return "No pre/post occupancy deltas for the current traffic-volume filter and time window.";
+    }
+    return "No pre/post occupancy deltas in the selected time window.";
+  }, [tvScope, selectedReliefSnapshot, hasTvFilter]);
 
   const tvMetrics: TvMetrics[] = useMemo(() => {
     return tvIdsUnion.map((tvId) => {
@@ -2108,6 +2169,32 @@ export default function SolutionComparisonPage() {
                   />
                 </div>
               </div>
+            </div>
+
+            <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div className="text-[11px] uppercase tracking-wider text-white/60">Traffic Volume Relief Map</div>
+                {tvScope === "aggregate" && alignedSnapshots.length > 0 && (
+                  <div className="flex items-center gap-2 text-[11px] text-white/60">
+                    <span>Snapshot</span>
+                    <select
+                      value={selectedReliefSnapshot?.id || ""}
+                      onChange={(e) => setReliefSnapshotId(e.currentTarget.value)}
+                      className="h-8 px-2 rounded-md bg-white/10 border border-white/20 text-white/90"
+                    >
+                      {alignedSnapshots.map((snap) => (
+                        <option key={`relief-${snap.id}`} value={snap.id}>
+                          {snap.description || "Untitled"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+              <TrafficVolumeReliefMap
+                deltasByTv={reliefDeltasByTv}
+                emptyMessage={reliefMapEmptyMessage}
+              />
             </div>
 
             {visibleTvs.length === 0 && (

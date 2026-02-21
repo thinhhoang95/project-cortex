@@ -11,13 +11,16 @@ const RELEASE_NOTES_CONTENT = `
   <h2 class="text-2xl font-bold mb-4">Highlights</h2>
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
-
-
-  <h4 class="font-bold mb-4">Sat. 14/12/2026</h4>
   <p>This will also be my last update to Project Cortex for a while. My research at ENAC had been finished, and I'm moving on to the next chapter of my career.</p>
+
+  <h4 class="font-bold mb-4">Sat. 21/02/2026</h4>
 
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Flow Heuristics.</strong> We now show the flow heuristics by default, with the option to toggle flight lists manually.</li>
+    <li><strong>Collapsed Sectors View.</strong> It is now possible to toggle the CS view to further analyze the component of hotspots. This is particularly helpful in inspecting whether it is possible to open more sectors.</li>
+    <li><strong>TV Capacity Range.</strong> Capacity range for TV (factoring in the possibility of configuration changes) is now available throughout the platform.</li>
+    <li><strong>Pressure Relief Map.</strong> Visualize the effects of regulations with a global view of the traffic volumes.</li>
+    <li><strong>Planned but not yet implemented: </strong> Automatic naming of flows by Gemini 3 Pro, and narrating MCTS results to assist operators in natural language.</li> 
   </ul>
 
   <h4 class="font-bold mb-4">Tue. 25/11/2025</h4>

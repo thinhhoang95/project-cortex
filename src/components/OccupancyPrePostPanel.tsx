@@ -6,6 +6,8 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { OccupancySeriesByTv } from "@/lib/models";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
+import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
+import { computeNetDeltaByTv } from "@/lib/trafficVolumeRelief";
 
 const PAGE_SIZE = 20;
 
@@ -31,6 +33,8 @@ export interface OccupancyPrePostPanelProps {
   compact?: boolean;
   showLabels?: boolean; // default true
   pinnedTvIds?: string[];
+  showReliefMap?: boolean;
+  reliefMapTitle?: string;
 }
 
 interface TvRowPoint {
@@ -64,6 +68,8 @@ export default function OccupancyPrePostPanel({
   compact,
   showLabels = true,
   pinnedTvIds,
+  showReliefMap = false,
+  reliefMapTitle = "Traffic Volume Relief Map",
 }: OccupancyPrePostPanelProps) {
   // Internal state for uncontrolled sort mode
   const [internalSort, setInternalSort] = useState<SortMode>(defaultSortMode);
@@ -139,7 +145,6 @@ export default function OccupancyPrePostPanel({
   const mismatchBin = Number.isFinite(fetchedBin) && fetchedBin !== binMinutes;
 
   // Availability flags for sort control enablement (even if control is external)
-  const hasAnyCapacity = useMemo(() => UNION_TVS.some(tv => Array.isArray(effectiveCap?.[tv]) && (effectiveCap?.[tv] || []).some(v => Number.isFinite(v))), [UNION_TVS, effectiveCap]);
   const hasBothPrePostForAny = useMemo(() => UNION_TVS.some(tv => Array.isArray(effectivePre?.[tv]) && Array.isArray(postCounts?.[tv]) && (effectivePre?.[tv] || []).length > 0 && (postCounts?.[tv] || []).length > 0), [UNION_TVS, effectivePre, postCounts]);
 
   // Build rows per TV filtered by time window
@@ -285,8 +290,19 @@ export default function OccupancyPrePostPanel({
   const isLoading = Boolean(loading) || internalLoading;
   const err = error || internalError || null;
 
-  const canAbsChange = hasBothPrePostForAny;
-  const canExceed = hasAnyCapacity;
+  const reliefDeltasByTv = useMemo(() => {
+    return computeNetDeltaByTv({
+      preCounts: effectivePre,
+      postCounts,
+      binMinutes,
+      viewFrom,
+      viewTo,
+      tvIds: UNION_TVS,
+    });
+  }, [effectivePre, postCounts, binMinutes, viewFrom, viewTo, UNION_TVS]);
+  const reliefMapEmptyMessage = hasBothPrePostForAny
+    ? "No pre/post occupancy deltas in the selected time window."
+    : "Pre and post occupancy series are required to display relief and strain.";
 
   return (
     <div>
@@ -298,6 +314,17 @@ export default function OccupancyPrePostPanel({
       )}
       {err && <div className="text-xs text-rose-300 mb-2">{err}</div>}
       {isLoading && <div className="text-xs text-white/70 mb-2">Loading...</div>}
+
+      {showReliefMap && (
+        <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
+          <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">{reliefMapTitle}</div>
+          <TrafficVolumeReliefMap
+            deltasByTv={reliefDeltasByTv}
+            loading={isLoading}
+            emptyMessage={reliefMapEmptyMessage}
+          />
+        </div>
+      )}
 
       {/* Grid of per-TV charts */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-4">

@@ -1,15 +1,25 @@
 "use client";
 import AirspaceInfo from "@/components/AirspaceInfo";
+import CSAirspaceInfo from "@/components/CSAirspaceInfo";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { useSimStore } from "@/components/useSimStore";
 
 type RightControl1Props = { embedded?: boolean };
 
 export default function RightControl1({ embedded = false }: RightControl1Props) {
-  const { selectedTrafficVolume, setSelectedTrafficVolume, setFocusMode, setFocusFlightIds } = useSimStore();
+  const {
+    airspaceDisplayMode,
+    selectedTrafficVolume,
+    selectedCollapsedSector,
+    setSelectedTrafficVolume,
+    setSelectedCollapsedSector,
+    setFocusMode,
+    setFocusFlightIds,
+  } = useSimStore();
 
   const handleClose = () => {
     setSelectedTrafficVolume(null);
+    setSelectedCollapsedSector(null);
     // Turn off focus mode and show all trajectories
     setFocusMode(false);
     setFocusFlightIds(new Set());
@@ -17,7 +27,7 @@ export default function RightControl1({ embedded = false }: RightControl1Props) 
     window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
   };
 
-  if (!selectedTrafficVolume) {
+  if (!selectedTrafficVolume && !selectedCollapsedSector) {
     return null;
   }
 
@@ -31,7 +41,7 @@ export default function RightControl1({ embedded = false }: RightControl1Props) 
       </div>
       
       <div className="p-4 flex-1">
-        <AirspaceInfo />
+        {airspaceDisplayMode === "es" ? <CSAirspaceInfo /> : <AirspaceInfo />}
       </div>
     </div>
   );

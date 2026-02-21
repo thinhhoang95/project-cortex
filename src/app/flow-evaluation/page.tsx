@@ -1790,6 +1790,8 @@ function FlowEvaluationPageContent() {
                 initialLimit={12}
                 loading={occAllState.loading}
                 error={occAllState.error}
+                showReliefMap
+                reliefMapTitle="Traffic Volume Relief Map"
               />
             </section>
           )}

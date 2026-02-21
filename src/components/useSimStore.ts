@@ -91,8 +91,11 @@ type State = {
   showFlightLines: boolean;
   showWaypoints: boolean;
   showTrafficVolumes: boolean;
+  airspaceDisplayMode: "tv" | "es";
   selectedTrafficVolume: string | null;
   selectedTrafficVolumeData: { properties: SectorFeatureProps } | null;
+  selectedCollapsedSector: string | null;
+  selectedCollapsedSectorData: { properties: SectorFeatureProps } | null;
   flLowerBound: number;
   flUpperBound: number;
   flights: Trajectory[];
@@ -171,7 +174,9 @@ type State = {
   setShowFlightLines: (show: boolean) => void;
   setShowWaypoints: (show: boolean) => void;
   setShowTrafficVolumes: (show: boolean) => void;
+  setAirspaceDisplayMode: (mode: "tv" | "es") => void;
   setSelectedTrafficVolume: (tv: string | null, tvData?: { properties: SectorFeatureProps } | null) => void;
+  setSelectedCollapsedSector: (sectorId: string | null, sectorData?: { properties: SectorFeatureProps } | null) => void;
   setFlLowerBound: (fl: number) => void;
   setFlUpperBound: (fl: number) => void;
   setFlRange: (lower: number, upper: number) => void;
@@ -279,8 +284,11 @@ const defaultState: Pick<State,
   | 'showFlightLines'
   | 'showWaypoints'
   | 'showTrafficVolumes'
+  | 'airspaceDisplayMode'
   | 'selectedTrafficVolume'
   | 'selectedTrafficVolumeData'
+  | 'selectedCollapsedSector'
+  | 'selectedCollapsedSectorData'
   | 'flLowerBound'
   | 'flUpperBound'
   | 'flights'
@@ -350,8 +358,11 @@ const defaultState: Pick<State,
   showFlightLines: true,
   showWaypoints: true,
   showTrafficVolumes: true,
+  airspaceDisplayMode: "tv",
   selectedTrafficVolume: null,
   selectedTrafficVolumeData: null,
+  selectedCollapsedSector: null,
+  selectedCollapsedSectorData: null,
   flLowerBound: 0,
   flUpperBound: 500,
   flights: [],
@@ -483,7 +494,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       const organization = typeof (data as any)?.organization === 'string' ? (data as any).organization : undefined;
       set({ user: { email, signInDate: new Date().toISOString(), token, renewToken: '', displayName, organization } });
       return { ok: true as const };
-    } catch (e) {
+    } catch {
       return { ok: false as const, error: 'Unable to sign in. Please try again.' };
     }
   },
@@ -500,13 +511,25 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setShowFlightLines: (show) => set({ showFlightLines: show }),
   setShowWaypoints: (show) => set({ showWaypoints: show }),
   setShowTrafficVolumes: (show) => set({ showTrafficVolumes: show }),
+  setAirspaceDisplayMode: (mode) => set({ airspaceDisplayMode: mode }),
   setSelectedTrafficVolume: (tv, tvData = null) => {
     // Selecting a traffic volume should open the Regulation panel in Regulations view
     // Clearing the selection should close it for consistency across views
     set({
       selectedTrafficVolume: tv,
       selectedTrafficVolumeData: tvData,
+      selectedCollapsedSector: null,
+      selectedCollapsedSectorData: null,
       isRegulationPanelOpen: !!tv,
+    });
+  },
+  setSelectedCollapsedSector: (sectorId, sectorData = null) => {
+    set({
+      selectedCollapsedSector: sectorId,
+      selectedCollapsedSectorData: sectorData,
+      selectedTrafficVolume: null,
+      selectedTrafficVolumeData: null,
+      isRegulationPanelOpen: false,
     });
   },
   setFlLowerBound: (fl) => set({ flLowerBound: fl }),
@@ -520,6 +543,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       set({
         selectedFlightForAnalysis: flightId,
         selectedTrafficVolume: null,
+        selectedCollapsedSector: null,
+        selectedCollapsedSectorData: null,
         focusMode: true,
         focusFlightIds: new Set([flightId]),
         isAlternativeRoutesPanelOpen: true,
@@ -535,6 +560,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
         isAlternativeRoutesPanelOpen: false,
         alternativeRoutesLoading: false,
         hoveredAlternativeRoute: null,
+        selectedCollapsedSector: null,
+        selectedCollapsedSectorData: null,
         focusMode: false,
         focusFlightIds: new Set<string>(),
       });

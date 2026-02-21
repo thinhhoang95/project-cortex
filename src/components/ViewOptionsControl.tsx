@@ -10,9 +10,14 @@ import { Slider } from "@/components/Slider";
 type ViewOptionsControlProps = {
   embedded?: boolean;
   className?: string;
+  showAirspaceDisplayToggle?: boolean;
 };
 
-export default function ViewOptionsControl({ embedded = false, className }: ViewOptionsControlProps) {
+export default function ViewOptionsControl({
+  embedded = false,
+  className,
+  showAirspaceDisplayToggle = false,
+}: ViewOptionsControlProps) {
   const {
     t,
     setT,
@@ -29,6 +34,8 @@ export default function ViewOptionsControl({ embedded = false, className }: View
     setShowWaypoints,
     showTrafficVolumes,
     setShowTrafficVolumes,
+    airspaceDisplayMode,
+    setAirspaceDisplayMode,
     flLowerBound,
     flUpperBound,
     setFlRange,
@@ -200,6 +207,21 @@ export default function ViewOptionsControl({ embedded = false, className }: View
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </IconToggle>
+
+          {showAirspaceDisplayToggle && (
+            <button
+              type="button"
+              title={airspaceDisplayMode === "tv" ? "Switch to Collapsed Sectors" : "Switch to Traffic Volumes"}
+              aria-label={airspaceDisplayMode === "tv" ? "Switch to Collapsed Sectors" : "Switch to Traffic Volumes"}
+              onClick={() => setAirspaceDisplayMode(airspaceDisplayMode === "tv" ? "es" : "tv")}
+              className={
+                `h-10 px-3 rounded-full text-xs font-semibold tracking-wide transition-colors ` +
+                (airspaceDisplayMode === "es" ? "text-blue-400" : "text-white/80 hover:text-white")
+              }
+            >
+              {airspaceDisplayMode === "tv" ? "TV" : "CS"}
+            </button>
+          )}
         </div>
 
 

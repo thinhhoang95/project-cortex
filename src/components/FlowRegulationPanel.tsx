@@ -12,6 +12,7 @@ import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import { formatDwellingTime } from "@/lib/dwellTime";
+import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import type { FlowBasketItem } from "@/components/useSimStore";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
@@ -71,6 +72,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<FlowReviewContext | null>(null);
+  const [selectedTvRanges, setSelectedTvRanges] = useState<Array<{ tvId: string; label: string }>>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +112,34 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     load();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedTVs.length) {
+      setSelectedTvRanges([]);
+      return;
+    }
+    Promise.all(
+      selectedTVs.map(async (tvId) => ({
+        tvId,
+        label: await getDerivedCapacityRangeForTvAsync(tvId),
+      })),
+    )
+      .then((items) => {
+        if (cancelled) return;
+        setSelectedTvRanges(
+          items
+            .filter((item): item is { tvId: string; label: string } => typeof item.label === "string" && item.label.length > 0),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedTvRanges([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTVs]);
 
   // Listen for external requests to add a TV and adjust the period
   useEffect(() => {
@@ -390,7 +420,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
       className={embedded
         ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
         : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}
-      style={{ transform: 'translateZ(0)' }}
     >
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <div>
@@ -417,6 +446,18 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
           />
           {error && (
             <div className="text-[11px] text-red-200 mt-2">{error}</div>
+          )}
+          {selectedTvRanges.length > 0 && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-2">
+              <div className="text-[11px] opacity-80 mb-1">Selected capacity ranges</div>
+              <div className="space-y-1">
+                {selectedTvRanges.map((item) => (
+                  <div key={item.tvId} className="text-[11px] opacity-80">
+                    <span className="font-mono">{item.tvId}</span>: {item.label}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
           {/* {selectedTVs.length > 0 && (
             <div className="text-[11px] opacity-70 mt-2">Selected: {selectedTVs.join(", ")}</div>

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 import { useThemeStore } from '@/components/useThemeStore';
 import { loadSectors } from '@/lib/airspace';
-import { AIRSPACE_GEOJSON_PATH } from '@/lib/dataPaths';
+import { AIRSPACE_GEOJSON_PATH, COLLAPSED_SECTORS_GEOJSON_PATH } from '@/lib/dataPaths';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
@@ -14,14 +14,20 @@ import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
 import { formatFlightLevelRange } from '@/lib/trafficVolumeFormat';
 
+type SearchResult =
+  | { id: string; type: 'flight'; flight: any }
+  | { id: string; type: 'traffic_volume'; trafficVolume: any }
+  | { id: string; type: 'collapsed_sector'; collapsedSector: any };
+
 export default function Header() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [showAnalyticsDropdown, setShowAnalyticsDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<Array<{ id: string, type: 'flight' | 'traffic_volume', flight?: any, trafficVolume?: any }>>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
+  const [collapsedSectors, setCollapsedSectors] = useState<any[]>([]);
   const [showAgent, setShowAgent] = useState(false);
   const [showAgentSummary, setShowAgentSummary] = useState(false);
   const [agentSummaryRunId, setAgentSummaryRunId] = useState<string | null>(null);
@@ -29,21 +35,42 @@ export default function Header() {
   const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
 
   const router = useRouter();
-  const { flights, setFocusMode, setFocusFlightIds, setT, t, setSelectedTrafficVolume, logout, user } = useSimStore();
+  const {
+    flights,
+    setFocusMode,
+    setFocusFlightIds,
+    setT,
+    t,
+    setSelectedTrafficVolume,
+    setSelectedCollapsedSector,
+    setAirspaceDisplayMode,
+    logout,
+    user,
+  } = useSimStore();
   const { theme, toggleTheme } = useThemeStore();
   const pathname = usePathname();
 
-  // Load traffic volumes data on component mount
+  // Load traffic volumes + collapsed sectors on component mount
   useEffect(() => {
-    const loadTrafficVolumes = async () => {
-      try {
-        const sectors = await loadSectors(AIRSPACE_GEOJSON_PATH);
-        setTrafficVolumes(sectors.features);
-      } catch (error) {
-        console.error("Failed to load traffic volumes:", error);
+    const loadAirspaceData = async () => {
+      const [tvResult, csResult] = await Promise.allSettled([
+        loadSectors(AIRSPACE_GEOJSON_PATH),
+        loadSectors(COLLAPSED_SECTORS_GEOJSON_PATH),
+      ]);
+
+      if (tvResult.status === 'fulfilled') {
+        setTrafficVolumes(tvResult.value.features);
+      } else {
+        console.error("Failed to load traffic volumes:", tvResult.reason);
+      }
+
+      if (csResult.status === 'fulfilled') {
+        setCollapsedSectors(csResult.value.features.filter((feature: any) => !!feature?.geometry));
+      } else {
+        console.error("Failed to load collapsed sectors:", csResult.reason);
       }
     };
-    loadTrafficVolumes();
+    loadAirspaceData();
   }, []);
 
   const handleSearch = async () => {
@@ -63,6 +90,11 @@ export default function Header() {
       volume.properties?.traffic_volume_id?.toLowerCase() === searchQuery.toLowerCase()
     );
 
+    // Search for collapsed sectors by ID (exact match, case insensitive)
+    const matchingCollapsedSectors = collapsedSectors.filter(sector =>
+      String(sector.properties?.collapsed_sector || '').toLowerCase() === searchQuery.toLowerCase()
+    );
+
     const results = [
       ...matchingFlights.map(flight => ({
         id: flight.flightId,
@@ -73,6 +105,11 @@ export default function Header() {
         id: volume.properties.traffic_volume_id,
         type: 'traffic_volume' as const,
         trafficVolume: volume
+      })),
+      ...matchingCollapsedSectors.map(sector => ({
+        id: String(sector.properties?.collapsed_sector || ''),
+        type: 'collapsed_sector' as const,
+        collapsedSector: sector
       }))
     ];
 
@@ -117,6 +154,8 @@ export default function Header() {
 
   const handleTrafficVolumeSelect = (trafficVolume: any) => {
     const trafficVolumeId = trafficVolume.properties.traffic_volume_id;
+    setAirspaceDisplayMode('tv');
+    setSelectedCollapsedSector(null);
 
     // Set selected traffic volume (this opens the AirspaceInfo panel)
     setSelectedTrafficVolume(trafficVolumeId, trafficVolume);
@@ -128,6 +167,36 @@ export default function Header() {
     // Trigger map panning to traffic volume
     const event = new CustomEvent('traffic-volume-search-select', {
       detail: { trafficVolume }
+    });
+    window.dispatchEvent(event);
+  };
+
+  const handleCollapsedSectorSelect = (collapsedSector: any) => {
+    const sectorId = String(
+      collapsedSector?.properties?.collapsed_sector ??
+      collapsedSector?.properties?.traffic_volume_id ??
+      ''
+    ).trim();
+    if (!sectorId) return;
+
+    setAirspaceDisplayMode('es');
+    const normalizedSector = {
+      ...collapsedSector,
+      properties: {
+        ...(collapsedSector?.properties || {}),
+        traffic_volume_id: sectorId,
+        label: collapsedSector?.properties?.label ?? sectorId,
+      }
+    };
+    setSelectedCollapsedSector(sectorId, normalizedSector);
+
+    // Close search results
+    setShowSearchResults(false);
+    setSearchQuery('');
+
+    // Reuse existing map search event with a normalized id property.
+    const event = new CustomEvent('traffic-volume-search-select', {
+      detail: { trafficVolume: normalizedSector, trafficVolumeId: sectorId }
     });
     window.dispatchEvent(event);
   };
@@ -216,7 +285,7 @@ export default function Header() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search flights or traffic volumes..."
+                placeholder="Search flights, traffic volumes, or collapsed sectors..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={handleSearchKeyPress}
@@ -272,11 +341,24 @@ export default function Header() {
                             result.trafficVolume.properties?.min_fl,
                             result.trafficVolume.properties?.max_fl
                           )
+                          : result.type === 'collapsed_sector'
+                            ? formatFlightLevelRange(
+                              result.collapsedSector.properties?.min_fl,
+                              result.collapsedSector.properties?.max_fl
+                            )
                           : null;
                         return (
                           <button
                             key={result.id}
-                            onClick={() => result.type === 'flight' ? handleFlightSelect(result.flight) : handleTrafficVolumeSelect(result.trafficVolume)}
+                            onClick={() => {
+                              if (result.type === 'flight') {
+                                handleFlightSelect(result.flight);
+                              } else if (result.type === 'traffic_volume') {
+                                handleTrafficVolumeSelect(result.trafficVolume);
+                              } else {
+                                handleCollapsedSectorSelect(result.collapsedSector);
+                              }
+                            }}
                             className="w-full px-4 py-3 text-left transition-colors border-b border-[var(--menu-border)] last:border-b-0 hover:bg-[var(--menu-hover-bg)]"
                           >
                             {result.type === 'flight' ? (
@@ -292,7 +374,7 @@ export default function Header() {
                                   }
                                 </div>
                               </>
-                            ) : (
+                            ) : result.type === 'traffic_volume' ? (
                               <>
                                 <div className="text-sm font-medium text-[var(--menu-text)]">
                                   <span className="inline-block w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
@@ -306,6 +388,17 @@ export default function Header() {
                                   }
                                 </div>
                               </>
+                            ) : (
+                              <>
+                                <div className="text-sm font-medium text-[var(--menu-text)]">
+                                  <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full mr-2"></span>
+                                  {result.collapsedSector.properties.collapsed_sector}
+                                </div>
+                                <div className="text-xs text-[var(--menu-text-muted)]">
+                                  Collapsed Sector
+                                  {flRange && ` • ${flRange}`}
+                                </div>
+                              </>
                             )}
                           </button>
                         );
@@ -313,7 +406,7 @@ export default function Header() {
                     </div>
                   ) : (
                     <div className="py-4 px-4 text-sm text-[var(--menu-text-muted)]">
-                      No flights or traffic volumes found matching &ldquo;{searchQuery}&rdquo;
+                      No flights, traffic volumes, or collapsed sectors found matching &ldquo;{searchQuery}&rdquo;
                     </div>
                   )}
                 </div>

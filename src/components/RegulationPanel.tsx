@@ -12,6 +12,7 @@ import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
+import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 
 type RegulationPanelProps = { embedded?: boolean };
 
@@ -111,6 +112,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [showOnlyTargeted, setShowOnlyTargeted] = useState(false);
   const [communityReviewContext, setCommunityReviewContext] = useState<CommunityReviewContext | null>(null);
   const [communityHeuristics, setCommunityHeuristics] = useState<Record<string, CommunityHeuristicsSummary>>({});
+  const [capacityRangeLabel, setCapacityRangeLabel] = useState<string | null>(null);
   const flightLevelRange = formatFlightLevelRange(
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
@@ -119,6 +121,24 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
   const suppressNextPresetApplyRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedTrafficVolume) {
+      setCapacityRangeLabel(null);
+      return;
+    }
+    getDerivedCapacityRangeForTvAsync(selectedTrafficVolume)
+      .then((label) => {
+        if (!cancelled) setCapacityRangeLabel(label);
+      })
+      .catch(() => {
+        if (!cancelled) setCapacityRangeLabel(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTrafficVolume]);
 
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
@@ -687,6 +707,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           <div className="text-lg font-semibold">{selectedTrafficVolume}</div>
           {flightLevelRange && (
             <div className="text-xs opacity-80">{flightLevelRange}</div>
+          )}
+          {capacityRangeLabel && (
+            <div className="text-xs opacity-80">Capacity range: {capacityRangeLabel}</div>
           )}
         </div>
         <PanelCloseButton

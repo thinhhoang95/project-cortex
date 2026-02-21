@@ -2425,6 +2425,8 @@ export default function AgentResultSummaryComponent({
                         pinnedTvIds={pinnedTrafficVolumes}
                         loading={detailsLoading}
                         error={detailsError}
+                        showReliefMap
+                        reliefMapTitle="Traffic Volume Relief Map"
                         compact
                         showLabels={false}
                       />

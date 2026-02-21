@@ -1,22 +1,27 @@
 "use client";
-import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
+import maplibregl, { FilterSpecification, LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
-import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import {
+  AIRSPACE_GEOJSON_PATH,
+  COLLAPSED_SECTORS_GEOJSON_PATH,
+  FLIGHTS_CSV_PATH,
+} from "@/lib/dataPaths";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
-import { Trajectory } from "@/lib/models";
+import { SectorFeatureProps, Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
-import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
+import { getHourBin, getTrafficVolumeFilter, getTrafficVolumeFlIntersectionFilter } from "@/lib/mapUtils";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
+  buildTrafficVolumeSources,
   applyTrafficVolumeFilters,
   applyTrafficVolumeHighlight,
   applyTrafficVolumeHover,
@@ -24,14 +29,52 @@ import {
   applyTrafficVolumeVisibility,
   getTrafficVolumeCenter,
   getTrafficVolumeCenterFromMap,
+  TRAFFIC_VOLUME_CENTROIDS_SOURCE_ID,
   TRAFFIC_VOLUME_LAYER_IDS,
+  TRAFFIC_VOLUME_SOURCE_ID,
 } from "@/lib/trafficVolumeLayers";
+
+type AirspaceSources = {
+  sectors: GeoJSON.FeatureCollection;
+  centroids: GeoJSON.FeatureCollection;
+};
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
+  const tvSourcesRef = useRef<AirspaceSources | null>(null);
+  const csSourcesRef = useRef<AirspaceSources | null>(null);
+  const csOpenRangeCountRef = useRef<number>(0);
   const lastTs = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, setFocusMode, setFocusFlightIds, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const {
+    t,
+    date,
+    weatherOverlay,
+    tick,
+    setRange,
+    showFlightLineLabels,
+    showCallsigns,
+    showTrafficVolumes,
+    airspaceDisplayMode,
+    setAirspaceDisplayMode,
+    setFlights,
+    setSelectedTrafficVolume,
+    setSelectedCollapsedSector,
+    flLowerBound,
+    flUpperBound,
+    setFocusMode,
+    setFocusFlightIds,
+    showHotspots,
+    hotspots,
+    getActiveHotspots,
+    flowPreviewFlightId,
+    playing,
+    focusMode,
+    focusFlightIds,
+    showFlightLines,
+    selectedTrafficVolume,
+    selectedCollapsedSector,
+  } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
@@ -42,6 +85,7 @@ export default function MapCanvas() {
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
+  const currentMinuteOfDay = useMemo(() => getMinuteOfDay(t), [t]);
 
   // init map
   useEffect(() => {
@@ -56,9 +100,13 @@ export default function MapCanvas() {
     map.on("load", async () => {
       setBaseDataLoading(true);
       // Data
-      const [sectors, tracks] = await Promise.all([
+      const [sectors, tracks, collapsedSectorsRaw] = await Promise.all([
         loadSectors(AIRSPACE_GEOJSON_PATH),
-        loadTrajectories(FLIGHTS_CSV_PATH)
+        loadTrajectories(FLIGHTS_CSV_PATH),
+        loadSectors(COLLAPSED_SECTORS_GEOJSON_PATH).catch((error) => {
+          console.error("Failed to preload collapsed sectors:", error);
+          return null;
+        }),
       ]);
 
       // Store flights in global store and compute global time range
@@ -68,12 +116,33 @@ export default function MapCanvas() {
       setRange([minT, maxT], minT);
 
       // --- Airspace polygons + labels ---
-      addTrafficVolumeSources(map, sectors);
+      tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
+      if (collapsedSectorsRaw) {
+        const normalizedCs = normalizeCollapsedSectors(collapsedSectorsRaw);
+        csOpenRangeCountRef.current = normalizedCs.maxOpenRangeCount;
+        csSourcesRef.current = buildTrafficVolumeSources(normalizedCs.collection);
+      } else {
+        csOpenRangeCountRef.current = 0;
+        csSourcesRef.current = null;
+      }
       addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
 
       applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
       const sim = useSimStore.getState();
-      applyTrafficVolumeFilters(map, getTrafficVolumeFilter(sim.flLowerBound, sim.flUpperBound, sim.t));
+      if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
+        console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
+        setAirspaceDisplayMode("tv");
+      }
+      const activeMode = setActiveAirspaceSources(map, sim.airspaceDisplayMode, tvSourcesRef.current, csSourcesRef.current);
+      const initialFilter = getAirspaceDisplayFilter({
+        mode: activeMode,
+        flLowerBound: sim.flLowerBound,
+        flUpperBound: sim.flUpperBound,
+        currentTrafficVolumeBin: getHourBin(sim.t),
+        currentMinuteOfDay: getMinuteOfDay(sim.t),
+        csOpenRangeCount: csOpenRangeCountRef.current,
+      });
+      applyTrafficVolumeFilters(map, initialFilter);
 
       // --- Flight lines (static geometry) ---
       const lineFC: GeoJSON.FeatureCollection = {
@@ -324,8 +393,19 @@ export default function MapCanvas() {
       };
 
       const handleTrafficVolumeClick = (e: maplibregl.MapLayerMouseEvent) => {
+        const feature = e.features && e.features.length > 0 ? e.features[0] : null;
         const trafficVolumeId = getTrafficVolumeIdFromEvent(e);
-        if (trafficVolumeId) selectTrafficVolume(trafficVolumeId);
+        if (!trafficVolumeId) return;
+        const { airspaceDisplayMode } = useSimStore.getState();
+        if (airspaceDisplayMode === "es") {
+          const collapsedSectorData = feature
+            ? { properties: (feature.properties as any) as SectorFeatureProps }
+            : null;
+          setSelectedCollapsedSector(trafficVolumeId, collapsedSectorData);
+          setHighlightedTrafficVolume((prev) => (prev === trafficVolumeId ? null : trafficVolumeId));
+          return;
+        }
+        selectTrafficVolume(trafficVolumeId);
       };
 
       // Add click handlers for traffic volumes (labels + points)
@@ -415,7 +495,7 @@ export default function MapCanvas() {
   useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId]);
 
   // Refresh filters on focus/visibility changes
-  useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume]);
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedCollapsedSector]);
 
   // Weather overlay integration (Surface Precipitation)
   useEffect(() => {
@@ -433,7 +513,7 @@ export default function MapCanvas() {
     const apply = () => {
       try {
         ensureSurfacePrecipHour(map, targetHour);
-      } catch (e) {
+      } catch {
         // no-op
       }
     };
@@ -476,14 +556,21 @@ export default function MapCanvas() {
     }
   }, [showCallsigns]);
 
-  // on FL range or time bin change, filter traffic volumes by vertical intersection and capacity
+  // Apply TV/ES map filters when FL range, time bin, or display mode changes.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const apply = () => {
       if (!map.getSource("sectors")) return;
-      const filterExpression = getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin);
+      const filterExpression = getAirspaceDisplayFilter({
+        mode: airspaceDisplayMode,
+        flLowerBound,
+        flUpperBound,
+        currentTrafficVolumeBin,
+        currentMinuteOfDay,
+        csOpenRangeCount: csOpenRangeCountRef.current,
+      });
       applyTrafficVolumeFilters(map, filterExpression);
     };
 
@@ -504,7 +591,7 @@ export default function MapCanvas() {
       cancelled = true;
       try { map.off("render", waitForReady); } catch { }
     };
-  }, [flLowerBound, flUpperBound, currentTrafficVolumeBin]);
+  }, [airspaceDisplayMode, flLowerBound, flUpperBound, currentTrafficVolumeBin, currentMinuteOfDay]);
 
   // on traffic volume visibility change, toggle sector layers once map is ready
   useEffect(() => {
@@ -537,6 +624,59 @@ export default function MapCanvas() {
       try { map.off("render", waitForReady); } catch { }
     };
   }, [showTrafficVolumes]);
+
+  // When entering ES mode, clear TV-specific selection and focus state.
+  useEffect(() => {
+    if (airspaceDisplayMode !== "es") return;
+    if (selectedTrafficVolume) {
+      setSelectedTrafficVolume(null);
+    }
+    setFocusMode(false);
+    setFocusFlightIds(new Set());
+    setHighlightedTrafficVolume(null);
+    setHoveredTrafficVolume(null);
+  }, [airspaceDisplayMode, selectedTrafficVolume, setFocusMode, setFocusFlightIds, setSelectedTrafficVolume]);
+
+  useEffect(() => {
+    if (airspaceDisplayMode !== "tv") return;
+    setSelectedCollapsedSector(null);
+  }, [airspaceDisplayMode, setSelectedCollapsedSector]);
+
+  // Swap between TV and ES datasets while keeping source IDs stable.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      const tvSources = tvSourcesRef.current;
+      if (!tvSources) return;
+      const csSources = csSourcesRef.current;
+      if (airspaceDisplayMode === "es" && !csSources) {
+        console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
+        setAirspaceDisplayMode("tv");
+        return;
+      }
+      setActiveAirspaceSources(map, airspaceDisplayMode, tvSources, csSources);
+    };
+
+    if (map.isStyleLoaded()) {
+      apply();
+      return;
+    }
+
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      try { map.off("render", waitForReady); } catch { }
+      if (!cancelled) apply();
+    };
+
+    map.on("render", waitForReady);
+    return () => {
+      cancelled = true;
+      try { map.off("render", waitForReady); } catch { }
+    };
+  }, [airspaceDisplayMode, setAirspaceDisplayMode]);
 
 
   // Update highlight layer when highlighted traffic volume changes
@@ -710,6 +850,163 @@ export default function MapCanvas() {
   );
 }
 
+type OpenTimeRange = {
+  startMinute: number;
+  endMinute: number;
+};
+
+type NormalizedCollapsedSectors = {
+  collection: GeoJSON.FeatureCollection;
+  maxOpenRangeCount: number;
+};
+
+type AirspaceFilterParams = {
+  mode: "tv" | "es";
+  flLowerBound: number;
+  flUpperBound: number;
+  currentTrafficVolumeBin: string;
+  currentMinuteOfDay: number;
+  csOpenRangeCount: number;
+};
+
+function normalizeCollapsedSectors(collection: GeoJSON.FeatureCollection): NormalizedCollapsedSectors {
+  const rawFeatures = (collection.features || []).filter((feature) => feature?.geometry != null);
+  const parsedRangesByFeature = rawFeatures.map((feature) => {
+    const properties = (feature.properties ?? {}) as Record<string, unknown>;
+    return parseOpenTimeRanges(properties.open_times);
+  });
+  const maxOpenRangeCount = parsedRangesByFeature.reduce((max, ranges) => Math.max(max, ranges.length), 0);
+
+  const features = rawFeatures.map((feature, index) => {
+    const properties = (feature.properties ?? {}) as Record<string, unknown>;
+    const collapsedSectorId = String(properties.collapsed_sector ?? "").trim();
+    const id = collapsedSectorId || `CS_${String(index + 1).padStart(4, "0")}`;
+    const openRanges = parsedRangesByFeature[index] || [];
+    const openRangeProps: Record<string, number> = {
+      open_range_count: openRanges.length,
+    };
+    for (let i = 0; i < maxOpenRangeCount; i += 1) {
+      const range = openRanges[i];
+      openRangeProps[`open_start_min_${i}`] = range ? range.startMinute : -1;
+      openRangeProps[`open_end_min_${i}`] = range ? range.endMinute : -1;
+    }
+    return {
+      ...feature,
+      properties: {
+        ...properties,
+        traffic_volume_id: id,
+        label: properties.label != null ? String(properties.label) : id,
+        ...openRangeProps,
+      },
+    };
+  });
+
+  return {
+    collection: { ...collection, features },
+    maxOpenRangeCount,
+  };
+}
+
+function parseOpenTimeRanges(value: unknown): OpenTimeRange[] {
+  if (!Array.isArray(value)) return [];
+  const ranges: OpenTimeRange[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    const [startRaw, endRaw] = trimmed.split("-");
+    const startMinute = parseHhMmToMinute(startRaw);
+    const endMinute = parseHhMmToMinute(endRaw);
+    if (startMinute == null || endMinute == null) continue;
+    ranges.push({ startMinute, endMinute });
+  }
+  return ranges;
+}
+
+function parseHhMmToMinute(value: string | undefined): number | null {
+  if (!value) return null;
+  const match = /^(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function getMinuteOfDay(seconds: number): number {
+  const secondsInDay = 24 * 3600;
+  const wholeSeconds = Math.floor(Number.isFinite(seconds) ? seconds : 0);
+  const normalized = ((wholeSeconds % secondsInDay) + secondsInDay) % secondsInDay;
+  return Math.floor(normalized / 60);
+}
+
+function getAirspaceDisplayFilter({
+  mode,
+  flLowerBound,
+  flUpperBound,
+  currentTrafficVolumeBin,
+  currentMinuteOfDay,
+  csOpenRangeCount,
+}: AirspaceFilterParams): FilterSpecification {
+  if (mode === "tv") {
+    return getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin);
+  }
+
+  const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);
+  const openNowFilter = buildCollapsedSectorOpenNowFilter(currentMinuteOfDay, csOpenRangeCount);
+  return ["all", flFilter, openNowFilter] as FilterSpecification;
+}
+
+function buildCollapsedSectorOpenNowFilter(currentMinuteOfDay: number, maxOpenRangeCount: number): FilterSpecification {
+  if (maxOpenRangeCount <= 0) {
+    return ["==", 1, 1] as FilterSpecification;
+  }
+  const current = Math.max(0, Math.min(1439, Math.floor(currentMinuteOfDay)));
+  const conditions: FilterSpecification[] = [];
+  for (let i = 0; i < maxOpenRangeCount; i += 1) {
+    const startExpr = ["to-number", ["get", `open_start_min_${i}`], -1];
+    const endExpr = ["to-number", ["get", `open_end_min_${i}`], -1];
+    const inNonWrapRange: FilterSpecification = [
+      "all",
+      ["<=", startExpr, endExpr],
+      [">=", current, startExpr],
+      ["<=", current, endExpr],
+    ] as unknown as FilterSpecification;
+    const inWrapRange: FilterSpecification = [
+      "all",
+      [">", startExpr, endExpr],
+      ["any", [">=", current, startExpr], ["<=", current, endExpr]],
+    ] as unknown as FilterSpecification;
+    conditions.push([
+      "all",
+      [">=", startExpr, 0],
+      [">=", endExpr, 0],
+      ["any", inNonWrapRange, inWrapRange],
+    ] as unknown as FilterSpecification);
+  }
+  return ["any", ...conditions] as FilterSpecification;
+}
+
+function setActiveAirspaceSources(
+  map: maplibregl.Map,
+  mode: "tv" | "es",
+  tvSources: AirspaceSources,
+  esSources: AirspaceSources | null
+): "tv" | "es" {
+  const activeMode = mode === "es" && esSources ? "es" : "tv";
+  const activeSources = activeMode === "es" && esSources ? esSources : tvSources;
+  const sectorSource = map.getSource(TRAFFIC_VOLUME_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+  if (sectorSource) {
+    sectorSource.setData(activeSources.sectors);
+  }
+  const centroidSource = map.getSource(TRAFFIC_VOLUME_CENTROIDS_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+  if (centroidSource) {
+    centroidSource.setData(activeSources.centroids);
+  }
+  (map as any).__sectors = activeSources.sectors;
+  return activeMode;
+}
+
 function emptyFC(): GeoJSON.FeatureCollection { return { type: "FeatureCollection", features: [] }; }
 
 async function loadImage(map: maplibregl.Map, url: string) {
@@ -849,7 +1146,7 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     map.setFilter("flight-lines", filterExpr as any);
     if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
     if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.selectedCollapsedSector || !!sim.flowPreviewFlightId;
     const lineOpacity = sim.flowPreviewFlightId ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
