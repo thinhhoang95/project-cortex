@@ -24,6 +24,7 @@ export default function RegulationsPage() {
   const user = useSimStore((state) => state.user);
   const isRegulationPanelOpen = useSimStore((state) => state.isRegulationPanelOpen);
   const selectedTrafficVolume = useSimStore((state) => state.selectedTrafficVolume);
+  const selectedTrafficVolumes = useSimStore((state) => state.selectedTrafficVolumes);
   const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
@@ -97,7 +98,10 @@ export default function RegulationsPage() {
     return null;
   }
 
-  const showRegulationPanel = Boolean(isRegulationPanelOpen && selectedTrafficVolume);
+  const hasSelectedTrafficVolume =
+    (Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0) ||
+    !!selectedTrafficVolume;
+  const showRegulationPanel = Boolean(isRegulationPanelOpen && hasSelectedTrafficVolume);
 
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">

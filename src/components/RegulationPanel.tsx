@@ -13,6 +13,11 @@ import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/Mo
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
+import {
+  buildMergedMultiTvChartRows,
+  buildRollingChartDataFromOccupancy,
+  type MergedMultiTvChartRow,
+} from "@/lib/airspaceInfoMultiTv";
 
 type RegulationPanelProps = { embedded?: boolean };
 
@@ -52,9 +57,18 @@ type FlowExtractionResponse = {
   }>;
 };
 
+const REG_MULTI_CHART_COLORS = [
+  "#06b6d4",
+  "#f59e0b",
+  "#10b981",
+  "#ec4899",
+  "#a78bfa",
+];
+
 export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumes,
     selectedTrafficVolumeData,
     t,
     flights,
@@ -73,7 +87,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setRegulationTimeWindow,
     regulationRate,
     setRegulationRate,
-    setSelectedTrafficVolume,
+    clearSelectedTrafficVolumes,
     addRegulation,
     setIsRegulationPanelOpen,
     regulationEditPayload,
@@ -100,11 +114,33 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setRegulationPreviewActive
   } = useSimStore();
 
+  const selectedTvIds = useMemo(() => {
+    const source =
+      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
+        ? selectedTrafficVolumes
+        : selectedTrafficVolume
+          ? [selectedTrafficVolume]
+          : [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of source) {
+      const id = String(raw ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }, [selectedTrafficVolumes, selectedTrafficVolume]);
+  const selectedTvKey = selectedTvIds.join("|");
+  const primaryTvId = selectedTvIds[0] ?? null;
+  const secondaryTvIds = useMemo(() => selectedTvIds.slice(1), [selectedTvIds]);
+
   const [inputValue, setInputValue] = useState("");
   const [activePreset, setActivePreset] = useState<string>("1h");
   const [currentCount, setCurrentCount] = useState<number>(0);
   const [currentAnchorCapacity, setCurrentAnchorCapacity] = useState<number | null>(null);
   const [occupancyData, setOccupancyData] = useState<any | null>(null);
+  const [secondaryOccupancyByTv, setSecondaryOccupancyByTv] = useState<Record<string, any>>({});
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<Record<string, string[]> | null>(null);
   const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
   const [flightListLoading, setFlightListLoading] = useState(false);
@@ -124,11 +160,11 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
   useEffect(() => {
     let cancelled = false;
-    if (!selectedTrafficVolume) {
+    if (!primaryTvId) {
       setCapacityRangeLabel(null);
       return;
     }
-    getDerivedCapacityRangeForTvAsync(selectedTrafficVolume)
+    getDerivedCapacityRangeForTvAsync(primaryTvId)
       .then((label) => {
         if (!cancelled) setCapacityRangeLabel(label);
       })
@@ -138,19 +174,19 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     return () => {
       cancelled = true;
     };
-  }, [selectedTrafficVolume]);
+  }, [primaryTvId]);
 
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!selectedTrafficVolume) { setOccupancyData(null); return; }
+      if (!primaryTvId) { setOccupancyData(null); return; }
       // If not editing, clear any previous target selection immediately to avoid race with async fetch
       if (!useSimStore.getState().regulationEditPayload) {
         clearRegulationTargetFlights();
       }
       try {
-        const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${selectedTrafficVolume}`);
+        const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${primaryTvId}`);
         if (!res.ok) throw new Error('failed');
         const data = await res.json();
         if (cancelled) return;
@@ -175,17 +211,43 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     load();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTrafficVolume]);
+  }, [primaryTvId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSecondaryOccupancy() {
+      if (!primaryTvId || secondaryTvIds.length === 0) {
+        setSecondaryOccupancyByTv({});
+        return;
+      }
+      try {
+        const entries = await Promise.all(
+          secondaryTvIds.map(async (tvId) => {
+            const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${encodeURIComponent(tvId)}`);
+            if (!res.ok) throw new Error(`Failed to fetch occupancy for ${tvId}`);
+            const data = await res.json();
+            return [tvId, data] as const;
+          })
+        );
+        if (cancelled) return;
+        setSecondaryOccupancyByTv(Object.fromEntries(entries));
+      } catch {
+        if (!cancelled) setSecondaryOccupancyByTv({});
+      }
+    }
+    loadSecondaryOccupancy();
+    return () => { cancelled = true; };
+  }, [primaryTvId, secondaryTvIds]);
 
   // Load flight identifiers for this TV (ordered when possible)
   useEffect(() => {
     let cancelled = false;
     async function loadFlights() {
-      if (!selectedTrafficVolume) { setFlightIdentifiersData(null); setOrderedFlightsData(null); return; }
+      if (!primaryTvId) { setFlightIdentifiersData(null); setOrderedFlightsData(null); return; }
       setFlightListLoading(true);
       try {
         const ref = formatTimeForAPI(t);
-        const res = await authFetch(`/api/tv_flights?traffic_volume_id=${selectedTrafficVolume}&ref_time_str=${ref}`);
+        const res = await authFetch(`/api/tv_flights?traffic_volume_id=${primaryTvId}&ref_time_str=${ref}`);
         if (!res.ok) throw new Error('Failed');
         const data = await res.json();
         if (cancelled) return;
@@ -204,7 +266,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     loadFlights();
     return () => { cancelled = true; };
-  }, [selectedTrafficVolume, t]);
+  }, [primaryTvId, t]);
 
   const timeBinMinutes = useMemo(
     () => inferTimeBinMinutesFromData(occupancyData),
@@ -275,6 +337,61 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     });
   }, [chartData, regulationTimeWindow, t]);
 
+  const multiChartSeries = useMemo(() => {
+    return selectedTvIds.map((tvId, index) => ({
+      tvId,
+      countKey: `count__${tvId}`,
+      capacityKey: `capacity__${tvId}`,
+      color: REG_MULTI_CHART_COLORS[index % REG_MULTI_CHART_COLORS.length],
+      isPrimary: tvId === primaryTvId,
+    }));
+  }, [selectedTvIds, primaryTvId]);
+
+  const multiChartDataByTv = useMemo(() => {
+    const out: Record<string, Array<{ time: string; count: number; hour: number; capacity?: number }>> = {};
+    if (primaryTvId && chartData.length > 0) {
+      out[primaryTvId] = chartData;
+    }
+    for (const tvId of secondaryTvIds) {
+      const occupancy = secondaryOccupancyByTv[tvId];
+      if (!occupancy) continue;
+      out[tvId] = buildRollingChartDataFromOccupancy(occupancy).chartData;
+    }
+    return out;
+  }, [primaryTvId, chartData, secondaryTvIds, secondaryOccupancyByTv]);
+
+  const multiChartDataReady =
+    selectedTvIds.length > 1 &&
+    selectedTvIds.every((tvId) => Object.prototype.hasOwnProperty.call(multiChartDataByTv, tvId));
+
+  const mergedChartData = useMemo(() => {
+    if (!multiChartDataReady) return [] as MergedMultiTvChartRow[];
+    const keyByTv = Object.fromEntries(
+      multiChartSeries.map((series) => [
+        series.tvId,
+        { countKey: series.countKey, capacityKey: series.capacityKey },
+      ]),
+    );
+    return buildMergedMultiTvChartRows({
+      selectedTvIds,
+      chartDataByTv: multiChartDataByTv,
+      keyByTv,
+    });
+  }, [multiChartDataReady, multiChartSeries, selectedTvIds, multiChartDataByTv]);
+
+  const displayMergedChartData = useMemo(() => {
+    if (!mergedChartData.length) return [] as MergedMultiTvChartRow[];
+    const [from, to] = regulationTimeWindow;
+    const windowDuration = to - from;
+    const currentTime = t;
+    const displayFrom = currentTime - windowDuration;
+    const displayTo = currentTime + windowDuration;
+    return mergedChartData.filter((d) => {
+      const sec = Number(d.hour ?? 0) * 3600;
+      return sec >= displayFrom && sec <= displayTo;
+    });
+  }, [mergedChartData, regulationTimeWindow, t]);
+
   const trafficOverloadSegments = useMemo(() => {
     if (!chartData.length) return [];
 
@@ -317,11 +434,11 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         period: point.time,
         color,
         metadata,
-        label: selectedTrafficVolume ? `${selectedTrafficVolume} load` : undefined,
+        label: primaryTvId ? `${primaryTvId} load` : undefined,
       });
       return acc;
     }, [] as any[]);
-  }, [chartData, regulationTimeWindow, selectedTrafficVolume]);
+  }, [chartData, regulationTimeWindow, primaryTvId]);
 
   const windowAnchorCapacityRange = useMemo(() => {
     if (!chartData.length) return null;
@@ -350,6 +467,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
   // Compute filtered flights for active time window, and apply focus filter on the map
   const filteredFlightIds = useMemo(() => {
+    if (selectedTvIds.length > 1) {
+      return new Set((regulationListedFlightIds || []).map((id) => String(id)));
+    }
     const [from, to] = regulationTimeWindow;
     const set = new Set<string>();
     if (orderedFlightsData?.details) {
@@ -365,7 +485,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       });
     }
     return set;
-  }, [orderedFlightsData, flightIdentifiersData, regulationTimeWindow]);
+  }, [selectedTvIds.length, regulationListedFlightIds, orderedFlightsData, flightIdentifiersData, regulationTimeWindow]);
 
   // derive selected flights
   const selectedFlights = useMemo(() => {
@@ -397,7 +517,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   }, [showTargetedOnly, setRegulationPreviewActive]);
 
   useEffect(() => {
-    if (selectedTrafficVolume) return;
+    if (primaryTvId) return;
     setShowOnlyTargeted(false);
     setRegulationPreviewActive(false);
     clearRegulationTargetFlights();
@@ -410,7 +530,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setCommunityHeuristics({});
     setFlowPreviewFlightId(null);
     setFlowPreviewGroupId(null);
-  }, [selectedTrafficVolume, setRegulationPreviewActive, clearRegulationTargetFlights, setFocusFlightIds, setFocusMode, setFlowViewEnabled, setFlowCommunities, setFlowColorByCommunity, setFlowError, setFlowPreviewFlightId, setFlowPreviewGroupId]);
+  }, [primaryTvId, setRegulationPreviewActive, clearRegulationTargetFlights, setFocusFlightIds, setFocusMode, setFlowViewEnabled, setFlowCommunities, setFlowColorByCommunity, setFlowError, setFlowPreviewFlightId, setFlowPreviewGroupId]);
 
   const toggleSeeOnlyTargeted = () => {
     if (!hasTargetedFlights) return;
@@ -419,14 +539,14 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
   // Apply focus mode and ids to filter map to only those flights
   useEffect(() => {
-    if (!selectedTrafficVolume) return;
+    if (!primaryTvId) return;
     const desiredFocus = showTargetedOnly ? targetedFlightIdSet : filteredFlightIds;
     const currentIds = useSimStore.getState().focusFlightIds;
     if (!areSetsEqual(currentIds, desiredFocus)) {
       setFocusFlightIds(new Set(desiredFocus));
     }
     if (!focusMode) setFocusMode(true);
-  }, [filteredFlightIds, targetedFlightIdSet, showTargetedOnly, selectedTrafficVolume, setFocusFlightIds, focusMode, setFocusMode]);
+  }, [filteredFlightIds, targetedFlightIdSet, showTargetedOnly, primaryTvId, setFocusFlightIds, focusMode, setFocusMode]);
 
   // time window presets
   const presets = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h", "2h30", "3h", "3h30", "4h"];
@@ -513,7 +633,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   }, [setFlowPreviewFlightId, setFlowPreviewGroupId]);
 
   const addRegulationFromFlightIds = useCallback((flightIds: string[]) => {
-    if (!selectedTrafficVolume) return false;
+    if (!primaryTvId) return false;
     const uniqueIds = Array.from(new Set((flightIds || []).map((id) => String(id)).filter(Boolean)));
     if (uniqueIds.length === 0) return false;
     const idSet = new Set(uniqueIds);
@@ -527,7 +647,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     const flightCallsigns = uniqueIds.map((id) => callsignMap.get(id) ?? id);
     if (flightCallsigns.length === 0) return false;
     addRegulation({
-      trafficVolume: selectedTrafficVolume,
+      trafficVolume: primaryTvId,
       activeTimeWindowFrom: regulationTimeWindow[0],
       activeTimeWindowTo: regulationTimeWindow[1],
       flightCallsigns,
@@ -536,7 +656,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setIsRegulationPanelOpen(true);
     clearRegulationTargetFlights();
     return true;
-  }, [selectedTrafficVolume, flights, addRegulation, regulationTimeWindow, regulationRate, setIsRegulationPanelOpen, clearRegulationTargetFlights]);
+  }, [primaryTvId, flights, addRegulation, regulationTimeWindow, regulationRate, setIsRegulationPanelOpen, clearRegulationTargetFlights]);
 
   const handleReviewCommunity = useCallback((context: CommunityReviewContext) => {
     if (!context) return;
@@ -585,12 +705,12 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   }, [setCommunityReviewContext]);
 
   function handlePreviewRegulation() {
-    if (!selectedTrafficVolume || selectedFlights.length === 0) return;
+    if (!primaryTvId || selectedFlights.length === 0) return;
 
     const flightCallsigns = selectedFlights.map(f => f.callSign || String(f.flightId));
 
     addRegulation({
-      trafficVolume: selectedTrafficVolume,
+      trafficVolume: primaryTvId,
       activeTimeWindowFrom: regulationTimeWindow[0],
       activeTimeWindowTo: regulationTimeWindow[1],
       flightCallsigns,
@@ -603,10 +723,16 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
   // Flow Control: request community assignments for visible arrivals
   async function requestFlowExtraction() {
-    if (!selectedTrafficVolume) return;
-    const ids = Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : [];
+    if (!primaryTvId) return;
+    const ids = Array.from(new Set((Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : []).map((id) => String(id)).filter(Boolean)));
     if (ids.length === 0) {
-      setFlowError('No flights available to extract flows.');
+      // Clear stale flow render state so the canvas falls back to the (empty) focus set.
+      setFlowCommunities(null, null);
+      setFlowPreviewGroupId(null);
+      setFlowPreviewFlightId(null);
+      setFlowError(selectedTvIds.length > 1
+        ? 'No intersecting flights available across selected traffic volumes.'
+        : 'No flights available to extract flows.');
       setCommunityHeuristics({});
       return;
     }
@@ -615,7 +741,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     try {
       const ref = formatTimeForAPI(t);
       const params = new URLSearchParams({
-        traffic_volume_id: String(selectedTrafficVolume),
+        traffic_volume_id: String(primaryTvId),
         ref_time_str: String(ref),
         threshold: String(flowThreshold),
         resolution: String(flowResolution),
@@ -644,10 +770,16 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         setCommunityHeuristics(nextHeuristics);
         setFlowViewEnabled(true);
       } else {
+        setFlowCommunities(null, null);
+        setFlowPreviewGroupId(null);
+        setFlowPreviewFlightId(null);
         setCommunityHeuristics({});
         setFlowError('Flow extraction returned no communities.');
       }
     } catch (e: any) {
+      setFlowCommunities(null, null);
+      setFlowPreviewGroupId(null);
+      setFlowPreviewFlightId(null);
       setCommunityHeuristics({});
       setFlowError(e?.message || 'Failed to extract flows');
     } finally {
@@ -660,13 +792,13 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     if (!flowViewEnabled) return;
     requestFlowExtraction();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationListedFlightIds]);
+  }, [flowThreshold, flowResolution, selectedTvKey, t, regulationListedFlightIds]);
 
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
   useEffect(() => {
     const payload = regulationEditPayload;
     if (!payload) return;
-    if (payload.trafficVolume !== selectedTrafficVolume) return; // wait until TV matches
+    if (payload.trafficVolume !== primaryTvId) return; // wait until TV matches
 
     // Apply time window and rate
     // Prevent auto-presets (triggered by time changes) from overriding this edit
@@ -693,9 +825,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
     // Clear payload so it doesn't apply repeatedly
     setRegulationEditPayload(null);
-  }, [regulationEditPayload, selectedTrafficVolume, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
+  }, [regulationEditPayload, primaryTvId, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
 
-  if (!selectedTrafficVolume) return null;
+  if (!primaryTvId || selectedTvIds.length === 0) return null;
 
   return (
     <div className={embedded
@@ -703,8 +835,19 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <div>
-          <div className="text-[10px] uppercase tracking-wider opacity-70">Reference TV</div>
-          <div className="text-lg font-semibold">{selectedTrafficVolume}</div>
+          <div className="text-[10px] uppercase tracking-wider opacity-70">
+            {selectedTvIds.length > 1 ? `Reference TV (${selectedTvIds.length} selected)` : 'Reference TV'}
+          </div>
+          <div className="text-lg font-semibold">{primaryTvId}</div>
+          {secondaryTvIds.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {secondaryTvIds.map((tvId) => (
+                <div key={tvId} className="text-[11px] opacity-75 break-all">
+                  {tvId}
+                </div>
+              ))}
+            </div>
+          )}
           {flightLevelRange && (
             <div className="text-xs opacity-80">{flightLevelRange}</div>
           )}
@@ -714,7 +857,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         </div>
         <PanelCloseButton
           onClick={() => {
-            setSelectedTrafficVolume(null);
+            clearSelectedTrafficVolumes();
             setFocusMode(false);
             setFocusFlightIds(new Set());
             setIsRegulationPanelOpen(false);
@@ -825,6 +968,13 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           {flowError && (
             <div className="text-[10px] mt-2 text-red-200">{flowError}</div>
           )}
+          {!flowLoading && (
+            <div className="text-[10px] opacity-70 mt-2">
+              {selectedTvIds.length > 1
+                ? `Extract Flows uses the intersection of the current flight list across ${selectedTvIds.length} selected TVs (${regulationListedFlightIds.length} flights).`
+                : `Extract Flows uses the current flight list (${regulationListedFlightIds.length} flights).`}
+            </div>
+          )}
           {!flowLoading && flowViewEnabled && (
             <div className="text-[10px] opacity-70 mt-2">Flow view active. Colors represent discovered flows; singletons/unassigned are gray.</div>
           )}
@@ -839,7 +989,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             communityHeuristics={communityHeuristics}
             flights={flights}
             orderedFlightsData={orderedFlightsData}
-            selectedTrafficVolume={selectedTrafficVolume}
+            selectedTrafficVolume={primaryTvId}
             regulationTimeWindow={regulationTimeWindow}
             embedded={embedded}
             onReviewCommunity={handleReviewCommunity}
@@ -900,7 +1050,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               <div className="font-medium text-sm opacity-90">Targeted Flights ({selectedFlights.length})</div>
               <FlightStatisticsButton
                 flightIds={selectedFlights.map((flight) => flight.flightId)}
-                sourceTrafficVolumeId={selectedTrafficVolume}
+                sourceTrafficVolumeId={primaryTvId}
                 buttonClassName="border-white/20 text-white/80"
               />
               <button
@@ -982,32 +1132,87 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         </div>
 
         {/* Histogram (Focus Mode style) */}
-        {displayChartData.length > 0 && (
+        {(displayChartData.length > 0 || (selectedTvIds.length > 1 && displayMergedChartData.length > 0)) && (
           <div className="bg-white/5 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
               <h4 className="font-medium text-sm opacity-90">Rolling Hour Occupancy </h4>
               <span className="text-[10px] opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
             </div>
+            {selectedTvIds.length > 1 && !multiChartDataReady && (
+              <div className="text-[10px] opacity-70 mb-2">Loading occupancy for additional selected TVs…</div>
+            )}
             <div style={{ width: '100%', height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={displayChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                  <XAxis dataKey="time" tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} height={16} />
-                  <YAxis tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} width={26} />
-                  <Tooltip content={<RegTooltip />} />
-                  <Bar dataKey="count" fill="#06b6d4" radius={[2, 2, 0, 0]} onClick={(_, index: number) => {
-                    const point: any = displayChartData[index as any];
-                    if (point && point.hour !== undefined) setT(point.hour * 3600);
-                  }} style={{ cursor: 'pointer' }} />
-                  <Line type="linear" dataKey="capacity" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls={false} name="Anchor capacity (rolling hour)" isAnimationActive={false} />
-                  <ReferenceLine x={nearestCategoryForTime(displayChartData, t)} stroke="#ef4444" strokeWidth={2} strokeDasharray="0" label={{ value: "Current Time", position: "top", fill: "#ef4444", fontSize: 10 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              {selectedTvIds.length > 1 && multiChartDataReady && displayMergedChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={displayMergedChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                    <XAxis dataKey="time" tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} height={16} />
+                    <YAxis tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} width={26} />
+                    <Tooltip content={<RegMultiTooltip chartSeries={multiChartSeries} />} />
+                    {multiChartSeries.map((series) => (
+                      <Bar
+                        key={series.countKey}
+                        dataKey={series.countKey}
+                        fill={series.color}
+                        fillOpacity={series.isPrimary ? 0.85 : 0.45}
+                        radius={[2, 2, 0, 0]}
+                        onClick={(_, index: number) => {
+                          const point = displayMergedChartData[index as any] as any;
+                          if (point && point.hour !== undefined) setT(point.hour * 3600);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                        isAnimationActive={false}
+                      />
+                    ))}
+                    {multiChartSeries.map((series) => (
+                      <Line
+                        key={series.capacityKey}
+                        type="linear"
+                        dataKey={series.capacityKey}
+                        stroke={series.color}
+                        strokeWidth={series.isPrimary ? 2 : 1.5}
+                        strokeDasharray={series.isPrimary ? undefined : "4 3"}
+                        dot={false}
+                        connectNulls={false}
+                        isAnimationActive={false}
+                      />
+                    ))}
+                    <ReferenceLine x={nearestCategoryForTime(displayMergedChartData as any, t)} stroke="#ef4444" strokeWidth={2} strokeDasharray="0" label={{ value: "Current Time", position: "top", fill: "#ef4444", fontSize: 10 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={displayChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                    <XAxis dataKey="time" tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} height={16} />
+                    <YAxis tick={{ fill: '#e2e8f0', fontSize: 10 }} axisLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickLine={{ stroke: 'rgba(255,255,255,0.2)' }} tickMargin={0} width={26} />
+                    <Tooltip content={<RegTooltip />} />
+                    <Bar dataKey="count" fill="#06b6d4" radius={[2, 2, 0, 0]} onClick={(_, index: number) => {
+                      const point: any = displayChartData[index as any];
+                      if (point && point.hour !== undefined) setT(point.hour * 3600);
+                    }} style={{ cursor: 'pointer' }} />
+                    <Line type="linear" dataKey="capacity" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls={false} name="Anchor capacity (rolling hour)" isAnimationActive={false} />
+                    <ReferenceLine x={nearestCategoryForTime(displayChartData, t)} stroke="#ef4444" strokeWidth={2} strokeDasharray="0" label={{ value: "Current Time", position: "top", fill: "#ef4444", fontSize: 10 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )}
             </div>
-            <div className="flex items-center justify-center space-x-4 mt-2 text-xs opacity-70">
-              <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Occupancy Count</span></div>
-              <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Capacity</span></div>
-            </div>
+            {selectedTvIds.length > 1 && multiChartDataReady ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs opacity-70">
+                {multiChartSeries.map((series) => (
+                  <div key={series.tvId} className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded" style={{ backgroundColor: series.color, opacity: series.isPrimary ? 0.85 : 0.45 }} />
+                    <div className="w-3 h-0.5" style={{ backgroundColor: series.color }} />
+                    <span>{series.tvId}{series.isPrimary ? " (Primary)" : ""}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center space-x-4 mt-2 text-xs opacity-70">
+                <div className="flex items-center"><div className="w-3 h-3 bg-cyan-500 rounded mr-1"></div><span>Occupancy Count</span></div>
+                <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Capacity</span></div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1045,7 +1250,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         <div className="flex justify-end">
           <button
             onClick={handlePreviewRegulation}
-            disabled={!selectedTrafficVolume || selectedFlights.length === 0}
+            disabled={!primaryTvId || selectedFlights.length === 0}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium shadow hover:opacity-90 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
@@ -1499,6 +1704,44 @@ function RegTooltip({ active, payload, label }: { active?: boolean; payload?: Ar
     );
   }
   return null;
+}
+
+function RegMultiTooltip({
+  active,
+  payload,
+  label,
+  chartSeries,
+}: {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  chartSeries: Array<{ tvId: string; countKey: string; capacityKey: string; color: string; isPrimary: boolean }>;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const row = (payload.find((entry) => entry?.payload)?.payload ?? null) as MergedMultiTvChartRow | null;
+  if (!row) return null;
+
+  return (
+    <div className="bg-slate-800/90 backdrop-blur-sm border border-white/20 rounded-lg p-2 text-white text-sm space-y-1">
+      <p className="font-medium">{label}</p>
+      {chartSeries.map((series) => {
+        const rawCount = row[series.countKey];
+        const rawCapacity = row[series.capacityKey];
+        const count = typeof rawCount === "number" && Number.isFinite(rawCount) ? rawCount : null;
+        const capacity = typeof rawCapacity === "number" && Number.isFinite(rawCapacity) ? rawCapacity : null;
+        if (count === null && capacity === null) return null;
+        return (
+          <div key={series.tvId} className="text-xs">
+            <p className="font-medium" style={{ color: series.color }}>
+              {series.tvId}{series.isPrimary ? " (Primary)" : ""}
+            </p>
+            <p>Occupancy: {count !== null ? Math.round(count) : "N/A"}</p>
+            <p>Anchor capacity: {capacity !== null ? Math.round(capacity) : "N/A"}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function computePresetForWindow(fromSeconds: number, toSeconds: number): string {

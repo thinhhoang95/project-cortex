@@ -115,6 +115,13 @@ export default function FlowCanvas() {
           paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
         });
 
+        // Apply initial visibility based on store defaults
+        try {
+          const { showFlightLineLabels } = useSimStore.getState();
+          map.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
+          map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
+        } catch { }
+
         // (Regulation target lines removed in FlowCanvas)
 
         // Save trajectories on map for the animation step

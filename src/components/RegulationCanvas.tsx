@@ -17,7 +17,7 @@ import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
   applyTrafficVolumeFilters,
-  applyTrafficVolumeHighlight,
+  applyTrafficVolumeHighlightList,
   applyTrafficVolumeHover,
   applyTrafficVolumeHotspots,
   applyTrafficVolumeVisibility,
@@ -31,9 +31,8 @@ export default function RegulationCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, showTrafficVolumes, regulationTargetFlightIds, regulationPreviewActive, addRegulationTargetFlight, selectedTrafficVolume, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, toggleSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, showTrafficVolumes, regulationTargetFlightIds, regulationPreviewActive, addRegulationTargetFlight, selectedTrafficVolume, selectedTrafficVolumes, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
 
-  const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
   const [slackMetaByTv, setSlackMetaByTv] = useState<Record<string, { time_window: string; slack: number; occupancy: number }>>({});
@@ -42,6 +41,15 @@ export default function RegulationCanvas() {
 
   const theme = useThemeStore((state) => state.theme);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
+  const selectedTvHighlightIds = useMemo(
+    () =>
+      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
+        ? selectedTrafficVolumes
+        : selectedTrafficVolume
+          ? [selectedTrafficVolume]
+          : [],
+    [selectedTrafficVolumes, selectedTrafficVolume],
+  );
 
   // init map
   useEffect(() => {
@@ -130,6 +138,13 @@ export default function RegulationCanvas() {
         paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
       });
 
+      // Apply initial visibility based on store defaults
+      try {
+        const { showFlightLineLabels } = useSimStore.getState();
+        map.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
+        map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
+      } catch { }
+
       // Highlight layer for regulation target flights (bright red)
       map.addLayer({
         id: "reg-target-lines",
@@ -145,7 +160,7 @@ export default function RegulationCanvas() {
       // Click handler for flight lines: add to regulation target list when a TV is selected
       map.on('click', 'flight-lines', (e) => {
         const sim = useSimStore.getState();
-        if (!sim.selectedTrafficVolume) return;
+        if (!sim.selectedTrafficVolume && (!Array.isArray(sim.selectedTrafficVolumes) || sim.selectedTrafficVolumes.length === 0)) return;
         if (e.features && e.features.length > 0) {
           const feature = e.features[0];
           const flightId = feature.properties?.flightId;
@@ -165,17 +180,7 @@ export default function RegulationCanvas() {
         const sectorFeatures = map.querySourceFeatures('sectors', { filter: ['==', 'traffic_volume_id', trafficVolumeId] });
         const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
         const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-        setSelectedTrafficVolume(trafficVolumeId, tvData);
-        setHighlightedTrafficVolume(prev => prev === trafficVolumeId ? null : trafficVolumeId);
-        // Trigger slack fetch immediately on selection (even if TV id unchanged)
-        const sim = useSimStore.getState();
-        const simT = sim.t;
-        const refStr = formatSecondsToHHMM(simT);
-        const sign = sim.slackSign;
-        const dMin = sim.deltaMin;
-        lastSlackKeyRef.current = `${trafficVolumeId}|${refStr}|${sign}|${dMin}`;
-        const showNow = sim.slackMode !== 'off';
-        fetchAndApplySlack(map, trafficVolumeId, refStr, sign, dMin, sim.setIsFetchingSlack, setSlackMetaByTv, showNow);
+        toggleSelectedTrafficVolume(trafficVolumeId, tvData);
       };
 
       const pickClosestTrafficVolumeId = (e: maplibregl.MapLayerMouseEvent) => {
@@ -304,7 +309,7 @@ export default function RegulationCanvas() {
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
 
   // When flow view state changes, update rendering
-  useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes]);
+  useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes, selectedTrafficVolumes]);
 
   // Update regulation highlight when target ids change
   useEffect(() => { updateRegulationHighlight(mapRef.current); }, [regulationTargetFlightIds, flowViewEnabled, regulationPreviewActive]);
@@ -390,8 +395,8 @@ export default function RegulationCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyTrafficVolumeHighlight(map, highlightedTrafficVolume, flLowerBound, flUpperBound, true);
-  }, [highlightedTrafficVolume, flLowerBound, flUpperBound]);
+    applyTrafficVolumeHighlightList(map, selectedTvHighlightIds, flLowerBound, flUpperBound, true);
+  }, [selectedTvHighlightIds, flLowerBound, flUpperBound]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -411,7 +416,6 @@ export default function RegulationCanvas() {
   // Listen for dialog close events to clear highlighting and hide slack overlay
   useEffect(() => {
     const handleClearHighlight = () => {
-      setHighlightedTrafficVolume(null);
       setSlackMode('off');
       if (mapRef.current) hideSlackOverlay(mapRef.current);
       lastSlackKeyRef.current = null;
@@ -442,15 +446,7 @@ export default function RegulationCanvas() {
       const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
       const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
       setSelectedTrafficVolume(tvId, tvData);
-      setHighlightedTrafficVolume(tvId);
-      const sim = useSimStore.getState();
-      const simT = sim.t;
-      const refStr = formatSecondsToHHMM(simT);
-      const sign = sim.slackSign;
-      const dMin = sim.deltaMin;
-      lastSlackKeyRef.current = `${tvId}|${refStr}|${sign}|${dMin}`;
-      const showNow = sim.slackMode !== 'off';
-      fetchAndApplySlack(map, tvId, refStr, sign, dMin, sim.setIsFetchingSlack, setSlackMetaByTv, showNow);
+      lastSlackKeyRef.current = null;
       const center = tvGeometry
         ? getTrafficVolumeCenter(tvGeometry)
         : getTrafficVolumeCenterFromMap(map, tvId);
@@ -467,14 +463,14 @@ export default function RegulationCanvas() {
     const map = mapRef.current;
     if (!map) return;
     if (!showTrafficVolumes) { hideSlackOverlay(map); return; }
-    if (!selectedTrafficVolume || !highlightedTrafficVolume) { hideSlackOverlay(map); setSlackMode('off'); return; }
+    if (!selectedTrafficVolume) { hideSlackOverlay(map); setSlackMode('off'); return; }
     const refStr = formatSecondsToHHMM(t);
     const key = `${selectedTrafficVolume}|${refStr}|${slackSign}|${deltaMin}`;
     if (lastSlackKeyRef.current === key) return;
     lastSlackKeyRef.current = key;
     const showNow = slackMode !== 'off';
     fetchAndApplySlack(map, selectedTrafficVolume, refStr, slackSign, deltaMin, setIsFetchingSlack, setSlackMetaByTv, showNow);
-  }, [selectedTrafficVolume, highlightedTrafficVolume, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack, showTrafficVolumes]);
+  }, [selectedTrafficVolume, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack, showTrafficVolumes]);
 
   // Show/hide slack overlay based on mode (Off/Minus/Plus)
   useEffect(() => {
@@ -551,11 +547,11 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   }
 
   let lineIdsToShow: string[];
-  if (sim.regulationPreviewActive) {
-    lineIdsToShow = Array.from(sim.regulationTargetFlightIds).map(String);
-  } else if (sim.flowPreviewFlightId) {
-    // Flow hover preview is next in priority: show the hovered trajectory regardless of time
+  if (sim.flowPreviewFlightId) {
+    // Row-hover preview should win over other preview modes.
     lineIdsToShow = [String(sim.flowPreviewFlightId)];
+  } else if (sim.regulationPreviewActive) {
+    lineIdsToShow = Array.from(sim.regulationTargetFlightIds).map(String);
   } else if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
     const previewGroupId = sim.flowPreviewGroupId ? String(sim.flowPreviewGroupId) : null;
     if (previewGroupId) {
@@ -581,7 +577,7 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
-    filterExpr = ["==", 1, 0];
+    filterExpr = ["==", ["to-string", ["get", "flightId"]], "__no_match__"];
   } else {
     filterExpr = [
       "in",
@@ -729,7 +725,13 @@ function updateFlowRendering(map: maplibregl.Map | null) {
       const activeHotspots = sim.getActiveHotspots ? sim.getActiveHotspots() : [];
       const hotspotIds = activeHotspots.map((h: any) => String(h.traffic_volume_id));
       const allowedIds: string[] = [];
-      if (sim.selectedTrafficVolume) allowedIds.push(String(sim.selectedTrafficVolume));
+      const selectedTvIds = Array.isArray(sim.selectedTrafficVolumes) && sim.selectedTrafficVolumes.length > 0
+        ? sim.selectedTrafficVolumes
+        : (sim.selectedTrafficVolume ? [sim.selectedTrafficVolume] : []);
+      for (const tvId of selectedTvIds) {
+        const normalized = String(tvId);
+        if (!allowedIds.includes(normalized)) allowedIds.push(normalized);
+      }
       for (const id of hotspotIds) if (!allowedIds.includes(id)) allowedIds.push(id);
 
       if (allowedIds.length === 0) {

@@ -231,10 +231,16 @@ export default function Header() {
                 Monitoring
               </Link>
               <Link href="/predictions" className={`${pathname === '/predictions' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
-                Predictions
+                Prediction
               </Link>
               <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
-                Regulations
+                Regulation
+              </Link>
+              <Link href="#" className={`${pathname === '/reroute' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors flex items-center gap-1.5`}>
+                <span>Reroute</span>
+                <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
+                  New
+                </span>
               </Link>
               <Link href="/flows" className={`${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
                 DeepFlow

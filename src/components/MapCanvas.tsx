@@ -1129,9 +1129,8 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
   let lineIdsToShow: string[];
   if (sim.flowPreviewFlightId) {
-    const pid = String(sim.flowPreviewFlightId);
-    // Only show if currently active and within FL range
-    lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
+    // Row-hover preview should show the full trajectory even if the flight is not active at the current t.
+    lineIdsToShow = [String(sim.flowPreviewFlightId)];
   } else if (sim.focusMode) {
     // Show ALL focusFlightIds without filtering by current time - flights may pass through
     // a traffic volume at different times within the focus window, and we want to show
@@ -1143,8 +1142,8 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
-    // Always-false filter when nothing should be shown
-    filterExpr = ["==", 1, 0];
+    // Use a no-match predicate instead of a constant false expression for MapLibre filter compatibility.
+    filterExpr = ["==", ["to-string", ["get", "flightId"]], "__no_match__"];
   } else {
     // Robust membership check for a dynamic list of ids
     filterExpr = [
