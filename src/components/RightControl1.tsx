@@ -10,15 +10,16 @@ export default function RightControl1({ embedded = false }: RightControl1Props) 
   const {
     airspaceDisplayMode,
     selectedTrafficVolume,
+    selectedTrafficVolumes,
     selectedCollapsedSector,
-    setSelectedTrafficVolume,
+    clearSelectedTrafficVolumes,
     setSelectedCollapsedSector,
     setFocusMode,
     setFocusFlightIds,
   } = useSimStore();
 
   const handleClose = () => {
-    setSelectedTrafficVolume(null);
+    clearSelectedTrafficVolumes();
     setSelectedCollapsedSector(null);
     // Turn off focus mode and show all trajectories
     setFocusMode(false);
@@ -27,7 +28,7 @@ export default function RightControl1({ embedded = false }: RightControl1Props) 
     window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
   };
 
-  if (!selectedTrafficVolume && !selectedCollapsedSector) {
+  if (selectedTrafficVolumes.length === 0 && !selectedTrafficVolume && !selectedCollapsedSector) {
     return null;
   }
 

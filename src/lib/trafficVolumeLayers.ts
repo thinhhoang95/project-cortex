@@ -464,6 +464,36 @@ export function applyTrafficVolumeHighlight(
   }
 }
 
+export function applyTrafficVolumeHighlightList(
+  map: maplibregl.Map,
+  trafficVolumeIds: string[],
+  flLowerBound?: number,
+  flUpperBound?: number,
+  includeFlRange = false,
+): void {
+  const layers = [
+    TRAFFIC_VOLUME_LAYER_IDS.highlight,
+    TRAFFIC_VOLUME_LAYER_IDS.highlightOutline,
+    TRAFFIC_VOLUME_LAYER_IDS.pointHighlight,
+  ];
+  const normalizedIds = Array.from(
+    new Set((trafficVolumeIds || []).map((id) => String(id).trim()).filter(Boolean)),
+  );
+  const baseIdFilter: FilterSpecification = normalizedIds.length > 0
+    ? buildTrafficVolumeIdListFilter(
+        normalizedIds,
+        includeFlRange ? flLowerBound : undefined,
+        includeFlRange ? flUpperBound : undefined,
+      )
+    : ["==", ["get", "traffic_volume_id"], ""] as FilterSpecification;
+  for (const layerId of layers) {
+    if (!map.getLayer(layerId)) continue;
+    const baseFilter = getBaseFilterForLayer(layerId);
+    const merged = mergeFilters([baseFilter, baseIdFilter]);
+    map.setFilter(layerId, merged);
+  }
+}
+
 export function applyTrafficVolumeHover(
   map: maplibregl.Map,
   trafficVolumeId: string | null,

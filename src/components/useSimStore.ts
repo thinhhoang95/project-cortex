@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse, AlternativeRouteResponse, AlternativeRouteSegment } from "@/lib/models";
+import { toggleOrderedTrafficVolumes } from "@/lib/multiTrafficVolumeSelection";
 import {
   collectAllProposalFlights,
   collectProposalFlights,
@@ -39,6 +40,8 @@ interface HotspotResponse {
   };
   error?: string;
 }
+
+const MAX_SELECTED_TRAFFIC_VOLUMES = 5;
 
 // Utility function to parse time string (HH:MM) to seconds
 function parseTimeToSeconds(timeStr: string): number {
@@ -93,6 +96,7 @@ type State = {
   showTrafficVolumes: boolean;
   airspaceDisplayMode: "tv" | "es";
   selectedTrafficVolume: string | null;
+  selectedTrafficVolumes: string[];
   selectedTrafficVolumeData: { properties: SectorFeatureProps } | null;
   selectedCollapsedSector: string | null;
   selectedCollapsedSectorData: { properties: SectorFeatureProps } | null;
@@ -176,6 +180,8 @@ type State = {
   setShowTrafficVolumes: (show: boolean) => void;
   setAirspaceDisplayMode: (mode: "tv" | "es") => void;
   setSelectedTrafficVolume: (tv: string | null, tvData?: { properties: SectorFeatureProps } | null) => void;
+  toggleSelectedTrafficVolume: (tv: string, tvData?: { properties: SectorFeatureProps } | null) => { changed: boolean; reason?: "max_limit" };
+  clearSelectedTrafficVolumes: () => void;
   setSelectedCollapsedSector: (sectorId: string | null, sectorData?: { properties: SectorFeatureProps } | null) => void;
   setFlLowerBound: (fl: number) => void;
   setFlUpperBound: (fl: number) => void;
@@ -286,6 +292,7 @@ const defaultState: Pick<State,
   | 'showTrafficVolumes'
   | 'airspaceDisplayMode'
   | 'selectedTrafficVolume'
+  | 'selectedTrafficVolumes'
   | 'selectedTrafficVolumeData'
   | 'selectedCollapsedSector'
   | 'selectedCollapsedSectorData'
@@ -360,6 +367,7 @@ const defaultState: Pick<State,
   showTrafficVolumes: true,
   airspaceDisplayMode: "tv",
   selectedTrafficVolume: null,
+  selectedTrafficVolumes: [],
   selectedTrafficVolumeData: null,
   selectedCollapsedSector: null,
   selectedCollapsedSectorData: null,
@@ -423,6 +431,8 @@ const defaultState: Pick<State,
 };
 
 export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((set, get) => {
+  const selectedTvDataCache = new Map<string, { properties: SectorFeatureProps } | null>();
+
   const recomputePinnedFlights = (
     nextPinnedProposals: Set<string>,
     nextPinnedFlows: Set<string>
@@ -513,20 +523,74 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setShowTrafficVolumes: (show) => set({ showTrafficVolumes: show }),
   setAirspaceDisplayMode: (mode) => set({ airspaceDisplayMode: mode }),
   setSelectedTrafficVolume: (tv, tvData = null) => {
+    const nextTv = tv ? String(tv) : null;
+    if (nextTv) {
+      selectedTvDataCache.set(nextTv, tvData ?? null);
+    } else {
+      selectedTvDataCache.clear();
+    }
+    const nextSelectedTrafficVolumes = nextTv ? [nextTv] : [];
     // Selecting a traffic volume should open the Regulation panel in Regulations view
     // Clearing the selection should close it for consistency across views
     set({
-      selectedTrafficVolume: tv,
-      selectedTrafficVolumeData: tvData,
+      selectedTrafficVolume: nextTv,
+      selectedTrafficVolumes: nextSelectedTrafficVolumes,
+      selectedTrafficVolumeData: nextTv ? (tvData ?? null) : null,
       selectedCollapsedSector: null,
       selectedCollapsedSectorData: null,
-      isRegulationPanelOpen: !!tv,
+      isRegulationPanelOpen: !!nextTv,
+    });
+  },
+  toggleSelectedTrafficVolume: (tv, tvData = null) => {
+    const nextTv = String(tv ?? "").trim();
+    if (!nextTv) return { changed: false };
+    if (tvData !== undefined) {
+      selectedTvDataCache.set(nextTv, tvData ?? null);
+    }
+
+    const state = get();
+    const result = toggleOrderedTrafficVolumes(
+      state.selectedTrafficVolumes,
+      nextTv,
+      MAX_SELECTED_TRAFFIC_VOLUMES,
+    );
+    if (!result.changed) {
+      return { changed: false, reason: result.reason };
+    }
+
+    const nextPrimaryId = result.selectedTrafficVolumes[0] ?? null;
+    const nextPrimaryData = nextPrimaryId
+      ? (nextPrimaryId === nextTv
+          ? (tvData ?? selectedTvDataCache.get(nextPrimaryId) ?? null)
+          : (selectedTvDataCache.get(nextPrimaryId) ?? null))
+      : null;
+
+    set({
+      selectedTrafficVolumes: result.selectedTrafficVolumes,
+      selectedTrafficVolume: nextPrimaryId,
+      selectedTrafficVolumeData: nextPrimaryData,
+      selectedCollapsedSector: null,
+      selectedCollapsedSectorData: null,
+      isRegulationPanelOpen: !!nextPrimaryId,
+    });
+
+    return { changed: true };
+  },
+  clearSelectedTrafficVolumes: () => {
+    selectedTvDataCache.clear();
+    set({
+      selectedTrafficVolumes: [],
+      selectedTrafficVolume: null,
+      selectedTrafficVolumeData: null,
+      isRegulationPanelOpen: false,
     });
   },
   setSelectedCollapsedSector: (sectorId, sectorData = null) => {
+    selectedTvDataCache.clear();
     set({
       selectedCollapsedSector: sectorId,
       selectedCollapsedSectorData: sectorData,
+      selectedTrafficVolumes: [],
       selectedTrafficVolume: null,
       selectedTrafficVolumeData: null,
       isRegulationPanelOpen: false,
@@ -540,9 +604,12 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setFocusFlightIds: (flightIds) => set({ focusFlightIds: flightIds }),
   setSelectedFlightForAnalysis: (flightId) => {
     if (flightId) {
+      selectedTvDataCache.clear();
       set({
         selectedFlightForAnalysis: flightId,
+        selectedTrafficVolumes: [],
         selectedTrafficVolume: null,
+        selectedTrafficVolumeData: null,
         selectedCollapsedSector: null,
         selectedCollapsedSectorData: null,
         focusMode: true,
@@ -553,6 +620,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       });
       get().fetchAlternativeRoutes(flightId);
     } else {
+      selectedTvDataCache.clear();
       set({
         selectedFlightForAnalysis: null,
         alternativeRoutes: null,
@@ -560,6 +628,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
         isAlternativeRoutesPanelOpen: false,
         alternativeRoutesLoading: false,
         hoveredAlternativeRoute: null,
+        selectedTrafficVolumes: [],
+        selectedTrafficVolume: null,
+        selectedTrafficVolumeData: null,
         selectedCollapsedSector: null,
         selectedCollapsedSectorData: null,
         focusMode: false,
@@ -833,7 +904,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setDeltaMin: (delta) => set({ deltaMin: delta }),
   setViewOptionsMinimized: (minimized) => set({ viewOptionsMinimized: minimized }),
   // Reset all stateful values back to defaults (used on page navigation)
-  resetAll: () => set((state) => ({ ...defaultState, user: state.user }))
+  resetAll: () => {
+    selectedTvDataCache.clear();
+    set((state) => ({ ...defaultState, user: state.user }));
+  }
   ,
   // Target Cells actions
   addTargetCell: (trafficVolume: string, from: string, to: string) => {

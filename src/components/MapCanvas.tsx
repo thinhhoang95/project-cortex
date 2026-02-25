@@ -23,7 +23,7 @@ import {
   addTrafficVolumeSources,
   buildTrafficVolumeSources,
   applyTrafficVolumeFilters,
-  applyTrafficVolumeHighlight,
+  applyTrafficVolumeHighlightList,
   applyTrafficVolumeHover,
   applyTrafficVolumeHotspots,
   applyTrafficVolumeVisibility,
@@ -59,6 +59,7 @@ export default function MapCanvas() {
     setAirspaceDisplayMode,
     setFlights,
     setSelectedTrafficVolume,
+    toggleSelectedTrafficVolume,
     setSelectedCollapsedSector,
     flLowerBound,
     flUpperBound,
@@ -74,6 +75,7 @@ export default function MapCanvas() {
     showFlightLines,
     showWaypoints,
     selectedTrafficVolume,
+    selectedTrafficVolumes,
     selectedCollapsedSector,
   } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
@@ -82,7 +84,6 @@ export default function MapCanvas() {
 
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
-  const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
@@ -390,8 +391,7 @@ export default function MapCanvas() {
         });
         const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
         const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-        setSelectedTrafficVolume(trafficVolumeId, tvData);
-        setHighlightedTrafficVolume(prev => (prev === trafficVolumeId ? null : trafficVolumeId));
+        toggleSelectedTrafficVolume(trafficVolumeId, tvData);
       };
 
       const getTrafficVolumeIdFromEvent = (e: maplibregl.MapLayerMouseEvent) => {
@@ -410,7 +410,6 @@ export default function MapCanvas() {
             ? { properties: (feature.properties as any) as SectorFeatureProps }
             : null;
           setSelectedCollapsedSector(trafficVolumeId, collapsedSectorData);
-          setHighlightedTrafficVolume((prev) => (prev === trafficVolumeId ? null : trafficVolumeId));
           return;
         }
         selectTrafficVolume(trafficVolumeId);
@@ -650,7 +649,6 @@ export default function MapCanvas() {
     }
     setFocusMode(false);
     setFocusFlightIds(new Set());
-    setHighlightedTrafficVolume(null);
     setHoveredTrafficVolume(null);
   }, [airspaceDisplayMode, selectedTrafficVolume, setFocusMode, setFocusFlightIds, setSelectedTrafficVolume]);
 
@@ -696,12 +694,12 @@ export default function MapCanvas() {
   }, [airspaceDisplayMode, setAirspaceDisplayMode]);
 
 
-  // Update highlight layer when highlighted traffic volume changes
+  // Update selected highlight layers when selected traffic volume set changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyTrafficVolumeHighlight(map, highlightedTrafficVolume);
-  }, [highlightedTrafficVolume]);
+    applyTrafficVolumeHighlightList(map, selectedTrafficVolumes);
+  }, [selectedTrafficVolumes]);
 
   // Update hover layer when hovered traffic volume changes
   useEffect(() => {
@@ -722,7 +720,7 @@ export default function MapCanvas() {
   // Listen for dialog close events to clear highlighting
   useEffect(() => {
     const handleClearHighlight = () => {
-      setHighlightedTrafficVolume(null);
+      // Persistent selection highlight is store-driven; closing the panel clears selection.
     };
 
     window.addEventListener('clearTrafficVolumeHighlight', handleClearHighlight);
@@ -809,9 +807,6 @@ export default function MapCanvas() {
       }
 
       if (!tvId) return;
-
-      // Highlight the traffic volume (same as clicking on it)
-      setHighlightedTrafficVolume(tvId);
 
       const center = tvGeometry
         ? getTrafficVolumeCenter(tvGeometry)
