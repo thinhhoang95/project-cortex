@@ -15,7 +15,7 @@ import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
   applyTrafficVolumeFilters,
-  applyTrafficVolumeHighlight,
+  applyTrafficVolumeHighlightList,
   applyTrafficVolumeHover,
   applyTrafficVolumeHotspots,
   applyTrafficVolumeVisibility,
@@ -29,14 +29,22 @@ export default function FlowCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showTrafficVolumes, setFlights, setSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, regulationTargetFlightIds, regulationPreviewActive, proposalPreviewActive, proposalPreviewFlightIds, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume } = useSimStore();
+  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showTrafficVolumes, setFlights, setSelectedTrafficVolume, toggleSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, regulationTargetFlightIds, regulationPreviewActive, proposalPreviewActive, proposalPreviewFlightIds, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedTrafficVolumes } = useSimStore();
 
-  const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   const theme = useThemeStore((state) => state.theme);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
+  const selectedTvHighlightIds = useMemo(
+    () =>
+      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
+        ? selectedTrafficVolumes
+        : selectedTrafficVolume
+          ? [selectedTrafficVolume]
+          : [],
+    [selectedTrafficVolumes, selectedTrafficVolume],
+  );
 
   // init map
   useEffect(() => {
@@ -138,8 +146,7 @@ export default function FlowCanvas() {
           const sectorFeatures = map.querySourceFeatures('sectors', { filter: ['==', 'traffic_volume_id', trafficVolumeId] });
           const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
           const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-          setSelectedTrafficVolume(trafficVolumeId, tvData);
-          setHighlightedTrafficVolume(prev => prev === trafficVolumeId ? null : trafficVolumeId);
+          toggleSelectedTrafficVolume(trafficVolumeId, tvData);
         };
 
         const pickClosestTrafficVolumeId = (e: maplibregl.MapLayerMouseEvent) => {
@@ -266,10 +273,10 @@ export default function FlowCanvas() {
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewGroupId]);
 
   // Refresh filters on focus/visibility/selection changes
-  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, selectedTrafficVolumes, showFlightLines]);
 
   // When flow view state changes, update rendering
-  useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes]);
+  useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes, selectedTrafficVolumes]);
 
   // Ensure filters also react to flow mapping toggles (e.g., Flow Basket eye button)
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
@@ -360,8 +367,8 @@ export default function FlowCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyTrafficVolumeHighlight(map, highlightedTrafficVolume, flLowerBound, flUpperBound, true);
-  }, [highlightedTrafficVolume, flLowerBound, flUpperBound]);
+    applyTrafficVolumeHighlightList(map, selectedTvHighlightIds, flLowerBound, flUpperBound, true);
+  }, [selectedTvHighlightIds, flLowerBound, flUpperBound]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -377,15 +384,6 @@ export default function FlowCanvas() {
     const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
     applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
   }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
-
-  // Listen for dialog close events to clear highlighting
-  useEffect(() => {
-    const handleClearHighlight = () => {
-      setHighlightedTrafficVolume(null);
-    };
-    window.addEventListener('clearTrafficVolumeHighlight', handleClearHighlight);
-    return () => { window.removeEventListener('clearTrafficVolumeHighlight', handleClearHighlight); };
-  }, []);
 
   // Listen for traffic volume search selection events to pan and select
   useEffect(() => {
@@ -409,7 +407,6 @@ export default function FlowCanvas() {
       const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
       const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
       setSelectedTrafficVolume(tvId, tvData);
-      setHighlightedTrafficVolume(tvId);
       const center = tvGeometry
         ? getTrafficVolumeCenter(tvGeometry)
         : getTrafficVolumeCenterFromMap(map, tvId);
@@ -419,7 +416,7 @@ export default function FlowCanvas() {
     };
     window.addEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect);
     return () => { window.removeEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect); };
-  }, []);
+  }, [setSelectedTrafficVolume]);
 
   // (Slack overlay removed in FlowCanvas)
 
@@ -612,7 +609,13 @@ function updateFlowRendering(map: maplibregl.Map | null) {
       const activeHotspots = sim.getActiveHotspots ? sim.getActiveHotspots() : [];
       const hotspotIds = activeHotspots.map((h: any) => String(h.traffic_volume_id));
       const allowedIds: string[] = [];
-      if (sim.selectedTrafficVolume) allowedIds.push(String(sim.selectedTrafficVolume));
+      const selectedTvIds = Array.isArray(sim.selectedTrafficVolumes) && sim.selectedTrafficVolumes.length > 0
+        ? sim.selectedTrafficVolumes
+        : (sim.selectedTrafficVolume ? [sim.selectedTrafficVolume] : []);
+      for (const tvId of selectedTvIds) {
+        const normalized = String(tvId);
+        if (!allowedIds.includes(normalized)) allowedIds.push(normalized);
+      }
       for (const id of hotspotIds) if (!allowedIds.includes(id)) allowedIds.push(id);
 
       if (allowedIds.length === 0) {

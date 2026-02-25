@@ -128,6 +128,36 @@ export default function MultiSelectWithChips({
           requestAnimationFrame(() => inputRef.current?.focus());
         }}
       >
+        <svg
+          className="w-5 h-5 text-white/60 flex-shrink-0"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            fillRule="evenodd"
+            d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
+            clipRule="evenodd"
+          />
+        </svg>
+        {selectedOptions.map((opt) => (
+          <span
+            key={opt.id}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white/20 border border-white/30"
+            title={opt.description || opt.label}
+          >
+            <span className="font-mono">{opt.id}</span>
+            <button
+              type="button"
+              className="hover:text-red-200"
+              onClick={(e) => { e.stopPropagation(); remove(opt.id); }}
+              aria-label={`Remove ${opt.label}`}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
         <input
           ref={inputRef}
           value={query}
@@ -149,40 +179,6 @@ export default function MultiSelectWithChips({
           disabled={disabled}
           className="flex-1 min-w-[80px] bg-transparent outline-none text-sm text-white placeholder-white/60 text-[12pt]"
         />
-        <svg
-          className="w-5 h-5 text-white/60 flex-shrink-0"
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path
-            fillRule="evenodd"
-            d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
-            clipRule="evenodd"
-          />
-        </svg>
-        {selectedOptions.length > 0 ? (
-          selectedOptions.map((opt) => (
-            <span
-              key={opt.id}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white/20 border border-white/30"
-              title={opt.description || opt.label}
-            >
-              <span className="font-mono">{opt.id}</span>
-              <button
-                type="button"
-                className="hover:text-red-200"
-                onClick={(e) => { e.stopPropagation(); remove(opt.id); }}
-                aria-label={`Remove ${opt.label}`}
-              >
-                ✕
-              </button>
-            </span>
-          ))
-        ) : (
-          <span className="text-white/60 text-sm ml-1"></span>
-        )}
         {selectedIds.length > 0 && (
           <button
             type="button"

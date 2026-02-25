@@ -146,15 +146,21 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     const handler = (e: any) => {
       try {
         const detail = (e && e.detail) || {};
-        const tv = detail?.trafficVolume != null ? String(detail.trafficVolume) : "";
+        const incomingTrafficVolumes = Array.isArray(detail?.trafficVolumes)
+          ? detail.trafficVolumes.map((tv: unknown) => String(tv ?? "").trim()).filter(Boolean)
+          : [];
+        const legacyTv = detail?.trafficVolume != null ? String(detail.trafficVolume).trim() : "";
+        const trafficVolumes = incomingTrafficVolumes.length > 0
+          ? incomingTrafficVolumes
+          : (legacyTv ? [legacyTv] : []);
         const newFrom: number = Number(detail?.from);
         const newTo: number = Number(detail?.to);
-        if (!tv || !Number.isFinite(newFrom) || !Number.isFinite(newTo)) return;
+        if (trafficVolumes.length === 0 || !Number.isFinite(newFrom) || !Number.isFinite(newTo)) return;
 
-        // Add TV to selection (dedup)
+        // Add TVs to selection (dedup) while preserving current order, then incoming order
         setSelectedTVs((prev) => {
           const s = new Set(prev.map(String));
-          s.add(tv);
+          for (const tv of trafficVolumes) s.add(tv);
           return Array.from(s);
         });
 

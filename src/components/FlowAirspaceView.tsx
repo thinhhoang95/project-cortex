@@ -13,12 +13,60 @@ import { toTimeWindow } from "@/lib/regulationProposals";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import {
+  compareIntersectionFlightRows,
+  intersectStringSets,
+  type FlightSortMetric,
+} from "@/lib/airspaceInfoMultiTv";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
+const MAX_VISIBLE = 20;
+const MAX_FLIGHT_ROWS = 500;
+
+interface FlightIdentifiersData {
+  [timeWindow: string]: string[];
+}
+
+interface OrderedFlightsData {
+  traffic_volume_id: string;
+  ref_time_str: string;
+  ordered_flights: string[];
+  details: {
+    flight_id: string;
+    arrival_time: string;
+    arrival_seconds: number;
+    delta_seconds: number;
+    time_window: string;
+    dwell_seconds?: number | null;
+  }[];
+}
+
+type TvFlightsPayload =
+  | { kind: "ordered"; data: OrderedFlightsData }
+  | { kind: "legacy"; data: FlightIdentifiersData };
+
+type TvFlightCell = {
+  arrivalTime: string;
+  dwellSeconds: number | null;
+  arrivalSeconds: number | null;
+  deltaSeconds: number | null;
+  windowStartSeconds: number | null;
+};
+
+type FlightRow = {
+  flightId: string;
+  callsign: string;
+  origin: string;
+  destination: string;
+  takeoffTime: string;
+  perTv: Record<string, TvFlightCell>;
+  sortMetric: FlightSortMetric;
+};
 
 export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewProps) {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumes,
     selectedTrafficVolumeData,
     t,
     flights,
@@ -35,7 +83,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     regulationTimeWindow,
     setRegulationTimeWindow,
     setRegulationRate,
-    setSelectedTrafficVolume,
+    clearSelectedTrafficVolumes,
     setIsRegulationPanelOpen,
     regulationEditPayload,
     setRegulationEditPayload,
@@ -49,6 +97,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setFlowCommunities,
     setFlowLoading,
     setFlowError,
+    setFlowPreviewGroupId,
     setFlowPreviewFlightId,
     addFlowBasketWithPeriod,
     addTargetCells
@@ -61,13 +110,37 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const [currentCount, setCurrentCount] = useState<number>(0);
   const [currentAnchorCapacity, setCurrentAnchorCapacity] = useState<number | null>(null);
   const [occupancyData, setOccupancyData] = useState<any | null>(null);
-  const [flightIdentifiersData, setFlightIdentifiersData] = useState<Record<string, string[]> | null>(null);
-  const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
+  const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
+  const [orderedFlightsData, setOrderedFlightsData] = useState<OrderedFlightsData | null>(null);
+  const [primaryFlightDataTvId, setPrimaryFlightDataTvId] = useState<string | null>(null);
+  const [secondaryFlightDataByTv, setSecondaryFlightDataByTv] = useState<Record<string, TvFlightsPayload>>({});
+  const [secondaryFlightListLoading, setSecondaryFlightListLoading] = useState(false);
+  const [secondaryFlightListError, setSecondaryFlightListError] = useState<string | null>(null);
   const [flightListLoading, setFlightListLoading] = useState(false);
   const [flightListError, setFlightListError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const MAX_VISIBLE = 20;
   const [proposalTriggerError, setProposalTriggerError] = useState<string | null>(null);
+  const selectedTvIds = useMemo(() => {
+    const source =
+      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
+        ? selectedTrafficVolumes
+        : selectedTrafficVolume
+          ? [selectedTrafficVolume]
+          : [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of source) {
+      const id = String(raw ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }, [selectedTrafficVolumes, selectedTrafficVolume]);
+  const selectedTvKey = selectedTvIds.join("|");
+  const primaryTvId = selectedTvIds[0] ?? null;
+  const secondaryTvIds = useMemo(() => selectedTvIds.slice(1), [selectedTvIds]);
+  const isMultiTv = selectedTvIds.length > 1;
   const flightLevelRange = formatFlightLevelRange(
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
@@ -118,9 +191,19 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   useEffect(() => {
     let cancelled = false;
     async function loadFlights() {
-      if (!selectedTrafficVolume) { setFlightIdentifiersData(null); setOrderedFlightsData(null); return; }
+      if (!selectedTrafficVolume) {
+        setFlightIdentifiersData(null);
+        setOrderedFlightsData(null);
+        setPrimaryFlightDataTvId(null);
+        setFlightListLoading(false);
+        setFlightListError(null);
+        return;
+      }
       setFlightListLoading(true);
       setFlightListError(null);
+      setFlightIdentifiersData(null);
+      setOrderedFlightsData(null);
+      setPrimaryFlightDataTvId(null);
       try {
         const ref = formatTimeForAPI(t);
         const res = await authFetch(`/api/tv_flights?traffic_volume_id=${selectedTrafficVolume}&ref_time_str=${ref}`);
@@ -128,16 +211,20 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         const data = await res.json();
         if (cancelled) return;
         if (data.ordered_flights && data.details) {
-          setOrderedFlightsData(data);
+          setOrderedFlightsData(data as OrderedFlightsData);
           setFlightIdentifiersData(null);
         } else {
-          setFlightIdentifiersData(data);
+          setFlightIdentifiersData(data as FlightIdentifiersData);
           setOrderedFlightsData(null);
         }
+        setPrimaryFlightDataTvId(String(selectedTrafficVolume));
       } catch (e: any) {
-        if (!cancelled) setFlightListError(e?.message || 'Failed to fetch flight identifiers');
-        setFlightIdentifiersData(null);
-        setOrderedFlightsData(null);
+        if (!cancelled) {
+          setFlightListError(e?.message || 'Failed to fetch flight identifiers');
+          setFlightIdentifiersData(null);
+          setOrderedFlightsData(null);
+          setPrimaryFlightDataTvId(null);
+        }
       } finally {
         if (!cancelled) setFlightListLoading(false);
       }
@@ -146,10 +233,56 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     return () => { cancelled = true; };
   }, [selectedTrafficVolume, t]);
 
+  // Load secondary TV memberships/details to support multi-TV intersection rows
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSecondaryFlights() {
+      if (!primaryTvId || secondaryTvIds.length === 0) {
+        setSecondaryFlightDataByTv({});
+        setSecondaryFlightListLoading(false);
+        setSecondaryFlightListError(null);
+        return;
+      }
+
+      setSecondaryFlightListLoading(true);
+      setSecondaryFlightListError(null);
+      setSecondaryFlightDataByTv({});
+
+      try {
+        const ref = formatTimeForAPI(t);
+        const entries = await Promise.all(
+          secondaryTvIds.map(async (tvId) => {
+            const res = await authFetch(`/api/tv_flights?traffic_volume_id=${encodeURIComponent(tvId)}&ref_time_str=${encodeURIComponent(ref)}`);
+            if (!res.ok) throw new Error(`Failed to fetch flights for ${tvId}`);
+            const data = await res.json();
+            const payload: TvFlightsPayload = data.ordered_flights && data.details
+              ? { kind: "ordered", data: data as OrderedFlightsData }
+              : { kind: "legacy", data: data as FlightIdentifiersData };
+            return [tvId, payload] as const;
+          }),
+        );
+        if (cancelled) return;
+        setSecondaryFlightDataByTv(Object.fromEntries(entries));
+      } catch (e: any) {
+        if (!cancelled) {
+          setSecondaryFlightListError(e?.message || "Failed to fetch intersecting flight data");
+          setSecondaryFlightDataByTv({});
+        }
+      } finally {
+        if (!cancelled) setSecondaryFlightListLoading(false);
+      }
+    }
+    loadSecondaryFlights();
+    return () => { cancelled = true; };
+  }, [primaryTvId, selectedTvKey, secondaryTvIds, t]);
+
   // Clear single-flight preview on unmount
   useEffect(() => {
-    return () => { setFlowPreviewFlightId(null); };
-  }, [setFlowPreviewFlightId]);
+    return () => {
+      setFlowPreviewGroupId(null);
+      setFlowPreviewFlightId(null);
+    };
+  }, [setFlowPreviewGroupId, setFlowPreviewFlightId]);
 
   const timeBinMinutes = useMemo(
     () => inferTimeBinMinutesFromData(occupancyData),
@@ -171,7 +304,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
   useEffect(() => {
     setProposalTriggerError(null);
-  }, [selectedTrafficVolume, regulationTimeWindow[0], regulationTimeWindow[1]]);
+  }, [selectedTvKey, regulationTimeWindow[0], regulationTimeWindow[1]]);
 
   // Build histogram data (rolling hour), then filter to active time window
   const baseChartData: Array<{ time: string; count: number; hour: number; capacity?: number }> = useMemo(() => {
@@ -295,121 +428,274 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     ? `${Math.round(windowAnchorCapacityRange.min)}–${Math.round(windowAnchorCapacityRange.max)}`
     : null;
 
-  // Compute filtered flights for active time window, and apply focus filter on the map
-  const filteredFlightIds = useMemo(() => {
-    const [from, to] = regulationTimeWindow;
-    const set = new Set<string>();
-    if (orderedFlightsData?.details) {
-      orderedFlightsData.details.forEach((d: any) => {
-        if (d.arrival_seconds >= from && d.arrival_seconds <= to) set.add(String(d.flight_id));
-      });
-    } else if (flightIdentifiersData) {
-      Object.entries(flightIdentifiersData).forEach(([timeWindow, ids]) => {
-        const [startTime] = timeWindow.split('-');
-        const [hours, minutes] = startTime.split(':').map(Number);
-        const startSec = hours * 3600 + minutes * 60;
-        if (startSec >= from && startSec <= to) ids.forEach(id => set.add(String(id)));
-      });
+  const primaryFlightPayload = useMemo<TvFlightsPayload | null>(() => {
+    if (!primaryTvId || primaryFlightDataTvId !== primaryTvId) return null;
+    if (orderedFlightsData && orderedFlightsData.details) {
+      return { kind: "ordered", data: orderedFlightsData };
     }
-    return set;
-  }, [orderedFlightsData, flightIdentifiersData, regulationTimeWindow]);
+    if (flightIdentifiersData) {
+      return { kind: "legacy", data: flightIdentifiersData };
+    }
+    return null;
+  }, [primaryTvId, primaryFlightDataTvId, orderedFlightsData, flightIdentifiersData]);
+
+  const hasPrimaryOrderedFlights = primaryFlightPayload?.kind === "ordered";
+  const secondaryFlightDataReady = useMemo(
+    () => secondaryTvIds.every((tvId) => Object.prototype.hasOwnProperty.call(secondaryFlightDataByTv, tvId)),
+    [secondaryTvIds, secondaryFlightDataByTv],
+  );
+  const isFlightListLoading = flightListLoading || (secondaryTvIds.length > 0 && secondaryFlightListLoading);
+  const effectiveFlightListError = flightListError || secondaryFlightListError;
+
+  const flightsById = useMemo(() => {
+    const map = new Map<string, (typeof flights)[number]>();
+    for (const flight of flights || []) {
+      map.set(String(flight.flightId), flight);
+    }
+    return map;
+  }, [flights]);
+
+  const flightTableData = useMemo<FlightRow[]>(() => {
+    if (!primaryTvId) return [];
+    if (effectiveFlightListError) return [];
+    if (!primaryFlightPayload) return [];
+    if (secondaryTvIds.length > 0 && !secondaryFlightDataReady) return [];
+
+    const [from, to] = regulationTimeWindow;
+
+    const buildPrimaryRows = (): FlightRow[] => {
+      if (primaryFlightPayload.kind === "ordered") {
+        return (primaryFlightPayload.data.details || [])
+          .filter((detail) => typeof detail.arrival_seconds === "number" && detail.arrival_seconds >= from && detail.arrival_seconds <= to)
+          .sort((a, b) => Math.abs(a.delta_seconds || 0) - Math.abs(b.delta_seconds || 0))
+          .map((detail) => {
+            const fid = String(detail.flight_id);
+            const fullFlight = flightsById.get(fid);
+            const arrivalSeconds = typeof detail.arrival_seconds === "number" && Number.isFinite(detail.arrival_seconds)
+              ? detail.arrival_seconds
+              : (detail.arrival_time ? parseHHMMSSToSeconds(detail.arrival_time) : null);
+            const deltaSeconds = typeof detail.delta_seconds === "number" && Number.isFinite(detail.delta_seconds)
+              ? detail.delta_seconds
+              : null;
+            const windowStartSeconds = parseTimeWindowStartSeconds(detail.time_window);
+            const primaryCell: TvFlightCell = {
+              arrivalTime: detail.arrival_time || "N/A",
+              dwellSeconds: detail.dwell_seconds ?? null,
+              arrivalSeconds,
+              deltaSeconds,
+              windowStartSeconds,
+            };
+            return {
+              flightId: fid,
+              callsign: fullFlight?.callSign || "N/A",
+              origin: fullFlight?.origin || "N/A",
+              destination: fullFlight?.destination || "N/A",
+              takeoffTime: fullFlight ? formatTime(fullFlight.t0) : "N/A",
+              perTv: { [primaryTvId]: primaryCell },
+              sortMetric: {
+                flightId: fid,
+                perTv: {
+                  [primaryTvId]: {
+                    arrivalSeconds: primaryCell.arrivalSeconds,
+                    deltaSeconds: primaryCell.deltaSeconds,
+                    windowStartSeconds: primaryCell.windowStartSeconds,
+                  },
+                },
+              },
+            };
+          });
+      }
+
+      const candidates: Array<{ flightId: string; windowStartSeconds: number | null }> = [];
+      const seen = new Set<string>();
+      for (const [timeWindow, ids] of Object.entries(primaryFlightPayload.data || {})) {
+        const startSeconds = parseTimeWindowStartSeconds(timeWindow);
+        if (startSeconds === null || startSeconds < from || startSeconds > to) continue;
+        for (const rawId of ids || []) {
+          const fid = String(rawId);
+          if (!fid || seen.has(fid)) continue;
+          seen.add(fid);
+          candidates.push({ flightId: fid, windowStartSeconds: startSeconds });
+        }
+      }
+      candidates.sort((a, b) => {
+        const aStart = a.windowStartSeconds ?? Number.POSITIVE_INFINITY;
+        const bStart = b.windowStartSeconds ?? Number.POSITIVE_INFINITY;
+        if (aStart !== bStart) return aStart - bStart;
+        return a.flightId.localeCompare(b.flightId);
+      });
+
+      return candidates.map((candidate) => {
+        const fullFlight = flightsById.get(candidate.flightId);
+        const primaryCell: TvFlightCell = {
+          arrivalTime: "N/A",
+          dwellSeconds: null,
+          arrivalSeconds: null,
+          deltaSeconds: null,
+          windowStartSeconds: candidate.windowStartSeconds,
+        };
+        return {
+          flightId: candidate.flightId,
+          callsign: fullFlight?.callSign || "N/A",
+          origin: fullFlight?.origin || "N/A",
+          destination: fullFlight?.destination || "N/A",
+          takeoffTime: fullFlight ? formatTime(fullFlight.t0) : "N/A",
+          perTv: { [primaryTvId]: primaryCell },
+          sortMetric: {
+            flightId: candidate.flightId,
+            perTv: {
+              [primaryTvId]: {
+                arrivalSeconds: null,
+                deltaSeconds: null,
+                windowStartSeconds: candidate.windowStartSeconds,
+              },
+            },
+          },
+        };
+      });
+    };
+
+    const primaryRows = buildPrimaryRows();
+    if (primaryRows.length === 0) return [];
+    if (secondaryTvIds.length === 0) return primaryRows.slice(0, MAX_FLIGHT_ROWS);
+
+    const secondaryMembershipSets: Array<Set<string>> = [];
+    const orderedDetailMapByTv: Record<string, Map<string, OrderedFlightsData["details"][number]>> = {};
+    const legacyWindowStartByTv: Record<string, Map<string, number | null>> = {};
+
+    for (const tvId of secondaryTvIds) {
+      const payload = secondaryFlightDataByTv[tvId];
+      if (!payload) return [];
+
+      if (payload.kind === "ordered") {
+        const membership = new Set<string>();
+        for (const fid of payload.data.ordered_flights || []) membership.add(String(fid));
+        if (membership.size === 0) {
+          for (const detail of payload.data.details || []) membership.add(String(detail.flight_id));
+        }
+        secondaryMembershipSets.push(membership);
+
+        const detailMap = new Map<string, OrderedFlightsData["details"][number]>();
+        for (const detail of payload.data.details || []) {
+          detailMap.set(String(detail.flight_id), detail);
+        }
+        orderedDetailMapByTv[tvId] = detailMap;
+      } else {
+        const membership = new Set<string>();
+        const startMap = new Map<string, number | null>();
+        for (const [timeWindow, ids] of Object.entries(payload.data || {})) {
+          const startSeconds = parseTimeWindowStartSeconds(timeWindow);
+          for (const rawId of ids || []) {
+            const fid = String(rawId);
+            membership.add(fid);
+            if (!startMap.has(fid)) startMap.set(fid, startSeconds);
+          }
+        }
+        secondaryMembershipSets.push(membership);
+        legacyWindowStartByTv[tvId] = startMap;
+      }
+    }
+
+    const primaryMembershipSet = new Set(primaryRows.map((row) => String(row.flightId)));
+    const intersectionSet = intersectStringSets([primaryMembershipSet, ...secondaryMembershipSets]);
+
+    const rows = primaryRows
+      .filter((row) => intersectionSet.has(String(row.flightId)))
+      .map((row) => {
+        const nextPerTv: Record<string, TvFlightCell> = { ...row.perTv };
+        const nextSortPerTv: FlightSortMetric["perTv"] = { ...row.sortMetric.perTv };
+
+        for (const tvId of secondaryTvIds) {
+          const payload = secondaryFlightDataByTv[tvId];
+          if (!payload) continue;
+
+          if (payload.kind === "ordered") {
+            const detail = orderedDetailMapByTv[tvId]?.get(String(row.flightId));
+            const arrivalSeconds = detail && typeof detail.arrival_seconds === "number" && Number.isFinite(detail.arrival_seconds)
+              ? detail.arrival_seconds
+              : null;
+            const deltaSeconds = detail && typeof detail.delta_seconds === "number" && Number.isFinite(detail.delta_seconds)
+              ? detail.delta_seconds
+              : null;
+            const windowStartSeconds = detail?.time_window ? parseTimeWindowStartSeconds(detail.time_window) : null;
+            nextPerTv[tvId] = {
+              arrivalTime: detail?.arrival_time || "N/A",
+              dwellSeconds: detail?.dwell_seconds ?? null,
+              arrivalSeconds,
+              deltaSeconds,
+              windowStartSeconds,
+            };
+            nextSortPerTv[tvId] = { arrivalSeconds, deltaSeconds, windowStartSeconds };
+          } else {
+            const windowStartSeconds = legacyWindowStartByTv[tvId]?.get(String(row.flightId)) ?? null;
+            nextPerTv[tvId] = {
+              arrivalTime: "N/A",
+              dwellSeconds: null,
+              arrivalSeconds: null,
+              deltaSeconds: null,
+              windowStartSeconds,
+            };
+            nextSortPerTv[tvId] = {
+              arrivalSeconds: null,
+              deltaSeconds: null,
+              windowStartSeconds,
+            };
+          }
+        }
+
+        return {
+          ...row,
+          perTv: nextPerTv,
+          sortMetric: {
+            flightId: row.flightId,
+            perTv: nextSortPerTv,
+          },
+        };
+      });
+
+    rows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
+    return rows.slice(0, MAX_FLIGHT_ROWS);
+  }, [
+    primaryTvId,
+    regulationTimeWindow,
+    effectiveFlightListError,
+    primaryFlightPayload,
+    secondaryTvIds,
+    secondaryFlightDataReady,
+    secondaryFlightDataByTv,
+    flightsById,
+  ]);
+
+  const filteredFlightIds = useMemo(() => {
+    return new Set(flightTableData.map((row) => String(row.flightId)));
+  }, [flightTableData]);
 
   // Apply focus mode and ids to filter map to only those flights
   useEffect(() => {
-    if (!selectedTrafficVolume) return;
+    if (!primaryTvId) return;
     const currentIds = useSimStore.getState().focusFlightIds;
     const same = areSetsEqual(currentIds, filteredFlightIds);
     if (!same) setFocusFlightIds(filteredFlightIds);
     if (!focusMode) setFocusMode(true);
-  }, [filteredFlightIds, selectedTrafficVolume, setFocusFlightIds, focusMode, setFocusMode]);
-
-  // Build flight table data for the current window (similar to AirspaceInfo)
-  type FlightRow = {
-    flightId: string;
-    callsign: string;
-    origin: string;
-    destination: string;
-    takeoffTime: string;
-    arrivalTime?: string;
-    deltaSeconds?: number;
-    dwellSeconds?: number | null;
-  };
-  const flightTableData = useMemo<FlightRow[]>(() => {
-    if (flights.length === 0) return [] as Array<{
-      flightId: string;
-      callsign: string;
-      origin: string;
-      destination: string;
-      takeoffTime: string;
-      arrivalTime?: string;
-      deltaSeconds?: number;
-    }>;
-    const [from, to] = regulationTimeWindow;
-    // Prefer ordered format for richer details and ordering
-    if (orderedFlightsData && orderedFlightsData.details) {
-      const rows = orderedFlightsData.details
-        .filter((d: any) => typeof d.arrival_seconds === 'number' && d.arrival_seconds >= from && d.arrival_seconds <= to)
-        .sort((a: any, b: any) => Math.abs(a.delta_seconds || 0) - Math.abs(b.delta_seconds || 0))
-        .slice(0, 500)
-        .map((d: any) => {
-          const fid = String(d.flight_id);
-          const f = flights.find(ff => String(ff.flightId) === fid);
-          return {
-            flightId: fid,
-            callsign: f?.callSign || 'N/A',
-            origin: f?.origin || 'N/A',
-            destination: f?.destination || 'N/A',
-            takeoffTime: f ? formatTime(f.t0) : 'N/A',
-            arrivalTime: d.arrival_time || 'N/A',
-            deltaSeconds: d.delta_seconds || 0,
-            dwellSeconds: d.dwell_seconds ?? null,
-          };
-        });
-      return rows;
-    }
-    // Legacy fallback: use filteredFlightIds to gather flights roughly in the window
-    const rows = Array.from(filteredFlightIds).map((fid) => {
-      const f = flights.find(ff => String(ff.flightId) === String(fid));
-      return {
-        flightId: String(fid),
-        callsign: f?.callSign || 'N/A',
-        origin: f?.origin || 'N/A',
-        destination: f?.destination || 'N/A',
-        takeoffTime: f ? formatTime(f.t0) : 'N/A',
-        arrivalTime: 'N/A',
-        deltaSeconds: 0,
-        dwellSeconds: null,
-      };
-    }).slice(0, 500);
-    return rows;
-  }, [flights, orderedFlightsData, filteredFlightIds, regulationTimeWindow]);
+  }, [filteredFlightIds, primaryTvId, setFocusFlightIds, focusMode, setFocusMode]);
 
   // Arrival-time distribution for HourGlass (based on rows shown)
   const hourGlassData = useMemo(() => {
-    if (orderedFlightsData && orderedFlightsData.details && flightTableData.length > 0) {
-      const want = new Set(flightTableData.map((r: FlightRow) => String(r.flightId)));
-      const arr: string[] = [];
-      for (const d of orderedFlightsData.details) {
-        const fid = String(d.flight_id);
-        if (want.has(fid) && d.arrival_time) arr.push(String(d.arrival_time));
+    if (!primaryTvId || flightTableData.length === 0) return [] as string[];
+    const arr: string[] = [];
+    for (const row of flightTableData) {
+      const cell = row.perTv[primaryTvId];
+      if (!cell) continue;
+      if (cell.arrivalTime && cell.arrivalTime !== "N/A") {
+        arr.push(String(cell.arrivalTime));
+        continue;
       }
-      return arr;
+      if (typeof cell.windowStartSeconds === "number" && Number.isFinite(cell.windowStartSeconds)) {
+        arr.push(formatTime(cell.windowStartSeconds));
+      }
     }
-    if (flightIdentifiersData && flightTableData.length > 0) {
-      const idToStart = new Map<string, string>();
-      for (const [timeWindow, ids] of Object.entries(flightIdentifiersData)) {
-        const start = String(timeWindow.split('-')[0] || '').trim();
-        for (const id of ids) if (!idToStart.has(String(id))) idToStart.set(String(id), start);
-      }
-      const arr: string[] = [];
-      for (const row of flightTableData) {
-        const s = idToStart.get(String(row.flightId));
-        if (s) arr.push(s);
-      }
-      return arr;
-    }
-    return [] as string[];
-  }, [orderedFlightsData, flightIdentifiersData, flightTableData]);
+    return arr;
+  }, [primaryTvId, flightTableData]);
 
   // Derive visible rows and publish visible IDs for bulk actions (e.g., "all")
   const visibleRows = useMemo(() => {
@@ -433,7 +719,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   // Reset expansion when dataset changes
   useEffect(() => {
     setExpanded(false);
-  }, [selectedTrafficVolume, regulationTimeWindow[0], regulationTimeWindow[1]]);
+  }, [selectedTvKey, regulationTimeWindow[0], regulationTimeWindow[1]]);
 
   // time window presets
   const presets = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h", "2h30", "3h", "3h30", "4h"];
@@ -483,15 +769,16 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setQueryDialogOpen(false);
     const unique = Array.from(new Set((ids || []).map(id => String(id).trim()).filter(Boolean)));
     if (unique.length === 0) return;
+    if (!primaryTvId) return;
     const [fromSeconds, toSeconds] = regulationTimeWindow;
     const fromLabel = secondsToDayTimeString(fromSeconds);
     const toLabel = secondsToDayTimeString(toSeconds);
-    const flowName = `TV ${selectedTrafficVolume} ${fromLabel}-${toLabel}`;
+    const flowName = `TV ${primaryTvId} ${fromLabel}-${toLabel}`;
     addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
-    if (selectedTrafficVolume) {
-      addTargetCells([String(selectedTrafficVolume)], fromLabel, toLabel);
+    if (selectedTvIds.length > 0) {
+      addTargetCells(selectedTvIds.map(String), fromLabel, toLabel);
     }
-  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, selectedTrafficVolume]);
+  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, primaryTvId, selectedTvIds]);
 
   // Listen for map flight clicks to add to list
   useEffect(() => {
@@ -507,10 +794,15 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
   // Flow Control: request community assignments for visible arrivals
   async function requestFlowExtraction() {
-    if (!selectedTrafficVolume) return;
-    const ids = Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : [];
+    if (!primaryTvId) return;
+    const ids = Array.from(new Set((Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : []).map((id) => String(id)).filter(Boolean)));
     if (ids.length === 0) {
-      setFlowError('No flights available to extract flows.');
+      setFlowCommunities(null, null);
+      setFlowPreviewGroupId(null);
+      setFlowPreviewFlightId(null);
+      setFlowError(isMultiTv
+        ? 'No intersecting flights available across selected traffic volumes.'
+        : 'No flights available to extract flows.');
       return;
     }
     setFlowLoading(true);
@@ -518,7 +810,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     try {
       const ref = formatTimeForAPI(t);
       const params = new URLSearchParams({
-        traffic_volume_id: String(selectedTrafficVolume),
+        traffic_volume_id: String(primaryTvId),
         ref_time_str: String(ref),
         threshold: String(flowThreshold),
         resolution: String(flowResolution),
@@ -532,9 +824,15 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         setFlowCommunities(data.communities, data.groups || null);
         setFlowViewEnabled(true);
       } else {
+        setFlowCommunities(null, null);
+        setFlowPreviewGroupId(null);
+        setFlowPreviewFlightId(null);
         setFlowError('Flow extraction returned no communities.');
       }
     } catch (e: any) {
+      setFlowCommunities(null, null);
+      setFlowPreviewGroupId(null);
+      setFlowPreviewFlightId(null);
       setFlowError(e?.message || 'Failed to extract flows');
     } finally {
       setFlowLoading(false);
@@ -546,13 +844,13 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     if (!flowViewEnabled) return;
     requestFlowExtraction();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowThreshold, flowResolution, selectedTrafficVolume, t, regulationListedFlightIds]);
+  }, [flowThreshold, flowResolution, selectedTvKey, t, regulationListedFlightIds]);
 
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
   useEffect(() => {
     const payload = regulationEditPayload;
     if (!payload) return;
-    if (payload.trafficVolume !== selectedTrafficVolume) return; // wait until TV matches
+    if (payload.trafficVolume !== primaryTvId) return; // wait until TV matches
 
     // Apply time window and rate
     // Prevent auto-presets (triggered by time changes) from overriding this edit
@@ -579,9 +877,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
     // Clear payload so it doesn't apply repeatedly
     setRegulationEditPayload(null);
-  }, [regulationEditPayload, selectedTrafficVolume, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
+  }, [regulationEditPayload, primaryTvId, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
 
-  if (!selectedTrafficVolume) return null;
+  if (!primaryTvId || selectedTvIds.length === 0) return null;
 
   return (
     <div className={embedded
@@ -589,8 +887,19 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}>
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
         <div>
-          <div className="text-[10px] uppercase tracking-wider opacity-70">Reference TV</div>
-          <div className="text-lg font-semibold">{selectedTrafficVolume}</div>
+          <div className="text-[10px] uppercase tracking-wider opacity-70">
+            {selectedTvIds.length > 1 ? `Reference TV (${selectedTvIds.length} selected)` : "Reference TV"}
+          </div>
+          <div className="text-lg font-semibold">{primaryTvId}</div>
+          {secondaryTvIds.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {secondaryTvIds.map((tvId) => (
+                <div key={tvId} className="text-[11px] opacity-75 break-all">
+                  {tvId}
+                </div>
+              ))}
+            </div>
+          )}
           {flightLevelRange && (
             <div className="text-xs opacity-80">{flightLevelRange}</div>
           )}
@@ -599,11 +908,12 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                // Add this traffic volume to the FlowRegulationPanel and set the period
+                // Add selected traffic volumes to the FlowRegulationPanel and set the period
                 const [from, to] = regulationTimeWindow;
                 window.dispatchEvent(new CustomEvent('flow-regulation-add', {
                   detail: {
-                    trafficVolume: selectedTrafficVolume,
+                    trafficVolumes: selectedTvIds,
+                    trafficVolume: primaryTvId,
                     from,
                     to,
                   }
@@ -623,7 +933,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               aria-label="Propose regulation bundles"
               type="button"
               onClick={async () => {
-                if (!selectedTrafficVolume) return;
+                if (!primaryTvId || selectedTvIds.length > 1) return;
                 const [from, to] = regulationTimeWindow;
                 if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
                   setProposalTriggerError('Invalid time window; end must be after start.');
@@ -633,14 +943,15 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 const fromHHMM = secondsToDayTimeString(from);
                 const toHHMM = secondsToDayTimeString(to);
                 await fetchRegulationProposals({
-                  trafficVolumeId: String(selectedTrafficVolume),
+                  trafficVolumeId: String(primaryTvId),
                   timeWindow: toTimeWindow(fromHHMM, toHHMM),
                   threshold: flowThreshold,
                   resolution: flowResolution,
                 });
               }}
-              disabled={proposalLoading}
-              className={`h-7 w-7 flex items-center justify-center rounded-lg border text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${proposalLoading
+              disabled={proposalLoading || selectedTvIds.length > 1}
+              title={selectedTvIds.length > 1 ? "Regulation proposals are available only for a single selected TV" : "Propose regulation bundles"}
+              className={`h-7 w-7 flex items-center justify-center rounded-lg border text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${(proposalLoading || selectedTvIds.length > 1)
                 ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
                 : 'border-white/30 bg-white/20 hover:bg-white/30'}`}
             >
@@ -655,7 +966,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             </button>
             <PanelCloseButton
               onClick={() => {
-                setSelectedTrafficVolume(null);
+                clearSelectedTrafficVolumes();
                 setFocusMode(false);
                 setFocusFlightIds(new Set());
                 setIsRegulationPanelOpen(false);
@@ -663,6 +974,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 setFlowViewEnabled(false);
                 setFlowCommunities(null, null);
                 setFlowError(null);
+                setFlowPreviewGroupId(null);
                 setFlowPreviewFlightId(null);
                 window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
               }}
@@ -720,9 +1032,12 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           <div className="flex justify-between items-center mb-3">
             <div className="flex items-center gap-2">
               <h4 className="font-medium text-sm opacity-90">List ({flightTableData.length} flights)</h4>
+              {isMultiTv && (
+                <span className="text-[10px] opacity-70">Intersection across {selectedTvIds.length} TVs</span>
+              )}
               <FlightStatisticsButton
                 flightIds={flightTableData.map((flight) => flight.flightId)}
-                sourceTrafficVolumeId={selectedTrafficVolume}
+                sourceTrafficVolumeId={primaryTvId}
                 buttonClassName="border-white/20 text-white/80"
               />
             </div>
@@ -775,20 +1090,20 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             <HourGlass data={hourGlassData} label height={12} className="my-2" />
           )}
 
-          {flightListLoading && (
+          {isFlightListLoading && (
             <div className="flex items-center justify-center py-4">
               <div className="animate-spin rounded-full h-4 w-4 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
               <span className="ml-2 text-xs opacity-70">Loading flights...</span>
             </div>
           )}
 
-          {flightListError && (
+          {effectiveFlightListError && (
             <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-2 mb-3">
-              <p className="text-xs text-red-200">Error: {flightListError}</p>
+              <p className="text-xs text-red-200">Error: {effectiveFlightListError}</p>
             </div>
           )}
 
-          {flightTableData.length > 0 && !flightListLoading && (
+          {flightTableData.length > 0 && !isFlightListLoading && (
             <>
               <div className="rounded-lg border border-white/10 overflow-hidden">
                 <table className="w-full text-xs">
@@ -798,8 +1113,14 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       <th className="text-left p-2 font-semibold">Ori.</th>
                       <th className="text-left p-2 font-semibold">Des.</th>
                       <th className="text-left p-2 font-semibold">T/O</th>
-                      {orderedFlightsData && <th className="text-left p-2 font-semibold">TV Arr.</th>}
-                      {orderedFlightsData && <th className="text-left p-2 font-semibold">Dwell</th>}
+                      {selectedTvIds.map((tvId) => ([
+                        <th key={`${tvId}-arr`} className="text-left p-2 font-semibold whitespace-nowrap">
+                          {selectedTvIds.length === 1 ? "TV Arr." : `${tvId} Arr.`}
+                        </th>,
+                        <th key={`${tvId}-dwell`} className="text-left p-2 font-semibold whitespace-nowrap">
+                          {selectedTvIds.length === 1 ? "Dwell" : `${tvId} Dwell`}
+                        </th>,
+                      ]))}
                     </tr>
                   </thead>
                   <tbody>
@@ -810,7 +1131,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                         onMouseEnter={() => setFlowPreviewFlightId(String(flight.flightId))}
                         onMouseLeave={() => setFlowPreviewFlightId(null)}
                         onClick={() => {
-                          const fullFlight = flights.find(f => String(f.flightId) === String(flight.flightId));
+                          const fullFlight = flightsById.get(String(flight.flightId));
                           if (fullFlight) {
                             window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: fullFlight } }));
                           }
@@ -820,8 +1141,17 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                         <td className="p-2">{flight.origin}</td>
                         <td className="p-2">{flight.destination}</td>
                         <td className="p-2 text-right font-mono">{flight.takeoffTime}</td>
-                        {orderedFlightsData && <td className="p-2 text-right font-mono">{flight.arrivalTime}</td>}
-                        {orderedFlightsData && <td className="p-2 text-right font-mono">{formatDwellingTime(flight.dwellSeconds)}</td>}
+                        {selectedTvIds.map((tvId) => {
+                          const cell = flight.perTv[tvId];
+                          return [
+                            <td key={`${flight.flightId}-${tvId}-arr`} className="p-2 text-right font-mono">
+                              {cell?.arrivalTime || "N/A"}
+                            </td>,
+                            <td key={`${flight.flightId}-${tvId}-dwell`} className="p-2 text-right font-mono">
+                              {formatDwellingTime(cell?.dwellSeconds ?? null)}
+                            </td>,
+                          ];
+                        })}
                       </tr>
                     ))}
                     {flightTableData.length > MAX_VISIBLE && (
@@ -831,7 +1161,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       >
                         <td
                           className="p-2 text-center italic opacity-80"
-                          colSpan={orderedFlightsData ? 6 : 4}
+                          colSpan={4 + (selectedTvIds.length * 2)}
                         >
                           {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                         </td>
@@ -840,17 +1170,19 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                   </tbody>
                 </table>
               </div>
-              {flightTableData.length === 500 && (
+              {flightTableData.length === MAX_FLIGHT_ROWS && (
                 <p className="text-xs opacity-70 text-center mt-2">Showing first 500 flights</p>
               )}
-              {orderedFlightsData && (
+              {hasPrimaryOrderedFlights && (
                 <p className="text-xs opacity-70 text-center mt-2">Flights ordered by proximity to current time ({formatTime(t)})</p>
               )}
             </>
           )}
 
-          {flightTableData.length === 0 && !flightListLoading && !flightListError && (
-            <p className="text-xs opacity-70 text-center py-4">No flights found for this window</p>
+          {flightTableData.length === 0 && !isFlightListLoading && !effectiveFlightListError && (
+            <p className="text-xs opacity-70 text-center py-4">
+              {isMultiTv ? "No intersecting flights found for this window" : "No flights found for this window"}
+            </p>
           )}
         </div>
 
@@ -931,6 +1263,27 @@ function parseTimeToSeconds(value: string): number {
   const minutes = Number.isFinite(parts[1]) ? parts[1] : 0;
   const seconds = Number.isFinite(parts[2]) ? parts[2] : 0;
   return hours * 3600 + minutes * 60 + seconds;
+}
+
+function parseHHMMSSToSeconds(value: string): number | null {
+  const match = String(value || "").match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const h = Number.parseInt(match[1], 10);
+  const m = Number.parseInt(match[2], 10);
+  const s = Number.parseInt(match[3] || "0", 10);
+  if (!Number.isFinite(h) || !Number.isFinite(m) || !Number.isFinite(s)) return null;
+  return h * 3600 + m * 60 + s;
+}
+
+function parseTimeWindowStartSeconds(timeWindow: string): number | null {
+  try {
+    const [start = ""] = String(timeWindow || "").split("-");
+    const [h = 0, m = 0] = start.split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 3600 + m * 60;
+  } catch {
+    return null;
+  }
 }
 
 function inferTimeBinMinutesFromData(occupancyData: any): number {
