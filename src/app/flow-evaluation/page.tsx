@@ -474,16 +474,59 @@ function FlowEvaluationPageContent() {
     setAutoratePerAccAttribError(null);
     setAutoratePerAccAttribLoading(true);
     try {
-      const refreshed = await handleSelectOccupancyAll(true, {
-        perAccAttribMode: nextMode,
-        preserveData: true,
-        suppressErrorState: true,
-        throwOnError: true,
-      });
-      if (!refreshed) {
-        throw new Error("Failed to refresh ACC attribution.");
+      const optPerAccMode = optState.data?.per_acc_attrib?.mode
+        ? normalizePerAccAttribMode(optState.data.per_acc_attrib.mode)
+        : null;
+      const needsAutorateRecompute =
+        nextMode === "control_volume" && optPerAccMode !== "control_volume";
+
+      if (needsAutorateRecompute) {
+        if (!input) {
+          throw new Error("No input payload provided.");
+        }
+        setOptState((prev) => ({ loading: true, error: null, data: prev.data }));
+
+        const body: any = { ...input };
+        if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
+          body.weights = weightsOverride;
+        }
+        if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
+          body.sa_params = saParamsOverride;
+        }
+        body.per_acc_attrib_mode = nextMode;
+        delete body.colorsByFlow;
+
+        const optRes = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!optRes.ok) {
+          const text = await optRes.text();
+          throw new Error(text || `Optimization failed: ${optRes.status}`);
+        }
+        const optJson = (await optRes.json()) as AutomaticRateAdjustmentResponse;
+        setOptState({ loading: false, error: null, data: optJson });
+
+        setOccAllState((prev) => ({ loading: true, error: prev.error, data: prev.data }));
+        const occJson = await requestAutorateOccupancyAggregation(optJson, nextMode);
+        setOccAllState({ loading: false, error: null, data: occJson });
+        if (occJson.per_acc_attrib?.mode) {
+          setAutoratePerAccAttribMode(normalizePerAccAttribMode(occJson.per_acc_attrib.mode));
+        }
+      } else {
+        const refreshed = await handleSelectOccupancyAll(true, {
+          perAccAttribMode: nextMode,
+          preserveData: true,
+          suppressErrorState: true,
+          throwOnError: true,
+        });
+        if (!refreshed) {
+          throw new Error("Failed to refresh ACC attribution.");
+        }
       }
     } catch (e: any) {
+      setOptState((prev) => ({ ...prev, loading: false }));
       setAutoratePerAccAttribMode(fallbackUiMode);
       setAutoratePerAccAttribError(e?.message || "Failed to refresh ACC attribution.");
     } finally {
