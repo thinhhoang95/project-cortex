@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
-import { authFetch } from "@/lib/auth";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "./ModalDialog";
+import { simulateRegulationPlan } from "@/lib/regulationPlanSimulation";
 
 type RegulationsState = ReturnType<typeof useSimStore.getState>["regulations"];
 
@@ -148,18 +148,6 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}`;
-  }
-
-  function computeTimeWindowBins(fromSeconds: number, toSeconds: number): number[] {
-    const binSize = 15 * 60; // 15 minutes
-    if (toSeconds <= fromSeconds) {
-      return [Math.floor(fromSeconds / binSize)];
-    }
-    const startBin = Math.floor(fromSeconds / binSize);
-    const endBinExclusive = Math.ceil(toSeconds / binSize);
-    const bins: number[] = [];
-    for (let b = startBin; b < endBinExclusive; b++) bins.push(b);
-    return bins;
   }
 
   return (
@@ -458,7 +446,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
             </div>
           ) : (
             <>
-              <button
+                <button
                 onClick={async () => {
                   setErrorMessage(null);
                   if (!regulations || regulations.length === 0) {
@@ -467,42 +455,11 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                   }
                   setIsSimulating(true);
                   try {
-                    // Map stored callsigns/labels to flight identifiers expected by the API
-                    const toFlightId = (token: string): string => {
-                      const tokenStr = String(token);
-                      const byId = flights.find(f => String(f.flightId) === tokenStr);
-                      if (byId?.flightId) return String(byId.flightId);
-                      const byCs = flights.find(f => f.callSign && String(f.callSign) === tokenStr);
-                      if (byCs?.flightId) return String(byCs.flightId);
-                      // Fallback: pass through (already an id or unknown)
-                      return tokenStr;
-                    };
-
-                    const payload = {
-                      regulations: regulations.map((r) => ({
-                        location: r.trafficVolume,
-                        rate: r.rate,
-                        time_windows: computeTimeWindowBins(r.activeTimeWindowFrom, r.activeTimeWindowTo),
-                        // API expects flight identifiers, not callsigns
-                        target_flight_ids: r.flightCallsigns.map(toFlightId),
-                      })),
-                      weights: { alpha: 1.0, beta: 0.0, gamma: 0.0, delta: 0.0 },
-                      top_k: 50,
-                      include_excess_vector: false,
-                    };
-
-                    const res = await authFetch("/api/regulation_plan_simulation", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(payload),
+                    const result = await simulateRegulationPlan({
+                      regulations,
+                      flights,
+                      perAccAttribMode: "dwelling_spread",
                     });
-
-                    if (!res.ok) {
-                      const text = await res.text();
-                      throw new Error(`Simulation request failed: ${res.status} ${text}`);
-                    }
-
-                    const result = await res.json();
                     setRegulationSimulationResult(result);
                     setIsResultsOpen(true);
                   } catch (err) {

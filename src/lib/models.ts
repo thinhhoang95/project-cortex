@@ -79,12 +79,34 @@ export interface RegulationPlanLegacyObjectiveComponents {
   delta?: number;
 }
 
+export type RegulationPlanPerAccAttribMode = "dwelling_spread" | "control_volume";
+
+export interface RegulationPlanPerAccAttribMetadata {
+  acc_prefix_len?: number;
+  total_delay_minutes?: number;
+  attributed_delay_minutes?: number;
+  unattributed_delay_minutes?: number;
+  num_flights_in_delay_map?: number;
+  num_delayed_flights?: number;
+  num_attributed_delayed_flights?: number;
+  num_unattributed_delayed_flights?: number;
+  dwell_policy?: string;
+  [extra: string]: unknown;
+}
+
+export interface RegulationPlanPerAccAttrib {
+  mode: RegulationPlanPerAccAttribMode | string;
+  delay_minutes_by_acc: Record<string, number>;
+  metadata?: RegulationPlanPerAccAttribMetadata;
+}
+
 export interface RegulationPlanRollingTv {
   traffic_volume_id: string;
   pre_rolling_counts: number[];
   post_rolling_counts: number[];
   capacity_per_bin: number[];
   active_time_windows: number[];
+  tv_kind?: string;
 }
 
 export interface RegulationPlanMetadata {
@@ -108,6 +130,7 @@ export interface RegulationPlanPreFlightContextEntry {
 
 export interface RegulationPlanSimulationResponse {
   delays_by_flight: Record<string, number>;
+  per_acc_attrib?: RegulationPlanPerAccAttrib;
   pre_flight_context?: Record<string, RegulationPlanPreFlightContextEntry>;
   delay_stats: RegulationPlanDelayStats;
   pre_objective?: number;
@@ -167,6 +190,7 @@ export interface AutomaticRateAdjustmentResponse {
   ripple_cells?: Array<[string, number]>;
   flows: FlowOptResult[];
   delays_min?: Record<string, number>; // flight_id -> delay minutes
+  per_acc_attrib?: RegulationPlanPerAccAttrib;
   objective_baseline: { score: number; components: Record<string, number> };
   objective_optimized: { score: number; components: Record<string, number> };
   improvement: { absolute: number; percent: number };

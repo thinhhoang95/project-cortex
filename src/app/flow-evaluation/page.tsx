@@ -7,9 +7,12 @@ import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "@/components/ModalDialog";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import PerAccDelayAttributionPanel from "@/components/PerAccDelayAttributionPanel";
 import {
   BaseEvaluationResponse,
   AutomaticRateAdjustmentResponse,
+  RegulationPlanPerAccAttrib,
+  RegulationPlanPerAccAttribMode,
   type Trajectory,
 } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
@@ -36,6 +39,7 @@ import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { FlowInputPayload } from "@/lib/flow-input";
 import { AutorateOccupancyResponse } from "@/lib/autorate";
+import { normalizePerAccAttribMode } from "@/lib/perAccAttribution";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import {
@@ -150,6 +154,9 @@ function FlowEvaluationPageContent() {
   const [snapshotToast, setSnapshotToast] = useState<
     { message: string; action?: { label: string; href: string }; kind?: 'info' | 'warning' } | null
   >(null);
+  const [autoratePerAccAttribMode, setAutoratePerAccAttribMode] = useState<RegulationPlanPerAccAttribMode>("dwelling_spread");
+  const [autoratePerAccAttribLoading, setAutoratePerAccAttribLoading] = useState(false);
+  const [autoratePerAccAttribError, setAutoratePerAccAttribError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
@@ -337,59 +344,169 @@ function FlowEvaluationPageContent() {
     return order.filter((tv) => selectedTvSet.has(String(tv)));
   }, [occAllState.data?.tv_ids_order, hasTvFilter, selectedTvSet]);
 
-  async function handleSelectOccupancyAll(force = false): Promise<AutorateOccupancyResponse | null> {
+  type HandleSelectOccupancyAllOptions = {
+    perAccAttribMode?: RegulationPlanPerAccAttribMode;
+    preserveData?: boolean;
+    suppressErrorState?: boolean;
+    throwOnError?: boolean;
+  };
+
+  async function ensureAutorateResultForAggregation(): Promise<AutomaticRateAdjustmentResponse> {
+    if (optState.data) return optState.data;
+    if (!input) {
+      throw new Error("No input payload provided.");
+    }
+
+    const body: any = { ...input };
+    if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
+      body.weights = weightsOverride;
+    }
+    if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
+      body.sa_params = saParamsOverride;
+    }
+    body.per_acc_attrib_mode = autoratePerAccAttribMode;
+    delete body.colorsByFlow;
+
+    const optRes = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!optRes.ok) {
+      const text = await optRes.text();
+      throw new Error(text || `Optimization failed: ${optRes.status}`);
+    }
+    const optJson = (await optRes.json()) as AutomaticRateAdjustmentResponse;
+    setOptState({ loading: false, error: null, data: optJson });
+    return optJson;
+  }
+
+  async function requestAutorateOccupancyAggregation(
+    autorateResult: AutomaticRateAdjustmentResponse,
+    perAccAttribMode: RegulationPlanPerAccAttribMode,
+  ): Promise<AutorateOccupancyResponse> {
+    const occRes = await (await import("@/lib/auth")).authFetch("/api/autorate_occupancy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        autorate_result: autorateResult,
+        include_capacity: true,
+        per_acc_attrib_mode: perAccAttribMode,
+      }),
+    });
+    if (!occRes.ok) {
+      const text = await occRes.text();
+      throw new Error(text || `autorate_occupancy failed: ${occRes.status}`);
+    }
+    return (await occRes.json()) as AutorateOccupancyResponse;
+  }
+
+  async function handleSelectOccupancyAll(
+    force = false,
+    options: HandleSelectOccupancyAllOptions = {},
+  ): Promise<AutorateOccupancyResponse | null> {
+    const requestedMode = options.perAccAttribMode ?? autoratePerAccAttribMode;
+    const preserveData = Boolean(options.preserveData);
+    const suppressErrorState = Boolean(options.suppressErrorState);
+    const throwOnError = Boolean(options.throwOnError);
+
     if (!force && occAllState.data) {
       return occAllState.data;
     }
     if (!input) {
-      setOccAllState({ loading: false, error: 'No input payload provided.', data: null });
+      if (!suppressErrorState) {
+        setOccAllState((prev) => ({
+          loading: false,
+          error: "No input payload provided.",
+          data: preserveData ? prev.data : null,
+        }));
+      }
+      if (throwOnError) {
+        throw new Error("No input payload provided.");
+      }
       return null;
     }
-    try {
-      setOccAllState({ loading: true, error: null, data: null });
-      // Ensure we have an autorate result; if not, run optimization first using current overrides
-      let autorateResult = optState.data;
-      if (!autorateResult) {
-        const body: any = { ...input };
-        if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
-          body.weights = weightsOverride;
-        }
-        if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
-          body.sa_params = saParamsOverride;
-        }
-        delete body.colorsByFlow;
-        const optRes = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!optRes.ok) {
-          const text = await optRes.text();
-          throw new Error(text || `Optimization failed: ${optRes.status}`);
-        }
-        const optJson = (await optRes.json()) as AutomaticRateAdjustmentResponse;
-        setOptState({ loading: false, error: null, data: optJson });
-        autorateResult = optJson;
-      }
 
-      // Now request aggregated occupancy
-      const occRes = await (await import("@/lib/auth")).authFetch("/api/autorate_occupancy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ autorate_result: autorateResult, include_capacity: true }),
-      });
-      if (!occRes.ok) {
-        const text = await occRes.text();
-        throw new Error(text || `autorate_occupancy failed: ${occRes.status}`);
-      }
-      const occJson = (await occRes.json()) as AutorateOccupancyResponse;
+    try {
+      setOccAllState((prev) => ({
+        loading: true,
+        error: suppressErrorState ? prev.error : null,
+        data: preserveData ? prev.data : null,
+      }));
+
+      const autorateResult = await ensureAutorateResultForAggregation();
+      const occJson = await requestAutorateOccupancyAggregation(autorateResult, requestedMode);
       setOccAllState({ loading: false, error: null, data: occJson });
+      if (occJson.per_acc_attrib?.mode) {
+        setAutoratePerAccAttribMode(normalizePerAccAttribMode(occJson.per_acc_attrib.mode));
+      }
       return occJson;
     } catch (e: any) {
-      setOccAllState({ loading: false, error: e?.message || 'Failed to fetch Occupancy Pre-Post aggregation', data: null });
+      const message = e?.message || "Failed to fetch Occupancy Pre-Post aggregation";
+      setOccAllState((prev) => ({
+        loading: false,
+        error: suppressErrorState ? prev.error : message,
+        data: preserveData ? prev.data : null,
+      }));
+      if (throwOnError) {
+        throw (e instanceof Error ? e : new Error(message));
+      }
       return null;
     }
   }
+
+  async function handleRefreshAutoratePerAccAttrib(nextMode: RegulationPlanPerAccAttribMode) {
+    if (autoratePerAccAttribLoading) return;
+    const currentPayload = occAllState.data?.per_acc_attrib;
+    const currentPayloadMode = currentPayload ? normalizePerAccAttribMode(currentPayload.mode) : null;
+    if (currentPayload && currentPayloadMode === nextMode) {
+      setAutoratePerAccAttribMode(currentPayloadMode);
+      setAutoratePerAccAttribError(null);
+      return;
+    }
+    if (!optState.data) {
+      setAutoratePerAccAttribError("Run an optimization first to compute delay attributions.");
+      return;
+    }
+
+    const fallbackUiMode = currentPayloadMode ?? autoratePerAccAttribMode;
+    setAutoratePerAccAttribMode(nextMode);
+    setAutoratePerAccAttribError(null);
+    setAutoratePerAccAttribLoading(true);
+    try {
+      const refreshed = await handleSelectOccupancyAll(true, {
+        perAccAttribMode: nextMode,
+        preserveData: true,
+        suppressErrorState: true,
+        throwOnError: true,
+      });
+      if (!refreshed) {
+        throw new Error("Failed to refresh ACC attribution.");
+      }
+    } catch (e: any) {
+      setAutoratePerAccAttribMode(fallbackUiMode);
+      setAutoratePerAccAttribError(e?.message || "Failed to refresh ACC attribution.");
+    } finally {
+      setAutoratePerAccAttribLoading(false);
+    }
+  }
+
+  const occAllHasPerAccAttrib = Boolean(occAllState.data?.per_acc_attrib);
+  const occAllPerAccAttribModeRaw = occAllState.data?.per_acc_attrib?.mode;
+  useEffect(() => {
+    if (!occAllHasPerAccAttrib) return;
+    setAutoratePerAccAttribMode(normalizePerAccAttribMode(occAllPerAccAttribModeRaw));
+    setAutoratePerAccAttribError(null);
+  }, [occAllHasPerAccAttrib, occAllPerAccAttribModeRaw]);
+
+  useEffect(() => {
+    if (seriesView !== "airports_delay") return;
+    if (!optState.data) return;
+    if (occAllState.loading || autoratePerAccAttribLoading) return;
+    if (occAllState.data) return;
+    void handleSelectOccupancyAll(false, { perAccAttribMode: autoratePerAccAttribMode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesView, optState.data, occAllState.data, occAllState.loading, autoratePerAccAttribLoading, autoratePerAccAttribMode]);
 
   // Build union of TVs that appear in any flow's occupancy series (target or ripple)
   const tvUnion = useMemo(() => {
@@ -523,6 +640,7 @@ function FlowEvaluationPageContent() {
       if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
         body.sa_params = saParamsOverride;
       }
+      body.per_acc_attrib_mode = autoratePerAccAttribMode;
       delete body.colorsByFlow;
       const res = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
         method: "POST",
@@ -535,6 +653,8 @@ function FlowEvaluationPageContent() {
       }
       const json = (await res.json()) as AutomaticRateAdjustmentResponse;
       setOptState({ loading: false, error: null, data: json });
+      setOccAllState({ loading: false, error: null, data: null });
+      setAutoratePerAccAttribError(null);
       // If user is currently viewing Occupancy Pre-Post, switch back to Rate (Demand)
       // to avoid presenting stale aggregated occupancy (which updates only on tab switch).
       if (seriesView === 'occupancy_all') {
@@ -1366,7 +1486,7 @@ function FlowEvaluationPageContent() {
                       : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
                   } rounded-r-md`}
                 >
-                  Airports Delay Attributions
+                  Delay Attribution
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-3 justify-start w-full sm:w-auto">
@@ -1452,6 +1572,11 @@ function FlowEvaluationPageContent() {
                 flights={flights}
                 loading={optState.loading}
                 error={optState.error}
+                perAccAttrib={occAllState.data?.per_acc_attrib || null}
+                perAccAttribMode={autoratePerAccAttribMode}
+                perAccAttribLoading={autoratePerAccAttribLoading}
+                perAccAttribError={autoratePerAccAttribError || occAllState.error}
+                onPerAccAttribModeChange={handleRefreshAutoratePerAccAttrib}
               />
             </section>
           )}
@@ -2225,11 +2350,21 @@ function AirportDelayAttributionView({
   flights,
   loading,
   error,
+  perAccAttrib,
+  perAccAttribMode,
+  perAccAttribLoading,
+  perAccAttribError,
+  onPerAccAttribModeChange,
 }: {
   delays: Record<string, number> | null | undefined;
   flights: Trajectory[];
   loading: boolean;
   error: string | null;
+  perAccAttrib: RegulationPlanPerAccAttrib | null | undefined;
+  perAccAttribMode: RegulationPlanPerAccAttribMode;
+  perAccAttribLoading: boolean;
+  perAccAttribError: string | null;
+  onPerAccAttribModeChange: (mode: RegulationPlanPerAccAttribMode) => void | Promise<void>;
 }) {
   const stats = useMemo<{
     departures: AirportDelayRow[];
@@ -2460,6 +2595,17 @@ function AirportDelayAttributionView({
           Latest optimization request error: {error}
         </div>
       )}
+
+      <PerAccDelayAttributionPanel
+        perAccAttrib={perAccAttrib}
+        mode={perAccAttribMode}
+        loading={perAccAttribLoading}
+        error={perAccAttribError}
+        onModeChange={onPerAccAttribModeChange}
+        variant="page"
+        unavailableMessage="ACC attribution is unavailable for the current autorate occupancy aggregation response. Use the mode selector to re-fetch attribution."
+      />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="bg-white/5 border border-white/10 rounded-lg p-4">
           <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Flights with delay</div>

@@ -34,6 +34,7 @@ function parsePositiveInteger(
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const runId = requestUrl.searchParams.get('run_id');
+  const perAccAttribMode = requestUrl.searchParams.get('per_acc_attrib_mode');
   const [solutionRank, solutionRankError] = parsePositiveInteger(
     requestUrl.searchParams.get('solution_rank'),
     'solution_rank',
@@ -50,6 +51,9 @@ export async function GET(request: NextRequest) {
   const upstreamUrl = new URL(`${API_BASE_URL}/agent_sol_details_wholeplan`);
   upstreamUrl.searchParams.set('run_id', runId.trim());
   upstreamUrl.searchParams.set('solution_rank', String(solutionRank));
+  if (perAccAttribMode && perAccAttribMode.trim()) {
+    upstreamUrl.searchParams.set('per_acc_attrib_mode', perAccAttribMode.trim());
+  }
 
   try {
     const response = await fetch(upstreamUrl.toString(), {

@@ -12,14 +12,21 @@ import { createPortal } from 'react-dom';
 import FlightListStatistics from '@/components/FlightListStatistics';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
 import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
+import PerAccDelayAttributionPanel from '@/components/PerAccDelayAttributionPanel';
 import TrafficVolumeInfoTooltip from '@/components/TrafficVolumeInfoTooltip';
 import TrafficVolumeMiniMap from '@/components/TrafficVolumeMiniMap';
 import TimeScaleControl from '@/components/TimeScaleControl';
 import ShimmeringText from '@/components/ShimmeringText';
 import { useSimStore } from '@/components/useSimStore';
 import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
-import type { OccupancySeriesByTv, Trajectory } from '@/lib/models';
+import type {
+  OccupancySeriesByTv,
+  RegulationPlanPerAccAttrib,
+  RegulationPlanPerAccAttribMode,
+  Trajectory,
+} from '@/lib/models';
 import { authFetch } from '@/lib/auth';
+import { normalizePerAccAttribMode } from '@/lib/perAccAttribution';
 import {
   Line,
   LineChart,
@@ -103,6 +110,7 @@ interface AgentSolDetailsResponse {
   selected_step?: AgentSolutionStep;
   step_delays_by_flight?: Record<string, AgentSolutionFlightDelay | number | string>;
   pre_post?: AgentSolutionPrePost;
+  per_acc_attrib?: RegulationPlanPerAccAttrib;
   hotspot_segments?: AgentSolutionHotspotSegment[];
   metadata?: Record<string, unknown>;
 }
@@ -1234,6 +1242,7 @@ export default function AgentResultSummaryComponent({
   const [detailsData, setDetailsData] = useState<AgentSolDetailsResponse | null>(null);
   const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [perAccAttribMode, setPerAccAttribMode] = useState<RegulationPlanPerAccAttribMode>('dwelling_spread');
   const [selectedFlightIds, setSelectedFlightIds] = useState<string[]>([]);
   const [viewFrom, setViewFrom] = useState<string>('00:00');
   const [viewTo, setViewTo] = useState<string>('23:59');
@@ -1437,6 +1446,7 @@ export default function AgentResultSummaryComponent({
           run_id: selectedRunId,
           solution_rank: String(selectedSolutionRank),
           step_number: String(stepNumber),
+          per_acc_attrib_mode: perAccAttribMode,
         });
         const response = await authFetch(`/api/agent_sol_details?${params.toString()}`, {
           method: 'GET',
@@ -1470,6 +1480,7 @@ export default function AgentResultSummaryComponent({
     selectedSolutionRank,
     selectedStepNumber,
     selectedSolutionSteps,
+    perAccAttribMode,
     viewMode,
   ]);
 
@@ -1492,6 +1503,7 @@ export default function AgentResultSummaryComponent({
         const params = new URLSearchParams({
           run_id: selectedRunId,
           solution_rank: String(selectedSolutionRank),
+          per_acc_attrib_mode: perAccAttribMode,
         });
         const response = await authFetch(
           `/api/agent_sol_details_wholeplan?${params.toString()}`,
@@ -1527,7 +1539,7 @@ export default function AgentResultSummaryComponent({
       cancelled = true;
       controller.abort();
     };
-  }, [viewMode, selectedRunId, selectedSolution, selectedSolutionRank]);
+  }, [viewMode, selectedRunId, selectedSolution, selectedSolutionRank, perAccAttribMode]);
 
   const stepAggregates = useMemo(
     () => computeStepAggregates(selectedSolution),
@@ -1550,6 +1562,13 @@ export default function AgentResultSummaryComponent({
     () => computeSolutionMetrics(selectedSolution, detailsData),
     [selectedSolution, detailsData],
   );
+
+  const detailsPerAccAttribModeRaw = detailsData?.per_acc_attrib?.mode;
+  const detailsHasPerAccAttrib = Boolean(detailsData?.per_acc_attrib);
+  useEffect(() => {
+    if (!detailsHasPerAccAttrib) return;
+    setPerAccAttribMode(normalizePerAccAttribMode(detailsPerAccAttribModeRaw));
+  }, [detailsHasPerAccAttrib, detailsPerAccAttribModeRaw]);
 
   const lastUpdated = useMemo(
     () =>
@@ -2429,6 +2448,22 @@ export default function AgentResultSummaryComponent({
                         reliefMapTitle="Traffic Volume Relief Map"
                         compact
                         showLabels={false}
+                      />
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
+                      <PerAccDelayAttributionPanel
+                        perAccAttrib={detailsData?.per_acc_attrib}
+                        mode={perAccAttribMode}
+                        loading={detailsLoading}
+                        error={detailsError}
+                        onModeChange={setPerAccAttribMode}
+                        variant="page"
+                        unavailableMessage={
+                          viewMode === 'per_episode'
+                            ? 'ACC attribution is unavailable for this step detail response. Try switching attribution mode or select a different step.'
+                            : 'ACC attribution is unavailable for this whole-plan detail response. Try switching attribution mode or select a different solution.'
+                        }
                       />
                     </div>
                   </div>

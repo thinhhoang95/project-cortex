@@ -1,7 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 // charts are handled by OccupancyPrePostPanel
-import { RegulationPlanSimulationResponse, Trajectory } from "@/lib/models";
+import {
+  RegulationPlanPerAccAttribMode,
+  RegulationPlanSimulationResponse,
+  Trajectory,
+} from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import ModalDialog from "./ModalDialog";
 import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
@@ -9,6 +13,9 @@ import TimeScaleControl from "@/components/TimeScaleControl";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { minutesToHHMM } from "@/lib/time";
 import ShimmeringText from "./ShimmeringText";
+import { simulateRegulationPlan } from "@/lib/regulationPlanSimulation";
+import PerAccDelayAttributionPanel from "@/components/PerAccDelayAttributionPanel";
+import { normalizePerAccAttribMode } from "@/lib/perAccAttribution";
 import {
   ResponsiveContainer,
   BarChart,
@@ -137,7 +144,6 @@ const normalizeAirportLabel = (value: unknown): string => stringWithFallback(val
 const AIRPORT_TABLE_LIMIT = 15;
 
 const OBJECTIVE_COMPONENT_ORDER = ["J_CAP", "J_DELAY", "J_REG", "J_TV", "J_SHARE", "J_SPILL"] as const;
-
 const readFiniteNumber = (value: unknown): number | null => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
@@ -210,9 +216,13 @@ const formatDelayMetricSub = (metric: DelayMetric): string | undefined => {
 export default function RegulationResults({ open, result, onClose }: RegulationResultsProps) {
   const flights = useSimStore(s => s.flights);
   const regulations = useSimStore(s => s.regulations);
+  const setRegulationSimulationResult = useSimStore(s => s.setRegulationSimulationResult);
   const [viewFrom, setViewFrom] = useState<string>("00:00");
   const [viewTo, setViewTo] = useState<string>("23:59");
   const [sortMode, setSortMode] = useState<'total' | 'abs_change' | 'relative_change' | 'exceedance'>("abs_change");
+  const [perAccAttribMode, setPerAccAttribMode] = useState<RegulationPlanPerAccAttribMode>("dwelling_spread");
+  const [perAccAttribLoading, setPerAccAttribLoading] = useState(false);
+  const [perAccAttribError, setPerAccAttribError] = useState<string | null>(null);
   const [regSnapshotPromptOpen, setRegSnapshotPromptOpen] = useState(false);
   const [regSnapshotDescription, setRegSnapshotDescription] = useState("");
   const [regSnapshotSaving, setRegSnapshotSaving] = useState(false);
@@ -252,6 +262,13 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     if (!open) return;
     setShowLegacyComponents(false);
     setShowObjectiveWeights(false);
+  }, [open, result]);
+
+  useEffect(() => {
+    if (!open) return;
+    setPerAccAttribMode(normalizePerAccAttribMode(result?.per_acc_attrib?.mode));
+    setPerAccAttribLoading(false);
+    setPerAccAttribError(null);
   }, [open, result]);
 
   // Initialize default view window when modal opens based on plan regulations
@@ -671,6 +688,40 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     return readFiniteNumber((delayStats as any).num_flights);
   }, [delayStats]);
 
+  const handlePerAccAttribModeChange = async (nextMode: RegulationPlanPerAccAttribMode) => {
+    const currentResultMode = normalizePerAccAttribMode(result?.per_acc_attrib?.mode);
+    if (perAccAttribLoading) return;
+    if (nextMode === currentResultMode) {
+      setPerAccAttribMode(currentResultMode);
+      setPerAccAttribError(null);
+      return;
+    }
+    if (!Array.isArray(regulations) || regulations.length === 0) {
+      setPerAccAttribMode(currentResultMode);
+      setPerAccAttribError("No regulations are available to re-run the simulation.");
+      return;
+    }
+
+    setPerAccAttribMode(nextMode);
+    setPerAccAttribError(null);
+    setPerAccAttribLoading(true);
+
+    try {
+      const nextResult = await simulateRegulationPlan({
+        regulations,
+        flights,
+        perAccAttribMode: nextMode,
+      });
+      setRegulationSimulationResult(nextResult);
+    } catch (err) {
+      console.error(err);
+      setPerAccAttribMode(currentResultMode);
+      setPerAccAttribError(err instanceof Error ? err.message : "Failed to refresh ACC attribution.");
+    } finally {
+      setPerAccAttribLoading(false);
+    }
+  };
+
   const handleOpenRegSnapshotPrompt = () => {
     if (!result) return;
     const current = loadRegSnapshots();
@@ -1005,6 +1056,15 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
           })()}
         </div>
 
+        <PerAccDelayAttributionPanel
+          perAccAttrib={result?.per_acc_attrib}
+          mode={perAccAttribMode}
+          loading={perAccAttribLoading}
+          error={perAccAttribError}
+          onModeChange={handlePerAccAttribModeChange}
+          variant="dialog"
+          unavailableMessage="ACC attribution is unavailable for this simulation response. Switch attribution mode to re-run and request per-ACC attribution."
+        />
 
         {/* Airports Delay Attributions */}
         <div>

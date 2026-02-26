@@ -31,6 +31,7 @@ function parsePositiveInteger(value: string | null, field: string): [number | nu
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const runId = requestUrl.searchParams.get('run_id');
+  const perAccAttribMode = requestUrl.searchParams.get('per_acc_attrib_mode');
   const [solutionRank, solutionRankError] = parsePositiveInteger(requestUrl.searchParams.get('solution_rank'), 'solution_rank');
   if (solutionRankError) return solutionRankError;
   const [stepNumber, stepNumberError] = parsePositiveInteger(requestUrl.searchParams.get('step_number'), 'step_number');
@@ -47,6 +48,9 @@ export async function GET(request: NextRequest) {
   upstreamUrl.searchParams.set('run_id', runId.trim());
   upstreamUrl.searchParams.set('solution_rank', String(solutionRank));
   upstreamUrl.searchParams.set('step_number', String(stepNumber));
+  if (perAccAttribMode && perAccAttribMode.trim()) {
+    upstreamUrl.searchParams.set('per_acc_attrib_mode', perAccAttribMode.trim());
+  }
 
   try {
     const response = await fetch(upstreamUrl.toString(), {
