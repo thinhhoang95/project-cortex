@@ -504,6 +504,9 @@ export default function MapCanvas() {
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedCollapsedSector]);
 
+  // Refresh flight symbols/lines immediately when altitude range changes
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [flLowerBound, flUpperBound]);
+
   // Weather overlay integration (Surface Precipitation)
   useEffect(() => {
     const map = mapRef.current;
@@ -1129,13 +1132,12 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
   let lineIdsToShow: string[];
   if (sim.flowPreviewFlightId) {
-    // Row-hover preview should show the full trajectory even if the flight is not active at the current t.
-    lineIdsToShow = [String(sim.flowPreviewFlightId)];
+    const pid = String(sim.flowPreviewFlightId);
+    // Show preview only when the flight is currently active and within the selected FL range.
+    lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
   } else if (sim.focusMode) {
-    // Show ALL focusFlightIds without filtering by current time - flights may pass through
-    // a traffic volume at different times within the focus window, and we want to show
-    // their full trajectories regardless of whether they're active at current sim time t.
-    lineIdsToShow = Array.from(sim.focusFlightIds).map(String);
+    // In focus mode, preserve full trajectories for qualifying flights but gate visibility by current activity + FL.
+    lineIdsToShow = Array.from(sim.focusFlightIds).map(String).filter((id) => insideRangeActiveSet.has(id));
   } else {
     lineIdsToShow = Array.from(insideRangeActiveSet);
   }

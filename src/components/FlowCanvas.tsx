@@ -7,10 +7,12 @@ import { loadSectors } from "@/lib/airspace";
 import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
+import { Trajectory } from "@/lib/models";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
+import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
@@ -275,6 +277,9 @@ export default function FlowCanvas() {
   // Refresh filters on focus/visibility/selection changes
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, selectedTrafficVolumes, showFlightLines]);
 
+  // Refresh line visibility immediately when altitude range changes
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flLowerBound, flUpperBound]);
+
   // When flow view state changes, update rendering
   useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes, selectedTrafficVolumes]);
 
@@ -443,13 +448,14 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     return;
   }
   const sim = useSimStore.getState();
-  const tracks = (map as any).__trajectories as any[] | undefined;
+  const tracks = (map as any).__trajectories as Trajectory[] | undefined;
   if (!tracks) return;
-
-  const activeFlightIds: string[] = [];
-  for (const tr of tracks) {
-    if (sim.t >= tr.t0 && sim.t <= tr.t1) activeFlightIds.push(String(tr.flightId));
-  }
+  const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+    tracks,
+    sim.t,
+    sim.flLowerBound,
+    sim.flUpperBound
+  );
 
   // When Flow View is enabled and communities are present, restrict to those flights
   let lineIdsToShow: string[];
@@ -480,8 +486,10 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
       lineIdsToShow = Object.keys(sim.flowCommunities).map(String);
     }
   } else {
-    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : Array.from(insideRangeActiveSet)).map(String);
   }
+
+  lineIdsToShow = lineIdsToShow.filter((id) => insideRangeActiveSet.has(String(id)));
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
