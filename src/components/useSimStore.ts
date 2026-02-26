@@ -81,6 +81,10 @@ export type ProposalQuery = {
   resolution?: number;
 };
 
+export type RerouteBaseListSource = "tv" | "query" | "catcher";
+export type RerouteCatcherMode = "off" | "include" | "exclude";
+export type RerouteCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
+
 type State = {
   t: number;               // current sim time (s)
   range: [number, number]; // global window
@@ -161,6 +165,12 @@ type State = {
   slackSign: "minus" | "plus";
   isFetchingSlack: boolean;
   deltaMin: number;
+  // Reroute state
+  rerouteBaseFlightIds: string[];
+  rerouteBaseListLastSource: RerouteBaseListSource | null;
+  rerouteCatcherMode: RerouteCatcherMode;
+  rerouteCatcherTimeframe: RerouteCatcherTimeframe;
+  rerouteCatcherActive: boolean;
   // View options control (global minimized state so other UI can react)
   viewOptionsMinimized: boolean;
   // User state
@@ -233,6 +243,14 @@ type State = {
   setSlackSign: (sign: "minus" | "plus") => void;
   setIsFetchingSlack: (fetching: boolean) => void;
   setDeltaMin: (delta: number) => void;
+  // Reroute actions
+  setRerouteBaseFlightIds: (ids: string[], source?: RerouteBaseListSource) => void;
+  addRerouteBaseFlightIds: (ids: string[], source?: "catcher") => void;
+  removeRerouteBaseFlightIds: (ids: string[], source?: "catcher") => void;
+  clearRerouteBaseFlightIds: () => void;
+  setRerouteCatcherMode: (mode: RerouteCatcherMode) => void;
+  setRerouteCatcherTimeframe: (timeframe: RerouteCatcherTimeframe) => void;
+  cancelRerouteCatcher: () => void;
   setViewOptionsMinimized: (minimized: boolean) => void;
   // Reset all non-function state back to defaults
   resetAll: () => void;
@@ -351,6 +369,11 @@ const defaultState: Pick<State,
   | 'slackSign'
   | 'isFetchingSlack'
   | 'deltaMin'
+  | 'rerouteBaseFlightIds'
+  | 'rerouteBaseListLastSource'
+  | 'rerouteCatcherMode'
+  | 'rerouteCatcherTimeframe'
+  | 'rerouteCatcherActive'
   | 'viewOptionsMinimized'
   | 'user'
 > = {
@@ -426,6 +449,11 @@ const defaultState: Pick<State,
   slackSign: "minus",
   isFetchingSlack: false,
   deltaMin: 0,
+  rerouteBaseFlightIds: [],
+  rerouteBaseListLastSource: null,
+  rerouteCatcherMode: "off",
+  rerouteCatcherTimeframe: "1h",
+  rerouteCatcherActive: false,
   viewOptionsMinimized: false,
   user: null,
 };
@@ -902,6 +930,63 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setSlackSign: (sign) => set({ slackSign: sign }),
   setIsFetchingSlack: (fetching) => set({ isFetchingSlack: fetching }),
   setDeltaMin: (delta) => set({ deltaMin: delta }),
+  setRerouteBaseFlightIds: (ids, source = "tv") => {
+    const next: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of ids || []) {
+      const normalized = String(raw ?? "").trim();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      next.push(normalized);
+    }
+    set({
+      rerouteBaseFlightIds: next,
+      rerouteBaseListLastSource: source,
+    });
+  },
+  addRerouteBaseFlightIds: (ids, source = "catcher") => {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    set((state) => {
+      const existing = state.rerouteBaseFlightIds;
+      const seen = new Set(existing);
+      const next = existing.slice();
+      for (const raw of ids) {
+        const normalized = String(raw ?? "").trim();
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        next.push(normalized);
+      }
+      return {
+        rerouteBaseFlightIds: next,
+        rerouteBaseListLastSource: source,
+      };
+    });
+  },
+  removeRerouteBaseFlightIds: (ids, source = "catcher") => {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    const removeSet = new Set(
+      ids
+        .map((raw) => String(raw ?? "").trim())
+        .filter((id) => id.length > 0)
+    );
+    if (removeSet.size === 0) return;
+    set((state) => ({
+      rerouteBaseFlightIds: state.rerouteBaseFlightIds.filter((id) => !removeSet.has(id)),
+      rerouteBaseListLastSource: source,
+    }));
+  },
+  clearRerouteBaseFlightIds: () => set({ rerouteBaseFlightIds: [], rerouteBaseListLastSource: null }),
+  setRerouteCatcherMode: (mode) =>
+    set({
+      rerouteCatcherMode: mode,
+      rerouteCatcherActive: mode !== "off",
+    }),
+  setRerouteCatcherTimeframe: (timeframe) => set({ rerouteCatcherTimeframe: timeframe }),
+  cancelRerouteCatcher: () =>
+    set({
+      rerouteCatcherMode: "off",
+      rerouteCatcherActive: false,
+    }),
   setViewOptionsMinimized: (minimized) => set({ viewOptionsMinimized: minimized }),
   // Reset all stateful values back to defaults (used on page navigation)
   resetAll: () => {
