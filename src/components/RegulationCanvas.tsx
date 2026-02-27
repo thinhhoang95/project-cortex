@@ -13,6 +13,7 @@ import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
+import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
@@ -286,6 +287,7 @@ export default function RegulationCanvas() {
         if (sinceUpdate >= targetFrameMs) {
           tick(dt);
           updateFlightLineFilters(mapRef.current);
+          updateRegulationHighlight(mapRef.current);
           lastUpdateRef.current = now;
         }
         rafRef.current = requestAnimationFrame(loop);
@@ -296,17 +298,29 @@ export default function RegulationCanvas() {
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = undefined; }
       // Render once when pausing to ensure view is up to date
       updateFlightLineFilters(mapRef.current);
+      updateRegulationHighlight(mapRef.current);
     }
   }, [playing, tick]);
 
   // on t change from UI (drag), update filters immediately when paused
-  useEffect(() => { if (!playing) updateFlightLineFilters(mapRef.current); }, [t, playing]);
+  useEffect(() => {
+    if (!playing) {
+      updateFlightLineFilters(mapRef.current);
+      updateRegulationHighlight(mapRef.current);
+    }
+  }, [t, playing]);
 
   // When a single-flight or group preview is toggled via hover, update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId]);
 
   // When focus context changes (focus mode, ids, or TV selection / visibility toggles), update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
+
+  // Refresh line and regulation highlight visibility immediately when altitude range changes
+  useEffect(() => {
+    updateFlightLineFilters(mapRef.current);
+    updateRegulationHighlight(mapRef.current);
+  }, [flLowerBound, flUpperBound]);
 
   // When flow view state changes, update rendering
   useEffect(() => { updateFlowRendering(mapRef.current); updateRegulationHighlight(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes, selectedTrafficVolumes]);
@@ -538,13 +552,14 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     return;
   }
   const sim = useSimStore.getState();
-  const tracks = (map as any).__trajectories as any[] | undefined;
+  const tracks = (map as any).__trajectories as Trajectory[] | undefined;
   if (!tracks) return;
-
-  const activeFlightIds: string[] = [];
-  for (const tr of tracks) {
-    if (sim.t >= tr.t0 && sim.t <= tr.t1) activeFlightIds.push(String(tr.flightId));
-  }
+  const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+    tracks,
+    sim.t,
+    sim.flLowerBound,
+    sim.flUpperBound
+  );
 
   let lineIdsToShow: string[];
   if (sim.flowPreviewFlightId) {
@@ -572,8 +587,10 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
       lineIdsToShow = Object.keys(sim.flowCommunities).map(String);
     }
   } else {
-    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : activeFlightIds).map(String);
+    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : Array.from(insideRangeActiveSet)).map(String);
   }
+
+  lineIdsToShow = lineIdsToShow.filter((id) => insideRangeActiveSet.has(String(id)));
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
@@ -617,7 +634,16 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
     return;
   }
   const sim = useSimStore.getState();
-  const ids = Array.from(sim.regulationTargetFlightIds).map(String);
+  const tracks = (map as any).__trajectories as Trajectory[] | undefined;
+  const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+    tracks,
+    sim.t,
+    sim.flLowerBound,
+    sim.flUpperBound
+  );
+  const ids = Array.from(sim.regulationTargetFlightIds)
+    .map(String)
+    .filter((id) => insideRangeActiveSet.has(id));
   const filterExpr: any = ids.length > 0 ? ["in", ["to-string", ["get", "flightId"]], ["literal", ids]] : ["==", ["get", "flightId"], "__none__"];
   if (map.getLayer("reg-target-lines")) {
     // Flow view normally hides the regulation overlay, but targeted preview should override that
