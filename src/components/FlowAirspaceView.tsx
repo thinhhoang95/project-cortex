@@ -1202,7 +1202,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               </button>
             </div>
             <p className="text-[11px] opacity-70 mt-2">
-              NLP and catcher actions update the checkboxes below. Only checked flights are added to the Flow Basket.
+              NLP and catcher actions only affect this listed TV baseline. Gate eligibility freezes at first click, and only checked flights are added to the Flow Basket.
             </p>
             <div className="mt-3 pt-3 border-t border-white/10 space-y-3">
               <div className="flex items-center justify-between">
@@ -1243,8 +1243,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               </div>
               <p className="text-[11px] opacity-75">
                 {regulationCatcherActive
-                  ? "Click to add points, double-click to finish, Esc to cancel."
-                  : "Choose a catcher mode, then draw on the map to check/uncheck flights in this list."}
+                  ? "Gate freezes at first click. Double-click to finish, Esc to cancel."
+                  : "Choose a catcher mode, then draw to check/uncheck flights visible at gate start within this TV baseline list."}
               </p>
             </div>
           </div>

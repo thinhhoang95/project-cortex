@@ -33,6 +33,7 @@ export default function RerouteTvBaseListSync() {
     t,
     regulationTimeWindow,
     setRerouteBaseFlightIds,
+    setRerouteBaseSelectedFlightIds,
     setFocusMode,
     setFocusFlightIds,
   } = useSimStore();
@@ -59,6 +60,8 @@ export default function RerouteTvBaseListSync() {
   const selectedTvKey = selectedTvIds.join("|");
   const requestSeq = useRef(0);
   const appliedTvFocusRef = useRef(false);
+  const previousSelectionContextKeyRef = useRef<string | null>(null);
+  const previousBaseFlightIdSetRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (airspaceDisplayMode !== "tv") {
@@ -67,6 +70,8 @@ export default function RerouteTvBaseListSync() {
         setFocusFlightIds(new Set());
         appliedTvFocusRef.current = false;
       }
+      previousSelectionContextKeyRef.current = null;
+      previousBaseFlightIdSetRef.current = new Set();
       return;
     }
 
@@ -77,12 +82,15 @@ export default function RerouteTvBaseListSync() {
         setFocusFlightIds(new Set());
         appliedTvFocusRef.current = false;
       }
+      previousSelectionContextKeyRef.current = null;
+      previousBaseFlightIdSetRef.current = new Set();
       return;
     }
 
     const reqId = ++requestSeq.current;
     const refTime = formatTimeForAPI(t);
     const { from: windowFrom, to: windowTo } = normalizeTimeWindow(regulationTimeWindow, t);
+    const listSelectionContextKey = `${selectedTvKey}|${windowFrom}-${windowTo}`;
 
     Promise.all(
       selectedTvIds.map(async (tvId) => {
@@ -110,10 +118,27 @@ export default function RerouteTvBaseListSync() {
           windowFrom,
           windowTo
         );
+        const nextBaseSet = new Set(orderedFlightIds);
+        const prevContext = previousSelectionContextKeyRef.current;
+        const prevBaseSet = previousBaseFlightIdSetRef.current;
+        const currentSelected = useSimStore.getState().rerouteBaseSelectedFlightIds;
+        let nextSelected = new Set<string>();
+        if (prevContext !== listSelectionContextKey) {
+          nextSelected = new Set(orderedFlightIds);
+        } else {
+          for (const id of orderedFlightIds) {
+            if (!prevBaseSet.has(id) || currentSelected.has(id)) {
+              nextSelected.add(id);
+            }
+          }
+        }
         setRerouteBaseFlightIds(orderedFlightIds, "tv");
+        setRerouteBaseSelectedFlightIds(nextSelected);
         setFocusMode(true);
         setFocusFlightIds(new Set(orderedFlightIds));
         appliedTvFocusRef.current = true;
+        previousSelectionContextKeyRef.current = listSelectionContextKey;
+        previousBaseFlightIdSetRef.current = nextBaseSet;
       })
       .catch((error) => {
         if (reqId !== requestSeq.current) return;
@@ -122,6 +147,8 @@ export default function RerouteTvBaseListSync() {
         setFocusMode(true);
         setFocusFlightIds(new Set());
         appliedTvFocusRef.current = true;
+        previousSelectionContextKeyRef.current = null;
+        previousBaseFlightIdSetRef.current = new Set();
       });
   }, [
     airspaceDisplayMode,
@@ -130,6 +157,7 @@ export default function RerouteTvBaseListSync() {
     t,
     regulationTimeWindow,
     setRerouteBaseFlightIds,
+    setRerouteBaseSelectedFlightIds,
     setFocusMode,
     setFocusFlightIds,
   ]);

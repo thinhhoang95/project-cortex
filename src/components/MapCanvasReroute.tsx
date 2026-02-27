@@ -19,6 +19,14 @@ import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter, getTrafficVolumeFlIntersectionFilter } from "@/lib/mapUtils";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
+import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
+import {
+  applyCatcherToRerouteState,
+  deriveVisibleFlightLineIds,
+  filterCapturedToGate,
+  freezeGateSnapshot,
+  type FlightCatcherGateSnapshot,
+} from "@/lib/flightCatcherPolicy";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
@@ -53,6 +61,7 @@ export default function MapCanvasReroute() {
   const csOpenRangeCountRef = useRef<number>(0);
   const rerouteDraftPointsRef = useRef<Array<[number, number]>>([]);
   const reroutePreviewPointRef = useRef<[number, number] | null>(null);
+  const rerouteGateSnapshotRef = useRef<FlightCatcherGateSnapshot | null>(null);
   const lastTs = useRef<number>(performance.now());
   const {
     t,
@@ -544,6 +553,34 @@ export default function MapCanvasReroute() {
       const handleRerouteMapClick = (event: maplibregl.MapMouseEvent) => {
         const sim = useSimStore.getState();
         if (!sim.rerouteCatcherActive || sim.rerouteCatcherMode === "off") return;
+        if (rerouteDraftPointsRef.current.length === 0) {
+          const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+            tracks,
+            sim.t,
+            sim.flLowerBound,
+            sim.flUpperBound
+          );
+          const visibleFlightIds = deriveVisibleFlightLineIds({
+            insideRangeActiveFlightIds: insideRangeActiveSet,
+            focusMode: sim.focusMode,
+            focusFlightIds: sim.focusFlightIds,
+            flowPreviewFlightId: sim.flowPreviewFlightId,
+            flowPreviewGroupId: sim.flowPreviewGroupId,
+            flowCommunities: sim.flowCommunities,
+            flowGroups: sim.flowGroups,
+            showAllFlowCommunitiesWhenEnabled: false,
+            clampToActiveSet: false,
+          });
+          const hasTvSelection =
+            (Array.isArray(sim.selectedTrafficVolumes) && sim.selectedTrafficVolumes.length > 0) ||
+            !!sim.selectedTrafficVolume;
+          rerouteGateSnapshotRef.current = freezeGateSnapshot({
+            createdAtSimTime: sim.t,
+            contextMode: hasTvSelection ? "tv_baseline" : "visible_only",
+            visibleFlightIds,
+            baselineFlightIds: sim.rerouteBaseFlightIds,
+          });
+        }
         const point: [number, number] = [event.lngLat.lng, event.lngLat.lat];
         rerouteDraftPointsRef.current = [...rerouteDraftPointsRef.current, point];
         reroutePreviewPointRef.current = point;
@@ -565,19 +602,55 @@ export default function MapCanvasReroute() {
 
         event.preventDefault();
 
+        const hasTvSelection =
+          (Array.isArray(sim.selectedTrafficVolumes) && sim.selectedTrafficVolumes.length > 0) ||
+          !!sim.selectedTrafficVolume;
+        const gateSnapshot =
+          rerouteGateSnapshotRef.current ??
+          freezeGateSnapshot({
+            createdAtSimTime: sim.t,
+            contextMode: hasTvSelection ? "tv_baseline" : "visible_only",
+            visibleFlightIds: deriveVisibleFlightLineIds({
+              insideRangeActiveFlightIds: getCurrentActiveFlightIdsInFlRange(
+                tracks,
+                sim.t,
+                sim.flLowerBound,
+                sim.flUpperBound
+              ),
+              focusMode: sim.focusMode,
+              focusFlightIds: sim.focusFlightIds,
+              flowPreviewFlightId: sim.flowPreviewFlightId,
+              flowPreviewGroupId: sim.flowPreviewGroupId,
+              flowCommunities: sim.flowCommunities,
+              flowGroups: sim.flowGroups,
+              showAllFlowCommunitiesWhenEnabled: false,
+              clampToActiveSet: false,
+            }),
+            baselineFlightIds: sim.rerouteBaseFlightIds,
+          });
+
         const result = captureFlightsByRerouteCatcher({
           trajectories: tracks,
           catcherPolyline: rerouteDraftPointsRef.current,
           timeframe: sim.rerouteCatcherTimeframe,
-          currentTimeSeconds: sim.t,
+          currentTimeSeconds: gateSnapshot.createdAtSimTime,
         });
-
-        if (sim.rerouteCatcherMode === "include") {
-          sim.addRerouteBaseFlightIds(result.flightIds, "catcher");
-        } else {
-          sim.removeRerouteBaseFlightIds(result.flightIds, "catcher");
+        const filtered = filterCapturedToGate(result.flightIds, gateSnapshot);
+        if (filtered.length > 0) {
+          const next = applyCatcherToRerouteState({
+            contextMode: gateSnapshot.contextMode,
+            currentBaseFlightIds: sim.rerouteBaseFlightIds,
+            currentSelectedFlightIds: sim.rerouteBaseSelectedFlightIds,
+            capturedFlightIds: filtered,
+            catcherMode: sim.rerouteCatcherMode,
+          });
+          if (!areStringArraysEqual(sim.rerouteBaseFlightIds, next.nextBaseFlightIds)) {
+            sim.setRerouteBaseFlightIds(next.nextBaseFlightIds, "catcher");
+          }
+          sim.setRerouteBaseSelectedFlightIds(next.nextSelectedFlightIds);
         }
 
+        rerouteGateSnapshotRef.current = null;
         rerouteDraftPointsRef.current = [];
         reroutePreviewPointRef.current = null;
         updateRerouteCatcherSource(map, rerouteDraftPointsRef.current, reroutePreviewPointRef.current);
@@ -739,6 +812,7 @@ export default function MapCanvasReroute() {
 
     map.doubleClickZoom.enable();
     map.getCanvas().style.cursor = "";
+    rerouteGateSnapshotRef.current = null;
     rerouteDraftPointsRef.current = [];
     reroutePreviewPointRef.current = null;
     syncRerouteCatcherOverlay();
@@ -749,6 +823,7 @@ export default function MapCanvasReroute() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      rerouteGateSnapshotRef.current = null;
       rerouteDraftPointsRef.current = [];
       reroutePreviewPointRef.current = null;
       cancelRerouteCatcher();
@@ -1378,29 +1453,17 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
   // Filter flight line + label layers
   // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
-  let lineIdsToShow: string[];
-  if (sim.flowPreviewFlightId) {
-    // Row-hover preview should show the full trajectory even if the flight is not active at the current t.
-    lineIdsToShow = [String(sim.flowPreviewFlightId)];
-  } else if (sim.flowPreviewGroupId) {
-    const previewGroupId = String(sim.flowPreviewGroupId);
-    let previewIds: string[] = [];
-    if (sim.flowGroups && sim.flowGroups[previewGroupId]) {
-      previewIds = (sim.flowGroups[previewGroupId] || []).map(String);
-    } else if (sim.flowCommunities) {
-      previewIds = Object.entries(sim.flowCommunities)
-        .filter(([, cid]) => String(cid) === previewGroupId)
-        .map(([fid]) => String(fid));
-    }
-    lineIdsToShow = previewIds.map(String);
-  } else if (sim.focusMode) {
-    // Show ALL focusFlightIds without filtering by current time - flights may pass through
-    // a traffic volume at different times within the focus window, and we want to show
-    // their full trajectories regardless of whether they're active at current sim time t.
-    lineIdsToShow = Array.from(sim.focusFlightIds).map(String);
-  } else {
-    lineIdsToShow = Array.from(insideRangeActiveSet);
-  }
+  const lineIdsToShow = deriveVisibleFlightLineIds({
+    insideRangeActiveFlightIds: insideRangeActiveSet,
+    focusMode: sim.focusMode,
+    focusFlightIds: sim.focusFlightIds,
+    flowPreviewFlightId: sim.flowPreviewFlightId,
+    flowPreviewGroupId: sim.flowPreviewGroupId,
+    flowCommunities: sim.flowCommunities,
+    flowGroups: sim.flowGroups,
+    showAllFlowCommunitiesWhenEnabled: false,
+    clampToActiveSet: false,
+  });
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
@@ -1435,4 +1498,12 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       (map as any).__prevLineOpacity = lineOpacity;
     }
   }
+}
+
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }

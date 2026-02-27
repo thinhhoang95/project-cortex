@@ -1105,8 +1105,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             </div>
             <p className="text-[11px] opacity-75">
               {regulationCatcherActive
-                ? "Click to add points, double-click to finish, Esc to cancel."
-                : "Choose a catcher mode, then draw on the map to include/exclude flights."}
+                ? "Gate freezes at first click. Double-click to finish, Esc to cancel."
+                : "Choose a catcher mode, then draw to include/exclude flights visible at gate start within the current flight list."}
             </p>
           </div>
         </div>

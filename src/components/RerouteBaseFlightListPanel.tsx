@@ -50,6 +50,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     rerouteBaseFlightIds,
     rerouteBaseSelectedFlightIds,
     clearRerouteBaseFlightIds,
+    removeRerouteBaseFlightIds,
     setRerouteBaseSelectedFlightIds,
     flights,
     t,
@@ -289,6 +290,12 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     setRerouteBaseSelectedFlightIds(next);
   }, [areAllListedFlightsChecked, listedFlightIds, setRerouteBaseSelectedFlightIds]);
 
+  const removeListedFlight = useCallback((flightId: string) => {
+    const normalized = String(flightId ?? "").trim();
+    if (!normalized) return;
+    removeRerouteBaseFlightIds([normalized], "catcher");
+  }, [removeRerouteBaseFlightIds]);
+
   useEffect(() => {
     if (!previewSelectedOnly) return;
     applySelectedPreview();
@@ -399,16 +406,20 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
               <thead>
                 <tr className="bg-white/10">
                   <th className="text-center p-2 font-semibold w-8">
-                    <button
-                      type="button"
-                      className="w-full h-full text-center hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      onClick={toggleAllListedFlights}
-                      disabled={listedFlightIds.length === 0}
-                      title={areAllListedFlightsChecked ? "Uncheck all listed flights" : "Check all listed flights"}
-                      aria-label={areAllListedFlightsChecked ? "Uncheck all listed flights" : "Check all listed flights"}
-                    >
-                      ✓
-                    </button>
+                    {showTvColumns ? (
+                      <button
+                        type="button"
+                        className="w-full h-full text-center hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        onClick={toggleAllListedFlights}
+                        disabled={listedFlightIds.length === 0}
+                        title={areAllListedFlightsChecked ? "Uncheck all listed flights" : "Check all listed flights"}
+                        aria-label={areAllListedFlightsChecked ? "Uncheck all listed flights" : "Check all listed flights"}
+                      >
+                        ✓
+                      </button>
+                    ) : (
+                      <span className="opacity-70">×</span>
+                    )}
                   </th>
                   <th className="text-left p-2 font-semibold">CS</th>
                   <th className="text-left p-2 font-semibold">Ori.</th>
@@ -428,54 +439,80 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row, index) => (
-                  <tr
-                    key={`${row.flightId}-${index}`}
-                    className={`border-t border-white/10 ${
-                      checkedListedFlightIdSet.has(row.flightId)
-                        ? index % 2 === 0 ? "bg-white/0 hover:bg-white/10" : "bg-white/5 hover:bg-white/10"
-                        : "bg-rose-500/15 hover:bg-rose-500/25"
-                    } cursor-pointer`}
-                    onMouseEnter={() => {
-                      if (!previewSelectedOnly) setFlowPreviewFlightId(row.flightId);
-                    }}
-                    onMouseLeave={() => {
-                      if (!previewSelectedOnly) setFlowPreviewFlightId(null);
-                    }}
-                    onClick={() => {
-                      if (!row.flight) return;
-                      window.dispatchEvent(
-                        new CustomEvent("flight-search-select", { detail: { flight: row.flight } })
-                      );
-                    }}
-                  >
-                    <td className="p-2 text-center w-8">
-                      <input
-                        type="checkbox"
-                        checked={checkedListedFlightIdSet.has(row.flightId)}
-                        onChange={() => toggleListedFlightInclusion(row.flightId)}
-                        onClick={(event) => event.stopPropagation()}
-                        className="h-4 w-4 cursor-pointer rounded border border-white/40 bg-white/10 accent-blue-400"
-                        aria-label={`${checkedListedFlightIdSet.has(row.flightId) ? "Uncheck" : "Check"} flight ${row.callSign}`}
-                      />
-                    </td>
-                    <td className={`p-2 font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.callSign}</td>
-                    <td className={`p-2 ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.origin}</td>
-                    <td className={`p-2 ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.destination}</td>
-                    <td className={`p-2 text-right font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.takeoffTime}</td>
-                    {showTvColumns &&
-                      selectedTvIds.map((tvId) => (
-                        <Fragment key={`${row.flightId}-${tvId}`}>
-                          <td className={`p-2 text-right font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>
-                            {row.perTv[tvId]?.arrivalTime ?? "N/A"}
-                          </td>
-                          <td className={`p-2 text-right font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>
-                            {formatDwellingTime(row.perTv[tvId]?.dwellSeconds ?? null)}
-                          </td>
-                        </Fragment>
-                      ))}
-                  </tr>
-                ))}
+                {visibleRows.map((row, index) => {
+                  const isChecked = checkedListedFlightIdSet.has(row.flightId);
+                  const rowClass = showTvColumns
+                    ? isChecked
+                      ? index % 2 === 0
+                        ? "bg-white/0 hover:bg-white/10"
+                        : "bg-white/5 hover:bg-white/10"
+                      : "bg-rose-500/15 hover:bg-rose-500/25"
+                    : index % 2 === 0
+                      ? "bg-white/0 hover:bg-white/10"
+                      : "bg-white/5 hover:bg-white/10";
+                  const inactiveTextClass = showTvColumns && !isChecked ? "text-white/60 line-through" : "";
+                  return (
+                    <tr
+                      key={`${row.flightId}-${index}`}
+                      className={`border-t border-white/10 ${rowClass} cursor-pointer`}
+                      onMouseEnter={() => {
+                        if (!previewSelectedOnly) setFlowPreviewFlightId(row.flightId);
+                      }}
+                      onMouseLeave={() => {
+                        if (!previewSelectedOnly) setFlowPreviewFlightId(null);
+                      }}
+                      onClick={() => {
+                        if (!row.flight) return;
+                        window.dispatchEvent(
+                          new CustomEvent("flight-search-select", { detail: { flight: row.flight } })
+                        );
+                      }}
+                    >
+                      <td className="p-2 text-center w-8">
+                        {showTvColumns ? (
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleListedFlightInclusion(row.flightId)}
+                            onClick={(event) => event.stopPropagation()}
+                            className="h-4 w-4 cursor-pointer rounded border border-white/40 bg-white/10 accent-blue-400"
+                            aria-label={`${isChecked ? "Uncheck" : "Check"} flight ${row.callSign}`}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              removeListedFlight(row.flightId);
+                            }}
+                            className="text-red-200 hover:text-red-100"
+                            title={`Remove flight ${row.callSign}`}
+                            aria-label={`Remove flight ${row.callSign}`}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" />
+                            </svg>
+                          </button>
+                        )}
+                      </td>
+                      <td className={`p-2 font-mono ${inactiveTextClass}`}>{row.callSign}</td>
+                      <td className={`p-2 ${inactiveTextClass}`}>{row.origin}</td>
+                      <td className={`p-2 ${inactiveTextClass}`}>{row.destination}</td>
+                      <td className={`p-2 text-right font-mono ${inactiveTextClass}`}>{row.takeoffTime}</td>
+                      {showTvColumns &&
+                        selectedTvIds.map((tvId) => (
+                          <Fragment key={`${row.flightId}-${tvId}`}>
+                            <td className={`p-2 text-right font-mono ${inactiveTextClass}`}>
+                              {row.perTv[tvId]?.arrivalTime ?? "N/A"}
+                            </td>
+                            <td className={`p-2 text-right font-mono ${inactiveTextClass}`}>
+                              {formatDwellingTime(row.perTv[tvId]?.dwellSeconds ?? null)}
+                            </td>
+                          </Fragment>
+                        ))}
+                    </tr>
+                  );
+                })}
                 {rows.length > MAX_VISIBLE && (
                   <tr
                     className="border-t border-white/10 cursor-pointer hover:bg-white/10"

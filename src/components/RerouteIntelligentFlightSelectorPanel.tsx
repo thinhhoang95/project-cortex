@@ -21,6 +21,8 @@ type RerouteIntelligentFlightSelectorPanelProps = {
 
 export default function RerouteIntelligentFlightSelectorPanel({ embedded = false }: RerouteIntelligentFlightSelectorPanelProps) {
   const {
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
     rerouteTvBaselineFlightIds,
     rerouteCatcherMode,
     rerouteCatcherTimeframe,
@@ -39,6 +41,10 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     () => (rerouteTvBaselineFlightIds.length > 0 ? rerouteTvBaselineFlightIds : undefined),
     [rerouteTvBaselineFlightIds]
   );
+  const isTvSelected = useMemo(() => {
+    if (Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0) return true;
+    return !!selectedTrafficVolume;
+  }, [selectedTrafficVolumes, selectedTrafficVolume]);
 
   const toggleCatcherMode = (mode: Exclude<RerouteCatcherMode, "off">) => {
     if (rerouteCatcherMode === mode) {
@@ -105,9 +111,9 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
               </button>
             </div>
             <p className="text-[11px] opacity-70 mt-2">
-              {baselineIds
+              {isTvSelected && baselineIds
                 ? `Query always starts from the TV baseline (${baselineIds.length.toLocaleString("en-US")} flights).`
-                : "Query builds a new base list from scratch."}
+                : "Query builds a new base list from the currently visible flights."}
             </p>
           </div>
 
@@ -153,8 +159,10 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
 
             <p className="text-[11px] opacity-75">
               {rerouteCatcherActive
-                ? "Click to add points, double-click to finish, Esc to cancel."
-                : "Choose a catcher mode, then draw on the map to include/exclude flights."}
+                ? "Gate freezes at first click. Double-click to finish, Esc to cancel."
+                : isTvSelected
+                  ? "Choose a catcher mode, then draw to toggle flights visible at gate start within the TV baseline only."
+                  : "Choose a catcher mode, then draw to add/remove flights visible and airborne at gate start."}
             </p>
           </div>
         </div>

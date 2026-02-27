@@ -15,6 +15,13 @@ import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
 import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
+  applyCatcherToRegulationTargets,
+  deriveVisibleFlightLineIds,
+  filterCapturedToGate,
+  freezeGateSnapshot,
+  type FlightCatcherGateSnapshot,
+} from "@/lib/flightCatcherPolicy";
+import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
   applyTrafficVolumeFilters,
@@ -37,6 +44,7 @@ export default function FlowCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const flowCatcherDraftPointsRef = useRef<Array<[number, number]>>([]);
   const flowCatcherPreviewPointRef = useRef<[number, number] | null>(null);
+  const flowGateSnapshotRef = useRef<FlightCatcherGateSnapshot | null>(null);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
   const {
@@ -325,6 +333,36 @@ export default function FlowCanvas() {
         const handleFlowCatcherMapClick = (event: maplibregl.MapMouseEvent) => {
           const sim = useSimStore.getState();
           if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
+          if (flowCatcherDraftPointsRef.current.length === 0) {
+            const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+              tracks,
+              sim.t,
+              sim.flLowerBound,
+              sim.flUpperBound
+            );
+            const visibleFlightIds = deriveVisibleFlightLineIds({
+              insideRangeActiveFlightIds: insideRangeActiveSet,
+              focusMode: sim.focusMode,
+              focusFlightIds: sim.focusFlightIds,
+              flowPreviewFlightId: sim.flowPreviewFlightId,
+              flowPreviewGroupId: sim.flowPreviewGroupId,
+              flowCommunities: sim.flowCommunities,
+              flowGroups: sim.flowGroups,
+              flowViewEnabled: sim.flowViewEnabled,
+              showAllFlowCommunitiesWhenEnabled: true,
+              proposalPreviewActive: sim.proposalPreviewActive,
+              proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
+              regulationPreviewActive: sim.regulationPreviewActive,
+              regulationTargetFlightIds: sim.regulationTargetFlightIds,
+              clampToActiveSet: true,
+            });
+            flowGateSnapshotRef.current = freezeGateSnapshot({
+              createdAtSimTime: sim.t,
+              contextMode: "tv_baseline",
+              visibleFlightIds,
+              baselineFlightIds: sim.regulationListedFlightIds,
+            });
+          }
           const point: [number, number] = [event.lngLat.lng, event.lngLat.lat];
           flowCatcherDraftPointsRef.current = [...flowCatcherDraftPointsRef.current, point];
           flowCatcherPreviewPointRef.current = point;
@@ -346,27 +384,53 @@ export default function FlowCanvas() {
 
           event.preventDefault();
 
+          const gateSnapshot =
+            flowGateSnapshotRef.current ??
+            freezeGateSnapshot({
+              createdAtSimTime: sim.t,
+              contextMode: "tv_baseline",
+              visibleFlightIds: deriveVisibleFlightLineIds({
+                insideRangeActiveFlightIds: getCurrentActiveFlightIdsInFlRange(
+                  tracks,
+                  sim.t,
+                  sim.flLowerBound,
+                  sim.flUpperBound
+                ),
+                focusMode: sim.focusMode,
+                focusFlightIds: sim.focusFlightIds,
+                flowPreviewFlightId: sim.flowPreviewFlightId,
+                flowPreviewGroupId: sim.flowPreviewGroupId,
+                flowCommunities: sim.flowCommunities,
+                flowGroups: sim.flowGroups,
+                flowViewEnabled: sim.flowViewEnabled,
+                showAllFlowCommunitiesWhenEnabled: true,
+                proposalPreviewActive: sim.proposalPreviewActive,
+                proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
+                regulationPreviewActive: sim.regulationPreviewActive,
+                regulationTargetFlightIds: sim.regulationTargetFlightIds,
+                clampToActiveSet: true,
+              }),
+              baselineFlightIds: sim.regulationListedFlightIds,
+            });
+
           const result = captureFlightsByRerouteCatcher({
             trajectories: tracks,
             catcherPolyline: flowCatcherDraftPointsRef.current,
             timeframe: sim.regulationCatcherTimeframe,
-            currentTimeSeconds: sim.t,
+            currentTimeSeconds: gateSnapshot.createdAtSimTime,
           });
 
-          if (result.flightIds.length > 0) {
-            const allowed = new Set((sim.regulationListedFlightIds || []).map((id) => String(id)));
-            const filtered = result.flightIds.map((id) => String(id)).filter((id) => allowed.has(id));
-            if (filtered.length > 0) {
-              const next = new Set<string>(sim.regulationTargetFlightIds);
-              if (sim.regulationCatcherMode === "include") {
-                for (const id of filtered) next.add(id);
-              } else {
-                for (const id of filtered) next.delete(id);
-              }
-              sim.setRegulationTargetFlightIds(next);
-            }
+          const filtered = filterCapturedToGate(result.flightIds, gateSnapshot);
+          if (filtered.length > 0) {
+            const next = applyCatcherToRegulationTargets({
+              currentTargetFlightIds: sim.regulationTargetFlightIds,
+              capturedFlightIds: filtered,
+              catcherMode: sim.regulationCatcherMode,
+            });
+            sim.setRegulationTargetFlightIds(next);
           }
 
+          flowGateSnapshotRef.current = null;
           flowCatcherDraftPointsRef.current = [];
           flowCatcherPreviewPointRef.current = null;
           updateFlowCatcherSource(map, flowCatcherDraftPointsRef.current, flowCatcherPreviewPointRef.current);
@@ -479,6 +543,7 @@ export default function FlowCanvas() {
     }
     map.doubleClickZoom.enable();
     map.getCanvas().style.cursor = "";
+    flowGateSnapshotRef.current = null;
     flowCatcherDraftPointsRef.current = [];
     flowCatcherPreviewPointRef.current = null;
     syncFlowCatcherOverlay();
@@ -489,6 +554,7 @@ export default function FlowCanvas() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      flowGateSnapshotRef.current = null;
       flowCatcherDraftPointsRef.current = [];
       flowCatcherPreviewPointRef.current = null;
       cancelRegulationCatcher();
@@ -666,39 +732,22 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     sim.flUpperBound
   );
 
-  // When Flow View is enabled and communities are present, restrict to those flights
-  let lineIdsToShow: string[];
-  // Flight-level preview takes precedence over any group preview or other filters
-  if (sim.proposalPreviewActive) {
-    lineIdsToShow = Array.from(sim.proposalPreviewFlightIds || []).map(String);
-  } else if (sim.regulationPreviewActive) {
-    lineIdsToShow = Array.from(sim.regulationTargetFlightIds).map(String);
-  } else if (sim.flowPreviewFlightId) {
-    // Flow preview hovers are next-highest priority
-    lineIdsToShow = [String(sim.flowPreviewFlightId)];
-  } else if (sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
-    const previewGroupId = sim.flowPreviewGroupId ? String(sim.flowPreviewGroupId) : null;
-    if (previewGroupId) {
-      // Preview mode: show all flights that belong to the hovered flow group (not time-sliced)
-      let previewIds: string[] = [];
-      if (sim.flowGroups && sim.flowGroups[previewGroupId]) {
-        previewIds = (sim.flowGroups[previewGroupId] || []).map(String);
-      } else {
-        // Fallback: derive from communities mapping
-        previewIds = Object.entries(sim.flowCommunities)
-          .filter(([, cid]) => String(cid) === previewGroupId)
-          .map(([fid]) => String(fid));
-      }
-      lineIdsToShow = previewIds.map(String);
-    } else {
-      // No preview: show all flights included in any community (flow extraction), not time-sliced
-      lineIdsToShow = Object.keys(sim.flowCommunities).map(String);
-    }
-  } else {
-    lineIdsToShow = (sim.focusMode ? Array.from(sim.focusFlightIds) : Array.from(insideRangeActiveSet)).map(String);
-  }
-
-  lineIdsToShow = lineIdsToShow.filter((id) => insideRangeActiveSet.has(String(id)));
+  const lineIdsToShow = deriveVisibleFlightLineIds({
+    insideRangeActiveFlightIds: insideRangeActiveSet,
+    focusMode: sim.focusMode,
+    focusFlightIds: sim.focusFlightIds,
+    flowPreviewFlightId: sim.flowPreviewFlightId,
+    flowPreviewGroupId: sim.flowPreviewGroupId,
+    flowCommunities: sim.flowCommunities,
+    flowGroups: sim.flowGroups,
+    flowViewEnabled: sim.flowViewEnabled,
+    showAllFlowCommunitiesWhenEnabled: true,
+    proposalPreviewActive: sim.proposalPreviewActive,
+    proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
+    regulationPreviewActive: sim.regulationPreviewActive,
+    regulationTargetFlightIds: sim.regulationTargetFlightIds,
+    clampToActiveSet: true,
+  });
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
