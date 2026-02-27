@@ -11,10 +11,12 @@ const RELEASE_NOTES_CONTENT = `
   <h2 class="text-2xl font-bold mb-4">Highlights</h2>
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
-  <p>This will also be my last update to Project Cortex for a while. My research at ENAC had been finished, and I'm moving on to the next chapter of my career.</p>
 
+  <h4 class="font-bold mb-4">Fri. 27/02/2026</h4>
+  <li><strong>Flight Catcher.<strong> Now you can draw directly on the map to indicate which flights you want to catch. It works across reroutes, regulation and DeepFlow's flight selection.</li>
+  
   <h4 class="font-bold mb-4">Sat. 21/02/2026</h4>
-
+  <p>This will also be my last update to Project Cortex for a while. My research at ENAC had been finished, and I'm moving on to the next chapter of my career.</p>
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Flow Heuristics.</strong> We now show the flow heuristics by default, with the option to toggle flight lists manually.</li>
     <li><strong>Collapsed Sectors View.</strong> It is now possible to toggle the CS view to further analyze the component of hotspots. This is particularly helpful in inspecting whether it is possible to open more sectors.</li>
