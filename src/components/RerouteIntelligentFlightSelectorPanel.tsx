@@ -27,10 +27,19 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     rerouteCatcherMode,
     rerouteCatcherTimeframe,
     rerouteCatcherActive,
+    rerouteShapeToolMode,
+    rerouteObstacles,
+    rerouteFunnels,
+    rerouteSelectedShape,
+    rerouteGeometryResult,
     setRerouteBaseFlightIds,
     setRerouteCatcherMode,
     setRerouteCatcherTimeframe,
+    setRerouteShapeToolMode,
     cancelRerouteCatcher,
+    clearRerouteObstacles,
+    clearRerouteFunnels,
+    removeRerouteSelectedShape,
   } = useSimStore();
 
   const [queryInput, setQueryInput] = useState("");
@@ -67,8 +76,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     <>
       <div className={panelClassName}>
         <div className="p-4 border-b border-white/20">
-          <h2 className="font-semibold">Intelligent Flight Selector</h2>
-          <p className="text-xs opacity-70 mt-1">Natural language query + flight catchers</p>
+          <h2 className="font-semibold">Select and Reroute</h2>
         </div>
 
         <div className="p-4 space-y-4">
@@ -164,6 +172,88 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                   ? "Choose a catcher mode, then draw to toggle flights visible at gate start within the TV baseline only."
                   : "Choose a catcher mode, then draw to add/remove flights visible and airborne at gate start."}
             </p>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-lg p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium">Reroute Tools</h3>
+              <div className="text-xs opacity-70">
+                {rerouteShapeToolMode === "off" ? "Inactive" : `Active: ${rerouteShapeToolMode}`}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setRerouteShapeToolMode(rerouteShapeToolMode === "obstacle" ? "off" : "obstacle")
+                }
+                className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                  rerouteShapeToolMode === "obstacle"
+                    ? "border-amber-300/60 bg-amber-500/25 text-amber-100"
+                    : "border-white/20 bg-white/10 text-white/80 hover:bg-white/20"
+                }`}
+              >
+                Obstacle
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setRerouteShapeToolMode(rerouteShapeToolMode === "funnel" ? "off" : "funnel")
+                }
+                className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                  rerouteShapeToolMode === "funnel"
+                    ? "border-cyan-300/60 bg-cyan-500/25 text-cyan-100"
+                    : "border-white/20 bg-white/10 text-white/80 hover:bg-white/20"
+                }`}
+              >
+                Funnel
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={clearRerouteObstacles}
+                className="px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
+              >
+                Clear Obstacles ({rerouteObstacles.length})
+              </button>
+              <button
+                type="button"
+                onClick={clearRerouteFunnels}
+                className="px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
+              >
+                Clear Funnels ({rerouteFunnels.length})
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={removeRerouteSelectedShape}
+              disabled={!rerouteSelectedShape}
+              className={`w-full px-2 py-1.5 rounded border text-xs transition-colors ${
+                rerouteSelectedShape
+                  ? "border-rose-300/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                  : "border-white/10 bg-white/5 text-white/45 cursor-not-allowed"
+              }`}
+            >
+              Delete Selected Shape
+            </button>
+
+            <p className="text-[11px] opacity-75">
+              {rerouteShapeToolMode === "obstacle" &&
+                "Obstacle: click to add vertices, double-click to close polygon, Esc to cancel draft."}
+              {rerouteShapeToolMode === "funnel" &&
+                "Funnel: click center, move mouse for radius, click again to save. Dashed circle shows the radius."}
+              {rerouteShapeToolMode === "off" &&
+                "Click a shape to select it, then press Delete/Backspace (or button) to remove it."}
+            </p>
+
+            <div className="text-[11px] opacity-75 border border-white/10 rounded p-2 bg-white/5">
+              <div>Changed flights: {rerouteGeometryResult?.changedFlightCount ?? 0}</div>
+              <div>Total extra NM: {(rerouteGeometryResult?.totalExtraNm ?? 0).toLocaleString("en-US")}</div>
+            </div>
           </div>
         </div>
       </div>

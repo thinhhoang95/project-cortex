@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse, AlternativeRouteResponse, AlternativeRouteSegment } from "@/lib/models";
+import type { RerouteFunnel, RerouteGeometryResult, RerouteObstacle } from "@/lib/rerouteGeometry";
 import { toggleOrderedTrafficVolumes } from "@/lib/multiTrafficVolumeSelection";
 import {
   collectAllProposalFlights,
@@ -84,6 +85,7 @@ export type ProposalQuery = {
 export type RerouteBaseListSource = "tv" | "query" | "catcher";
 export type RerouteCatcherMode = "off" | "include" | "exclude";
 export type RerouteCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
+export type RerouteShapeToolMode = "off" | "obstacle" | "funnel";
 export type RegulationCatcherMode = "off" | "include" | "exclude";
 export type RegulationCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
 
@@ -175,6 +177,11 @@ type State = {
   rerouteCatcherMode: RerouteCatcherMode;
   rerouteCatcherTimeframe: RerouteCatcherTimeframe;
   rerouteCatcherActive: boolean;
+  rerouteShapeToolMode: RerouteShapeToolMode;
+  rerouteObstacles: RerouteObstacle[];
+  rerouteFunnels: RerouteFunnel[];
+  rerouteSelectedShape: { kind: "obstacle" | "funnel"; id: string } | null;
+  rerouteGeometryResult: RerouteGeometryResult | null;
   regulationCatcherMode: RegulationCatcherMode;
   regulationCatcherTimeframe: RegulationCatcherTimeframe;
   regulationCatcherActive: boolean;
@@ -259,6 +266,16 @@ type State = {
   setRerouteCatcherMode: (mode: RerouteCatcherMode) => void;
   setRerouteCatcherTimeframe: (timeframe: RerouteCatcherTimeframe) => void;
   cancelRerouteCatcher: () => void;
+  setRerouteShapeToolMode: (mode: RerouteShapeToolMode) => void;
+  addRerouteObstacle: (vertices: [number, number][]) => string;
+  removeRerouteObstacle: (id: string) => void;
+  clearRerouteObstacles: () => void;
+  addRerouteFunnel: (center: [number, number], radiusNm: number) => string;
+  removeRerouteFunnel: (id: string) => void;
+  clearRerouteFunnels: () => void;
+  setRerouteSelectedShape: (shape: { kind: "obstacle" | "funnel"; id: string } | null) => void;
+  removeRerouteSelectedShape: () => void;
+  setRerouteGeometryResult: (result: RerouteGeometryResult | null) => void;
   setRegulationCatcherMode: (mode: RegulationCatcherMode) => void;
   setRegulationCatcherTimeframe: (timeframe: RegulationCatcherTimeframe) => void;
   cancelRegulationCatcher: () => void;
@@ -387,6 +404,11 @@ const defaultState: Pick<State,
   | 'rerouteCatcherMode'
   | 'rerouteCatcherTimeframe'
   | 'rerouteCatcherActive'
+  | 'rerouteShapeToolMode'
+  | 'rerouteObstacles'
+  | 'rerouteFunnels'
+  | 'rerouteSelectedShape'
+  | 'rerouteGeometryResult'
   | 'regulationCatcherMode'
   | 'regulationCatcherTimeframe'
   | 'regulationCatcherActive'
@@ -472,6 +494,11 @@ const defaultState: Pick<State,
   rerouteCatcherMode: "off",
   rerouteCatcherTimeframe: "1h",
   rerouteCatcherActive: false,
+  rerouteShapeToolMode: "off",
+  rerouteObstacles: [],
+  rerouteFunnels: [],
+  rerouteSelectedShape: null,
+  rerouteGeometryResult: null,
   regulationCatcherMode: "off",
   regulationCatcherTimeframe: "1h",
   regulationCatcherActive: false,
@@ -1031,6 +1058,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
     set({
       rerouteCatcherMode: mode,
       rerouteCatcherActive: mode !== "off",
+      rerouteShapeToolMode: "off",
+      rerouteSelectedShape: null,
     }),
   setRerouteCatcherTimeframe: (timeframe) => set({ rerouteCatcherTimeframe: timeframe }),
   cancelRerouteCatcher: () =>
@@ -1038,6 +1067,121 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       rerouteCatcherMode: "off",
       rerouteCatcherActive: false,
     }),
+  setRerouteShapeToolMode: (mode) =>
+    set((state) => ({
+      rerouteShapeToolMode: mode,
+      ...(mode === "off" ? {} : {
+        rerouteCatcherMode: "off" as RerouteCatcherMode,
+        rerouteCatcherActive: false,
+      }),
+      ...(mode === "off" && state.rerouteSelectedShape ? { rerouteSelectedShape: null } : {}),
+    })),
+  addRerouteObstacle: (vertices) => {
+    const normalized: [number, number][] = [];
+    for (const point of vertices || []) {
+      if (!Array.isArray(point) || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
+      const nextPoint: [number, number] = [Number(point[0]), Number(point[1])];
+      const prev = normalized[normalized.length - 1];
+      if (prev && Math.abs(prev[0] - nextPoint[0]) <= 1e-9 && Math.abs(prev[1] - nextPoint[1]) <= 1e-9) {
+        continue;
+      }
+      normalized.push(nextPoint);
+    }
+    if (normalized.length < 3) return "";
+    const id = `RO${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    set((state) => ({
+      rerouteObstacles: [...state.rerouteObstacles, { id, vertices: normalized }],
+      rerouteSelectedShape: { kind: "obstacle", id },
+    }));
+    return id;
+  },
+  removeRerouteObstacle: (id) => {
+    const normalizedId = String(id ?? "").trim();
+    if (!normalizedId) return;
+    set((state) => ({
+      rerouteObstacles: state.rerouteObstacles.filter((obstacle) => String(obstacle.id) !== normalizedId),
+      rerouteSelectedShape:
+        state.rerouteSelectedShape?.kind === "obstacle" && state.rerouteSelectedShape.id === normalizedId
+          ? null
+          : state.rerouteSelectedShape,
+    }));
+  },
+  clearRerouteObstacles: () =>
+    set((state) => ({
+      rerouteObstacles: [],
+      rerouteSelectedShape:
+        state.rerouteSelectedShape?.kind === "obstacle" ? null : state.rerouteSelectedShape,
+    })),
+  addRerouteFunnel: (center, radiusNm) => {
+    if (
+      !Array.isArray(center) ||
+      !Number.isFinite(center[0]) ||
+      !Number.isFinite(center[1]) ||
+      !Number.isFinite(radiusNm) ||
+      radiusNm <= 0
+    ) {
+      return "";
+    }
+    const id = `RF${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    set((state) => ({
+      rerouteFunnels: [...state.rerouteFunnels, {
+        id,
+        center: [Number(center[0]), Number(center[1])],
+        radiusNm: Number(radiusNm),
+      }],
+      rerouteSelectedShape: { kind: "funnel", id },
+    }));
+    return id;
+  },
+  removeRerouteFunnel: (id) => {
+    const normalizedId = String(id ?? "").trim();
+    if (!normalizedId) return;
+    set((state) => ({
+      rerouteFunnels: state.rerouteFunnels.filter((funnel) => String(funnel.id) !== normalizedId),
+      rerouteSelectedShape:
+        state.rerouteSelectedShape?.kind === "funnel" && state.rerouteSelectedShape.id === normalizedId
+          ? null
+          : state.rerouteSelectedShape,
+    }));
+  },
+  clearRerouteFunnels: () =>
+    set((state) => ({
+      rerouteFunnels: [],
+      rerouteSelectedShape:
+        state.rerouteSelectedShape?.kind === "funnel" ? null : state.rerouteSelectedShape,
+    })),
+  setRerouteSelectedShape: (shape) => {
+    if (!shape) {
+      set({ rerouteSelectedShape: null });
+      return;
+    }
+    const id = String(shape.id ?? "").trim();
+    if (!id) {
+      set({ rerouteSelectedShape: null });
+      return;
+    }
+    if (shape.kind !== "obstacle" && shape.kind !== "funnel") {
+      set({ rerouteSelectedShape: null });
+      return;
+    }
+    set({ rerouteSelectedShape: { kind: shape.kind, id } });
+  },
+  removeRerouteSelectedShape: () =>
+    set((state) => {
+      const selected = state.rerouteSelectedShape;
+      if (!selected) return {};
+      if (selected.kind === "obstacle") {
+        return {
+          rerouteObstacles: state.rerouteObstacles.filter((obstacle) => String(obstacle.id) !== selected.id),
+          rerouteSelectedShape: null,
+        };
+      }
+      return {
+        rerouteFunnels: state.rerouteFunnels.filter((funnel) => String(funnel.id) !== selected.id),
+        rerouteSelectedShape: null,
+      };
+    }),
+  setRerouteGeometryResult: (result) => set({ rerouteGeometryResult: result }),
   setRegulationCatcherMode: (mode) =>
     set({
       regulationCatcherMode: mode,
