@@ -49,15 +49,12 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
 
   const visibleRows = expanded ? rows : rows.slice(0, MAX_VISIBLE);
   const hiddenCount = Math.max(0, rows.length - visibleRows.length);
+  const panelClassName = embedded
+    ? "w-full max-w-[384px] mx-auto rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
+    : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col";
 
   return (
-    <div
-      className={
-        embedded
-          ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
-          : "rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
-      }
-    >
+    <div className={panelClassName}>
       <div className="p-4 border-b border-white/20">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">

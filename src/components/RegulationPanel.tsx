@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
-import { useSimStore } from "@/components/useSimStore";
+import { useSimStore, type RegulationCatcherMode, type RegulationCatcherTimeframe } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
@@ -65,6 +65,17 @@ const REG_MULTI_CHART_COLORS = [
   "#a78bfa",
 ];
 
+const REGULATION_CATCHER_TIMEFRAME_OPTIONS: Array<{ value: RegulationCatcherTimeframe; label: string }> = [
+  { value: "15m", label: "15M" },
+  { value: "30m", label: "30M" },
+  { value: "45m", label: "45M" },
+  { value: "1h", label: "1H" },
+  { value: "2h", label: "2H" },
+  { value: "3h", label: "3H" },
+  { value: "4h", label: "4H" },
+  { value: "all", label: "ALL" },
+];
+
 export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
   const {
     selectedTrafficVolume,
@@ -111,7 +122,13 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setFlowPreviewFlightId,
     setFlowPreviewGroupId,
     regulationPreviewActive,
-    setRegulationPreviewActive
+    setRegulationPreviewActive,
+    regulationCatcherMode,
+    regulationCatcherTimeframe,
+    regulationCatcherActive,
+    setRegulationCatcherMode,
+    setRegulationCatcherTimeframe,
+    cancelRegulationCatcher,
   } = useSimStore();
 
   const selectedTvIds = useMemo(() => {
@@ -535,6 +552,14 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const toggleSeeOnlyTargeted = () => {
     if (!hasTargetedFlights) return;
     setShowOnlyTargeted(prev => !prev);
+  };
+
+  const toggleCatcherMode = (mode: Exclude<RegulationCatcherMode, "off">) => {
+    if (regulationCatcherMode === mode) {
+      cancelRegulationCatcher();
+      return;
+    }
+    setRegulationCatcherMode(mode);
   };
 
   // Apply focus mode and ids to filter map to only those flights
@@ -1041,6 +1066,49 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               </div>
             </div>
           </div>
+          <div className="mt-3 bg-white/5 border border-white/10 rounded-lg p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium">Flight Catchers</h3>
+              <div className="text-xs opacity-70">
+                {regulationCatcherActive ? "Drawing enabled" : "Drawing disabled"}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <CatcherButton
+                title="Positive Flight Catcher"
+                active={regulationCatcherMode === "include"}
+                onClick={() => toggleCatcherMode("include")}
+                kind="include"
+              />
+              <CatcherButton
+                title="Negative Flight Catcher"
+                active={regulationCatcherMode === "exclude"}
+                onClick={() => toggleCatcherMode("exclude")}
+                kind="exclude"
+              />
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {REGULATION_CATCHER_TIMEFRAME_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setRegulationCatcherTimeframe(option.value)}
+                  className={`px-2 py-1.5 text-[11px] font-medium rounded border transition-colors ${
+                    regulationCatcherTimeframe === option.value
+                      ? "bg-blue-500/30 border-blue-400/50 text-blue-200"
+                      : "bg-white/10 border-white/20 text-white/80 hover:bg-white/15"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] opacity-75">
+              {regulationCatcherActive
+                ? "Click to add points, double-click to finish, Esc to cancel."
+                : "Choose a catcher mode, then draw on the map to include/exclude flights."}
+            </p>
+          </div>
         </div>
 
         {/* Selected flights table */}
@@ -1282,6 +1350,37 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         fullScreen
       />
     </div>
+  );
+}
+
+function CatcherButton(props: {
+  title: string;
+  active: boolean;
+  onClick: () => void;
+  kind: "include" | "exclude";
+}) {
+  const { title, active, onClick, kind } = props;
+  const symbol = kind === "include" ? "+" : "−";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors inline-flex items-center gap-2 ${
+        active
+          ? kind === "include"
+            ? "border-emerald-300/60 bg-emerald-500/25 text-emerald-100"
+            : "border-rose-300/60 bg-rose-500/25 text-rose-100"
+          : "border-white/20 bg-white/10 text-white/80 hover:bg-white/20"
+      }`}
+      title={title}
+      aria-label={title}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="3 18 9 10 14 14 21 6" />
+      </svg>
+      <span className="text-base leading-none">{symbol}</span>
+    </button>
   );
 }
 

@@ -84,6 +84,8 @@ export type ProposalQuery = {
 export type RerouteBaseListSource = "tv" | "query" | "catcher";
 export type RerouteCatcherMode = "off" | "include" | "exclude";
 export type RerouteCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
+export type RegulationCatcherMode = "off" | "include" | "exclude";
+export type RegulationCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
 
 type State = {
   t: number;               // current sim time (s)
@@ -171,6 +173,9 @@ type State = {
   rerouteCatcherMode: RerouteCatcherMode;
   rerouteCatcherTimeframe: RerouteCatcherTimeframe;
   rerouteCatcherActive: boolean;
+  regulationCatcherMode: RegulationCatcherMode;
+  regulationCatcherTimeframe: RegulationCatcherTimeframe;
+  regulationCatcherActive: boolean;
   // View options control (global minimized state so other UI can react)
   viewOptionsMinimized: boolean;
   // User state
@@ -251,6 +256,9 @@ type State = {
   setRerouteCatcherMode: (mode: RerouteCatcherMode) => void;
   setRerouteCatcherTimeframe: (timeframe: RerouteCatcherTimeframe) => void;
   cancelRerouteCatcher: () => void;
+  setRegulationCatcherMode: (mode: RegulationCatcherMode) => void;
+  setRegulationCatcherTimeframe: (timeframe: RegulationCatcherTimeframe) => void;
+  cancelRegulationCatcher: () => void;
   setViewOptionsMinimized: (minimized: boolean) => void;
   // Reset all non-function state back to defaults
   resetAll: () => void;
@@ -374,6 +382,9 @@ const defaultState: Pick<State,
   | 'rerouteCatcherMode'
   | 'rerouteCatcherTimeframe'
   | 'rerouteCatcherActive'
+  | 'regulationCatcherMode'
+  | 'regulationCatcherTimeframe'
+  | 'regulationCatcherActive'
   | 'viewOptionsMinimized'
   | 'user'
 > = {
@@ -454,6 +465,9 @@ const defaultState: Pick<State,
   rerouteCatcherMode: "off",
   rerouteCatcherTimeframe: "1h",
   rerouteCatcherActive: false,
+  regulationCatcherMode: "off",
+  regulationCatcherTimeframe: "1h",
+  regulationCatcherActive: false,
   viewOptionsMinimized: false,
   user: null,
 };
@@ -986,6 +1000,17 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
     set({
       rerouteCatcherMode: "off",
       rerouteCatcherActive: false,
+    }),
+  setRegulationCatcherMode: (mode) =>
+    set({
+      regulationCatcherMode: mode,
+      regulationCatcherActive: mode !== "off",
+    }),
+  setRegulationCatcherTimeframe: (timeframe) => set({ regulationCatcherTimeframe: timeframe }),
+  cancelRegulationCatcher: () =>
+    set({
+      regulationCatcherMode: "off",
+      regulationCatcherActive: false,
     }),
   setViewOptionsMinimized: (minimized) => set({ viewOptionsMinimized: minimized }),
   // Reset all stateful values back to defaults (used on page navigation)

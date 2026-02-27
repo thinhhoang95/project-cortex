@@ -60,7 +60,7 @@ export default function FlowsPage() {
       />
       {/* Left-side wrapper: full-height scroll; panels take natural height */}
       <div
-        style={{ transform: leftPanelsMinimized ? "translateX(calc(-100% - 1.5rem))" : "translateX(0)" }}
+        style={{ transform: leftPanelsMinimized ? "translateX(calc(-100% - 1.5rem))" : "none" }}
         className={`absolute top-0 left-4 z-40 w-[360px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none transition-all duration-300 ease-in-out ${leftPanelsMinimized ? "opacity-0" : "opacity-100"}`}
       >
         <div className="pointer-events-auto">
@@ -69,7 +69,7 @@ export default function FlowsPage() {
       </div>
       {/* Right-side wrapper group */}
       <div
-        style={{ transform: rightPanelsMinimized ? "translateX(calc(100% + 1.5rem))" : "translateX(0)" }}
+        style={{ transform: rightPanelsMinimized ? "translateX(calc(100% + 1.5rem))" : "none" }}
         className={`absolute top-0 right-4 z-40 h-screen min-h-0 pointer-events-none flex gap-4 transition-all duration-300 ease-in-out ${rightPanelsMinimized ? "opacity-0" : "opacity-100"}`}
       >
         <div className="w-[340px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">

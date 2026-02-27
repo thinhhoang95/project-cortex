@@ -14,6 +14,7 @@ import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
 import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
+import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
@@ -27,12 +28,62 @@ import {
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
 
+const REGULATION_CATCHER_SOURCE_ID = "regulation-catcher-source";
+const REGULATION_CATCHER_DRAFT_LAYER_ID = "regulation-catcher-draft";
+const REGULATION_CATCHER_PREVIEW_LAYER_ID = "regulation-catcher-preview";
+const REGULATION_CATCHER_POINTS_LAYER_ID = "regulation-catcher-points";
+
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
+  const regulationDraftPointsRef = useRef<Array<[number, number]>>([]);
+  const regulationPreviewPointRef = useRef<[number, number] | null>(null);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showFlightLines, setFlights, setSelectedTrafficVolume, toggleSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, showTrafficVolumes, regulationTargetFlightIds, regulationPreviewActive, addRegulationTargetFlight, selectedTrafficVolume, selectedTrafficVolumes, isResultsOpen, regulationSimulationResult, setIsResultsOpen, setRegulationSimulationResult, flowViewEnabled, flowCommunities, flowGroups, flowPreviewFlightId, flowPreviewGroupId, focusMode, focusFlightIds, slackMode, setSlackMode, slackSign, deltaMin, setIsFetchingSlack, playing } = useSimStore();
+  const {
+    t,
+    date,
+    weatherOverlay,
+    tick,
+    setRange,
+    showFlightLineLabels,
+    showFlightLines,
+    setFlights,
+    setSelectedTrafficVolume,
+    toggleSelectedTrafficVolume,
+    flLowerBound,
+    flUpperBound,
+    showHotspots,
+    hotspots,
+    getActiveHotspots,
+    showTrafficVolumes,
+    regulationTargetFlightIds,
+    regulationPreviewActive,
+    addRegulationTargetFlight,
+    setRegulationTargetFlightIds,
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
+    isResultsOpen,
+    regulationSimulationResult,
+    setIsResultsOpen,
+    setRegulationSimulationResult,
+    flowViewEnabled,
+    flowCommunities,
+    flowGroups,
+    flowPreviewFlightId,
+    flowPreviewGroupId,
+    focusMode,
+    focusFlightIds,
+    slackMode,
+    setSlackMode,
+    slackSign,
+    deltaMin,
+    setIsFetchingSlack,
+    playing,
+    regulationCatcherActive,
+    regulationCatcherMode,
+    cancelRegulationCatcher,
+  } = useSimStore();
 
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
@@ -42,6 +93,7 @@ export default function RegulationCanvas() {
 
   const theme = useThemeStore((state) => state.theme);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
+  const isCatcherDrawing = regulationCatcherActive && regulationCatcherMode !== "off";
   const selectedTvHighlightIds = useMemo(
     () =>
       Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
@@ -51,6 +103,16 @@ export default function RegulationCanvas() {
           : [],
     [selectedTrafficVolumes, selectedTrafficVolume],
   );
+
+  const syncRegulationCatcherOverlay = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    updateRegulationCatcherSource(
+      map,
+      regulationDraftPointsRef.current,
+      regulationPreviewPointRef.current,
+    );
+  };
 
   // init map
   useEffect(() => {
@@ -157,10 +219,60 @@ export default function RegulationCanvas() {
 
       // Save trajectories on map for the animation step
       (map as any).__trajectories = tracks;
+      if (!map.getSource(REGULATION_CATCHER_SOURCE_ID)) {
+        map.addSource(REGULATION_CATCHER_SOURCE_ID, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+      }
+      if (!map.getLayer(REGULATION_CATCHER_DRAFT_LAYER_ID)) {
+        map.addLayer({
+          id: REGULATION_CATCHER_DRAFT_LAYER_ID,
+          type: "line",
+          source: REGULATION_CATCHER_SOURCE_ID,
+          filter: ["==", ["get", "kind"], "draft"],
+          paint: {
+            "line-color": "#22c55e",
+            "line-width": 2.5,
+            "line-opacity": 0.95,
+          },
+        });
+      }
+      if (!map.getLayer(REGULATION_CATCHER_PREVIEW_LAYER_ID)) {
+        map.addLayer({
+          id: REGULATION_CATCHER_PREVIEW_LAYER_ID,
+          type: "line",
+          source: REGULATION_CATCHER_SOURCE_ID,
+          filter: ["==", ["get", "kind"], "preview"],
+          paint: {
+            "line-color": "#22c55e",
+            "line-width": 2,
+            "line-dasharray": [2, 2],
+            "line-opacity": 0.85,
+          },
+        });
+      }
+      if (!map.getLayer(REGULATION_CATCHER_POINTS_LAYER_ID)) {
+        map.addLayer({
+          id: REGULATION_CATCHER_POINTS_LAYER_ID,
+          type: "circle",
+          source: REGULATION_CATCHER_SOURCE_ID,
+          filter: ["==", ["get", "kind"], "point"],
+          paint: {
+            "circle-color": "#ffffff",
+            "circle-radius": 3.5,
+            "circle-stroke-color": "#0f172a",
+            "circle-stroke-width": 1.2,
+          },
+        });
+      }
+      applyRegulationCatcherLayerColors(map, useSimStore.getState().regulationCatcherMode);
+      updateRegulationCatcherSource(map, regulationDraftPointsRef.current, regulationPreviewPointRef.current);
 
       // Click handler for flight lines: add to regulation target list when a TV is selected
       map.on('click', 'flight-lines', (e) => {
         const sim = useSimStore.getState();
+        if (sim.regulationCatcherActive) return;
         if (!sim.selectedTrafficVolume && (!Array.isArray(sim.selectedTrafficVolumes) || sim.selectedTrafficVolumes.length === 0)) return;
         if (e.features && e.features.length > 0) {
           const feature = e.features[0];
@@ -173,8 +285,20 @@ export default function RegulationCanvas() {
       });
 
       // Change cursor to pointer when hovering over flight lines
-      map.on('mouseenter', 'flight-lines', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'flight-lines', () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', 'flight-lines', () => {
+        if (useSimStore.getState().regulationCatcherActive) {
+          map.getCanvas().style.cursor = "crosshair";
+          return;
+        }
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'flight-lines', () => {
+        if (useSimStore.getState().regulationCatcherActive) {
+          map.getCanvas().style.cursor = "crosshair";
+          return;
+        }
+        map.getCanvas().style.cursor = '';
+      });
 
       // Helper to select traffic volume by id
       const selectTrafficVolume = (trafficVolumeId: string) => {
@@ -206,6 +330,7 @@ export default function RegulationCanvas() {
       };
 
       const handleTrafficVolumeClick = (e: maplibregl.MapLayerMouseEvent) => {
+        if (useSimStore.getState().regulationCatcherActive) return;
         const lineHits = map.queryRenderedFeatures(e.point, { layers: ['reg-target-lines', 'flight-lines'] });
         if (lineHits && lineHits.length > 0) return;
         const trafficVolumeId = pickClosestTrafficVolumeId(e);
@@ -217,6 +342,10 @@ export default function RegulationCanvas() {
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeClick);
 
       const handleTrafficVolumeHover = (e: maplibregl.MapLayerMouseEvent) => {
+        if (useSimStore.getState().regulationCatcherActive) {
+          map.getCanvas().style.cursor = "crosshair";
+          return;
+        }
         map.getCanvas().style.cursor = 'pointer';
         const trafficVolumeId = pickClosestTrafficVolumeId(e);
         if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
@@ -233,6 +362,10 @@ export default function RegulationCanvas() {
       map.on('mousemove', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
 
       const handleTrafficVolumeHoverExit = () => {
+        if (useSimStore.getState().regulationCatcherActive) {
+          map.getCanvas().style.cursor = "crosshair";
+          return;
+        }
         map.getCanvas().style.cursor = '';
         setHoveredTrafficVolume(null);
         setHoverLabelPoint(null);
@@ -241,6 +374,54 @@ export default function RegulationCanvas() {
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
+      const handleRegulationMapClick = (event: maplibregl.MapMouseEvent) => {
+        const sim = useSimStore.getState();
+        if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
+        const point: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+        regulationDraftPointsRef.current = [...regulationDraftPointsRef.current, point];
+        regulationPreviewPointRef.current = point;
+        updateRegulationCatcherSource(map, regulationDraftPointsRef.current, regulationPreviewPointRef.current);
+      };
+
+      const handleRegulationMouseMove = (event: maplibregl.MapMouseEvent) => {
+        const sim = useSimStore.getState();
+        if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
+        if (regulationDraftPointsRef.current.length === 0) return;
+        regulationPreviewPointRef.current = [event.lngLat.lng, event.lngLat.lat];
+        updateRegulationCatcherSource(map, regulationDraftPointsRef.current, regulationPreviewPointRef.current);
+      };
+
+      const handleRegulationDoubleClick = (event: maplibregl.MapMouseEvent) => {
+        const sim = useSimStore.getState();
+        if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
+        if (regulationDraftPointsRef.current.length < 2) return;
+
+        event.preventDefault();
+
+        const result = captureFlightsByRerouteCatcher({
+          trajectories: tracks,
+          catcherPolyline: regulationDraftPointsRef.current,
+          timeframe: sim.regulationCatcherTimeframe,
+          currentTimeSeconds: sim.t,
+        });
+        if (result.flightIds.length > 0) {
+          const next = new Set<string>(sim.regulationTargetFlightIds);
+          if (sim.regulationCatcherMode === "include") {
+            for (const id of result.flightIds) next.add(String(id));
+          } else {
+            for (const id of result.flightIds) next.delete(String(id));
+          }
+          setRegulationTargetFlightIds(next);
+        }
+
+        regulationDraftPointsRef.current = [];
+        regulationPreviewPointRef.current = null;
+        updateRegulationCatcherSource(map, regulationDraftPointsRef.current, regulationPreviewPointRef.current);
+      };
+
+      map.on("click", handleRegulationMapClick);
+      map.on("mousemove", handleRegulationMouseMove);
+      map.on("dblclick", handleRegulationDoubleClick);
       // Fills and slack overlay are not clickable; keep default cursor
 
       // Fit to data
@@ -327,6 +508,44 @@ export default function RegulationCanvas() {
 
   // Update regulation highlight when target ids change
   useEffect(() => { updateRegulationHighlight(mapRef.current); }, [regulationTargetFlightIds, flowViewEnabled, regulationPreviewActive]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyRegulationCatcherLayerColors(map, regulationCatcherMode);
+    syncRegulationCatcherOverlay();
+  }, [regulationCatcherMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (isCatcherDrawing) {
+      map.doubleClickZoom.disable();
+      map.getCanvas().style.cursor = "crosshair";
+      return;
+    }
+    map.doubleClickZoom.enable();
+    map.getCanvas().style.cursor = "";
+    regulationDraftPointsRef.current = [];
+    regulationPreviewPointRef.current = null;
+    syncRegulationCatcherOverlay();
+  }, [isCatcherDrawing]);
+
+  useEffect(() => {
+    if (!isCatcherDrawing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      regulationDraftPointsRef.current = [];
+      regulationPreviewPointRef.current = null;
+      cancelRegulationCatcher();
+      syncRegulationCatcherOverlay();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isCatcherDrawing, cancelRegulationCatcher]);
 
   // Weather overlay integration (Surface Precipitation)
   useEffect(() => {
@@ -650,6 +869,69 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
     const vis = sim.flowViewEnabled && !sim.regulationPreviewActive ? 'none' : 'visible';
     map.setLayoutProperty("reg-target-lines", "visibility", vis);
     map.setFilter("reg-target-lines", filterExpr as any);
+  }
+}
+
+function updateRegulationCatcherSource(
+  map: maplibregl.Map,
+  draftPoints: Array<[number, number]>,
+  previewPoint: [number, number] | null,
+) {
+  const source = map.getSource(REGULATION_CATCHER_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+  if (!source) return;
+
+  const features: GeoJSON.Feature[] = [];
+  const validDraft = draftPoints.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+
+  if (validDraft.length >= 2) {
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: validDraft,
+      },
+      properties: { kind: "draft" },
+    });
+  }
+
+  if (validDraft.length >= 1 && previewPoint && Number.isFinite(previewPoint[0]) && Number.isFinite(previewPoint[1])) {
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: [...validDraft, previewPoint],
+      },
+      properties: { kind: "preview" },
+    });
+  }
+
+  for (const point of validDraft) {
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: point,
+      },
+      properties: { kind: "point" },
+    });
+  }
+
+  source.setData({
+    type: "FeatureCollection",
+    features,
+  });
+}
+
+function applyRegulationCatcherLayerColors(
+  map: maplibregl.Map,
+  mode: "off" | "include" | "exclude",
+) {
+  const color = mode === "exclude" ? "#fb7185" : "#22c55e";
+  if (map.getLayer(REGULATION_CATCHER_DRAFT_LAYER_ID)) {
+    map.setPaintProperty(REGULATION_CATCHER_DRAFT_LAYER_ID, "line-color", color);
+  }
+  if (map.getLayer(REGULATION_CATCHER_PREVIEW_LAYER_ID)) {
+    map.setPaintProperty(REGULATION_CATCHER_PREVIEW_LAYER_ID, "line-color", color);
   }
 }
 

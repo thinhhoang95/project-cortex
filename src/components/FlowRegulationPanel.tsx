@@ -424,7 +424,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   return (
     <div 
       className={embedded
-        ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
+        ? "w-full max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"
         : "absolute top-20 right-4 z-50 w-[384px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-slate-900 text-white flex flex-col"}
     >
       <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
@@ -434,7 +434,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         </div>
       </div>
 
-      <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 flex-1 space-y-4"}>
+      <div className="overflow-y-auto no-scrollbar p-4 flex-1 space-y-4">
         <div className="bg-white/5 border border-white/10 rounded-lg p-4">
           <div className="font-medium text-sm opacity-90 mb-2">Traffic Volumes</div>
           <MultiSelectWithChips

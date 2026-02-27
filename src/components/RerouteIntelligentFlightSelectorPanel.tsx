@@ -53,16 +53,13 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     setQueryInitialPrompt(prompt);
     setQueryOpen(true);
   };
+  const panelClassName = embedded
+    ? "w-full max-w-[384px] mx-auto rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
+    : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col";
 
   return (
     <>
-      <div
-        className={
-          embedded
-            ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
-            : "rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
-        }
-      >
+      <div className={panelClassName}>
         <div className="p-4 border-b border-white/20">
           <h2 className="font-semibold">Intelligent Flight Selector</h2>
           <p className="text-xs opacity-70 mt-1">Natural language query + flight catchers</p>
