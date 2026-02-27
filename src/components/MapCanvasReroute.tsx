@@ -76,6 +76,8 @@ export default function MapCanvasReroute() {
     showHotspots,
     hotspots,
     getActiveHotspots,
+    flowPreviewGroupId,
+    flowGroups,
     flowPreviewFlightId,
     playing,
     focusMode,
@@ -645,8 +647,8 @@ export default function MapCanvasReroute() {
   // on t change from UI (drag), update plane positions immediately when paused
   useEffect(() => { if (!playing) updatePlanePositions(mapRef.current); }, [t, playing]);
 
-  // When a single-flight preview is toggled via hover, update filters immediately
-  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId]);
+  // When a single-flight/group preview is toggled, update filters immediately
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId, flowGroups]);
 
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedCollapsedSector]);
@@ -1380,6 +1382,17 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   if (sim.flowPreviewFlightId) {
     // Row-hover preview should show the full trajectory even if the flight is not active at the current t.
     lineIdsToShow = [String(sim.flowPreviewFlightId)];
+  } else if (sim.flowPreviewGroupId) {
+    const previewGroupId = String(sim.flowPreviewGroupId);
+    let previewIds: string[] = [];
+    if (sim.flowGroups && sim.flowGroups[previewGroupId]) {
+      previewIds = (sim.flowGroups[previewGroupId] || []).map(String);
+    } else if (sim.flowCommunities) {
+      previewIds = Object.entries(sim.flowCommunities)
+        .filter(([, cid]) => String(cid) === previewGroupId)
+        .map(([fid]) => String(fid));
+    }
+    lineIdsToShow = previewIds.map(String);
   } else if (sim.focusMode) {
     // Show ALL focusFlightIds without filtering by current time - flights may pass through
     // a traffic volume at different times within the focus window, and we want to show
@@ -1406,8 +1419,16 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     map.setFilter("flight-lines", filterExpr as any);
     if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
     if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.selectedCollapsedSector || !!sim.flowPreviewFlightId;
-    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
+    const inFocusContext =
+      sim.focusMode ||
+      !!sim.selectedTrafficVolume ||
+      !!sim.selectedCollapsedSector ||
+      !!sim.flowPreviewFlightId ||
+      !!sim.flowPreviewGroupId;
+    const lineOpacity =
+      sim.flowPreviewFlightId || sim.flowPreviewGroupId
+        ? 0.8
+        : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
@@ -1415,4 +1436,3 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     }
   }
 }
-

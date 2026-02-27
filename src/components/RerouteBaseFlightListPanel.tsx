@@ -1,14 +1,47 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import { authFetch } from "@/lib/auth";
+import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 
 const MAX_VISIBLE = 24;
+const REROUTE_BASE_PREVIEW_GROUP_ID = "reroute-base-flight-list";
+
+type FlowPreviewSnapshot = Pick<
+  ReturnType<typeof useSimStore.getState>,
+  "flowCommunities" | "flowGroups" | "flowColorByCommunity" | "flowPreviewGroupId" | "flowPreviewFlightId"
+>;
 
 type RerouteBaseFlightListPanelProps = {
   embedded?: boolean;
+};
+
+type OrderedFlightsData = {
+  traffic_volume_id: string;
+  ref_time_str: string;
+  ordered_flights: string[];
+  details: {
+    flight_id: string;
+    arrival_time: string;
+    arrival_seconds: number;
+    delta_seconds: number;
+    time_window: string;
+    dwell_seconds?: number | null;
+  }[];
+};
+
+type LegacyFlightsData = Record<string, string[]>;
+
+type TvFlightsPayload =
+  | { kind: "ordered"; data: OrderedFlightsData }
+  | { kind: "legacy"; data: LegacyFlightsData };
+
+type TvFlightCell = {
+  arrivalTime: string;
+  dwellSeconds: number | null;
 };
 
 export default function RerouteBaseFlightListPanel({ embedded = false }: RerouteBaseFlightListPanelProps) {
@@ -16,10 +49,110 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     rerouteBaseFlightIds,
     clearRerouteBaseFlightIds,
     flights,
+    airspaceDisplayMode,
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
+    setFlowCommunities,
+    setFlowPreviewGroupId,
     setFlowPreviewFlightId,
   } = useSimStore();
 
   const [expanded, setExpanded] = useState(false);
+  const [previewSelectedOnly, setPreviewSelectedOnly] = useState(false);
+  const originalPreviewRef = useRef<FlowPreviewSnapshot | null>(null);
+  const tvFlightsReqSeq = useRef(0);
+  const [tvFlightDataByTv, setTvFlightDataByTv] = useState<Record<string, TvFlightsPayload>>({});
+
+  const selectedTvIds = useMemo(() => {
+    const source =
+      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
+        ? selectedTrafficVolumes
+        : selectedTrafficVolume
+          ? [selectedTrafficVolume]
+          : [];
+
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of source) {
+      const id = String(raw ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }, [selectedTrafficVolume, selectedTrafficVolumes]);
+
+  const selectedTvKey = selectedTvIds.join("|");
+  const showTvColumns = airspaceDisplayMode === "tv" && selectedTvIds.length > 0;
+
+  useEffect(() => {
+    const reqId = ++tvFlightsReqSeq.current;
+    if (!showTvColumns) {
+      setTvFlightDataByTv({});
+      return;
+    }
+
+    const refTime = formatTimeForAPI(useSimStore.getState().t);
+    Promise.all(
+      selectedTvIds.map(async (tvId) => {
+        const response = await authFetch(
+          `/api/tv_flights?traffic_volume_id=${encodeURIComponent(tvId)}&ref_time_str=${encodeURIComponent(refTime)}`
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load flights for ${tvId}`);
+        }
+        const data = await response.json();
+        const payload: TvFlightsPayload =
+          data?.ordered_flights && data?.details
+            ? { kind: "ordered", data: data as OrderedFlightsData }
+            : { kind: "legacy", data: (data || {}) as LegacyFlightsData };
+        return [tvId, payload] as const;
+      })
+    )
+      .then((entries) => {
+        if (reqId !== tvFlightsReqSeq.current) return;
+        setTvFlightDataByTv(Object.fromEntries(entries));
+      })
+      .catch((error) => {
+        if (reqId !== tvFlightsReqSeq.current) return;
+        console.error("Failed to load reroute TV flight details:", error);
+        setTvFlightDataByTv({});
+      });
+  }, [showTvColumns, selectedTvKey, selectedTvIds]);
+
+  const tvCellsByFlightAndTv = useMemo(() => {
+    const byTv: Record<string, Map<string, TvFlightCell>> = {};
+
+    for (const tvId of selectedTvIds) {
+      const payload = tvFlightDataByTv[tvId];
+      if (!payload) continue;
+
+      const map = new Map<string, TvFlightCell>();
+
+      if (payload.kind === "ordered") {
+        for (const detail of payload.data.details || []) {
+          const flightId = String(detail.flight_id ?? "").trim();
+          if (!flightId) continue;
+          map.set(flightId, {
+            arrivalTime: detail.arrival_time || "N/A",
+            dwellSeconds: detail.dwell_seconds ?? null,
+          });
+        }
+      } else {
+        for (const ids of Object.values(payload.data || {})) {
+          for (const rawId of ids || []) {
+            const flightId = String(rawId ?? "").trim();
+            if (!flightId || map.has(flightId)) continue;
+            map.set(flightId, { arrivalTime: "N/A", dwellSeconds: null });
+          }
+        }
+      }
+
+      byTv[tvId] = map;
+    }
+
+    return byTv;
+  }, [selectedTvIds, tvFlightDataByTv]);
 
   const flightsById = useMemo(() => {
     const map = new Map<string, (typeof flights)[number]>();
@@ -41,17 +174,75 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
           origin: flight?.origin ? String(flight.origin) : "—",
           destination: flight?.destination ? String(flight.destination) : "—",
           takeoffTime: formatTimeOfDay(flight?.t0),
+          perTv: selectedTvIds.reduce<Record<string, TvFlightCell>>((acc, tvId) => {
+            acc[tvId] = tvCellsByFlightAndTv[tvId]?.get(String(id)) || {
+              arrivalTime: "N/A",
+              dwellSeconds: null,
+            };
+            return acc;
+          }, {}),
           flight,
         };
       }),
-    [rerouteBaseFlightIds, flightsById]
+    [rerouteBaseFlightIds, flightsById, selectedTvIds, tvCellsByFlightAndTv]
   );
 
   const visibleRows = expanded ? rows : rows.slice(0, MAX_VISIBLE);
   const hiddenCount = Math.max(0, rows.length - visibleRows.length);
+  const tableColSpan = 4 + (showTvColumns ? selectedTvIds.length * 2 : 0);
   const panelClassName = embedded
     ? "w-full max-w-[384px] mx-auto rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
     : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col";
+
+  const restoreSelectedPreview = useCallback(() => {
+    const snapshot = originalPreviewRef.current;
+    if (!snapshot) return;
+    setFlowCommunities(
+      snapshot.flowCommunities,
+      snapshot.flowGroups,
+      snapshot.flowColorByCommunity || null
+    );
+    setFlowPreviewGroupId(snapshot.flowPreviewGroupId);
+    setFlowPreviewFlightId(snapshot.flowPreviewFlightId);
+    originalPreviewRef.current = null;
+  }, [setFlowCommunities, setFlowPreviewFlightId, setFlowPreviewGroupId]);
+
+  const applySelectedPreview = useCallback(() => {
+    if (!originalPreviewRef.current) {
+      const current = useSimStore.getState();
+      originalPreviewRef.current = {
+        flowCommunities: current.flowCommunities,
+        flowGroups: current.flowGroups,
+        flowColorByCommunity: current.flowColorByCommunity,
+        flowPreviewGroupId: current.flowPreviewGroupId,
+        flowPreviewFlightId: current.flowPreviewFlightId,
+      };
+    }
+    const selectedFlightIds = Array.from(
+      new Set(
+        rows.map((row) => String(row.flightId).trim()).filter((id) => id.length > 0)
+      )
+    );
+    const groups = { [REROUTE_BASE_PREVIEW_GROUP_ID]: selectedFlightIds };
+    const communities: Record<string, number> = {};
+    for (const flightId of selectedFlightIds) {
+      communities[flightId] = 0;
+    }
+    setFlowCommunities(communities, groups, null);
+    setFlowPreviewFlightId(null);
+    setFlowPreviewGroupId(REROUTE_BASE_PREVIEW_GROUP_ID);
+  }, [rows, setFlowCommunities, setFlowPreviewFlightId, setFlowPreviewGroupId]);
+
+  useEffect(() => {
+    if (!previewSelectedOnly) return;
+    applySelectedPreview();
+  }, [previewSelectedOnly, applySelectedPreview]);
+
+  useEffect(() => {
+    return () => {
+      restoreSelectedPreview();
+    };
+  }, [restoreSelectedPreview]);
 
   return (
     <div className={panelClassName}>
@@ -72,6 +263,38 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
             />
             <button
               type="button"
+              onClick={() => {
+                setPreviewSelectedOnly((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    applySelectedPreview();
+                  } else {
+                    restoreSelectedPreview();
+                  }
+                  return next;
+                });
+              }}
+              disabled={rows.length === 0 && !previewSelectedOnly}
+              className={`h-7 w-7 flex items-center justify-center rounded-lg border text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                previewSelectedOnly
+                  ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30"
+                  : "border-white/30 bg-white/20 hover:bg-white/30 text-white/80"
+              }`}
+              title={previewSelectedOnly ? "Hide selected-flight preview" : "Show selected-flight preview"}
+              aria-label="Toggle selected-flight preview"
+            >
+              {previewSelectedOnly ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={clearRerouteBaseFlightIds}
               disabled={rows.length === 0}
               className="text-xs px-2.5 py-1 rounded-md border border-white/20 bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -87,14 +310,25 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
         {rows.length === 0 ? (
           <p className="text-xs opacity-70 text-center py-8">No flights in the base list.</p>
         ) : (
-          <div className="rounded-lg border border-white/10 overflow-hidden">
-            <table className="w-full text-xs">
+          <div className="rounded-lg border border-white/10 overflow-x-auto">
+            <table className="w-full min-w-max text-xs">
               <thead>
                 <tr className="bg-white/10">
                   <th className="text-left p-2 font-semibold">CS</th>
                   <th className="text-left p-2 font-semibold">Ori.</th>
                   <th className="text-left p-2 font-semibold">Des.</th>
                   <th className="text-left p-2 font-semibold">T/O</th>
+                  {showTvColumns &&
+                    selectedTvIds.map((tvId) => (
+                      <Fragment key={`cols-${tvId}`}>
+                        <th className="text-left p-2 font-semibold whitespace-nowrap">
+                          {selectedTvIds.length === 1 ? "TV Arr." : `${tvId} Arr.`}
+                        </th>
+                        <th className="text-left p-2 font-semibold whitespace-nowrap">
+                          {selectedTvIds.length === 1 ? "Dwell" : `${tvId} Dwell`}
+                        </th>
+                      </Fragment>
+                    ))}
                 </tr>
               </thead>
               <tbody>
@@ -102,8 +336,12 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                   <tr
                     key={`${row.flightId}-${index}`}
                     className={`border-t border-white/10 ${index % 2 === 0 ? "bg-white/0" : "bg-white/5"} hover:bg-white/10 cursor-pointer`}
-                    onMouseEnter={() => setFlowPreviewFlightId(row.flightId)}
-                    onMouseLeave={() => setFlowPreviewFlightId(null)}
+                    onMouseEnter={() => {
+                      if (!previewSelectedOnly) setFlowPreviewFlightId(row.flightId);
+                    }}
+                    onMouseLeave={() => {
+                      if (!previewSelectedOnly) setFlowPreviewFlightId(null);
+                    }}
                     onClick={() => {
                       if (!row.flight) return;
                       window.dispatchEvent(
@@ -115,6 +353,17 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                     <td className="p-2">{row.origin}</td>
                     <td className="p-2">{row.destination}</td>
                     <td className="p-2 text-right font-mono">{row.takeoffTime}</td>
+                    {showTvColumns &&
+                      selectedTvIds.map((tvId) => (
+                        <Fragment key={`${row.flightId}-${tvId}`}>
+                          <td className="p-2 text-right font-mono">
+                            {row.perTv[tvId]?.arrivalTime ?? "N/A"}
+                          </td>
+                          <td className="p-2 text-right font-mono">
+                            {formatDwellingTime(row.perTv[tvId]?.dwellSeconds ?? null)}
+                          </td>
+                        </Fragment>
+                      ))}
                   </tr>
                 ))}
                 {rows.length > MAX_VISIBLE && (
@@ -122,7 +371,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                     className="border-t border-white/10 cursor-pointer hover:bg-white/10"
                     onClick={() => setExpanded((prev) => !prev)}
                   >
-                    <td className="p-2 text-center italic opacity-80" colSpan={4}>
+                    <td className="p-2 text-center italic opacity-80" colSpan={tableColSpan}>
                       {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenCount)}
                     </td>
                   </tr>
@@ -142,4 +391,12 @@ function formatTimeOfDay(seconds: number | null | undefined): string {
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatTimeForAPI(seconds: number): string {
+  const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  return `${String(hours).padStart(2, "0")}${String(minutes).padStart(2, "0")}${String(secs).padStart(2, "0")}`;
 }

@@ -1,7 +1,11 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
-import { useSimStore } from "@/components/useSimStore";
+import {
+  useSimStore,
+  type RegulationCatcherMode,
+  type RegulationCatcherTimeframe,
+} from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import PanelCloseButton from "@/components/PanelCloseButton";
@@ -22,6 +26,16 @@ import {
 type FlowAirspaceViewProps = { embedded?: boolean };
 const MAX_VISIBLE = 20;
 const MAX_FLIGHT_ROWS = 500;
+const FLOW_CATCHER_TIMEFRAME_OPTIONS: Array<{ value: RegulationCatcherTimeframe; label: string }> = [
+  { value: "15m", label: "15M" },
+  { value: "30m", label: "30M" },
+  { value: "45m", label: "45M" },
+  { value: "1h", label: "1H" },
+  { value: "2h", label: "2H" },
+  { value: "3h", label: "3H" },
+  { value: "4h", label: "4H" },
+  { value: "all", label: "ALL" },
+];
 
 interface FlightIdentifiersData {
   [timeWindow: string]: string[];
@@ -77,9 +91,15 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setRegulationVisibleFlightIds,
     regulationListedFlightIds,
     setRegulationListedFlightIds,
-    addRegulationTargetFlight,
+    regulationTargetFlightIds,
     clearRegulationTargetFlights,
     setRegulationTargetFlightIds,
+    regulationCatcherMode,
+    regulationCatcherTimeframe,
+    regulationCatcherActive,
+    setRegulationCatcherMode,
+    setRegulationCatcherTimeframe,
+    cancelRegulationCatcher,
     regulationTimeWindow,
     setRegulationTimeWindow,
     setRegulationRate,
@@ -145,10 +165,14 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
   );
+  const regulationWindowFrom = regulationTimeWindow[0];
+  const regulationWindowTo = regulationTimeWindow[1];
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
   const suppressNextPresetApplyRef = useRef<boolean>(false);
+  const previousListContextKeyRef = useRef<string | null>(null);
+  const previousListedFlightIdSetRef = useRef<Set<string>>(new Set());
 
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
@@ -304,7 +328,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
   useEffect(() => {
     setProposalTriggerError(null);
-  }, [selectedTvKey, regulationTimeWindow[0], regulationTimeWindow[1]]);
+  }, [selectedTvKey, regulationWindowFrom, regulationWindowTo]);
 
   // Build histogram data (rolling hour), then filter to active time window
   const baseChartData: Array<{ time: string; count: number; hour: number; capacity?: number }> = useMemo(() => {
@@ -670,6 +694,54 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     return new Set(flightTableData.map((row) => String(row.flightId)));
   }, [flightTableData]);
 
+  const listedFlightIds = useMemo(
+    () => flightTableData.map((row) => String(row.flightId)).filter(Boolean),
+    [flightTableData],
+  );
+  const listSelectionContextKey = `${selectedTvKey}|${regulationTimeWindow[0]}-${regulationTimeWindow[1]}`;
+  const checkedListedFlightIds = useMemo(
+    () => listedFlightIds.filter((id) => regulationTargetFlightIds.has(id)),
+    [listedFlightIds, regulationTargetFlightIds],
+  );
+  const checkedListedFlightIdSet = useMemo(
+    () => new Set(checkedListedFlightIds),
+    [checkedListedFlightIds],
+  );
+
+  useEffect(() => {
+    const listedSet = new Set(listedFlightIds);
+    const prevContext = previousListContextKeyRef.current;
+    const prevListedSet = previousListedFlightIdSetRef.current;
+    const currentSelected = useSimStore.getState().regulationTargetFlightIds;
+
+    let next = new Set<string>();
+    if (primaryTvId && listedSet.size > 0) {
+      if (prevContext !== listSelectionContextKey) {
+        next = new Set(listedSet);
+      } else {
+        for (const id of listedSet) {
+          if (!prevListedSet.has(id) || currentSelected.has(id)) {
+            next.add(id);
+          }
+        }
+      }
+    }
+
+    if (!areSetsEqual(currentSelected, next)) {
+      setRegulationTargetFlightIds(next);
+    }
+    previousListContextKeyRef.current = listSelectionContextKey;
+    previousListedFlightIdSetRef.current = listedSet;
+  }, [listedFlightIds, listSelectionContextKey, primaryTvId, setRegulationTargetFlightIds]);
+
+  useEffect(() => {
+    if (primaryTvId) return;
+    clearRegulationTargetFlights();
+    cancelRegulationCatcher();
+    previousListContextKeyRef.current = null;
+    previousListedFlightIdSetRef.current = new Set();
+  }, [primaryTvId, clearRegulationTargetFlights, cancelRegulationCatcher]);
+
   // Apply focus mode and ids to filter map to only those flights
   useEffect(() => {
     if (!primaryTvId) return;
@@ -719,7 +791,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   // Reset expansion when dataset changes
   useEffect(() => {
     setExpanded(false);
-  }, [selectedTvKey, regulationTimeWindow[0], regulationTimeWindow[1]]);
+  }, [selectedTvKey, regulationWindowFrom, regulationWindowTo]);
+
+  const canAddCheckedFlights = !!primaryTvId && checkedListedFlightIds.length > 0;
 
   // time window presets
   const presets = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h", "2h30", "3h", "3h30", "4h"];
@@ -760,13 +834,33 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     setRegulationTimeWindow(from, to);
   }
 
+  const toggleCatcherMode = useCallback((mode: Exclude<RegulationCatcherMode, "off">) => {
+    if (regulationCatcherMode === mode) {
+      cancelRegulationCatcher();
+      return;
+    }
+    setRegulationCatcherMode(mode);
+  }, [regulationCatcherMode, cancelRegulationCatcher, setRegulationCatcherMode]);
+
+  const toggleListedFlightInclusion = useCallback((flightId: string) => {
+    const normalized = String(flightId ?? "").trim();
+    if (!normalized) return;
+    const current = useSimStore.getState().regulationTargetFlightIds;
+    const next = new Set(current);
+    if (next.has(normalized)) {
+      next.delete(normalized);
+    } else {
+      next.add(normalized);
+    }
+    setRegulationTargetFlightIds(next);
+  }, [setRegulationTargetFlightIds]);
+
   const handleOpenQueryDialog = useCallback(() => {
     setQueryInitialPrompt(inputValue.trim());
     setQueryDialogOpen(true);
   }, [inputValue]);
 
-  const handleFlightsSelectedFromQuery = useCallback((ids: string[]) => {
-    setQueryDialogOpen(false);
+  const addFlightIdsAsFlow = useCallback((ids: string[]) => {
     const unique = Array.from(new Set((ids || []).map(id => String(id).trim()).filter(Boolean)));
     if (unique.length === 0) return;
     if (!primaryTvId) return;
@@ -775,20 +869,24 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     const toLabel = secondsToDayTimeString(toSeconds);
     const flowName = `TV ${primaryTvId} ${fromLabel}-${toLabel}`;
     addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
-    if (selectedTvIds.length > 0) {
-      addTargetCells(selectedTvIds.map(String), fromLabel, toLabel);
-    }
-  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, primaryTvId, selectedTvIds]);
+    addTargetCells([String(primaryTvId)], fromLabel, toLabel);
+  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, primaryTvId]);
 
-  // Listen for map flight clicks to add to list
-  useEffect(() => {
-    const handler = (e: any) => {
-      const { flightId } = e.detail || {};
-      if (flightId) addRegulationTargetFlight(String(flightId));
-    };
-    window.addEventListener('regulation-add-flight', handler as any);
-    return () => window.removeEventListener('regulation-add-flight', handler as any);
-  }, [addRegulationTargetFlight]);
+  const handleFlightsSelectedFromQuery = useCallback((ids: string[]) => {
+    setQueryDialogOpen(false);
+    const allowed = new Set(listedFlightIds);
+    const next = new Set<string>();
+    for (const rawId of ids || []) {
+      const id = String(rawId).trim();
+      if (!id || !allowed.has(id)) continue;
+      next.add(id);
+    }
+    setRegulationTargetFlightIds(next);
+  }, [listedFlightIds, setRegulationTargetFlightIds]);
+
+  const handleAddCheckedFlights = useCallback(() => {
+    addFlightIdsAsFlow(checkedListedFlightIds);
+  }, [addFlightIdsAsFlow, checkedListedFlightIds]);
 
   // Removed Add/preview regulation UI from Flow Regulation context
 
@@ -908,6 +1006,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
+                if (selectedTvIds.length > 1) return;
                 // Add selected traffic volumes to the FlowRegulationPanel and set the period
                 const [from, to] = regulationTimeWindow;
                 window.dispatchEvent(new CustomEvent('flow-regulation-add', {
@@ -919,8 +1018,13 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                   }
                 }));
               }}
-              className="h-7 w-7 flex items-center justify-center rounded-lg border border-white/30 bg-white/20 hover:bg-white/30 text-sm transition-colors"
-              title="Add to regulation"
+              disabled={selectedTvIds.length > 1}
+              className={`h-7 w-7 flex items-center justify-center rounded-lg border text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                selectedTvIds.length > 1
+                  ? 'border-white/20 bg-white/10 text-white/50'
+                  : 'border-white/30 bg-white/20 hover:bg-white/30'
+              }`}
+              title={selectedTvIds.length > 1 ? "Add to regulation is available only for a single selected TV" : "Add to regulation"}
             >
               <svg height="16" fill="currentColor" width="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <g>
@@ -969,6 +1073,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 clearSelectedTrafficVolumes();
                 setFocusMode(false);
                 setFocusFlightIds(new Set());
+                clearRegulationTargetFlights();
+                cancelRegulationCatcher();
                 setIsRegulationPanelOpen(false);
                 // Ensure Flow View is deactivated when panel closes
                 setFlowViewEnabled(false);
@@ -1030,20 +1136,33 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         {/* Flight List (like AirspaceInfo) */}
         <div className="bg-white/5 rounded-lg p-4">
           <div className="flex justify-between items-center mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <h4 className="font-medium text-sm opacity-90">List ({flightTableData.length} flights)</h4>
-              {isMultiTv && (
-                <span className="text-[10px] opacity-70">Intersection across {selectedTvIds.length} TVs</span>
-              )}
               <FlightStatisticsButton
                 flightIds={flightTableData.map((flight) => flight.flightId)}
                 sourceTrafficVolumeId={primaryTvId}
                 buttonClassName="border-white/20 text-white/80"
               />
+              <button
+                type="button"
+                onClick={handleAddCheckedFlights}
+                disabled={!canAddCheckedFlights}
+                className="h-6 w-6 flex items-center justify-center rounded-md border border-white/20 text-gray-300 hover:text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={canAddCheckedFlights ? "Add checked flights to Flow Basket" : "No checked flights to add"}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
             </div>
-            <span className="text-xs bg-blue-500/20 text-blue-200 px-2 py-1 rounded border border-blue-400/30">
-              {formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-white/70 ml-2">
+                {checkedListedFlightIds.length} / {listedFlightIds.length}
+              </span>
+              <span className="text-xs bg-blue-500/20 text-blue-200 px-2 py-1 rounded border border-blue-400/30">
+                {formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}
+              </span>
+            </div>
           </div>
           <div className="bg-white/10 border border-white/10 rounded-lg p-2 mb-3">
             <div className="relative flex items-center gap-2">
@@ -1083,8 +1202,51 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               </button>
             </div>
             <p className="text-[11px] opacity-70 mt-2">
-              Use the flight list as the baseline. Selected results will be added to the Flow Basket as a new flow.
+              NLP and catcher actions update the checkboxes below. Only checked flights are added to the Flow Basket.
             </p>
+            <div className="mt-3 pt-3 border-t border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Flight Catchers</h3>
+                <div className="text-xs opacity-70">
+                  {regulationCatcherActive ? "Drawing enabled" : "Drawing disabled"}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <CatcherButton
+                  title="Positive Flight Catcher"
+                  active={regulationCatcherMode === "include"}
+                  onClick={() => toggleCatcherMode("include")}
+                  kind="include"
+                />
+                <CatcherButton
+                  title="Negative Flight Catcher"
+                  active={regulationCatcherMode === "exclude"}
+                  onClick={() => toggleCatcherMode("exclude")}
+                  kind="exclude"
+                />
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {FLOW_CATCHER_TIMEFRAME_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setRegulationCatcherTimeframe(option.value)}
+                    className={`px-2 py-1.5 text-[11px] font-medium rounded border transition-colors ${
+                      regulationCatcherTimeframe === option.value
+                        ? "bg-blue-500/30 border-blue-400/50 text-blue-200"
+                        : "bg-white/10 border-white/20 text-white/80 hover:bg-white/15"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] opacity-75">
+                {regulationCatcherActive
+                  ? "Click to add points, double-click to finish, Esc to cancel."
+                  : "Choose a catcher mode, then draw on the map to check/uncheck flights in this list."}
+              </p>
+            </div>
           </div>
           {hourGlassData.length > 0 && (
             <HourGlass data={hourGlassData} label height={12} className="my-2" />
@@ -1109,6 +1271,30 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-white/10">
+                      <th className="text-center p-2 font-semibold w-8">
+                        <button
+                          type="button"
+                          className="w-full h-full text-center hover:text-white transition-colors"
+                          onClick={() => {
+                            const next = new Set<string>(useSimStore.getState().regulationTargetFlightIds);
+                            const allChecked = listedFlightIds.length > 0 && listedFlightIds.every((id) => next.has(id));
+                            if (allChecked) {
+                              for (const id of listedFlightIds) next.delete(id);
+                            } else {
+                              for (const id of listedFlightIds) next.add(id);
+                            }
+                            setRegulationTargetFlightIds(next);
+                          }}
+                          title={listedFlightIds.length > 0 && listedFlightIds.every((id) => checkedListedFlightIdSet.has(id))
+                            ? "Uncheck all listed flights"
+                            : "Check all listed flights"}
+                          aria-label={listedFlightIds.length > 0 && listedFlightIds.every((id) => checkedListedFlightIdSet.has(id))
+                            ? "Uncheck all listed flights"
+                            : "Check all listed flights"}
+                        >
+                          ✓
+                        </button>
+                      </th>
                       <th className="text-left p-2 font-semibold">CS</th>
                       <th className="text-left p-2 font-semibold">Ori.</th>
                       <th className="text-left p-2 font-semibold">Des.</th>
@@ -1124,36 +1310,47 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRows.map((flight, index) => (
-                      <tr
-                        key={String(flight.flightId)}
-                        className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer`}
-                        onMouseEnter={() => setFlowPreviewFlightId(String(flight.flightId))}
-                        onMouseLeave={() => setFlowPreviewFlightId(null)}
-                        onClick={() => {
-                          const fullFlight = flightsById.get(String(flight.flightId));
-                          if (fullFlight) {
-                            window.dispatchEvent(new CustomEvent('flight-search-select', { detail: { flight: fullFlight } }));
-                          }
-                        }}
-                      >
-                        <td className="p-2 font-mono">{flight.callsign}</td>
-                        <td className="p-2">{flight.origin}</td>
-                        <td className="p-2">{flight.destination}</td>
-                        <td className="p-2 text-right font-mono">{flight.takeoffTime}</td>
-                        {selectedTvIds.map((tvId) => {
-                          const cell = flight.perTv[tvId];
-                          return [
-                            <td key={`${flight.flightId}-${tvId}-arr`} className="p-2 text-right font-mono">
-                              {cell?.arrivalTime || "N/A"}
-                            </td>,
-                            <td key={`${flight.flightId}-${tvId}-dwell`} className="p-2 text-right font-mono">
-                              {formatDwellingTime(cell?.dwellSeconds ?? null)}
-                            </td>,
-                          ];
-                        })}
-                      </tr>
-                    ))}
+                    {visibleRows.map((flight, index) => {
+                      const flightId = String(flight.flightId);
+                      const isChecked = checkedListedFlightIdSet.has(flightId);
+                      const baseRowColor = index % 2 === 0 ? "bg-white/0" : "bg-white/5";
+                      const selectedRowColor = isChecked ? baseRowColor : "bg-rose-500/15";
+                      return (
+                        <tr
+                          key={flightId}
+                          className={`border-t border-white/10 ${selectedRowColor} ${isChecked ? "hover:bg-white/10" : "hover:bg-rose-500/25"} cursor-pointer`}
+                          onMouseEnter={() => setFlowPreviewFlightId(flightId)}
+                          onMouseLeave={() => setFlowPreviewFlightId(null)}
+                          onClick={() => toggleListedFlightInclusion(flightId)}
+                        >
+                          <td className="p-2 text-center w-8">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleListedFlightInclusion(flightId)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="h-4 w-4 cursor-pointer rounded border border-white/40 bg-white/10 accent-blue-400"
+                              aria-label={`${isChecked ? "Uncheck" : "Check"} flight ${flight.callsign}`}
+                            />
+                          </td>
+                          <td className={`p-2 font-mono ${isChecked ? "" : "text-white/60 line-through"}`}>{flight.callsign}</td>
+                          <td className={`p-2 ${isChecked ? "" : "text-white/60 line-through"}`}>{flight.origin}</td>
+                          <td className={`p-2 ${isChecked ? "" : "text-white/60 line-through"}`}>{flight.destination}</td>
+                          <td className={`p-2 text-right font-mono ${isChecked ? "" : "text-white/60 line-through"}`}>{flight.takeoffTime}</td>
+                          {selectedTvIds.map((tvId) => {
+                            const cell = flight.perTv[tvId];
+                            return [
+                              <td key={`${flightId}-${tvId}-arr`} className={`p-2 text-right font-mono ${isChecked ? "" : "text-white/60 line-through"}`}>
+                                {cell?.arrivalTime || "N/A"}
+                              </td>,
+                              <td key={`${flightId}-${tvId}-dwell`} className={`p-2 text-right font-mono ${isChecked ? "" : "text-white/60 line-through"}`}>
+                                {formatDwellingTime(cell?.dwellSeconds ?? null)}
+                              </td>,
+                            ];
+                          })}
+                        </tr>
+                      );
+                    })}
                     {flightTableData.length > MAX_VISIBLE && (
                       <tr
                         className="border-t border-white/10 cursor-pointer hover:bg-white/10"
@@ -1161,7 +1358,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       >
                         <td
                           className="p-2 text-center italic opacity-80"
-                          colSpan={4 + (selectedTvIds.length * 2)}
+                          colSpan={5 + (selectedTvIds.length * 2)}
                         >
                           {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                         </td>
@@ -1235,11 +1432,42 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         open={queryDialogOpen}
         onClose={() => setQueryDialogOpen(false)}
         initialPrompt={queryInitialPrompt}
-        flightIds={flightTableData.map(flight => flight.flightId)}
+        flightIds={listedFlightIds}
         onSelectFlights={handleFlightsSelectedFromQuery}
         fullScreen
       />
     </div>
+  );
+}
+
+function CatcherButton(props: {
+  title: string;
+  active: boolean;
+  onClick: () => void;
+  kind: "include" | "exclude";
+}) {
+  const { title, active, onClick, kind } = props;
+  const symbol = kind === "include" ? "+" : "−";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors inline-flex items-center gap-2 ${
+        active
+          ? kind === "include"
+            ? "border-emerald-300/60 bg-emerald-500/25 text-emerald-100"
+            : "border-rose-300/60 bg-rose-500/25 text-rose-100"
+          : "border-white/20 bg-white/10 text-white/80 hover:bg-white/20"
+      }`}
+      title={title}
+      aria-label={title}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="3 18 9 10 14 14 21 6" />
+      </svg>
+      <span className="text-base leading-none">{symbol}</span>
+    </button>
   );
 }
 

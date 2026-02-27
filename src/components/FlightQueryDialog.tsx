@@ -253,6 +253,26 @@ export default function FlightQueryDialog({
     [allowFlightSelection]
   );
 
+  const allResultFlightsSelected = useMemo(
+    () => resultFlightIds.length > 0 && resultFlightIds.every((id) => selectedFlightIdSet.has(String(id))),
+    [resultFlightIds, selectedFlightIdSet],
+  );
+
+  const toggleAllResultFlightSelection = useCallback(() => {
+    if (!allowFlightSelection || resultFlightIds.length === 0) return;
+    setSelectedFlightIdSet((prev) => {
+      const allSelected = resultFlightIds.every((id) => prev.has(String(id)));
+      if (allSelected) {
+        const next = new Set(prev);
+        for (const id of resultFlightIds) next.delete(String(id));
+        return next;
+      }
+      const next = new Set(prev);
+      for (const id of resultFlightIds) next.add(String(id));
+      return next;
+    });
+  }, [allowFlightSelection, resultFlightIds]);
+
   const handleSelectFlights = useCallback(() => {
     if (!onSelectFlights) return;
     onSelectFlights(selectedFlightIds);
@@ -317,7 +337,21 @@ export default function FlightQueryDialog({
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-white/10 text-left">
-                                <th className="text-center p-2 font-semibold w-8">✓</th>
+                                <th className="text-center p-2 font-semibold w-8">
+                                  {allowFlightSelection ? (
+                                    <button
+                                      type="button"
+                                      className="w-full h-full text-center hover:text-white transition-colors"
+                                      onClick={toggleAllResultFlightSelection}
+                                      title={allResultFlightsSelected ? "Uncheck all flights" : "Check all flights"}
+                                      aria-label={allResultFlightsSelected ? "Uncheck all flights" : "Check all flights"}
+                                    >
+                                      ✓
+                                    </button>
+                                  ) : (
+                                    "✓"
+                                  )}
+                                </th>
                                 <th className="p-2 font-semibold">CS</th>
                                 <th className="p-2 font-semibold">Ori.</th>
                                 <th className="p-2 font-semibold">Des.</th>

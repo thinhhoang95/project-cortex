@@ -13,6 +13,7 @@ import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
 import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
+import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
@@ -26,18 +27,58 @@ import {
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
 
+const FLOW_CATCHER_SOURCE_ID = "flow-catcher-source";
+const FLOW_CATCHER_DRAFT_LAYER_ID = "flow-catcher-draft";
+const FLOW_CATCHER_PREVIEW_LAYER_ID = "flow-catcher-preview";
+const FLOW_CATCHER_POINTS_LAYER_ID = "flow-catcher-points";
+
 export default function FlowCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
+  const flowCatcherDraftPointsRef = useRef<Array<[number, number]>>([]);
+  const flowCatcherPreviewPointRef = useRef<[number, number] | null>(null);
   const lastTs = useRef<number>(performance.now());
   const lastUpdateRef = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showTrafficVolumes, setFlights, setSelectedTrafficVolume, toggleSelectedTrafficVolume, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowViewEnabled, flowCommunities, flowGroups, flowPreviewGroupId, flowPreviewFlightId, regulationTargetFlightIds, regulationPreviewActive, proposalPreviewActive, proposalPreviewFlightIds, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedTrafficVolumes } = useSimStore();
+  const {
+    t,
+    date,
+    weatherOverlay,
+    tick,
+    setRange,
+    showFlightLineLabels,
+    showTrafficVolumes,
+    setFlights,
+    setSelectedTrafficVolume,
+    toggleSelectedTrafficVolume,
+    flLowerBound,
+    flUpperBound,
+    showHotspots,
+    hotspots,
+    getActiveHotspots,
+    flowViewEnabled,
+    flowCommunities,
+    flowGroups,
+    flowPreviewGroupId,
+    flowPreviewFlightId,
+    regulationCatcherActive,
+    regulationCatcherMode,
+    cancelRegulationCatcher,
+    proposalPreviewActive,
+    proposalPreviewFlightIds,
+    playing,
+    focusMode,
+    focusFlightIds,
+    showFlightLines,
+    selectedTrafficVolume,
+    selectedTrafficVolumes
+  } = useSimStore();
 
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   const theme = useThemeStore((state) => state.theme);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
+  const isCatcherDrawing = regulationCatcherActive && regulationCatcherMode !== "off";
   const selectedTvHighlightIds = useMemo(
     () =>
       Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
@@ -47,6 +88,12 @@ export default function FlowCanvas() {
           : [],
     [selectedTrafficVolumes, selectedTrafficVolume],
   );
+
+  const syncFlowCatcherOverlay = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    updateFlowCatcherSource(map, flowCatcherDraftPointsRef.current, flowCatcherPreviewPointRef.current);
+  };
 
   // init map
   useEffect(() => {
@@ -137,11 +184,73 @@ export default function FlowCanvas() {
         // Save trajectories on map for the animation step
         (map as any).__trajectories = tracks;
 
+        if (!map.getSource(FLOW_CATCHER_SOURCE_ID)) {
+          map.addSource(FLOW_CATCHER_SOURCE_ID, {
+            type: "geojson",
+            data: { type: "FeatureCollection", features: [] },
+          });
+        }
+        if (!map.getLayer(FLOW_CATCHER_DRAFT_LAYER_ID)) {
+          map.addLayer({
+            id: FLOW_CATCHER_DRAFT_LAYER_ID,
+            type: "line",
+            source: FLOW_CATCHER_SOURCE_ID,
+            filter: ["==", ["get", "kind"], "draft"],
+            paint: {
+              "line-color": "#22c55e",
+              "line-width": 2.5,
+              "line-opacity": 0.95,
+            },
+          });
+        }
+        if (!map.getLayer(FLOW_CATCHER_PREVIEW_LAYER_ID)) {
+          map.addLayer({
+            id: FLOW_CATCHER_PREVIEW_LAYER_ID,
+            type: "line",
+            source: FLOW_CATCHER_SOURCE_ID,
+            filter: ["==", ["get", "kind"], "preview"],
+            paint: {
+              "line-color": "#22c55e",
+              "line-width": 2,
+              "line-dasharray": [2, 2],
+              "line-opacity": 0.85,
+            },
+          });
+        }
+        if (!map.getLayer(FLOW_CATCHER_POINTS_LAYER_ID)) {
+          map.addLayer({
+            id: FLOW_CATCHER_POINTS_LAYER_ID,
+            type: "circle",
+            source: FLOW_CATCHER_SOURCE_ID,
+            filter: ["==", ["get", "kind"], "point"],
+            paint: {
+              "circle-color": "#ffffff",
+              "circle-radius": 3.5,
+              "circle-stroke-color": "#0f172a",
+              "circle-stroke-width": 1.2,
+            },
+          });
+        }
+        applyFlowCatcherLayerColors(map, useSimStore.getState().regulationCatcherMode);
+        updateFlowCatcherSource(map, flowCatcherDraftPointsRef.current, flowCatcherPreviewPointRef.current);
+
         // (Regulation flight-line click behavior removed in FlowCanvas)
 
         // Change cursor to pointer when hovering over flight lines
-        map.on('mouseenter', 'flight-lines', () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', 'flight-lines', () => { map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', 'flight-lines', () => {
+          if (useSimStore.getState().regulationCatcherActive) {
+            map.getCanvas().style.cursor = "crosshair";
+            return;
+          }
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'flight-lines', () => {
+          if (useSimStore.getState().regulationCatcherActive) {
+            map.getCanvas().style.cursor = "crosshair";
+            return;
+          }
+          map.getCanvas().style.cursor = '';
+        });
 
         // Helper to select traffic volume by id
         const selectTrafficVolume = (trafficVolumeId: string) => {
@@ -173,6 +282,7 @@ export default function FlowCanvas() {
         };
 
         const handleTrafficVolumeClick = (e: maplibregl.MapLayerMouseEvent) => {
+          if (useSimStore.getState().regulationCatcherActive) return;
           const lineHits = map.queryRenderedFeatures(e.point, { layers: ['flight-lines'] });
           if (lineHits && lineHits.length > 0) return;
           const trafficVolumeId = pickClosestTrafficVolumeId(e);
@@ -184,6 +294,10 @@ export default function FlowCanvas() {
         map.on('click', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeClick);
 
         const handleTrafficVolumeHover = (e: maplibregl.MapLayerMouseEvent) => {
+          if (useSimStore.getState().regulationCatcherActive) {
+            map.getCanvas().style.cursor = "crosshair";
+            return;
+          }
           map.getCanvas().style.cursor = 'pointer';
           const trafficVolumeId = pickClosestTrafficVolumeId(e);
           if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
@@ -197,6 +311,10 @@ export default function FlowCanvas() {
         map.on('mousemove', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
 
         const handleTrafficVolumeHoverExit = () => {
+          if (useSimStore.getState().regulationCatcherActive) {
+            map.getCanvas().style.cursor = "crosshair";
+            return;
+          }
           map.getCanvas().style.cursor = '';
           setHoveredTrafficVolume(null);
         };
@@ -204,6 +322,59 @@ export default function FlowCanvas() {
         map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
         map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
         map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
+        const handleFlowCatcherMapClick = (event: maplibregl.MapMouseEvent) => {
+          const sim = useSimStore.getState();
+          if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
+          const point: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+          flowCatcherDraftPointsRef.current = [...flowCatcherDraftPointsRef.current, point];
+          flowCatcherPreviewPointRef.current = point;
+          updateFlowCatcherSource(map, flowCatcherDraftPointsRef.current, flowCatcherPreviewPointRef.current);
+        };
+
+        const handleFlowCatcherMouseMove = (event: maplibregl.MapMouseEvent) => {
+          const sim = useSimStore.getState();
+          if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
+          if (flowCatcherDraftPointsRef.current.length === 0) return;
+          flowCatcherPreviewPointRef.current = [event.lngLat.lng, event.lngLat.lat];
+          updateFlowCatcherSource(map, flowCatcherDraftPointsRef.current, flowCatcherPreviewPointRef.current);
+        };
+
+        const handleFlowCatcherDoubleClick = (event: maplibregl.MapMouseEvent) => {
+          const sim = useSimStore.getState();
+          if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
+          if (flowCatcherDraftPointsRef.current.length < 2) return;
+
+          event.preventDefault();
+
+          const result = captureFlightsByRerouteCatcher({
+            trajectories: tracks,
+            catcherPolyline: flowCatcherDraftPointsRef.current,
+            timeframe: sim.regulationCatcherTimeframe,
+            currentTimeSeconds: sim.t,
+          });
+
+          if (result.flightIds.length > 0) {
+            const allowed = new Set((sim.regulationListedFlightIds || []).map((id) => String(id)));
+            const filtered = result.flightIds.map((id) => String(id)).filter((id) => allowed.has(id));
+            if (filtered.length > 0) {
+              const next = new Set<string>(sim.regulationTargetFlightIds);
+              if (sim.regulationCatcherMode === "include") {
+                for (const id of filtered) next.add(id);
+              } else {
+                for (const id of filtered) next.delete(id);
+              }
+              sim.setRegulationTargetFlightIds(next);
+            }
+          }
+
+          flowCatcherDraftPointsRef.current = [];
+          flowCatcherPreviewPointRef.current = null;
+          updateFlowCatcherSource(map, flowCatcherDraftPointsRef.current, flowCatcherPreviewPointRef.current);
+        };
+
+        map.on("click", handleFlowCatcherMapClick);
+        map.on("mousemove", handleFlowCatcherMouseMove);
+        map.on("dblclick", handleFlowCatcherDoubleClick);
         // Fills and overlays are not clickable; keep default cursor
 
         // Fit to data
@@ -291,6 +462,44 @@ export default function FlowCanvas() {
     updateFlowRendering(mapRef.current);
   }, [proposalPreviewActive, proposalPreviewFlightIds]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyFlowCatcherLayerColors(map, regulationCatcherMode);
+    syncFlowCatcherOverlay();
+  }, [regulationCatcherMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (isCatcherDrawing) {
+      map.doubleClickZoom.disable();
+      map.getCanvas().style.cursor = "crosshair";
+      return;
+    }
+    map.doubleClickZoom.enable();
+    map.getCanvas().style.cursor = "";
+    flowCatcherDraftPointsRef.current = [];
+    flowCatcherPreviewPointRef.current = null;
+    syncFlowCatcherOverlay();
+  }, [isCatcherDrawing]);
+
+  useEffect(() => {
+    if (!isCatcherDrawing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      flowCatcherDraftPointsRef.current = [];
+      flowCatcherPreviewPointRef.current = null;
+      cancelRegulationCatcher();
+      syncFlowCatcherOverlay();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isCatcherDrawing, cancelRegulationCatcher]);
+
   // Weather overlay integration (Surface Precipitation)
   useEffect(() => {
     const map = mapRef.current;
@@ -306,7 +515,7 @@ export default function FlowCanvas() {
     const apply = () => {
       try {
         ensureSurfacePrecipHour(map, targetHour);
-      } catch (e) {
+      } catch {
         // no-op
       }
     };
@@ -519,6 +728,69 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 }
 
 // (Regulation highlight removed in FlowCanvas)
+
+function updateFlowCatcherSource(
+  map: maplibregl.Map,
+  draftPoints: Array<[number, number]>,
+  previewPoint: [number, number] | null,
+) {
+  const source = map.getSource(FLOW_CATCHER_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+  if (!source) return;
+
+  const features: GeoJSON.Feature[] = [];
+  const validDraft = draftPoints.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+
+  if (validDraft.length >= 2) {
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: validDraft,
+      },
+      properties: { kind: "draft" },
+    });
+  }
+
+  if (validDraft.length >= 1 && previewPoint && Number.isFinite(previewPoint[0]) && Number.isFinite(previewPoint[1])) {
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: [...validDraft, previewPoint],
+      },
+      properties: { kind: "preview" },
+    });
+  }
+
+  for (const point of validDraft) {
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: point,
+      },
+      properties: { kind: "point" },
+    });
+  }
+
+  source.setData({
+    type: "FeatureCollection",
+    features,
+  });
+}
+
+function applyFlowCatcherLayerColors(
+  map: maplibregl.Map,
+  mode: "off" | "include" | "exclude",
+) {
+  const color = mode === "exclude" ? "#fb7185" : "#22c55e";
+  if (map.getLayer(FLOW_CATCHER_DRAFT_LAYER_ID)) {
+    map.setPaintProperty(FLOW_CATCHER_DRAFT_LAYER_ID, "line-color", color);
+  }
+  if (map.getLayer(FLOW_CATCHER_PREVIEW_LAYER_ID)) {
+    map.setPaintProperty(FLOW_CATCHER_PREVIEW_LAYER_ID, "line-color", color);
+  }
+}
 
 // Apply flow-based coloring to flight lines
 function updateFlowRendering(map: maplibregl.Map | null) {
