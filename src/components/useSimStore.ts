@@ -169,6 +169,8 @@ type State = {
   deltaMin: number;
   // Reroute state
   rerouteBaseFlightIds: string[];
+  rerouteTvBaselineFlightIds: string[];
+  rerouteBaseSelectedFlightIds: Set<string>;
   rerouteBaseListLastSource: RerouteBaseListSource | null;
   rerouteCatcherMode: RerouteCatcherMode;
   rerouteCatcherTimeframe: RerouteCatcherTimeframe;
@@ -250,6 +252,7 @@ type State = {
   setDeltaMin: (delta: number) => void;
   // Reroute actions
   setRerouteBaseFlightIds: (ids: string[], source?: RerouteBaseListSource) => void;
+  setRerouteBaseSelectedFlightIds: (ids: Set<string>) => void;
   addRerouteBaseFlightIds: (ids: string[], source?: "catcher") => void;
   removeRerouteBaseFlightIds: (ids: string[], source?: "catcher") => void;
   clearRerouteBaseFlightIds: () => void;
@@ -378,6 +381,8 @@ const defaultState: Pick<State,
   | 'isFetchingSlack'
   | 'deltaMin'
   | 'rerouteBaseFlightIds'
+  | 'rerouteTvBaselineFlightIds'
+  | 'rerouteBaseSelectedFlightIds'
   | 'rerouteBaseListLastSource'
   | 'rerouteCatcherMode'
   | 'rerouteCatcherTimeframe'
@@ -461,6 +466,8 @@ const defaultState: Pick<State,
   isFetchingSlack: false,
   deltaMin: 0,
   rerouteBaseFlightIds: [],
+  rerouteTvBaselineFlightIds: [],
+  rerouteBaseSelectedFlightIds: new Set<string>(),
   rerouteBaseListLastSource: null,
   rerouteCatcherMode: "off",
   rerouteCatcherTimeframe: "1h",
@@ -955,13 +962,28 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
     }
     set({
       rerouteBaseFlightIds: next,
+      rerouteBaseSelectedFlightIds: new Set(next),
+      ...(source === "tv" ? { rerouteTvBaselineFlightIds: next } : {}),
       rerouteBaseListLastSource: source,
+    });
+  },
+  setRerouteBaseSelectedFlightIds: (ids) => {
+    set((state) => {
+      const allowed = new Set(state.rerouteBaseFlightIds);
+      const next = new Set<string>();
+      for (const raw of ids) {
+        const normalized = String(raw ?? "").trim();
+        if (!normalized || !allowed.has(normalized)) continue;
+        next.add(normalized);
+      }
+      return { rerouteBaseSelectedFlightIds: next };
     });
   },
   addRerouteBaseFlightIds: (ids, source = "catcher") => {
     if (!Array.isArray(ids) || ids.length === 0) return;
     set((state) => {
       const existing = state.rerouteBaseFlightIds;
+      const nextSelected = new Set(state.rerouteBaseSelectedFlightIds);
       const seen = new Set(existing);
       const next = existing.slice();
       for (const raw of ids) {
@@ -969,9 +991,11 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
         if (!normalized || seen.has(normalized)) continue;
         seen.add(normalized);
         next.push(normalized);
+        nextSelected.add(normalized);
       }
       return {
         rerouteBaseFlightIds: next,
+        rerouteBaseSelectedFlightIds: nextSelected,
         rerouteBaseListLastSource: source,
       };
     });
@@ -984,12 +1008,25 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
         .filter((id) => id.length > 0)
     );
     if (removeSet.size === 0) return;
-    set((state) => ({
-      rerouteBaseFlightIds: state.rerouteBaseFlightIds.filter((id) => !removeSet.has(id)),
-      rerouteBaseListLastSource: source,
-    }));
+    set((state) => {
+      const nextSelected = new Set(state.rerouteBaseSelectedFlightIds);
+      for (const id of removeSet) {
+        nextSelected.delete(id);
+      }
+      return {
+        rerouteBaseFlightIds: state.rerouteBaseFlightIds.filter((id) => !removeSet.has(id)),
+        rerouteBaseSelectedFlightIds: nextSelected,
+        rerouteBaseListLastSource: source,
+      };
+    });
   },
-  clearRerouteBaseFlightIds: () => set({ rerouteBaseFlightIds: [], rerouteBaseListLastSource: null }),
+  clearRerouteBaseFlightIds: () =>
+    set({
+      rerouteBaseFlightIds: [],
+      rerouteTvBaselineFlightIds: [],
+      rerouteBaseSelectedFlightIds: new Set<string>(),
+      rerouteBaseListLastSource: null,
+    }),
   setRerouteCatcherMode: (mode) =>
     set({
       rerouteCatcherMode: mode,

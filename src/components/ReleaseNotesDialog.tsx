@@ -13,7 +13,9 @@ const RELEASE_NOTES_CONTENT = `
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
   <h4 class="font-bold mb-4">Fri. 27/02/2026</h4>
-  <li><strong>Flight Catcher.<strong> Now you can draw directly on the map to indicate which flights you want to catch. It works across reroutes, regulation and DeepFlow's flight selection.</li>
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Flight Catcher.</strong> Now you can draw directly on the map to indicate which flights you want to catch. It works across reroutes, regulation and DeepFlow's flight selection.</li>
+  </ul>
   
   <h4 class="font-bold mb-4">Sat. 21/02/2026</h4>
   <p>This will also be my last update to Project Cortex for a while. My research at ENAC had been finished, and I'm moving on to the next chapter of my career.</p>

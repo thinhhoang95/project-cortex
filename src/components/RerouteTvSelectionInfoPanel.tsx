@@ -21,6 +21,7 @@ import {
   type RollingChartDataPoint,
 } from "@/lib/airspaceInfoMultiTv";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import PanelCloseButton from "@/components/PanelCloseButton";
 
 type OccupancyData = {
   traffic_volume_id: string;
@@ -49,7 +50,19 @@ type RerouteTvSelectionInfoPanelProps = {
 };
 
 export default function RerouteTvSelectionInfoPanel({ embedded = false }: RerouteTvSelectionInfoPanelProps) {
-  const { selectedTrafficVolume, selectedTrafficVolumes, airspaceDisplayMode, t, setT } = useSimStore();
+  const {
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
+    airspaceDisplayMode,
+    t,
+    setT,
+    clearSelectedTrafficVolumes,
+    setFocusMode,
+    setFocusFlightIds,
+    setRerouteBaseFlightIds,
+    setFlowPreviewFlightId,
+    setFlowPreviewGroupId,
+  } = useSimStore();
 
   const selectedTvIds = useMemo(() => {
     const source =
@@ -245,12 +258,28 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
       }
     >
       <div className="p-4 border-b border-white/20">
-        <h2 className="font-semibold">Selected TV Information</h2>
-        <p className="text-xs opacity-70 mt-1">
-          {selectedTvIds.length === 1
-            ? `TV ${selectedTvIds[0]}`
-            : `Intersection context across ${selectedTvIds.length} TVs`}
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Selected TV Information</h2>
+            <p className="text-xs opacity-70 mt-1">
+              {selectedTvIds.length === 1
+                ? `TV ${selectedTvIds[0]}`
+                : `Intersection context across ${selectedTvIds.length} TVs`}
+            </p>
+          </div>
+          <PanelCloseButton
+            title="Close TV selection"
+            onClick={() => {
+              clearSelectedTrafficVolumes();
+              setFocusMode(false);
+              setFocusFlightIds(new Set());
+              setRerouteBaseFlightIds([], "tv");
+              setFlowPreviewFlightId(null);
+              setFlowPreviewGroupId(null);
+              window.dispatchEvent(new CustomEvent("clearTrafficVolumeHighlight"));
+            }}
+          />
+        </div>
       </div>
 
       <div className="p-4 space-y-4">

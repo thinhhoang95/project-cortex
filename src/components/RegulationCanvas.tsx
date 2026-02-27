@@ -405,11 +405,19 @@ export default function RegulationCanvas() {
           currentTimeSeconds: sim.t,
         });
         if (result.flightIds.length > 0) {
+          const allowed = new Set((sim.regulationListedFlightIds || []).map((id) => String(id)));
+          const filtered = result.flightIds.map((id) => String(id)).filter((id) => allowed.has(id));
+          if (filtered.length === 0) {
+            regulationDraftPointsRef.current = [];
+            regulationPreviewPointRef.current = null;
+            updateRegulationCatcherSource(map, regulationDraftPointsRef.current, regulationPreviewPointRef.current);
+            return;
+          }
           const next = new Set<string>(sim.regulationTargetFlightIds);
           if (sim.regulationCatcherMode === "include") {
-            for (const id of result.flightIds) next.add(String(id));
+            for (const id of filtered) next.add(id);
           } else {
-            for (const id of result.flightIds) next.delete(String(id));
+            for (const id of filtered) next.delete(id);
           }
           setRegulationTargetFlightIds(next);
         }

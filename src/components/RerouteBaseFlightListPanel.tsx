@@ -9,6 +9,7 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 
 const MAX_VISIBLE = 24;
 const REROUTE_BASE_PREVIEW_GROUP_ID = "reroute-base-flight-list";
+const TIME_WINDOW_PRESETS = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h", "2h30", "3h", "3h30", "4h"];
 
 type FlowPreviewSnapshot = Pick<
   ReturnType<typeof useSimStore.getState>,
@@ -47,18 +48,24 @@ type TvFlightCell = {
 export default function RerouteBaseFlightListPanel({ embedded = false }: RerouteBaseFlightListPanelProps) {
   const {
     rerouteBaseFlightIds,
+    rerouteBaseSelectedFlightIds,
     clearRerouteBaseFlightIds,
+    setRerouteBaseSelectedFlightIds,
     flights,
+    t,
+    regulationTimeWindow,
     airspaceDisplayMode,
     selectedTrafficVolume,
     selectedTrafficVolumes,
     setFlowCommunities,
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
+    setRegulationTimeWindow,
   } = useSimStore();
 
   const [expanded, setExpanded] = useState(false);
   const [previewSelectedOnly, setPreviewSelectedOnly] = useState(false);
+  const [activePreset, setActivePreset] = useState<string>("1h");
   const originalPreviewRef = useRef<FlowPreviewSnapshot | null>(null);
   const tvFlightsReqSeq = useRef(0);
   const [tvFlightDataByTv, setTvFlightDataByTv] = useState<Record<string, TvFlightsPayload>>({});
@@ -86,13 +93,19 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
   const showTvColumns = airspaceDisplayMode === "tv" && selectedTvIds.length > 0;
 
   useEffect(() => {
+    const from = Math.floor(Number.isFinite(t) ? t : 0);
+    const to = from + parseDurationPresetToSeconds(activePreset);
+    setRegulationTimeWindow(from, to);
+  }, [activePreset, setRegulationTimeWindow, t]);
+
+  useEffect(() => {
     const reqId = ++tvFlightsReqSeq.current;
     if (!showTvColumns) {
       setTvFlightDataByTv({});
       return;
     }
 
-    const refTime = formatTimeForAPI(useSimStore.getState().t);
+    const refTime = formatTimeForAPI(t);
     Promise.all(
       selectedTvIds.map(async (tvId) => {
         const response = await authFetch(
@@ -118,7 +131,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
         console.error("Failed to load reroute TV flight details:", error);
         setTvFlightDataByTv({});
       });
-  }, [showTvColumns, selectedTvKey, selectedTvIds]);
+  }, [showTvColumns, selectedTvKey, selectedTvIds, t]);
 
   const tvCellsByFlightAndTv = useMemo(() => {
     const byTv: Record<string, Map<string, TvFlightCell>> = {};
@@ -187,9 +200,23 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     [rerouteBaseFlightIds, flightsById, selectedTvIds, tvCellsByFlightAndTv]
   );
 
+  const listedFlightIds = useMemo(
+    () => rows.map((row) => String(row.flightId)).filter((id) => id.length > 0),
+    [rows]
+  );
+  const checkedListedFlightIds = useMemo(
+    () => listedFlightIds.filter((id) => rerouteBaseSelectedFlightIds.has(id)),
+    [listedFlightIds, rerouteBaseSelectedFlightIds]
+  );
+  const checkedListedFlightIdSet = useMemo(
+    () => new Set(checkedListedFlightIds),
+    [checkedListedFlightIds]
+  );
+  const areAllListedFlightsChecked = listedFlightIds.length > 0 && listedFlightIds.every((id) => checkedListedFlightIdSet.has(id));
+
   const visibleRows = expanded ? rows : rows.slice(0, MAX_VISIBLE);
   const hiddenCount = Math.max(0, rows.length - visibleRows.length);
-  const tableColSpan = 4 + (showTvColumns ? selectedTvIds.length * 2 : 0);
+  const tableColSpan = 5 + (showTvColumns ? selectedTvIds.length * 2 : 0);
   const panelClassName = embedded
     ? "w-full max-w-[384px] mx-auto rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
     : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col";
@@ -220,7 +247,9 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     }
     const selectedFlightIds = Array.from(
       new Set(
-        rows.map((row) => String(row.flightId).trim()).filter((id) => id.length > 0)
+        rows
+          .map((row) => String(row.flightId).trim())
+          .filter((id) => id.length > 0 && checkedListedFlightIdSet.has(id))
       )
     );
     const groups = { [REROUTE_BASE_PREVIEW_GROUP_ID]: selectedFlightIds };
@@ -231,7 +260,34 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     setFlowCommunities(communities, groups, null);
     setFlowPreviewFlightId(null);
     setFlowPreviewGroupId(REROUTE_BASE_PREVIEW_GROUP_ID);
-  }, [rows, setFlowCommunities, setFlowPreviewFlightId, setFlowPreviewGroupId]);
+  }, [rows, checkedListedFlightIdSet, setFlowCommunities, setFlowPreviewFlightId, setFlowPreviewGroupId]);
+
+  const toggleListedFlightInclusion = useCallback((flightId: string) => {
+    const normalized = String(flightId ?? "").trim();
+    if (!normalized) return;
+    const current = useSimStore.getState().rerouteBaseSelectedFlightIds;
+    const next = new Set(current);
+    if (next.has(normalized)) {
+      next.delete(normalized);
+    } else {
+      next.add(normalized);
+    }
+    setRerouteBaseSelectedFlightIds(next);
+  }, [setRerouteBaseSelectedFlightIds]);
+
+  const toggleAllListedFlights = useCallback(() => {
+    const next = new Set(useSimStore.getState().rerouteBaseSelectedFlightIds);
+    if (areAllListedFlightsChecked) {
+      for (const id of listedFlightIds) {
+        next.delete(id);
+      }
+    } else {
+      for (const id of listedFlightIds) {
+        next.add(id);
+      }
+    }
+    setRerouteBaseSelectedFlightIds(next);
+  }, [areAllListedFlightsChecked, listedFlightIds, setRerouteBaseSelectedFlightIds]);
 
   useEffect(() => {
     if (!previewSelectedOnly) return;
@@ -243,6 +299,10 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
       restoreSelectedPreview();
     };
   }, [restoreSelectedPreview]);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [rows.length, selectedTvKey]);
 
   return (
     <div className={panelClassName}>
@@ -256,7 +316,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
           </div>
           <div className="flex items-center gap-2">
             <FlightStatisticsButton
-              flightIds={rerouteBaseFlightIds}
+              flightIds={rows.map((row) => row.flightId)}
               buttonClassName="border-white/20 text-white/80"
               title="Open flight statistics"
               ariaLabel="Open flight statistics"
@@ -296,14 +356,38 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
             <button
               type="button"
               onClick={clearRerouteBaseFlightIds}
-              disabled={rows.length === 0}
+              disabled={rows.length === 0 || showTvColumns}
               className="text-xs px-2.5 py-1 rounded-md border border-white/20 bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Clear base flight list"
+              title={showTvColumns ? "TV selection controls this list" : "Clear base flight list"}
             >
               Clear
             </button>
           </div>
         </div>
+        {showTvColumns && (
+          <div className="mt-3 bg-white/5 border border-white/10 rounded-lg p-3">
+            <div className="text-[11px] font-medium opacity-90">Active Time Window</div>
+            <div className="grid grid-cols-4 gap-1.5 mt-2">
+              {TIME_WINDOW_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setActivePreset(preset)}
+                  className={`px-2 py-1.5 text-[11px] font-medium rounded border transition-colors ${
+                    activePreset === preset
+                      ? "bg-blue-500/30 border-blue-400/50 text-blue-200"
+                      : "bg-white/10 border-white/20 text-white/80 hover:bg-white/15"
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] opacity-70 mt-2">
+              From {formatTimeOfDay(regulationTimeWindow[0])} to {formatTimeOfDay(regulationTimeWindow[1])}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="p-4">
@@ -314,6 +398,18 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
             <table className="w-full min-w-max text-xs">
               <thead>
                 <tr className="bg-white/10">
+                  <th className="text-center p-2 font-semibold w-8">
+                    <button
+                      type="button"
+                      className="w-full h-full text-center hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={toggleAllListedFlights}
+                      disabled={listedFlightIds.length === 0}
+                      title={areAllListedFlightsChecked ? "Uncheck all listed flights" : "Check all listed flights"}
+                      aria-label={areAllListedFlightsChecked ? "Uncheck all listed flights" : "Check all listed flights"}
+                    >
+                      ✓
+                    </button>
+                  </th>
                   <th className="text-left p-2 font-semibold">CS</th>
                   <th className="text-left p-2 font-semibold">Ori.</th>
                   <th className="text-left p-2 font-semibold">Des.</th>
@@ -335,7 +431,11 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                 {visibleRows.map((row, index) => (
                   <tr
                     key={`${row.flightId}-${index}`}
-                    className={`border-t border-white/10 ${index % 2 === 0 ? "bg-white/0" : "bg-white/5"} hover:bg-white/10 cursor-pointer`}
+                    className={`border-t border-white/10 ${
+                      checkedListedFlightIdSet.has(row.flightId)
+                        ? index % 2 === 0 ? "bg-white/0 hover:bg-white/10" : "bg-white/5 hover:bg-white/10"
+                        : "bg-rose-500/15 hover:bg-rose-500/25"
+                    } cursor-pointer`}
                     onMouseEnter={() => {
                       if (!previewSelectedOnly) setFlowPreviewFlightId(row.flightId);
                     }}
@@ -349,17 +449,27 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                       );
                     }}
                   >
-                    <td className="p-2 font-mono">{row.callSign}</td>
-                    <td className="p-2">{row.origin}</td>
-                    <td className="p-2">{row.destination}</td>
-                    <td className="p-2 text-right font-mono">{row.takeoffTime}</td>
+                    <td className="p-2 text-center w-8">
+                      <input
+                        type="checkbox"
+                        checked={checkedListedFlightIdSet.has(row.flightId)}
+                        onChange={() => toggleListedFlightInclusion(row.flightId)}
+                        onClick={(event) => event.stopPropagation()}
+                        className="h-4 w-4 cursor-pointer rounded border border-white/40 bg-white/10 accent-blue-400"
+                        aria-label={`${checkedListedFlightIdSet.has(row.flightId) ? "Uncheck" : "Check"} flight ${row.callSign}`}
+                      />
+                    </td>
+                    <td className={`p-2 font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.callSign}</td>
+                    <td className={`p-2 ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.origin}</td>
+                    <td className={`p-2 ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.destination}</td>
+                    <td className={`p-2 text-right font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>{row.takeoffTime}</td>
                     {showTvColumns &&
                       selectedTvIds.map((tvId) => (
                         <Fragment key={`${row.flightId}-${tvId}`}>
-                          <td className="p-2 text-right font-mono">
+                          <td className={`p-2 text-right font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>
                             {row.perTv[tvId]?.arrivalTime ?? "N/A"}
                           </td>
-                          <td className="p-2 text-right font-mono">
+                          <td className={`p-2 text-right font-mono ${checkedListedFlightIdSet.has(row.flightId) ? "" : "text-white/60 line-through"}`}>
                             {formatDwellingTime(row.perTv[tvId]?.dwellSeconds ?? null)}
                           </td>
                         </Fragment>
@@ -383,6 +493,20 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
       </div>
     </div>
   );
+}
+
+function parseDurationPresetToSeconds(preset: string): number {
+  const normalized = String(preset || "").trim().toLowerCase();
+  const hIndex = normalized.indexOf("h");
+  if (hIndex !== -1) {
+    const hoursPart = normalized.slice(0, hIndex);
+    const minutesPart = normalized.slice(hIndex + 1);
+    const hours = Number.parseInt(hoursPart, 10) || 0;
+    const minutes = minutesPart ? Number.parseInt(minutesPart, 10) || 0 : 0;
+    return (hours * 60 + minutes) * 60;
+  }
+  const minutesOnly = Number.parseInt(normalized, 10) || 0;
+  return minutesOnly * 60;
 }
 
 function formatTimeOfDay(seconds: number | null | undefined): string {

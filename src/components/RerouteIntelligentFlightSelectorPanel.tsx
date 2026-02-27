@@ -21,7 +21,7 @@ type RerouteIntelligentFlightSelectorPanelProps = {
 
 export default function RerouteIntelligentFlightSelectorPanel({ embedded = false }: RerouteIntelligentFlightSelectorPanelProps) {
   const {
-    rerouteBaseFlightIds,
+    rerouteTvBaselineFlightIds,
     rerouteCatcherMode,
     rerouteCatcherTimeframe,
     rerouteCatcherActive,
@@ -36,8 +36,8 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
   const [queryOpen, setQueryOpen] = useState(false);
 
   const baselineIds = useMemo(
-    () => (rerouteBaseFlightIds.length > 0 ? rerouteBaseFlightIds : undefined),
-    [rerouteBaseFlightIds]
+    () => (rerouteTvBaselineFlightIds.length > 0 ? rerouteTvBaselineFlightIds : undefined),
+    [rerouteTvBaselineFlightIds]
   );
 
   const toggleCatcherMode = (mode: Exclude<RerouteCatcherMode, "off">) => {
@@ -106,7 +106,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
             </div>
             <p className="text-[11px] opacity-70 mt-2">
               {baselineIds
-                ? `Query filters the current base list (${baselineIds.length.toLocaleString("en-US")} flights).`
+                ? `Query always starts from the TV baseline (${baselineIds.length.toLocaleString("en-US")} flights).`
                 : "Query builds a new base list from scratch."}
             </p>
           </div>

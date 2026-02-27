@@ -30,7 +30,11 @@ export default function RerouteTvBaseListSync() {
     selectedTrafficVolume,
     selectedTrafficVolumes,
     airspaceDisplayMode,
+    t,
+    regulationTimeWindow,
     setRerouteBaseFlightIds,
+    setFocusMode,
+    setFocusFlightIds,
   } = useSimStore();
 
   const selectedTvIds = useMemo(() => {
@@ -54,13 +58,31 @@ export default function RerouteTvBaseListSync() {
 
   const selectedTvKey = selectedTvIds.join("|");
   const requestSeq = useRef(0);
+  const appliedTvFocusRef = useRef(false);
 
   useEffect(() => {
-    if (airspaceDisplayMode !== "tv") return;
-    if (!selectedTvIds.length) return;
+    if (airspaceDisplayMode !== "tv") {
+      if (appliedTvFocusRef.current) {
+        setFocusMode(false);
+        setFocusFlightIds(new Set());
+        appliedTvFocusRef.current = false;
+      }
+      return;
+    }
+
+    if (!selectedTvIds.length) {
+      if (appliedTvFocusRef.current) {
+        setRerouteBaseFlightIds([], "tv");
+        setFocusMode(false);
+        setFocusFlightIds(new Set());
+        appliedTvFocusRef.current = false;
+      }
+      return;
+    }
 
     const reqId = ++requestSeq.current;
-    const refTime = formatTimeForAPI(useSimStore.getState().t);
+    const refTime = formatTimeForAPI(t);
+    const { from: windowFrom, to: windowTo } = normalizeTimeWindow(regulationTimeWindow, t);
 
     Promise.all(
       selectedTvIds.map(async (tvId) => {
@@ -82,57 +104,91 @@ export default function RerouteTvBaseListSync() {
         if (reqId !== requestSeq.current) return;
 
         const payloadByTv = Object.fromEntries(entries) as Record<string, TvFlightsPayload>;
-        const orderedFlightIds = buildBaseListForSelection(selectedTvIds, payloadByTv);
+        const orderedFlightIds = buildBaseListForSelection(
+          selectedTvIds,
+          payloadByTv,
+          windowFrom,
+          windowTo
+        );
         setRerouteBaseFlightIds(orderedFlightIds, "tv");
+        setFocusMode(true);
+        setFocusFlightIds(new Set(orderedFlightIds));
+        appliedTvFocusRef.current = true;
       })
       .catch((error) => {
         if (reqId !== requestSeq.current) return;
         console.error("Failed to synchronize reroute base list from selected TVs:", error);
+        setRerouteBaseFlightIds([], "tv");
+        setFocusMode(true);
+        setFocusFlightIds(new Set());
+        appliedTvFocusRef.current = true;
       });
-  }, [airspaceDisplayMode, selectedTvKey, selectedTvIds, setRerouteBaseFlightIds]);
+  }, [
+    airspaceDisplayMode,
+    selectedTvKey,
+    selectedTvIds,
+    t,
+    regulationTimeWindow,
+    setRerouteBaseFlightIds,
+    setFocusMode,
+    setFocusFlightIds,
+  ]);
 
   return null;
 }
 
 function buildBaseListForSelection(
   selectedTvIds: string[],
-  payloadByTv: Record<string, TvFlightsPayload>
+  payloadByTv: Record<string, TvFlightsPayload>,
+  windowFrom: number,
+  windowTo: number
 ): string[] {
   if (selectedTvIds.length === 0) return [];
+  const primaryTvId = selectedTvIds[0] ?? null;
+  if (!primaryTvId) return [];
 
-  if (selectedTvIds.length === 1) {
-    return buildSingleTvBaseList(payloadByTv[selectedTvIds[0]]);
-  }
+  const primaryPayload = payloadByTv[primaryTvId];
+  if (!primaryPayload) return [];
 
-  const membershipSets: Array<Set<string>> = [];
-  const sortMetricsByFlight = new Map<string, FlightSortMetric["perTv"]>();
+  const primaryRows = buildPrimaryRows(primaryTvId, primaryPayload, windowFrom, windowTo);
+  if (primaryRows.length === 0) return [];
+  if (selectedTvIds.length === 1) return primaryRows.map((row) => row.flightId);
 
-  for (const tvId of selectedTvIds) {
+  const secondaryTvIds = selectedTvIds.slice(1);
+  const secondaryMembershipSets: Array<Set<string>> = [];
+  const orderedMetricsByTv: Record<string, Map<string, FlightSortMetric["perTv"][string]>> = {};
+  const legacyWindowStartByTv: Record<string, Map<string, number | null>> = {};
+
+  for (const tvId of secondaryTvIds) {
     const payload = payloadByTv[tvId];
     if (!payload) return [];
 
     if (payload.kind === "ordered") {
       const membership = new Set<string>();
-      for (const raw of payload.data.ordered_flights || []) {
-        const id = String(raw ?? "").trim();
+      for (const rawId of payload.data.ordered_flights || []) {
+        const id = String(rawId ?? "").trim();
         if (!id) continue;
         membership.add(id);
-        ensureMetric(sortMetricsByFlight, id, tvId, {
-          arrivalSeconds: null,
-          deltaSeconds: null,
-          windowStartSeconds: null,
-        });
       }
+      if (membership.size === 0) {
+        for (const detail of payload.data.details || []) {
+          const id = String(detail.flight_id ?? "").trim();
+          if (!id) continue;
+          membership.add(id);
+        }
+      }
+      secondaryMembershipSets.push(membership);
 
+      const metricMap = new Map<string, FlightSortMetric["perTv"][string]>();
       for (const detail of payload.data.details || []) {
         const id = String(detail.flight_id ?? "").trim();
         if (!id) continue;
-        membership.add(id);
-        ensureMetric(sortMetricsByFlight, id, tvId, {
+        const arrivalFromString = detail.arrival_time ? parseHHMMSSToSeconds(detail.arrival_time) : null;
+        metricMap.set(id, {
           arrivalSeconds:
             typeof detail.arrival_seconds === "number" && Number.isFinite(detail.arrival_seconds)
               ? detail.arrival_seconds
-              : null,
+              : arrivalFromString,
           deltaSeconds:
             typeof detail.delta_seconds === "number" && Number.isFinite(detail.delta_seconds)
               ? detail.delta_seconds
@@ -140,111 +196,155 @@ function buildBaseListForSelection(
           windowStartSeconds: parseTimeWindowStartSeconds(detail.time_window),
         });
       }
-
-      membershipSets.push(membership);
+      orderedMetricsByTv[tvId] = metricMap;
       continue;
     }
 
     const membership = new Set<string>();
-    const earliestWindowStart = new Map<string, number | null>();
-
+    const startMap = new Map<string, number | null>();
     for (const [window, ids] of Object.entries(payload.data || {})) {
       const windowStart = parseTimeWindowStartSeconds(window);
       for (const rawId of ids || []) {
         const id = String(rawId ?? "").trim();
         if (!id) continue;
-
         membership.add(id);
-        const prev = earliestWindowStart.get(id);
-        if (
-          !earliestWindowStart.has(id) ||
-          (windowStart !== null && (prev === null || prev === undefined || windowStart < prev))
-        ) {
-          earliestWindowStart.set(id, windowStart);
-        }
+        if (!startMap.has(id)) startMap.set(id, windowStart);
+      }
+    }
+    secondaryMembershipSets.push(membership);
+    legacyWindowStartByTv[tvId] = startMap;
+  }
+
+  const intersection = intersectStringSets([
+    new Set(primaryRows.map((row) => row.flightId)),
+    ...secondaryMembershipSets,
+  ]);
+
+  const sortableRows: FlightSortMetric[] = [];
+  for (const row of primaryRows) {
+    if (!intersection.has(row.flightId)) continue;
+    const perTv: FlightSortMetric["perTv"] = { ...row.sortMetric.perTv };
+
+    for (const tvId of secondaryTvIds) {
+      const payload = payloadByTv[tvId];
+      if (!payload) continue;
+      if (payload.kind === "ordered") {
+        perTv[tvId] =
+          orderedMetricsByTv[tvId]?.get(row.flightId) || {
+            arrivalSeconds: null,
+            deltaSeconds: null,
+            windowStartSeconds: null,
+          };
+      } else {
+        perTv[tvId] = {
+          arrivalSeconds: null,
+          deltaSeconds: null,
+          windowStartSeconds: legacyWindowStartByTv[tvId]?.get(row.flightId) ?? null,
+        };
       }
     }
 
-    for (const [id, windowStart] of earliestWindowStart.entries()) {
-      ensureMetric(sortMetricsByFlight, id, tvId, {
-        arrivalSeconds: null,
-        deltaSeconds: null,
-        windowStartSeconds: windowStart,
-      });
-    }
-
-    membershipSets.push(membership);
+    sortableRows.push({
+      flightId: row.flightId,
+      perTv,
+    });
   }
-
-  const intersection = intersectStringSets(membershipSets);
-  const primaryTvId = selectedTvIds[0] ?? null;
-
-  const sortableRows: FlightSortMetric[] = Array.from(intersection).map((flightId) => {
-    const perTv: FlightSortMetric["perTv"] = {};
-    for (const tvId of selectedTvIds) {
-      perTv[tvId] =
-        sortMetricsByFlight.get(flightId)?.[tvId] || {
-          arrivalSeconds: null,
-          deltaSeconds: null,
-          windowStartSeconds: null,
-        };
-    }
-    return { flightId, perTv };
-  });
 
   sortableRows.sort((a, b) => compareIntersectionFlightRows(a, b, primaryTvId));
   return sortableRows.map((row) => row.flightId);
 }
 
-function buildSingleTvBaseList(payload: TvFlightsPayload | undefined): string[] {
-  if (!payload) return [];
-
+function buildPrimaryRows(
+  primaryTvId: string,
+  payload: TvFlightsPayload,
+  windowFrom: number,
+  windowTo: number
+): Array<{ flightId: string; sortMetric: FlightSortMetric }> {
   if (payload.kind === "ordered") {
-    const ordered = uniqueNormalized(payload.data.ordered_flights || []);
-    if (ordered.length > 0) return ordered;
-    return uniqueNormalized((payload.data.details || []).map((detail) => detail.flight_id));
+    const filteredDetails = (payload.data.details || [])
+      .map((detail) => {
+        const flightId = String(detail.flight_id ?? "").trim();
+        const arrivalFromString = detail.arrival_time ? parseHHMMSSToSeconds(detail.arrival_time) : null;
+        const arrivalSeconds =
+          typeof detail.arrival_seconds === "number" && Number.isFinite(detail.arrival_seconds)
+            ? detail.arrival_seconds
+            : arrivalFromString;
+        const deltaSeconds =
+          typeof detail.delta_seconds === "number" && Number.isFinite(detail.delta_seconds)
+            ? detail.delta_seconds
+            : null;
+
+        return {
+          flightId,
+          arrivalSeconds,
+          deltaSeconds,
+          windowStartSeconds: parseTimeWindowStartSeconds(detail.time_window),
+        };
+      })
+      .filter(
+        (detail) =>
+          !!detail.flightId &&
+          detail.arrivalSeconds !== null &&
+          detail.arrivalSeconds >= windowFrom &&
+          detail.arrivalSeconds <= windowTo
+      )
+      .sort((a, b) => Math.abs(a.deltaSeconds || 0) - Math.abs(b.deltaSeconds || 0));
+
+    const out: Array<{ flightId: string; sortMetric: FlightSortMetric }> = [];
+    const seen = new Set<string>();
+    for (const detail of filteredDetails) {
+      if (seen.has(detail.flightId)) continue;
+      seen.add(detail.flightId);
+      out.push({
+        flightId: detail.flightId,
+        sortMetric: {
+          flightId: detail.flightId,
+          perTv: {
+            [primaryTvId]: {
+              arrivalSeconds: detail.arrivalSeconds,
+              deltaSeconds: detail.deltaSeconds,
+              windowStartSeconds: detail.windowStartSeconds,
+            },
+          },
+        },
+      });
+    }
+    return out;
   }
 
-  const windows = Object.entries(payload.data || {}).sort((a, b) => {
-    const aStart = parseTimeWindowStartSeconds(a[0]);
-    const bStart = parseTimeWindowStartSeconds(b[0]);
-    if (aStart === null && bStart === null) return 0;
-    if (aStart === null) return 1;
-    if (bStart === null) return -1;
-    return aStart - bStart;
-  });
-
-  const flattened: string[] = [];
-  for (const [, ids] of windows) {
-    for (const id of ids || []) {
-      flattened.push(String(id ?? ""));
+  const candidates: Array<{ flightId: string; windowStartSeconds: number | null }> = [];
+  const seen = new Set<string>();
+  for (const [window, ids] of Object.entries(payload.data || {})) {
+    const windowStart = parseTimeWindowStartSeconds(window);
+    if (windowStart === null || windowStart < windowFrom || windowStart > windowTo) continue;
+    for (const rawId of ids || []) {
+      const flightId = String(rawId ?? "").trim();
+      if (!flightId || seen.has(flightId)) continue;
+      seen.add(flightId);
+      candidates.push({ flightId, windowStartSeconds: windowStart });
     }
   }
 
-  return uniqueNormalized(flattened);
-}
+  candidates.sort((a, b) => {
+    const aStart = a.windowStartSeconds ?? Number.POSITIVE_INFINITY;
+    const bStart = b.windowStartSeconds ?? Number.POSITIVE_INFINITY;
+    if (aStart !== bStart) return aStart - bStart;
+    return a.flightId.localeCompare(b.flightId);
+  });
 
-function ensureMetric(
-  map: Map<string, FlightSortMetric["perTv"]>,
-  flightId: string,
-  tvId: string,
-  metric: FlightSortMetric["perTv"][string]
-) {
-  const existing = map.get(flightId) || {};
-  existing[tvId] = metric;
-  map.set(flightId, existing);
-}
-
-function uniqueNormalized(ids: string[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of ids) {
-    const id = String(raw ?? "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
+  return candidates.map((candidate) => ({
+    flightId: candidate.flightId,
+    sortMetric: {
+      flightId: candidate.flightId,
+      perTv: {
+        [primaryTvId]: {
+          arrivalSeconds: null,
+          deltaSeconds: null,
+          windowStartSeconds: candidate.windowStartSeconds,
+        },
+      },
+    },
+  }));
 }
 
 function parseTimeWindowStartSeconds(timeWindow: string): number | null {
@@ -256,6 +356,29 @@ function parseTimeWindowStartSeconds(timeWindow: string): number | null {
   } catch {
     return null;
   }
+}
+
+function parseHHMMSSToSeconds(value: string): number | null {
+  const match = String(value || "").match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const h = Number.parseInt(match[1], 10);
+  const m = Number.parseInt(match[2], 10);
+  const s = Number.parseInt(match[3] || "0", 10);
+  if (!Number.isFinite(h) || !Number.isFinite(m) || !Number.isFinite(s)) return null;
+  return h * 3600 + m * 60 + s;
+}
+
+function normalizeTimeWindow(
+  window: [number, number],
+  fallbackStart: number
+): { from: number; to: number } {
+  const from = Number(window?.[0]);
+  const to = Number(window?.[1]);
+  if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+    return { from: Math.floor(from), to: Math.floor(to) };
+  }
+  const start = Number.isFinite(fallbackStart) ? Math.floor(fallbackStart) : 0;
+  return { from: start, to: start + 3600 };
 }
 
 function formatTimeForAPI(seconds: number): string {
