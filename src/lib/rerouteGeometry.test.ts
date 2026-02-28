@@ -437,6 +437,40 @@ describe("rerouteGeometry", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  it("prefers a shorter boundary detour over a longer single-corner shortcut", () => {
+    const trajectories = [makeTrajectory("F11B", [[0, 0], [10, 0]])];
+    const obstacles: RerouteObstacle[] = [
+      {
+        id: "OBS-11B",
+        vertices: [
+          [4, -1],
+          [6, -1],
+          [7, 0],
+          [5, 4],
+          [3, 0],
+        ],
+      },
+    ];
+
+    const result = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F11B"],
+      obstacles,
+      funnels: [],
+    });
+
+    expect(result.changedFlightCount).toBe(1);
+    expect(result.flights[0].reroutedPath).toEqual([
+      [0, 0],
+      [3, 0],
+      [4, -1],
+      [6, -1],
+      [7, 0],
+      [10, 0],
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   it("skips a self-intersecting obstacle and emits diagnostics", () => {
     const trajectories = [makeTrajectory("F12", [[0, 0], [10, 0]])];
     const obstacles: RerouteObstacle[] = [

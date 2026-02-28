@@ -81,11 +81,6 @@ interface BoundaryContact {
   segmentParam: number;
 }
 
-interface BoundaryContactsResult {
-  entryContact: BoundaryContact;
-  exitContact: BoundaryContact;
-}
-
 interface BoundaryDetourCandidate {
   viaPoints: Point2D[];
   newPathNm: number;
@@ -106,6 +101,7 @@ type GeometryBudget = {
 const EPS = 1e-7;
 const MAX_MULTICORNER_POLYGON_VERTICES = 64;
 const MAX_DETOUR_POINTS_PER_SPAN = 66;
+const MAX_BOUNDARY_CONTACTS_PER_SPAN = 24;
 const YIELD_CHECK_EVERY_OPS = 64;
 
 export function computeRerouteGeometry(params: ComputeRerouteGeometryParams): RerouteGeometryResult {
@@ -324,21 +320,7 @@ function buildObstacleDetourPoints(
       continue;
     }
 
-    const oneCornerCandidate = chooseBestDetourVertex(a, b, polygon);
-    if (oneCornerCandidate) {
-      applyDetourCandidate(
-        flight,
-        nextPoints,
-        sourcePoints,
-        span,
-        [oneCornerCandidate.vertex],
-        distanceNm(a, oneCornerCandidate.vertex) + distanceNm(oneCornerCandidate.vertex, b),
-      );
-      cursor = span.endIndex;
-      continue;
-    }
-
-    const fallback = chooseBestBoundaryDetour(
+    const candidate = chooseBestObstacleDetour(
       obstacleId,
       a,
       b,
@@ -346,14 +328,14 @@ function buildObstacleDetourPoints(
       span,
       polygon,
     );
-    if (!("viaPoints" in fallback)) {
-      flight.warnings.push(fallback.warning);
+    if (!("viaPoints" in candidate)) {
+      flight.warnings.push(candidate.warning);
       appendPointRange(nextPoints, sourcePoints, span.startIndex + 1, span.endIndex);
       cursor = span.endIndex;
       continue;
     }
 
-    applyDetourCandidate(flight, nextPoints, sourcePoints, span, fallback.viaPoints, fallback.newPathNm);
+    applyDetourCandidate(flight, nextPoints, sourcePoints, span, candidate.viaPoints, candidate.newPathNm);
     cursor = span.endIndex;
   }
 
@@ -393,21 +375,7 @@ async function buildObstacleDetourPointsAsync(
       continue;
     }
 
-    const oneCornerCandidate = chooseBestDetourVertex(a, b, polygon);
-    if (oneCornerCandidate) {
-      applyDetourCandidate(
-        flight,
-        nextPoints,
-        sourcePoints,
-        span,
-        [oneCornerCandidate.vertex],
-        distanceNm(a, oneCornerCandidate.vertex) + distanceNm(oneCornerCandidate.vertex, b),
-      );
-      cursor = span.endIndex;
-      continue;
-    }
-
-    const fallback = await chooseBestBoundaryDetourAsync(
+    const candidate = await chooseBestObstacleDetourAsync(
       obstacleId,
       a,
       b,
@@ -416,14 +384,14 @@ async function buildObstacleDetourPointsAsync(
       polygon,
       budget,
     );
-    if (!("viaPoints" in fallback)) {
-      flight.warnings.push(fallback.warning);
+    if (!("viaPoints" in candidate)) {
+      flight.warnings.push(candidate.warning);
       appendPointRange(nextPoints, sourcePoints, span.startIndex + 1, span.endIndex);
       cursor = span.endIndex;
       continue;
     }
 
-    applyDetourCandidate(flight, nextPoints, sourcePoints, span, fallback.viaPoints, fallback.newPathNm);
+    applyDetourCandidate(flight, nextPoints, sourcePoints, span, candidate.viaPoints, candidate.newPathNm);
     cursor = span.endIndex;
   }
 
@@ -487,6 +455,60 @@ function findNextObstacleSpan(
   return null;
 }
 
+function chooseBestObstacleDetour(
+  obstacleId: string,
+  a: Point2D,
+  b: Point2D,
+  sourcePoints: Point2D[],
+  span: ObstacleSpan,
+  polygon: Point2D[],
+): BoundaryDetourCandidate | BoundaryDetourFailure {
+  const oneCornerCandidate = chooseBestDetourVertex(a, b, polygon);
+  const directCandidate = oneCornerCandidate
+    ? {
+        viaPoints: [oneCornerCandidate.vertex],
+        newPathNm: distanceNm(a, oneCornerCandidate.vertex) + distanceNm(oneCornerCandidate.vertex, b),
+      }
+    : null;
+  const boundaryCandidate = chooseBestBoundaryDetour(
+    obstacleId,
+    a,
+    b,
+    sourcePoints,
+    span,
+    polygon,
+  );
+  return chooseShorterDetourCandidate(directCandidate, boundaryCandidate);
+}
+
+async function chooseBestObstacleDetourAsync(
+  obstacleId: string,
+  a: Point2D,
+  b: Point2D,
+  sourcePoints: Point2D[],
+  span: ObstacleSpan,
+  polygon: Point2D[],
+  budget: GeometryBudget,
+): Promise<BoundaryDetourCandidate | BoundaryDetourFailure> {
+  const oneCornerCandidate = chooseBestDetourVertex(a, b, polygon);
+  const directCandidate = oneCornerCandidate
+    ? {
+        viaPoints: [oneCornerCandidate.vertex],
+        newPathNm: distanceNm(a, oneCornerCandidate.vertex) + distanceNm(oneCornerCandidate.vertex, b),
+      }
+    : null;
+  const boundaryCandidate = await chooseBestBoundaryDetourAsync(
+    obstacleId,
+    a,
+    b,
+    sourcePoints,
+    span,
+    polygon,
+    budget,
+  );
+  return chooseShorterDetourCandidate(directCandidate, boundaryCandidate);
+}
+
 function chooseBestBoundaryDetour(
   obstacleId: string,
   a: Point2D,
@@ -513,24 +535,42 @@ function chooseBestBoundaryDetour(
   }
 
   const contacts = findObstacleSpanBoundaryContacts(sourcePoints, span, ring);
-  if (!contacts) {
+  if (contacts.length < 2) {
     return {
       warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; could not determine boundary contacts.`,
     };
   }
-
-  const forwardChain = buildBoundaryChainForward(contacts.entryContact, contacts.exitContact, ring);
-  const reverseChain = buildBoundaryChainReverse(contacts.entryContact, contacts.exitContact, ring);
-  const forwardTooLong = dedupeAdjacentPoints(forwardChain).length > MAX_DETOUR_POINTS_PER_SPAN;
-  const reverseTooLong = dedupeAdjacentPoints(reverseChain).length > MAX_DETOUR_POINTS_PER_SPAN;
-  if (forwardTooLong && reverseTooLong) {
+  if (contacts.length > MAX_BOUNDARY_CONTACTS_PER_SPAN) {
     return {
-      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; detour exceeds ${MAX_DETOUR_POINTS_PER_SPAN} points.`,
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; too many boundary contacts.`,
     };
   }
-  const forward = forwardTooLong ? null : evaluateBoundaryDetourCandidate(a, b, forwardChain, ring, polygon);
-  const reverse = reverseTooLong ? null : evaluateBoundaryDetourCandidate(a, b, reverseChain, ring, polygon);
-  return chooseBestBoundaryCandidate(obstacleId, span, forward, reverse);
+
+  let best: BoundaryDetourCandidate | null = null;
+  let sawOverlongDetour = false;
+  for (let entryIndex = 0; entryIndex < contacts.length - 1; entryIndex += 1) {
+    for (let exitIndex = entryIndex + 1; exitIndex < contacts.length; exitIndex += 1) {
+      const pairCandidate = evaluateBoundaryContactPair(
+        a,
+        b,
+        contacts[entryIndex],
+        contacts[exitIndex],
+        ring,
+        polygon,
+      );
+      if (pairCandidate === "too_long") {
+        sawOverlongDetour = true;
+        continue;
+      }
+      best = chooseBetterDetourCandidate(best, pairCandidate);
+    }
+  }
+
+  return best ?? {
+    warning: sawOverlongDetour
+      ? `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; detour exceeds ${MAX_DETOUR_POINTS_PER_SPAN} points.`
+      : `Obstacle ${obstacleId}: no valid boundary detour for blocked span ${span.startIndex}-${span.endIndex}.`,
+  };
 }
 
 async function chooseBestBoundaryDetourAsync(
@@ -560,53 +600,61 @@ async function chooseBestBoundaryDetourAsync(
   }
 
   const contacts = await findObstacleSpanBoundaryContactsAsync(sourcePoints, span, ring, budget);
-  if (!contacts) {
+  if (contacts.length < 2) {
     return {
       warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; could not determine boundary contacts.`,
     };
   }
-
-  const forwardChain = buildBoundaryChainForward(contacts.entryContact, contacts.exitContact, ring);
-  const reverseChain = buildBoundaryChainReverse(contacts.entryContact, contacts.exitContact, ring);
-  const forwardTooLong = dedupeAdjacentPoints(forwardChain).length > MAX_DETOUR_POINTS_PER_SPAN;
-  const reverseTooLong = dedupeAdjacentPoints(reverseChain).length > MAX_DETOUR_POINTS_PER_SPAN;
-  if (forwardTooLong && reverseTooLong) {
+  if (contacts.length > MAX_BOUNDARY_CONTACTS_PER_SPAN) {
     return {
-      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; detour exceeds ${MAX_DETOUR_POINTS_PER_SPAN} points.`,
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; too many boundary contacts.`,
     };
   }
-  const forward = forwardTooLong
-    ? null
-    : await evaluateBoundaryDetourCandidateAsync(a, b, forwardChain, ring, polygon, budget);
-  const reverse = reverseTooLong
-    ? null
-    : await evaluateBoundaryDetourCandidateAsync(a, b, reverseChain, ring, polygon, budget);
-  return chooseBestBoundaryCandidate(obstacleId, span, forward, reverse);
+
+  let best: BoundaryDetourCandidate | null = null;
+  let sawOverlongDetour = false;
+  for (let entryIndex = 0; entryIndex < contacts.length - 1; entryIndex += 1) {
+    for (let exitIndex = entryIndex + 1; exitIndex < contacts.length; exitIndex += 1) {
+      await budget.maybeYield();
+      const pairCandidate = await evaluateBoundaryContactPairAsync(
+        a,
+        b,
+        contacts[entryIndex],
+        contacts[exitIndex],
+        ring,
+        polygon,
+        budget,
+      );
+      if (pairCandidate === "too_long") {
+        sawOverlongDetour = true;
+        continue;
+      }
+      best = chooseBetterDetourCandidate(best, pairCandidate);
+    }
+  }
+
+  return best ?? {
+    warning: sawOverlongDetour
+      ? `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; detour exceeds ${MAX_DETOUR_POINTS_PER_SPAN} points.`
+      : `Obstacle ${obstacleId}: no valid boundary detour for blocked span ${span.startIndex}-${span.endIndex}.`,
+  };
 }
 
-function chooseBestBoundaryCandidate(
-  obstacleId: string,
-  span: ObstacleSpan,
-  forward: BoundaryDetourCandidate | null,
-  reverse: BoundaryDetourCandidate | null,
+function chooseShorterDetourCandidate(
+  directCandidate: BoundaryDetourCandidate | null,
+  boundaryCandidate: BoundaryDetourCandidate | BoundaryDetourFailure,
 ): BoundaryDetourCandidate | BoundaryDetourFailure {
-  if (forward && reverse) {
-    if (forward.newPathNm < reverse.newPathNm - EPS) return forward;
-    if (reverse.newPathNm < forward.newPathNm - EPS) return reverse;
-    return forward.viaPoints.length <= reverse.viaPoints.length ? forward : reverse;
+  if (!("viaPoints" in boundaryCandidate)) {
+    return directCandidate ?? boundaryCandidate;
   }
-  if (forward) return forward;
-  if (reverse) return reverse;
-  return {
-    warning: `Obstacle ${obstacleId}: no valid boundary detour for blocked span ${span.startIndex}-${span.endIndex}.`,
-  };
+  return chooseBetterDetourCandidate(directCandidate, boundaryCandidate) ?? boundaryCandidate;
 }
 
 function findObstacleSpanBoundaryContacts(
   points: Point2D[],
   span: ObstacleSpan,
   ring: Point2D[],
-): BoundaryContactsResult | null {
+): BoundaryContact[] {
   const contacts: BoundaryContact[] = [];
   for (let segIdx = span.startIndex; segIdx < span.endIndex; segIdx += 1) {
     const a = points[segIdx];
@@ -616,7 +664,8 @@ function findObstacleSpanBoundaryContacts(
       pushUniqueBoundaryContact(contacts, contact);
     }
   }
-  return contactsToBoundarySpan(contacts);
+  contacts.sort(compareBoundaryContacts);
+  return dedupeBoundaryContacts(contacts);
 }
 
 async function findObstacleSpanBoundaryContactsAsync(
@@ -624,7 +673,7 @@ async function findObstacleSpanBoundaryContactsAsync(
   span: ObstacleSpan,
   ring: Point2D[],
   budget: GeometryBudget,
-): Promise<BoundaryContactsResult | null> {
+): Promise<BoundaryContact[]> {
   const contacts: BoundaryContact[] = [];
   for (let segIdx = span.startIndex; segIdx < span.endIndex; segIdx += 1) {
     await budget.maybeYield();
@@ -635,18 +684,8 @@ async function findObstacleSpanBoundaryContactsAsync(
       pushUniqueBoundaryContact(contacts, contact);
     }
   }
-  return contactsToBoundarySpan(contacts);
-}
-
-function contactsToBoundarySpan(contacts: BoundaryContact[]): BoundaryContactsResult | null {
-  if (contacts.length < 2) return null;
   contacts.sort(compareBoundaryContacts);
-  const uniqueContacts = dedupeBoundaryContacts(contacts);
-  if (uniqueContacts.length < 2) return null;
-  const entryContact = uniqueContacts[0];
-  const exitContact = uniqueContacts[uniqueContacts.length - 1];
-  if (pointsEqual(entryContact.point, exitContact.point)) return null;
-  return { entryContact, exitContact };
+  return dedupeBoundaryContacts(contacts);
 }
 
 function buildBoundaryChainForward(
@@ -782,10 +821,66 @@ function compareBoundaryContacts(a: BoundaryContact, b: BoundaryContact): number
 function dedupeBoundaryContacts(contacts: BoundaryContact[]): BoundaryContact[] {
   const out: BoundaryContact[] = [];
   for (const contact of contacts) {
-    if (out.some((existing) => sameBoundaryContact(existing, contact))) continue;
+    if (out.some((existing) => pointsEqual(existing.point, contact.point) && Math.abs(existing.segmentParam - contact.segmentParam) <= EPS)) {
+      continue;
+    }
     out.push(contact);
   }
   return out;
+}
+
+function evaluateBoundaryContactPair(
+  a: Point2D,
+  b: Point2D,
+  entryContact: BoundaryContact,
+  exitContact: BoundaryContact,
+  ring: Point2D[],
+  polygon: Point2D[],
+): BoundaryDetourCandidate | "too_long" | null {
+  if (pointsEqual(entryContact.point, exitContact.point)) return null;
+  const forwardChain = buildBoundaryChainForward(entryContact, exitContact, ring);
+  const reverseChain = buildBoundaryChainReverse(entryContact, exitContact, ring);
+  const forwardTooLong = dedupeAdjacentPoints(forwardChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  const reverseTooLong = dedupeAdjacentPoints(reverseChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  if (forwardTooLong && reverseTooLong) return "too_long";
+  const forward = forwardTooLong ? null : evaluateBoundaryDetourCandidate(a, b, forwardChain, ring, polygon);
+  const reverse = reverseTooLong ? null : evaluateBoundaryDetourCandidate(a, b, reverseChain, ring, polygon);
+  return chooseBetterDetourCandidate(forward, reverse);
+}
+
+async function evaluateBoundaryContactPairAsync(
+  a: Point2D,
+  b: Point2D,
+  entryContact: BoundaryContact,
+  exitContact: BoundaryContact,
+  ring: Point2D[],
+  polygon: Point2D[],
+  budget: GeometryBudget,
+): Promise<BoundaryDetourCandidate | "too_long" | null> {
+  if (pointsEqual(entryContact.point, exitContact.point)) return null;
+  const forwardChain = buildBoundaryChainForward(entryContact, exitContact, ring);
+  const reverseChain = buildBoundaryChainReverse(entryContact, exitContact, ring);
+  const forwardTooLong = dedupeAdjacentPoints(forwardChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  const reverseTooLong = dedupeAdjacentPoints(reverseChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  if (forwardTooLong && reverseTooLong) return "too_long";
+  const forward = forwardTooLong
+    ? null
+    : await evaluateBoundaryDetourCandidateAsync(a, b, forwardChain, ring, polygon, budget);
+  const reverse = reverseTooLong
+    ? null
+    : await evaluateBoundaryDetourCandidateAsync(a, b, reverseChain, ring, polygon, budget);
+  return chooseBetterDetourCandidate(forward, reverse);
+}
+
+function chooseBetterDetourCandidate(
+  left: BoundaryDetourCandidate | null,
+  right: BoundaryDetourCandidate | null,
+): BoundaryDetourCandidate | null {
+  if (!left) return right;
+  if (!right) return left;
+  if (left.newPathNm < right.newPathNm - EPS) return left;
+  if (right.newPathNm < left.newPathNm - EPS) return right;
+  return left.viaPoints.length <= right.viaPoints.length ? left : right;
 }
 
 function evaluateBoundaryDetourCandidate(
