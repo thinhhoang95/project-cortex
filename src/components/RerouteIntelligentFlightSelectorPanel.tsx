@@ -228,36 +228,59 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
               <button
                 type="button"
                 onClick={clearRerouteObstacles}
-                className="px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
+                className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
               >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
                 Clear Obstacles ({rerouteObstacles.length})
               </button>
               <button
                 type="button"
                 onClick={clearRerouteFunnels}
-                className="px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
+                className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
               >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
                 Clear Funnels ({rerouteFunnels.length})
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={toggleReroutePreviewMode}
-              disabled={!hasReroutePreview}
-              className={`w-full px-3 py-2 rounded border text-left transition-colors ${
-                hasReroutePreview
-                  ? reroutePreviewMode === "rerouted"
-                    ? "border-emerald-300/60 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
-                    : "border-amber-300/60 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
-                  : "border-white/10 bg-white/5 text-white/45 cursor-not-allowed"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3 text-xs font-medium">
-                <span>Preview: {currentPreviewLabel}</span>
-                <span>{togglePreviewLabel}</span>
-              </div>
-            </button>
+            <div className="flex rounded-lg border border-white/20 p-1 bg-white/5 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  if (reroutePreviewMode === "rerouted") toggleReroutePreviewMode();
+                }}
+                disabled={!hasReroutePreview}
+                className={`flex-1 px-3 py-1.5 rounded-md transition-colors text-center ${
+                  reroutePreviewMode !== "rerouted" && hasReroutePreview
+                    ? "bg-amber-500/25 text-amber-100 font-medium shadow-sm"
+                    : "text-white/60 hover:text-white/80 hover:bg-white/10"
+                } ${!hasReroutePreview ? "cursor-not-allowed opacity-50" : ""}`}
+              >
+                Current Paths
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (reroutePreviewMode !== "rerouted") toggleReroutePreviewMode();
+                }}
+                disabled={!hasReroutePreview}
+                className={`flex-1 px-3 py-1.5 rounded-md transition-colors text-center ${
+                  reroutePreviewMode === "rerouted" && hasReroutePreview
+                    ? "bg-emerald-500/25 text-emerald-100 font-medium shadow-sm"
+                    : "text-white/60 hover:text-white/80 hover:bg-white/10"
+                } ${!hasReroutePreview ? "cursor-not-allowed opacity-50" : ""}`}
+              >
+                After Reroute
+              </button>
+            </div>
 
             <button
               type="button"
