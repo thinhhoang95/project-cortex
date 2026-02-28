@@ -162,4 +162,75 @@ describe("rerouteGeometry", () => {
     expect(result.flights[0].extraNm).toBeGreaterThan(0);
     expect(result.totalExtraNm).toBeGreaterThan(0);
   });
+
+  it("bypasses contiguous inside-waypoint runs by connecting nearest outside waypoints", () => {
+    const trajectories = [
+      makeTrajectory("F8", [
+        [0, 0],
+        [4.5, 0],
+        [5, 0.2],
+        [5.5, 0],
+        [10, 0],
+      ]),
+    ];
+    const obstacles: RerouteObstacle[] = [
+      {
+        id: "OBS-8",
+        vertices: [
+          [4, -0.2],
+          [5, 0.3],
+          [6, -0.2],
+        ],
+      },
+    ];
+
+    const result = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F8"],
+      obstacles,
+      funnels: [],
+    });
+
+    expect(result.changedFlightCount).toBe(1);
+    expect(result.flights[0].flightId).toBe("F8");
+    expect(result.flights[0].oldSegments.length).toBeGreaterThanOrEqual(2);
+    expect(result.flights[0].newSegments.length).toBeGreaterThanOrEqual(2);
+    expect(result.flights[0].warnings).toEqual([]);
+  });
+
+  it("skips boundary-adjacent blocked waypoints and anchors detour on nearest strict outside points", () => {
+    const trajectories = [
+      makeTrajectory("F9", [
+        [0, 0],
+        [4, 0],
+        [4.5, 0],
+        [5.5, 0],
+        [6, 0],
+        [10, 0],
+      ]),
+    ];
+    const obstacles: RerouteObstacle[] = [
+      {
+        id: "OBS-9",
+        vertices: [
+          [4, -1],
+          [6, -1],
+          [6, 1],
+          [4, 1],
+        ],
+      },
+    ];
+
+    const result = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F9"],
+      obstacles,
+      funnels: [],
+    });
+
+    expect(result.changedFlightCount).toBe(1);
+    expect(result.flights[0].warnings).toEqual([]);
+    expect(result.flights[0].oldSegments.some((segment) => segment.start[0] === 0 && segment.end[0] === 4)).toBe(true);
+    expect(result.flights[0].oldSegments.some((segment) => segment.start[0] === 6 && segment.end[0] === 10)).toBe(true);
+  });
 });

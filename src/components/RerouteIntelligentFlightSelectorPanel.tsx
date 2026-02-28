@@ -188,26 +188,34 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                 onClick={() =>
                   setRerouteShapeToolMode(rerouteShapeToolMode === "obstacle" ? "off" : "obstacle")
                 }
-                className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                className={`h-9 w-9 flex items-center justify-center rounded-lg border transition-colors ${
                   rerouteShapeToolMode === "obstacle"
                     ? "border-amber-300/60 bg-amber-500/25 text-amber-100"
                     : "border-white/20 bg-white/10 text-white/80 hover:bg-white/20"
                 }`}
+                title="Obstacle Tool"
+                aria-label="Obstacle Tool"
               >
-                Obstacle
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                </svg>
               </button>
               <button
                 type="button"
                 onClick={() =>
                   setRerouteShapeToolMode(rerouteShapeToolMode === "funnel" ? "off" : "funnel")
                 }
-                className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                className={`h-9 w-9 flex items-center justify-center rounded-lg border transition-colors ${
                   rerouteShapeToolMode === "funnel"
                     ? "border-cyan-300/60 bg-cyan-500/25 text-cyan-100"
                     : "border-white/20 bg-white/10 text-white/80 hover:bg-white/20"
                 }`}
+                title="Funnel Tool"
+                aria-label="Funnel Tool"
               >
-                Funnel
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
               </button>
             </div>
 

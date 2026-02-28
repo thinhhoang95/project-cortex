@@ -114,6 +114,7 @@ function applyObstacles(flight: WorkingFlight, obstacles: RerouteObstacle[]) {
   for (const obstacle of obstacles) {
     const polygon = ensureClosedPolygon(obstacle.vertices);
     if (polygon.length < 4) continue;
+    bypassInteriorWaypointRuns(flight, obstacle.id, polygon);
 
     let segIdx = 0;
     while (segIdx < flight.points.length - 1) {
@@ -140,6 +141,86 @@ function applyObstacles(flight: WorkingFlight, obstacles: RerouteObstacle[]) {
       flight.extraNm += candidate.addedNm;
       segIdx += 1;
     }
+  }
+}
+
+function bypassInteriorWaypointRuns(
+  flight: WorkingFlight,
+  obstacleId: string,
+  polygon: Point2D[],
+) {
+  let idx = 0;
+  while (idx < flight.points.length) {
+    if (!pointInPolygonStrict(flight.points[idx], polygon)) {
+      idx += 1;
+      continue;
+    }
+
+    const runStart = idx;
+    while (idx + 1 < flight.points.length && pointInPolygonStrict(flight.points[idx + 1], polygon)) {
+      idx += 1;
+    }
+    const runEnd = idx;
+    let prevOutsideIdx = runStart - 1;
+    while (prevOutsideIdx >= 0 && !pointStrictlyOutsideObstacle(flight.points[prevOutsideIdx], polygon)) {
+      prevOutsideIdx -= 1;
+    }
+
+    let nextOutsideIdx = runEnd + 1;
+    while (
+      nextOutsideIdx < flight.points.length &&
+      !pointStrictlyOutsideObstacle(flight.points[nextOutsideIdx], polygon)
+    ) {
+      nextOutsideIdx += 1;
+    }
+
+    if (prevOutsideIdx < 0 || nextOutsideIdx >= flight.points.length) {
+      flight.warnings.push(
+        `Obstacle ${obstacleId}: cannot bypass interior waypoint run ${runStart}-${runEnd}.`
+      );
+      idx = runEnd + 1;
+      continue;
+    }
+
+    const a = flight.points[prevOutsideIdx];
+    const b = flight.points[nextOutsideIdx];
+    const oneVertexCandidate = chooseBestDetourVertex(a, b, polygon);
+    const twoVertexCandidate = oneVertexCandidate ? null : chooseBestTwoVertexDetour(a, b, polygon);
+    const detourVertices = oneVertexCandidate
+      ? [oneVertexCandidate.vertex]
+      : twoVertexCandidate
+      ? twoVertexCandidate.vertices
+      : null;
+    if (!detourVertices) {
+      flight.warnings.push(
+        `Obstacle ${obstacleId}: no valid bypass for interior waypoint run ${runStart}-${runEnd}.`
+      );
+      idx = runEnd + 1;
+      continue;
+    }
+
+    const replacedSegmentCount = nextOutsideIdx - prevOutsideIdx;
+    let oldPathNm = 0;
+    for (let i = prevOutsideIdx; i < nextOutsideIdx; i += 1) {
+      const from = flight.points[i];
+      const to = flight.points[i + 1];
+      oldPathNm += distanceNm(from, to);
+      flight.oldSegments.push({ start: from, end: to });
+    }
+
+    let newPathNm = 0;
+    let pathStart = a;
+    for (const detourVertex of detourVertices) {
+      newPathNm += distanceNm(pathStart, detourVertex);
+      flight.newSegments.push({ start: pathStart, end: detourVertex });
+      pathStart = detourVertex;
+    }
+    newPathNm += distanceNm(pathStart, b);
+    flight.newSegments.push({ start: pathStart, end: b });
+    flight.extraNm += Math.max(0, newPathNm - oldPathNm);
+
+    flight.points.splice(prevOutsideIdx + 1, replacedSegmentCount - 1, ...detourVertices);
+    idx = Math.max(0, prevOutsideIdx);
   }
 }
 
@@ -229,6 +310,34 @@ function chooseBestDetourVertex(a: Point2D, b: Point2D, polygon: Point2D[]) {
 
     if (!best || addedNm < best.addedNm - EPS) {
       best = { vertex, addedNm };
+    }
+  }
+
+  return best;
+}
+
+function chooseBestTwoVertexDetour(a: Point2D, b: Point2D, polygon: Point2D[]) {
+  let best: { vertices: [Point2D, Point2D]; addedNm: number } | null = null;
+  const baseOldNm = distanceNm(a, b);
+
+  for (let i = 0; i < polygon.length - 1; i += 1) {
+    const first = polygon[i];
+    if (pointsEqual(first, a) || pointsEqual(first, b)) continue;
+    if (!detourSegmentIsValid(a, first, polygon)) continue;
+
+    for (let j = 0; j < polygon.length - 1; j += 1) {
+      const second = polygon[j];
+      if (pointsEqual(second, a) || pointsEqual(second, b) || pointsEqual(second, first)) continue;
+      if (!detourSegmentIsValid(first, second, polygon) || !detourSegmentIsValid(second, b, polygon)) {
+        continue;
+      }
+
+      const newNm = distanceNm(a, first) + distanceNm(first, second) + distanceNm(second, b);
+      const addedNm = Math.max(0, newNm - baseOldNm);
+
+      if (!best || addedNm < best.addedNm - EPS) {
+        best = { vertices: [first, second], addedNm };
+      }
     }
   }
 
@@ -327,6 +436,10 @@ function segmentsIntersect(a: Point2D, b: Point2D, c: Point2D, d: Point2D): bool
 function pointInPolygonOrBoundary(point: Point2D, polygon: Point2D[]): boolean {
   if (pointOnPolygonBoundary(point, polygon)) return true;
   return pointInPolygonStrict(point, polygon);
+}
+
+function pointStrictlyOutsideObstacle(point: Point2D, polygon: Point2D[]): boolean {
+  return !pointInPolygonOrBoundary(point, polygon);
 }
 
 function pointInPolygonStrict(point: Point2D, polygon: Point2D[]): boolean {
