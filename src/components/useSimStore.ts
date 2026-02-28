@@ -86,6 +86,7 @@ export type RerouteBaseListSource = "tv" | "query" | "catcher";
 export type RerouteCatcherMode = "off" | "include" | "exclude";
 export type RerouteCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
 export type RerouteShapeToolMode = "off" | "obstacle" | "funnel";
+export type ReroutePreviewMode = "current" | "rerouted";
 export type RegulationCatcherMode = "off" | "include" | "exclude";
 export type RegulationCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
 
@@ -182,6 +183,7 @@ type State = {
   rerouteFunnels: RerouteFunnel[];
   rerouteSelectedShape: { kind: "obstacle" | "funnel"; id: string } | null;
   rerouteGeometryResult: RerouteGeometryResult | null;
+  reroutePreviewMode: ReroutePreviewMode;
   regulationCatcherMode: RegulationCatcherMode;
   regulationCatcherTimeframe: RegulationCatcherTimeframe;
   regulationCatcherActive: boolean;
@@ -276,6 +278,7 @@ type State = {
   setRerouteSelectedShape: (shape: { kind: "obstacle" | "funnel"; id: string } | null) => void;
   removeRerouteSelectedShape: () => void;
   setRerouteGeometryResult: (result: RerouteGeometryResult | null) => void;
+  toggleReroutePreviewMode: () => void;
   setRegulationCatcherMode: (mode: RegulationCatcherMode) => void;
   setRegulationCatcherTimeframe: (timeframe: RegulationCatcherTimeframe) => void;
   cancelRegulationCatcher: () => void;
@@ -409,6 +412,7 @@ const defaultState: Pick<State,
   | 'rerouteFunnels'
   | 'rerouteSelectedShape'
   | 'rerouteGeometryResult'
+  | 'reroutePreviewMode'
   | 'regulationCatcherMode'
   | 'regulationCatcherTimeframe'
   | 'regulationCatcherActive'
@@ -499,6 +503,7 @@ const defaultState: Pick<State,
   rerouteFunnels: [],
   rerouteSelectedShape: null,
   rerouteGeometryResult: null,
+  reroutePreviewMode: "rerouted",
   regulationCatcherMode: "off",
   regulationCatcherTimeframe: "1h",
   regulationCatcherActive: false,
@@ -1182,6 +1187,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       };
     }),
   setRerouteGeometryResult: (result) => set({ rerouteGeometryResult: result }),
+  toggleReroutePreviewMode: () =>
+    set((state) => ({
+      reroutePreviewMode: state.reroutePreviewMode === "rerouted" ? "current" : "rerouted",
+    })),
   setRegulationCatcherMode: (mode) =>
     set({
       regulationCatcherMode: mode,

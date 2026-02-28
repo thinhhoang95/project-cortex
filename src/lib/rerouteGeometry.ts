@@ -20,6 +20,8 @@ export interface RerouteFunnel {
 
 export interface RerouteFlightResult {
   flightId: string;
+  originalPath: Point2D[];
+  reroutedPath: Point2D[];
   oldSegments: RerouteSegment[];
   newSegments: RerouteSegment[];
   extraNm: number;
@@ -36,8 +38,22 @@ export interface RerouteGeometryResult {
   flights: RerouteFlightResult[];
 }
 
+export interface ComputeRerouteGeometryParams {
+  trajectories: Trajectory[];
+  selectedFlightIds: Iterable<string>;
+  obstacles: RerouteObstacle[];
+  funnels: RerouteFunnel[];
+}
+
+export interface ComputeRerouteGeometryAsyncOptions {
+  signal?: AbortSignal | null;
+  batchSize?: number;
+  maxBlockingMs?: number;
+}
+
 interface WorkingFlight {
   flightId: string;
+  originalPoints: Point2D[];
   points: Point2D[];
   oldSegments: RerouteSegment[];
   newSegments: RerouteSegment[];
@@ -47,12 +63,42 @@ interface WorkingFlight {
 
 const EPS = 1e-7;
 
-export function computeRerouteGeometry(params: {
-  trajectories: Trajectory[];
-  selectedFlightIds: Iterable<string>;
-  obstacles: RerouteObstacle[];
-  funnels: RerouteFunnel[];
-}): RerouteGeometryResult {
+export function computeRerouteGeometry(params: ComputeRerouteGeometryParams): RerouteGeometryResult {
+  const prepared = prepareRerouteGeometry(params);
+  processWorkingFlights(prepared.flights, prepared.obstacles, prepared.funnels);
+  return finalizeRerouteGeometryResult(prepared);
+}
+
+export async function computeRerouteGeometryAsync(
+  params: ComputeRerouteGeometryParams,
+  options: ComputeRerouteGeometryAsyncOptions = {},
+): Promise<RerouteGeometryResult> {
+  const prepared = prepareRerouteGeometry(params);
+  const signal = options.signal ?? null;
+  const batchSize = Math.max(1, Math.floor(options.batchSize ?? 8));
+  const maxBlockingMs = Math.max(4, Number.isFinite(options.maxBlockingMs) ? Number(options.maxBlockingMs) : 12);
+  let lastYieldAt = nowMs();
+
+  for (let index = 0; index < prepared.flights.length; index += 1) {
+    throwIfAborted(signal);
+    const flight = prepared.flights[index];
+    applyObstacles(flight, prepared.obstacles);
+    applyFunnelsInAlongPathOrder(flight, prepared.funnels);
+
+    const shouldYield =
+      (index + 1) % batchSize === 0 ||
+      nowMs() - lastYieldAt >= maxBlockingMs;
+    if (shouldYield && index < prepared.flights.length - 1) {
+      await yieldToMainThread();
+      lastYieldAt = nowMs();
+    }
+  }
+
+  throwIfAborted(signal);
+  return finalizeRerouteGeometryResult(prepared);
+}
+
+function prepareRerouteGeometry(params: ComputeRerouteGeometryParams) {
   const selectedFlightIds = normalizeIds(params.selectedFlightIds);
   const obstacles = normalizeObstacles(params.obstacles);
   const funnels = normalizeFunnels(params.funnels);
@@ -72,7 +118,8 @@ export function computeRerouteGeometry(params: {
     if (points.length < 2) continue;
     flights.push({
       flightId,
-      points,
+      originalPoints: clonePointList(points),
+      points: clonePointList(points),
       oldSegments: [],
       newSegments: [],
       extraNm: 0,
@@ -80,15 +127,38 @@ export function computeRerouteGeometry(params: {
     });
   }
 
+  return {
+    selectedFlightIds,
+    obstacles,
+    funnels,
+    flights,
+  };
+}
+
+function processWorkingFlights(
+  flights: WorkingFlight[],
+  obstacles: RerouteObstacle[],
+  funnels: RerouteFunnel[],
+) {
   for (const flight of flights) {
     applyObstacles(flight, obstacles);
     applyFunnelsInAlongPathOrder(flight, funnels);
   }
+}
 
+function finalizeRerouteGeometryResult(prepared: {
+  selectedFlightIds: string[];
+  obstacles: RerouteObstacle[];
+  funnels: RerouteFunnel[];
+  flights: WorkingFlight[];
+}): RerouteGeometryResult {
+  const { selectedFlightIds, obstacles, funnels, flights } = prepared;
   const changedFlights: RerouteFlightResult[] = flights
     .filter((flight) => flight.oldSegments.length > 0)
     .map((flight) => ({
       flightId: flight.flightId,
+      originalPath: clonePointList(flight.originalPoints),
+      reroutedPath: clonePointList(flight.points),
       oldSegments: flight.oldSegments,
       newSegments: flight.newSegments,
       extraNm: roundTo3(flight.extraNm),
@@ -110,118 +180,120 @@ export function computeRerouteGeometry(params: {
   };
 }
 
+function nowMs(): number {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+function throwIfAborted(signal: AbortSignal | null | undefined) {
+  if (!signal?.aborted) return;
+  const error = new Error("Reroute geometry computation aborted.");
+  error.name = "AbortError";
+  throw error;
+}
+
 function applyObstacles(flight: WorkingFlight, obstacles: RerouteObstacle[]) {
   for (const obstacle of obstacles) {
     const polygon = ensureClosedPolygon(obstacle.vertices);
     if (polygon.length < 4) continue;
-    bypassInteriorWaypointRuns(flight, obstacle.id, polygon);
-
-    let segIdx = 0;
-    while (segIdx < flight.points.length - 1) {
-      const a = flight.points[segIdx];
-      const b = flight.points[segIdx + 1];
-      if (!segmentRequiresObstacleDetour(a, b, polygon)) {
-        segIdx += 1;
-        continue;
-      }
-
-      const candidate = chooseBestDetourVertex(a, b, polygon);
-      if (!candidate) {
-        flight.warnings.push(
-          `Obstacle ${obstacle.id}: no valid 1-vertex detour for segment ${segIdx}.`
-        );
-        segIdx += 1;
-        continue;
-      }
-
-      flight.points.splice(segIdx + 1, 0, candidate.vertex);
-      flight.oldSegments.push({ start: a, end: b });
-      flight.newSegments.push({ start: a, end: candidate.vertex });
-      flight.newSegments.push({ start: candidate.vertex, end: b });
-      flight.extraNm += candidate.addedNm;
-      segIdx += 1;
-    }
+    flight.points = buildObstacleDetourPoints(flight, obstacle.id, polygon);
   }
 }
 
-function bypassInteriorWaypointRuns(
+function buildObstacleDetourPoints(
   flight: WorkingFlight,
   obstacleId: string,
   polygon: Point2D[],
-) {
-  let idx = 0;
-  while (idx < flight.points.length) {
-    if (!pointInPolygonStrict(flight.points[idx], polygon)) {
-      idx += 1;
-      continue;
+): Point2D[] {
+  const sourcePoints = flight.points;
+  if (sourcePoints.length < 2) return sourcePoints;
+
+  const nextPoints: Point2D[] = [sourcePoints[0]];
+  let cursor = 0;
+
+  while (cursor < sourcePoints.length - 1) {
+    const span = findNextObstacleSpan(sourcePoints, polygon, cursor);
+    if (!span) {
+      appendPointRange(nextPoints, sourcePoints, cursor + 1, sourcePoints.length - 1);
+      break;
     }
 
-    const runStart = idx;
-    while (idx + 1 < flight.points.length && pointInPolygonStrict(flight.points[idx + 1], polygon)) {
-      idx += 1;
-    }
-    const runEnd = idx;
-    let prevOutsideIdx = runStart - 1;
-    while (prevOutsideIdx >= 0 && !pointStrictlyOutsideObstacle(flight.points[prevOutsideIdx], polygon)) {
-      prevOutsideIdx -= 1;
-    }
+    appendPointRange(nextPoints, sourcePoints, cursor + 1, span.startIndex);
+    const a = sourcePoints[span.startIndex];
+    const b = sourcePoints[span.endIndex];
 
-    let nextOutsideIdx = runEnd + 1;
-    while (
-      nextOutsideIdx < flight.points.length &&
-      !pointStrictlyOutsideObstacle(flight.points[nextOutsideIdx], polygon)
-    ) {
-      nextOutsideIdx += 1;
-    }
-
-    if (prevOutsideIdx < 0 || nextOutsideIdx >= flight.points.length) {
+    if (!pointStrictlyOutsideObstacle(a, polygon) || !pointStrictlyOutsideObstacle(b, polygon)) {
       flight.warnings.push(
-        `Obstacle ${obstacleId}: cannot bypass interior waypoint run ${runStart}-${runEnd}.`
+        `Obstacle ${obstacleId}: cannot bypass blocked span ${span.startIndex}-${span.endIndex}.`
       );
-      idx = runEnd + 1;
+      appendPointRange(nextPoints, sourcePoints, span.startIndex + 1, span.endIndex);
+      cursor = span.endIndex;
       continue;
     }
 
-    const a = flight.points[prevOutsideIdx];
-    const b = flight.points[nextOutsideIdx];
-    const oneVertexCandidate = chooseBestDetourVertex(a, b, polygon);
-    const twoVertexCandidate = oneVertexCandidate ? null : chooseBestTwoVertexDetour(a, b, polygon);
-    const detourVertices = oneVertexCandidate
-      ? [oneVertexCandidate.vertex]
-      : twoVertexCandidate
-      ? twoVertexCandidate.vertices
-      : null;
-    if (!detourVertices) {
+    const candidate = chooseBestDetourVertex(a, b, polygon);
+    if (!candidate) {
       flight.warnings.push(
-        `Obstacle ${obstacleId}: no valid bypass for interior waypoint run ${runStart}-${runEnd}.`
+        `Obstacle ${obstacleId}: no valid 1-vertex detour for blocked span ${span.startIndex}-${span.endIndex}.`
       );
-      idx = runEnd + 1;
+      appendPointRange(nextPoints, sourcePoints, span.startIndex + 1, span.endIndex);
+      cursor = span.endIndex;
       continue;
     }
 
-    const replacedSegmentCount = nextOutsideIdx - prevOutsideIdx;
     let oldPathNm = 0;
-    for (let i = prevOutsideIdx; i < nextOutsideIdx; i += 1) {
-      const from = flight.points[i];
-      const to = flight.points[i + 1];
+    for (let idx = span.startIndex; idx < span.endIndex; idx += 1) {
+      const from = sourcePoints[idx];
+      const to = sourcePoints[idx + 1];
       oldPathNm += distanceNm(from, to);
       flight.oldSegments.push({ start: from, end: to });
     }
 
-    let newPathNm = 0;
-    let pathStart = a;
-    for (const detourVertex of detourVertices) {
-      newPathNm += distanceNm(pathStart, detourVertex);
-      flight.newSegments.push({ start: pathStart, end: detourVertex });
-      pathStart = detourVertex;
-    }
-    newPathNm += distanceNm(pathStart, b);
-    flight.newSegments.push({ start: pathStart, end: b });
+    const newPathNm = distanceNm(a, candidate.vertex) + distanceNm(candidate.vertex, b);
+    flight.newSegments.push({ start: a, end: candidate.vertex });
+    flight.newSegments.push({ start: candidate.vertex, end: b });
     flight.extraNm += Math.max(0, newPathNm - oldPathNm);
 
-    flight.points.splice(prevOutsideIdx + 1, replacedSegmentCount - 1, ...detourVertices);
-    idx = Math.max(0, prevOutsideIdx);
+    appendPoint(nextPoints, candidate.vertex);
+    appendPoint(nextPoints, b);
+    cursor = span.endIndex;
   }
+
+  return nextPoints;
+}
+
+function findNextObstacleSpan(
+  points: Point2D[],
+  polygon: Point2D[],
+  searchFrom: number,
+): { startIndex: number; endIndex: number } | null {
+  for (let segIdx = searchFrom; segIdx < points.length - 1; segIdx += 1) {
+    const a = points[segIdx];
+    const b = points[segIdx + 1];
+    if (!segmentRequiresObstacleDetour(a, b, polygon)) continue;
+
+    let startIndex = segIdx;
+    while (startIndex > searchFrom && !pointStrictlyOutsideObstacle(points[startIndex], polygon)) {
+      startIndex -= 1;
+    }
+
+    let endIndex = segIdx + 1;
+    while (endIndex < points.length - 1 && !pointStrictlyOutsideObstacle(points[endIndex], polygon)) {
+      endIndex += 1;
+    }
+
+    return { startIndex, endIndex };
+  }
+
+  return null;
 }
 
 function applyFunnelsInAlongPathOrder(flight: WorkingFlight, funnels: RerouteFunnel[]) {
@@ -310,34 +382,6 @@ function chooseBestDetourVertex(a: Point2D, b: Point2D, polygon: Point2D[]) {
 
     if (!best || addedNm < best.addedNm - EPS) {
       best = { vertex, addedNm };
-    }
-  }
-
-  return best;
-}
-
-function chooseBestTwoVertexDetour(a: Point2D, b: Point2D, polygon: Point2D[]) {
-  let best: { vertices: [Point2D, Point2D]; addedNm: number } | null = null;
-  const baseOldNm = distanceNm(a, b);
-
-  for (let i = 0; i < polygon.length - 1; i += 1) {
-    const first = polygon[i];
-    if (pointsEqual(first, a) || pointsEqual(first, b)) continue;
-    if (!detourSegmentIsValid(a, first, polygon)) continue;
-
-    for (let j = 0; j < polygon.length - 1; j += 1) {
-      const second = polygon[j];
-      if (pointsEqual(second, a) || pointsEqual(second, b) || pointsEqual(second, first)) continue;
-      if (!detourSegmentIsValid(first, second, polygon) || !detourSegmentIsValid(second, b, polygon)) {
-        continue;
-      }
-
-      const newNm = distanceNm(a, first) + distanceNm(first, second) + distanceNm(second, b);
-      const addedNm = Math.max(0, newNm - baseOldNm);
-
-      if (!best || addedNm < best.addedNm - EPS) {
-        best = { vertices: [first, second], addedNm };
-      }
     }
   }
 
@@ -562,6 +606,23 @@ function toUniquePointList(coords: Array<[number, number, number?]>): Point2D[] 
     }
   }
   return out;
+}
+
+function clonePointList(points: Point2D[]): Point2D[] {
+  return (points || []).map((point) => [point[0], point[1]]);
+}
+
+function appendPoint(points: Point2D[], point: Point2D) {
+  if (points.length === 0 || !pointsEqual(points[points.length - 1], point)) {
+    points.push(point);
+  }
+}
+
+function appendPointRange(points: Point2D[], source: Point2D[], startIndex: number, endIndex: number) {
+  if (startIndex > endIndex) return;
+  for (let idx = startIndex; idx <= endIndex; idx += 1) {
+    appendPoint(points, source[idx]);
+  }
 }
 
 function ensureClosedPolygon(vertices: Point2D[]): Point2D[] {

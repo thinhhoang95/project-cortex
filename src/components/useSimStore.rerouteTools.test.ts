@@ -46,4 +46,16 @@ describe("useSimStore reroute tools", () => {
     expect(useSimStore.getState().rerouteObstacles).toHaveLength(0);
     expect(useSimStore.getState().rerouteSelectedShape).toBeNull();
   });
+
+  it("toggles reroute preview mode between rerouted and current paths", () => {
+    const store = useSimStore.getState();
+
+    expect(store.reroutePreviewMode).toBe("rerouted");
+
+    store.toggleReroutePreviewMode();
+    expect(useSimStore.getState().reroutePreviewMode).toBe("current");
+
+    useSimStore.getState().toggleReroutePreviewMode();
+    expect(useSimStore.getState().reroutePreviewMode).toBe("rerouted");
+  });
 });

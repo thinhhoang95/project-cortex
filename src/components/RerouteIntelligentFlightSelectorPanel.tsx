@@ -32,10 +32,12 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     rerouteFunnels,
     rerouteSelectedShape,
     rerouteGeometryResult,
+    reroutePreviewMode,
     setRerouteBaseFlightIds,
     setRerouteCatcherMode,
     setRerouteCatcherTimeframe,
     setRerouteShapeToolMode,
+    toggleReroutePreviewMode,
     cancelRerouteCatcher,
     clearRerouteObstacles,
     clearRerouteFunnels,
@@ -54,6 +56,9 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     if (Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0) return true;
     return !!selectedTrafficVolume;
   }, [selectedTrafficVolumes, selectedTrafficVolume]);
+  const hasReroutePreview = (rerouteGeometryResult?.changedFlightCount ?? 0) > 0;
+  const currentPreviewLabel = reroutePreviewMode === "rerouted" ? "After reroute" : "Current paths";
+  const togglePreviewLabel = reroutePreviewMode === "rerouted" ? "Show Current Paths" : "Show Rerouted Paths";
 
   const toggleCatcherMode = (mode: Exclude<RerouteCatcherMode, "off">) => {
     if (rerouteCatcherMode === mode) {
@@ -238,6 +243,24 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
 
             <button
               type="button"
+              onClick={toggleReroutePreviewMode}
+              disabled={!hasReroutePreview}
+              className={`w-full px-3 py-2 rounded border text-left transition-colors ${
+                hasReroutePreview
+                  ? reroutePreviewMode === "rerouted"
+                    ? "border-emerald-300/60 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                    : "border-amber-300/60 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+                  : "border-white/10 bg-white/5 text-white/45 cursor-not-allowed"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3 text-xs font-medium">
+                <span>Preview: {currentPreviewLabel}</span>
+                <span>{togglePreviewLabel}</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
               onClick={removeRerouteSelectedShape}
               disabled={!rerouteSelectedShape}
               className={`w-full px-2 py-1.5 rounded border text-xs transition-colors ${
@@ -261,6 +284,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
             <div className="text-[11px] opacity-75 border border-white/10 rounded p-2 bg-white/5">
               <div>Changed flights: {rerouteGeometryResult?.changedFlightCount ?? 0}</div>
               <div>Total extra NM: {(rerouteGeometryResult?.totalExtraNm ?? 0).toLocaleString("en-US")}</div>
+              <div>Preview mode: {currentPreviewLabel}</div>
             </div>
           </div>
         </div>

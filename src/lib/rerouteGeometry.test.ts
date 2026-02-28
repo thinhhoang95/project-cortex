@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Trajectory } from "./models";
 import {
   computeRerouteGeometry,
+  computeRerouteGeometryAsync,
   type RerouteFunnel,
   type RerouteObstacle,
 } from "./rerouteGeometry";
@@ -198,7 +199,7 @@ describe("rerouteGeometry", () => {
     expect(result.flights[0].warnings).toEqual([]);
   });
 
-  it("skips boundary-adjacent blocked waypoints and anchors detour on nearest strict outside points", () => {
+  it("leaves boundary-adjacent blocked waypoint runs unchanged when no single-vertex detour exists", () => {
     const trajectories = [
       makeTrajectory("F9", [
         [0, 0],
@@ -228,9 +229,77 @@ describe("rerouteGeometry", () => {
       funnels: [],
     });
 
-    expect(result.changedFlightCount).toBe(1);
-    expect(result.flights[0].warnings).toEqual([]);
-    expect(result.flights[0].oldSegments.some((segment) => segment.start[0] === 0 && segment.end[0] === 4)).toBe(true);
-    expect(result.flights[0].oldSegments.some((segment) => segment.start[0] === 6 && segment.end[0] === 10)).toBe(true);
+    expect(result.changedFlightCount).toBe(0);
+  });
+
+  it("does not invent a two-vertex bypass when a blocked waypoint run has no valid single-vertex detour", () => {
+    const trajectories = [
+      makeTrajectory("F9B", [
+        [-1, 1],
+        [1, 1],
+        [2, 1],
+        [3, 1],
+        [5, 1],
+      ]),
+    ];
+    const obstacles: RerouteObstacle[] = [
+      {
+        id: "OBS-9B",
+        vertices: [
+          [0, 0],
+          [4, 0],
+          [4, 2],
+          [0, 2],
+        ],
+      },
+    ];
+
+    const result = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F9B"],
+      obstacles,
+      funnels: [],
+    });
+
+    expect(result.changedFlightCount).toBe(0);
+  });
+
+  it("matches synchronous results when computed in async batches", async () => {
+    const trajectories = [
+      makeTrajectory("F10", [[0, 0], [10, 0], [20, 0]]),
+      makeTrajectory("F11", [[0, 5], [10, 5], [20, 5]]),
+    ];
+    const obstacles: RerouteObstacle[] = [
+      {
+        id: "OBS-10",
+        vertices: [
+          [4, -0.2],
+          [5, 0.3],
+          [6, -0.2],
+        ],
+      },
+    ];
+    const funnels: RerouteFunnel[] = [{ id: "FUN-10", center: [15, 0.05], radiusNm: 3 }];
+
+    const syncResult = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F10", "F11"],
+      obstacles,
+      funnels,
+    });
+    const asyncResult = await computeRerouteGeometryAsync(
+      {
+        trajectories,
+        selectedFlightIds: ["F10", "F11"],
+        obstacles,
+        funnels,
+      },
+      { batchSize: 1, maxBlockingMs: 1 },
+    );
+
+    expect({ ...asyncResult, generatedAtEpochMs: 0 }).toEqual({
+      ...syncResult,
+      generatedAtEpochMs: 0,
+    });
   });
 });

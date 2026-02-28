@@ -20,7 +20,7 @@ import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter, getTrafficVolumeFlIntersectionFilter } from "@/lib/mapUtils";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
-  computeRerouteGeometry,
+  computeRerouteGeometryAsync,
   type Point2D,
   type RerouteFunnel,
   type RerouteGeometryResult,
@@ -70,10 +70,13 @@ const REROUTE_DRAFT_SOLID_LINE_LAYER_ID = "reroute-draft-solid-line";
 const REROUTE_DRAFT_DASHED_LINE_LAYER_ID = "reroute-draft-dashed-line";
 const REROUTE_DRAFT_POINT_LAYER_ID = "reroute-draft-point";
 const REROUTE_PREVIEW_LAYER_ID = "reroute-preview-line";
+const REROUTE_COMPUTE_BATCH_SIZE = 8;
+const REROUTE_COMPUTE_MAX_BLOCKING_MS = 10;
 
 export default function MapCanvasReroute() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
+  const rerouteComputeSeqRef = useRef(0);
   const tvSourcesRef = useRef<AirspaceSources | null>(null);
   const csSourcesRef = useRef<AirspaceSources | null>(null);
   const csOpenRangeCountRef = useRef<number>(0);
@@ -126,6 +129,8 @@ export default function MapCanvasReroute() {
     rerouteFunnels,
     rerouteSelectedShape,
     rerouteBaseSelectedFlightIds,
+    rerouteGeometryResult,
+    reroutePreviewMode,
     setRerouteSelectedShape,
     setRerouteGeometryResult,
   } = useSimStore();
@@ -558,12 +563,13 @@ export default function MapCanvasReroute() {
           type: "line",
           source: REROUTE_PREVIEW_SOURCE_ID,
           paint: {
-            "line-color": "#a78bfa",
-            "line-width": 2.2,
-            "line-opacity": 0.88,
+            "line-color": "#2dd4bf",
+            "line-width": 2.6,
+            "line-opacity": 0.9,
           },
         });
       }
+      applyReroutePreviewLayerStyle(map, useSimStore.getState().reroutePreviewMode);
       updateRerouteShapeSource(
         map,
         useSimStore.getState().rerouteObstacles,
@@ -577,7 +583,11 @@ export default function MapCanvasReroute() {
         funnelDraftCenterRef.current,
         funnelDraftEdgeRef.current
       );
-      updateReroutePreviewSource(map, useSimStore.getState().rerouteGeometryResult);
+      updateReroutePreviewSource(
+        map,
+        useSimStore.getState().rerouteGeometryResult,
+        useSimStore.getState().reroutePreviewMode
+      );
       const isRerouteDrawingLocked = () => {
         const sim = useSimStore.getState();
         return (sim.rerouteCatcherActive && sim.rerouteCatcherMode !== "off") || sim.rerouteShapeToolMode !== "off";
@@ -1099,33 +1109,60 @@ export default function MapCanvasReroute() {
   }, [rerouteObstacles, rerouteFunnels, rerouteSelectedShape]);
 
   useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyReroutePreviewLayerStyle(map, reroutePreviewMode);
+    updateReroutePreviewSource(map, rerouteGeometryResult, reroutePreviewMode);
+  }, [rerouteGeometryResult, reroutePreviewMode]);
+
+  useEffect(() => {
     const selectedFlightIds = Array.from(rerouteBaseSelectedFlightIds)
       .map((raw) => String(raw ?? "").trim())
       .filter((id) => id.length > 0);
     const hasShapes = rerouteObstacles.length > 0 || rerouteFunnels.length > 0;
-    const map = mapRef.current;
 
     if (!hasShapes || selectedFlightIds.length === 0) {
       setRerouteGeometryResult(null);
-      if (map) updateReroutePreviewSource(map, null);
       return;
     }
 
-    const result = computeRerouteGeometry({
-      trajectories: flights,
-      selectedFlightIds,
-      obstacles: rerouteObstacles,
-      funnels: rerouteFunnels,
-    });
+    const computeSeq = rerouteComputeSeqRef.current + 1;
+    rerouteComputeSeqRef.current = computeSeq;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      void computeRerouteGeometryAsync(
+        {
+          trajectories: flights,
+          selectedFlightIds,
+          obstacles: rerouteObstacles,
+          funnels: rerouteFunnels,
+        },
+        {
+          signal: controller.signal,
+          batchSize: REROUTE_COMPUTE_BATCH_SIZE,
+          maxBlockingMs: REROUTE_COMPUTE_MAX_BLOCKING_MS,
+        },
+      )
+        .then((result) => {
+          if (controller.signal.aborted || rerouteComputeSeqRef.current !== computeSeq) return;
+          if (result.changedFlightCount <= 0) {
+            setRerouteGeometryResult(null);
+            return;
+          }
 
-    if (result.changedFlightCount <= 0) {
-      setRerouteGeometryResult(null);
-      if (map) updateReroutePreviewSource(map, null);
-      return;
-    }
+          setRerouteGeometryResult(result);
+        })
+        .catch((error) => {
+          if (isAbortError(error) || rerouteComputeSeqRef.current !== computeSeq) return;
+          console.error("Failed to compute reroute geometry preview:", error);
+          setRerouteGeometryResult(null);
+        });
+    }, 0);
 
-    setRerouteGeometryResult(result);
-    if (map) updateReroutePreviewSource(map, result);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
   }, [
     flights,
     rerouteBaseSelectedFlightIds,
@@ -1915,33 +1952,48 @@ function updateRerouteShapeDraftSource(
   });
 }
 
-function updateReroutePreviewSource(map: maplibregl.Map, result: RerouteGeometryResult | null) {
+function updateReroutePreviewSource(
+  map: maplibregl.Map,
+  result: RerouteGeometryResult | null,
+  previewMode: "current" | "rerouted",
+) {
   const source = map.getSource(REROUTE_PREVIEW_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
   if (!source) return;
 
   const features: GeoJSON.Feature[] = [];
   for (const flight of result?.flights || []) {
-    for (const segment of flight.newSegments || []) {
-      if (!segment?.start || !segment?.end) continue;
-      if (!Number.isFinite(segment.start[0]) || !Number.isFinite(segment.start[1])) continue;
-      if (!Number.isFinite(segment.end[0]) || !Number.isFinite(segment.end[1])) continue;
-      features.push({
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates: [segment.start, segment.end],
-        },
-        properties: {
-          flightId: flight.flightId,
-        },
-      });
-    }
+    const path = previewMode === "current" ? flight.originalPath : flight.reroutedPath;
+    const coordinates = (path || []).filter(
+      (point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1])
+    );
+    if (coordinates.length < 2) continue;
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates,
+      },
+      properties: {
+        flightId: flight.flightId,
+        previewMode,
+      },
+    });
   }
 
   source.setData({
     type: "FeatureCollection",
     features,
   });
+}
+
+function applyReroutePreviewLayerStyle(
+  map: maplibregl.Map,
+  mode: "current" | "rerouted",
+) {
+  if (!map.getLayer(REROUTE_PREVIEW_LAYER_ID)) return;
+  map.setPaintProperty(REROUTE_PREVIEW_LAYER_ID, "line-color", mode === "rerouted" ? "#2dd4bf" : "#f59e0b");
+  map.setPaintProperty(REROUTE_PREVIEW_LAYER_ID, "line-width", mode === "rerouted" ? 2.6 : 2.3);
+  map.setPaintProperty(REROUTE_PREVIEW_LAYER_ID, "line-opacity", mode === "rerouted" ? 0.9 : 0.84);
 }
 
 function closeRing(vertices: Point2D[]): Point2D[] {
@@ -1954,7 +2006,7 @@ function closeRing(vertices: Point2D[]): Point2D[] {
   return [...vertices, first];
 }
 
-function buildCircleCoordinates(center: Point2D, radiusNm: number, steps = 72): Point2D[] {
+function buildCircleCoordinates(center: Point2D, radiusNm: number, steps = 48): Point2D[] {
   if (!Number.isFinite(radiusNm) || radiusNm <= 0) return [];
   const lat = center[1];
   const cosLat = Math.max(1e-6, Math.cos((lat * Math.PI) / 180));
@@ -1989,6 +2041,10 @@ function isKeyboardTargetEditable(target: EventTarget | null): boolean {
   const tagName = target.tagName.toLowerCase();
   if (target.isContentEditable) return true;
   return tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 async function loadImage(map: maplibregl.Map, url: string) {
