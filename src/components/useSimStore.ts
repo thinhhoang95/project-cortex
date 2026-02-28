@@ -87,6 +87,14 @@ export type RerouteCatcherMode = "off" | "include" | "exclude";
 export type RerouteCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
 export type RerouteShapeToolMode = "off" | "obstacle" | "funnel";
 export type ReroutePreviewMode = "current" | "rerouted";
+export type RerouteCommittedMove = {
+  id: string;
+  createdAtEpochMs: number;
+  label: string;
+  affectedFlightIds: string[];
+  obstacles: RerouteObstacle[];
+  funnels: RerouteFunnel[];
+};
 export type RegulationCatcherMode = "off" | "include" | "exclude";
 export type RegulationCatcherTimeframe = "15m" | "30m" | "45m" | "1h" | "2h" | "3h" | "4h" | "all";
 
@@ -182,7 +190,13 @@ type State = {
   rerouteObstacles: RerouteObstacle[];
   rerouteFunnels: RerouteFunnel[];
   rerouteSelectedShape: { kind: "obstacle" | "funnel"; id: string } | null;
+  rerouteCommittedMoves: RerouteCommittedMove[];
   rerouteGeometryResult: RerouteGeometryResult | null;
+  rerouteProgramGeometryResult: RerouteGeometryResult | null;
+  rerouteDraftMoveGeometryResult: RerouteGeometryResult | null;
+  rerouteMoveResultsById: Record<string, RerouteGeometryResult | null>;
+  rerouteGeometryComputing: boolean;
+  rerouteGeometryError: string | null;
   reroutePreviewMode: ReroutePreviewMode;
   regulationCatcherMode: RegulationCatcherMode;
   regulationCatcherTimeframe: RegulationCatcherTimeframe;
@@ -272,12 +286,19 @@ type State = {
   addRerouteObstacle: (vertices: [number, number][]) => string;
   removeRerouteObstacle: (id: string) => void;
   clearRerouteObstacles: () => void;
-  addRerouteFunnel: (center: [number, number], radiusNm: number) => string;
+  addRerouteFunnel: (affinityPoint: [number, number], selectionPolyline: [number, number][]) => string;
   removeRerouteFunnel: (id: string) => void;
   clearRerouteFunnels: () => void;
   setRerouteSelectedShape: (shape: { kind: "obstacle" | "funnel"; id: string } | null) => void;
   removeRerouteSelectedShape: () => void;
+  commitRerouteDraftMove: () => string;
+  deleteRerouteMove: (id: string) => void;
   setRerouteGeometryResult: (result: RerouteGeometryResult | null) => void;
+  setRerouteProgramGeometryResult: (result: RerouteGeometryResult | null) => void;
+  setRerouteDraftMoveGeometryResult: (result: RerouteGeometryResult | null) => void;
+  setRerouteMoveResultsById: (results: Record<string, RerouteGeometryResult | null>) => void;
+  setRerouteGeometryComputing: (computing: boolean) => void;
+  setRerouteGeometryError: (error: string | null) => void;
   toggleReroutePreviewMode: () => void;
   setRegulationCatcherMode: (mode: RegulationCatcherMode) => void;
   setRegulationCatcherTimeframe: (timeframe: RegulationCatcherTimeframe) => void;
@@ -411,7 +432,13 @@ const defaultState: Pick<State,
   | 'rerouteObstacles'
   | 'rerouteFunnels'
   | 'rerouteSelectedShape'
+  | 'rerouteCommittedMoves'
   | 'rerouteGeometryResult'
+  | 'rerouteProgramGeometryResult'
+  | 'rerouteDraftMoveGeometryResult'
+  | 'rerouteMoveResultsById'
+  | 'rerouteGeometryComputing'
+  | 'rerouteGeometryError'
   | 'reroutePreviewMode'
   | 'regulationCatcherMode'
   | 'regulationCatcherTimeframe'
@@ -502,7 +529,13 @@ const defaultState: Pick<State,
   rerouteObstacles: [],
   rerouteFunnels: [],
   rerouteSelectedShape: null,
+  rerouteCommittedMoves: [],
   rerouteGeometryResult: null,
+  rerouteProgramGeometryResult: null,
+  rerouteDraftMoveGeometryResult: null,
+  rerouteMoveResultsById: {},
+  rerouteGeometryComputing: false,
+  rerouteGeometryError: null,
   reroutePreviewMode: "rerouted",
   regulationCatcherMode: "off",
   regulationCatcherTimeframe: "1h",
@@ -510,6 +543,23 @@ const defaultState: Pick<State,
   viewOptionsMinimized: false,
   user: null,
 };
+
+function cloneRerouteObstacle(obstacle: RerouteObstacle): RerouteObstacle {
+  return {
+    id: String(obstacle?.id ?? ""),
+    vertices: (obstacle?.vertices || []).map((point) => [Number(point[0]), Number(point[1])] as [number, number]),
+  };
+}
+
+function cloneRerouteFunnel(funnel: RerouteFunnel): RerouteFunnel {
+  return {
+    id: String(funnel?.id ?? ""),
+    affinityPoint: [Number(funnel?.affinityPoint?.[0]), Number(funnel?.affinityPoint?.[1])],
+    selectionPolyline: (funnel?.selectionPolyline || []).map(
+      (point) => [Number(point[0]), Number(point[1])] as [number, number]
+    ),
+  };
+}
 
 export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((set, get) => {
   const selectedTvDataCache = new Map<string, { properties: SectorFeatureProps } | null>();
@@ -1117,22 +1167,31 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
       rerouteSelectedShape:
         state.rerouteSelectedShape?.kind === "obstacle" ? null : state.rerouteSelectedShape,
     })),
-  addRerouteFunnel: (center, radiusNm) => {
+  addRerouteFunnel: (affinityPoint, selectionPolyline) => {
     if (
-      !Array.isArray(center) ||
-      !Number.isFinite(center[0]) ||
-      !Number.isFinite(center[1]) ||
-      !Number.isFinite(radiusNm) ||
-      radiusNm <= 0
+      !Array.isArray(affinityPoint) ||
+      !Number.isFinite(affinityPoint[0]) ||
+      !Number.isFinite(affinityPoint[1])
     ) {
       return "";
     }
+    const normalizedSelection: [number, number][] = [];
+    for (const point of selectionPolyline || []) {
+      if (!Array.isArray(point) || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
+      const nextPoint: [number, number] = [Number(point[0]), Number(point[1])];
+      const prev = normalizedSelection[normalizedSelection.length - 1];
+      if (prev && Math.abs(prev[0] - nextPoint[0]) <= 1e-9 && Math.abs(prev[1] - nextPoint[1]) <= 1e-9) {
+        continue;
+      }
+      normalizedSelection.push(nextPoint);
+    }
+    if (normalizedSelection.length < 3) return "";
     const id = `RF${Date.now()}${Math.floor(Math.random() * 1000)}`;
     set((state) => ({
       rerouteFunnels: [...state.rerouteFunnels, {
         id,
-        center: [Number(center[0]), Number(center[1])],
-        radiusNm: Number(radiusNm),
+        affinityPoint: [Number(affinityPoint[0]), Number(affinityPoint[1])],
+        selectionPolyline: normalizedSelection,
       }],
       rerouteSelectedShape: { kind: "funnel", id },
     }));
@@ -1186,7 +1245,67 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
         rerouteSelectedShape: null,
       };
     }),
-  setRerouteGeometryResult: (result) => set({ rerouteGeometryResult: result }),
+  commitRerouteDraftMove: () => {
+    const state = get();
+    const hasDraftGeometry = state.rerouteObstacles.length > 0 || state.rerouteFunnels.length > 0;
+    const draftResult = state.rerouteDraftMoveGeometryResult;
+    if (!hasDraftGeometry || !draftResult || draftResult.changedFlightCount <= 0) {
+      return "";
+    }
+
+    const id = `RM${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const affectedFlightIds = Array.from(
+      new Set(
+        (draftResult.flights || [])
+          .map((flight) => String(flight.flightId ?? "").trim())
+          .filter((flightId) => flightId.length > 0)
+      )
+    );
+    if (affectedFlightIds.length === 0) return "";
+
+    set((current) => ({
+      rerouteCommittedMoves: [
+        ...current.rerouteCommittedMoves,
+        {
+          id,
+          createdAtEpochMs: Date.now(),
+          label: `Move ${current.rerouteCommittedMoves.length + 1}`,
+          affectedFlightIds,
+          obstacles: current.rerouteObstacles.map(cloneRerouteObstacle),
+          funnels: current.rerouteFunnels.map(cloneRerouteFunnel),
+        },
+      ],
+      rerouteObstacles: [],
+      rerouteFunnels: [],
+      rerouteSelectedShape: null,
+      rerouteShapeToolMode: "off",
+      rerouteDraftMoveGeometryResult: null,
+      rerouteGeometryComputing: true,
+    }));
+    return id;
+  },
+  deleteRerouteMove: (id) => {
+    const normalizedId = String(id ?? "").trim();
+    if (!normalizedId) return;
+    set((state) => ({
+      rerouteCommittedMoves: state.rerouteCommittedMoves.filter((move) => String(move.id) !== normalizedId),
+      rerouteGeometryComputing: true,
+    }));
+  },
+  setRerouteGeometryResult: (result) =>
+    set({
+      rerouteGeometryResult: result,
+      rerouteProgramGeometryResult: result,
+    }),
+  setRerouteProgramGeometryResult: (result) =>
+    set({
+      rerouteProgramGeometryResult: result,
+      rerouteGeometryResult: result,
+    }),
+  setRerouteDraftMoveGeometryResult: (result) => set({ rerouteDraftMoveGeometryResult: result }),
+  setRerouteMoveResultsById: (results) => set({ rerouteMoveResultsById: results }),
+  setRerouteGeometryComputing: (computing) => set({ rerouteGeometryComputing: computing }),
+  setRerouteGeometryError: (error) => set({ rerouteGeometryError: error }),
   toggleReroutePreviewMode: () =>
     set((state) => ({
       reroutePreviewMode: state.reroutePreviewMode === "rerouted" ? "current" : "rerouted",

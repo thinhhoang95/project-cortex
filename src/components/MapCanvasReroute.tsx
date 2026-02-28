@@ -20,7 +20,6 @@ import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter, getTrafficVolumeFlIntersectionFilter } from "@/lib/mapUtils";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
-  computeRerouteGeometryAsync,
   type Point2D,
   type RerouteFunnel,
   type RerouteGeometryResult,
@@ -49,6 +48,7 @@ import {
   TRAFFIC_VOLUME_LAYER_IDS,
   TRAFFIC_VOLUME_SOURCE_ID,
 } from "@/lib/trafficVolumeLayers";
+import type { RerouteCommittedMove } from "@/components/useSimStore";
 
 type AirspaceSources = {
   sectors: GeoJSON.FeatureCollection;
@@ -64,19 +64,20 @@ const REROUTE_SHAPES_DRAFT_SOURCE_ID = "reroute-shapes-draft-source";
 const REROUTE_PREVIEW_SOURCE_ID = "reroute-preview-source";
 const REROUTE_OBSTACLE_FILL_LAYER_ID = "reroute-obstacle-fill";
 const REROUTE_OBSTACLE_OUTLINE_LAYER_ID = "reroute-obstacle-outline";
+const REROUTE_FUNNEL_FILL_LAYER_ID = "reroute-funnel-fill";
 const REROUTE_FUNNEL_LINE_LAYER_ID = "reroute-funnel-line";
 const REROUTE_FUNNEL_POINT_LAYER_ID = "reroute-funnel-point";
 const REROUTE_DRAFT_SOLID_LINE_LAYER_ID = "reroute-draft-solid-line";
 const REROUTE_DRAFT_DASHED_LINE_LAYER_ID = "reroute-draft-dashed-line";
 const REROUTE_DRAFT_POINT_LAYER_ID = "reroute-draft-point";
 const REROUTE_PREVIEW_LAYER_ID = "reroute-preview-line";
-const REROUTE_COMPUTE_BATCH_SIZE = 8;
-const REROUTE_COMPUTE_MAX_BLOCKING_MS = 10;
+
+type RenderRerouteObstacle = RerouteObstacle & { locked?: boolean };
+type RenderRerouteFunnel = RerouteFunnel & { locked?: boolean };
 
 export default function MapCanvasReroute() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
-  const rerouteComputeSeqRef = useRef(0);
   const tvSourcesRef = useRef<AirspaceSources | null>(null);
   const csSourcesRef = useRef<AirspaceSources | null>(null);
   const csOpenRangeCountRef = useRef<number>(0);
@@ -85,8 +86,9 @@ export default function MapCanvasReroute() {
   const rerouteGateSnapshotRef = useRef<FlightCatcherGateSnapshot | null>(null);
   const obstacleDraftPointsRef = useRef<Point2D[]>([]);
   const obstaclePreviewPointRef = useRef<Point2D | null>(null);
-  const funnelDraftCenterRef = useRef<Point2D | null>(null);
-  const funnelDraftEdgeRef = useRef<Point2D | null>(null);
+  const funnelDraftAffinityPointRef = useRef<Point2D | null>(null);
+  const funnelDraftSelectionPointsRef = useRef<Point2D[]>([]);
+  const funnelPreviewPointRef = useRef<Point2D | null>(null);
   const lastTs = useRef<number>(performance.now());
   const {
     t,
@@ -127,12 +129,11 @@ export default function MapCanvasReroute() {
     rerouteShapeToolMode,
     rerouteObstacles,
     rerouteFunnels,
+    rerouteCommittedMoves,
     rerouteSelectedShape,
-    rerouteBaseSelectedFlightIds,
-    rerouteGeometryResult,
+    rerouteProgramGeometryResult,
     reroutePreviewMode,
     setRerouteSelectedShape,
-    setRerouteGeometryResult,
   } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
@@ -147,6 +148,14 @@ export default function MapCanvasReroute() {
   const isCatcherDrawing = rerouteCatcherActive && rerouteCatcherMode !== "off";
   const isShapeDrawing = rerouteShapeToolMode !== "off";
   const isAnyDrawingActive = isCatcherDrawing || isShapeDrawing;
+  const renderRerouteObstacles = useMemo(
+    () => buildRenderableObstacles(rerouteCommittedMoves, rerouteObstacles),
+    [rerouteCommittedMoves, rerouteObstacles],
+  );
+  const renderRerouteFunnels = useMemo(
+    () => buildRenderableFunnels(rerouteCommittedMoves, rerouteFunnels),
+    [rerouteCommittedMoves, rerouteFunnels],
+  );
 
   const syncRerouteCatcherOverlay = () => {
     const map = mapRef.current;
@@ -471,7 +480,7 @@ export default function MapCanvasReroute() {
           filter: ["==", ["get", "kind"], "obstacle"],
           paint: {
             "fill-color": ["case", ["==", ["get", "selected"], true], "#facc15", "#f59e0b"],
-            "fill-opacity": 0.16,
+            "fill-opacity": ["case", ["==", ["get", "locked"], true], 0.08, 0.16],
           },
         });
       }
@@ -483,8 +492,20 @@ export default function MapCanvasReroute() {
           filter: ["==", ["get", "kind"], "obstacle"],
           paint: {
             "line-color": ["case", ["==", ["get", "selected"], true], "#fde68a", "#f59e0b"],
-            "line-width": ["case", ["==", ["get", "selected"], true], 2.8, 1.6],
-            "line-opacity": 0.95,
+            "line-width": ["case", ["==", ["get", "selected"], true], 2.8, ["==", ["get", "locked"], true], 1.2, 1.6],
+            "line-opacity": ["case", ["==", ["get", "locked"], true], 0.68, 0.95],
+          },
+        });
+      }
+      if (!map.getLayer(REROUTE_FUNNEL_FILL_LAYER_ID)) {
+        map.addLayer({
+          id: REROUTE_FUNNEL_FILL_LAYER_ID,
+          type: "fill",
+          source: REROUTE_SHAPES_SOURCE_ID,
+          filter: ["==", ["get", "kind"], "funnel-polygon"],
+          paint: {
+            "fill-color": ["case", ["==", ["get", "selected"], true], "#67e8f9", "#22d3ee"],
+            "fill-opacity": ["case", ["==", ["get", "selected"], true], 0.2, ["==", ["get", "locked"], true], 0.08, 0.12],
           },
         });
       }
@@ -493,12 +514,11 @@ export default function MapCanvasReroute() {
           id: REROUTE_FUNNEL_LINE_LAYER_ID,
           type: "line",
           source: REROUTE_SHAPES_SOURCE_ID,
-          filter: ["==", ["get", "kind"], "funnel-circle"],
+          filter: ["==", ["get", "kind"], "funnel-outline"],
           paint: {
             "line-color": ["case", ["==", ["get", "selected"], true], "#67e8f9", "#22d3ee"],
-            "line-width": ["case", ["==", ["get", "selected"], true], 2.8, 1.8],
-            "line-opacity": 0.95,
-            "line-dasharray": [2, 2],
+            "line-width": ["case", ["==", ["get", "selected"], true], 2.8, ["==", ["get", "locked"], true], 1.4, 1.8],
+            "line-opacity": ["case", ["==", ["get", "locked"], true], 0.68, 0.95],
           },
         });
       }
@@ -507,10 +527,10 @@ export default function MapCanvasReroute() {
           id: REROUTE_FUNNEL_POINT_LAYER_ID,
           type: "circle",
           source: REROUTE_SHAPES_SOURCE_ID,
-          filter: ["==", ["get", "kind"], "funnel-center"],
+          filter: ["==", ["get", "kind"], "funnel-affinity"],
           paint: {
             "circle-color": ["case", ["==", ["get", "selected"], true], "#67e8f9", "#22d3ee"],
-            "circle-radius": ["case", ["==", ["get", "selected"], true], 5, 4],
+            "circle-radius": ["case", ["==", ["get", "selected"], true], 5, ["==", ["get", "locked"], true], 3.2, 4],
             "circle-stroke-color": "#0f172a",
             "circle-stroke-width": 1.2,
           },
@@ -521,7 +541,7 @@ export default function MapCanvasReroute() {
           id: REROUTE_DRAFT_SOLID_LINE_LAYER_ID,
           type: "line",
           source: REROUTE_SHAPES_DRAFT_SOURCE_ID,
-          filter: ["in", ["get", "kind"], ["literal", ["obstacle-draft", "obstacle-preview"]]],
+          filter: ["in", ["get", "kind"], ["literal", ["obstacle-draft", "obstacle-preview", "funnel-draft-path"]]],
           paint: {
             "line-color": "#93c5fd",
             "line-width": 2.2,
@@ -534,7 +554,7 @@ export default function MapCanvasReroute() {
           id: REROUTE_DRAFT_DASHED_LINE_LAYER_ID,
           type: "line",
           source: REROUTE_SHAPES_DRAFT_SOURCE_ID,
-          filter: ["==", ["get", "kind"], "funnel-draft"],
+          filter: ["==", ["get", "kind"], "funnel-draft-outline"],
           paint: {
             "line-color": "#93c5fd",
             "line-width": 2.2,
@@ -570,23 +590,25 @@ export default function MapCanvasReroute() {
         });
       }
       applyReroutePreviewLayerStyle(map, useSimStore.getState().reroutePreviewMode);
+      const initialSim = useSimStore.getState();
       updateRerouteShapeSource(
         map,
-        useSimStore.getState().rerouteObstacles,
-        useSimStore.getState().rerouteFunnels,
-        useSimStore.getState().rerouteSelectedShape
+        buildRenderableObstacles(initialSim.rerouteCommittedMoves, initialSim.rerouteObstacles),
+        buildRenderableFunnels(initialSim.rerouteCommittedMoves, initialSim.rerouteFunnels),
+        initialSim.rerouteSelectedShape
       );
       updateRerouteShapeDraftSource(
         map,
         obstacleDraftPointsRef.current,
         obstaclePreviewPointRef.current,
-        funnelDraftCenterRef.current,
-        funnelDraftEdgeRef.current
+        funnelDraftAffinityPointRef.current,
+        funnelDraftSelectionPointsRef.current,
+        funnelPreviewPointRef.current
       );
       updateReroutePreviewSource(
         map,
-        useSimStore.getState().rerouteGeometryResult,
-        useSimStore.getState().reroutePreviewMode
+        initialSim.rerouteProgramGeometryResult,
+        initialSim.reroutePreviewMode
       );
       const isRerouteDrawingLocked = () => {
         const sim = useSimStore.getState();
@@ -727,19 +749,21 @@ export default function MapCanvasReroute() {
       const shapeSelectableLayerIds = [
         REROUTE_OBSTACLE_FILL_LAYER_ID,
         REROUTE_OBSTACLE_OUTLINE_LAYER_ID,
+        REROUTE_FUNNEL_FILL_LAYER_ID,
         REROUTE_FUNNEL_LINE_LAYER_ID,
         REROUTE_FUNNEL_POINT_LAYER_ID,
       ];
       const trySelectShape = (feature: maplibregl.MapGeoJSONFeature | null | undefined) => {
         if (!feature) return false;
         const rawKind = String(feature.properties?.kind ?? "");
+        const isLocked = feature.properties?.locked === true || feature.properties?.locked === "true";
         const id = String(feature.properties?.id ?? "").trim();
-        if (!id) return false;
+        if (!id || isLocked) return false;
         if (rawKind === "obstacle") {
           setRerouteSelectedShape({ kind: "obstacle", id });
           return true;
         }
-        if (rawKind === "funnel-circle" || rawKind === "funnel-center") {
+        if (rawKind === "funnel-polygon" || rawKind === "funnel-outline" || rawKind === "funnel-affinity") {
           setRerouteSelectedShape({ kind: "funnel", id });
           return true;
         }
@@ -786,30 +810,29 @@ export default function MapCanvasReroute() {
             map,
             obstacleDraftPointsRef.current,
             obstaclePreviewPointRef.current,
-            funnelDraftCenterRef.current,
-            funnelDraftEdgeRef.current
+            funnelDraftAffinityPointRef.current,
+            funnelDraftSelectionPointsRef.current,
+            funnelPreviewPointRef.current
           );
           return;
         }
 
         if (sim.rerouteShapeToolMode === "funnel") {
-          if (!funnelDraftCenterRef.current) {
-            funnelDraftCenterRef.current = clickPoint;
-            funnelDraftEdgeRef.current = clickPoint;
+          if (!funnelDraftAffinityPointRef.current) {
+            funnelDraftAffinityPointRef.current = clickPoint;
+            funnelDraftSelectionPointsRef.current = [];
+            funnelPreviewPointRef.current = null;
           } else {
-            const radiusNm = distanceNm(funnelDraftCenterRef.current, clickPoint);
-            if (radiusNm > 0.001) {
-              sim.addRerouteFunnel(funnelDraftCenterRef.current, radiusNm);
-            }
-            funnelDraftCenterRef.current = null;
-            funnelDraftEdgeRef.current = null;
+            funnelDraftSelectionPointsRef.current = [...funnelDraftSelectionPointsRef.current, clickPoint];
+            funnelPreviewPointRef.current = clickPoint;
           }
           updateRerouteShapeDraftSource(
             map,
             obstacleDraftPointsRef.current,
             obstaclePreviewPointRef.current,
-            funnelDraftCenterRef.current,
-            funnelDraftEdgeRef.current
+            funnelDraftAffinityPointRef.current,
+            funnelDraftSelectionPointsRef.current,
+            funnelPreviewPointRef.current
           );
           return;
         }
@@ -859,21 +882,23 @@ export default function MapCanvasReroute() {
             map,
             obstacleDraftPointsRef.current,
             obstaclePreviewPointRef.current,
-            funnelDraftCenterRef.current,
-            funnelDraftEdgeRef.current
+            funnelDraftAffinityPointRef.current,
+            funnelDraftSelectionPointsRef.current,
+            funnelPreviewPointRef.current
           );
           return;
         }
 
         if (sim.rerouteShapeToolMode === "funnel") {
-          if (!funnelDraftCenterRef.current) return;
-          funnelDraftEdgeRef.current = point;
+          if (!funnelDraftAffinityPointRef.current) return;
+          funnelPreviewPointRef.current = point;
           updateRerouteShapeDraftSource(
             map,
             obstacleDraftPointsRef.current,
             obstaclePreviewPointRef.current,
-            funnelDraftCenterRef.current,
-            funnelDraftEdgeRef.current
+            funnelDraftAffinityPointRef.current,
+            funnelDraftSelectionPointsRef.current,
+            funnelPreviewPointRef.current
           );
           return;
         }
@@ -896,13 +921,32 @@ export default function MapCanvasReroute() {
               map,
               obstacleDraftPointsRef.current,
               obstaclePreviewPointRef.current,
-              funnelDraftCenterRef.current,
-              funnelDraftEdgeRef.current
+              funnelDraftAffinityPointRef.current,
+              funnelDraftSelectionPointsRef.current,
+              funnelPreviewPointRef.current
             );
           }
           return;
         }
         if (sim.rerouteShapeToolMode === "funnel") {
+          if (funnelDraftAffinityPointRef.current && funnelDraftSelectionPointsRef.current.length >= 3) {
+            event.preventDefault();
+            sim.addRerouteFunnel(
+              funnelDraftAffinityPointRef.current,
+              funnelDraftSelectionPointsRef.current
+            );
+            funnelDraftAffinityPointRef.current = null;
+            funnelDraftSelectionPointsRef.current = [];
+            funnelPreviewPointRef.current = null;
+            updateRerouteShapeDraftSource(
+              map,
+              obstacleDraftPointsRef.current,
+              obstaclePreviewPointRef.current,
+              funnelDraftAffinityPointRef.current,
+              funnelDraftSelectionPointsRef.current,
+              funnelPreviewPointRef.current
+            );
+          }
           return;
         }
         if (!sim.rerouteCatcherActive || sim.rerouteCatcherMode === "off") return;
@@ -1105,71 +1149,15 @@ export default function MapCanvasReroute() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    updateRerouteShapeSource(map, rerouteObstacles, rerouteFunnels, rerouteSelectedShape);
-  }, [rerouteObstacles, rerouteFunnels, rerouteSelectedShape]);
+    updateRerouteShapeSource(map, renderRerouteObstacles, renderRerouteFunnels, rerouteSelectedShape);
+  }, [renderRerouteFunnels, renderRerouteObstacles, rerouteSelectedShape]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     applyReroutePreviewLayerStyle(map, reroutePreviewMode);
-    updateReroutePreviewSource(map, rerouteGeometryResult, reroutePreviewMode);
-  }, [rerouteGeometryResult, reroutePreviewMode]);
-
-  useEffect(() => {
-    const selectedFlightIds = Array.from(rerouteBaseSelectedFlightIds)
-      .map((raw) => String(raw ?? "").trim())
-      .filter((id) => id.length > 0);
-    const hasShapes = rerouteObstacles.length > 0 || rerouteFunnels.length > 0;
-
-    if (!hasShapes || selectedFlightIds.length === 0) {
-      setRerouteGeometryResult(null);
-      return;
-    }
-
-    const computeSeq = rerouteComputeSeqRef.current + 1;
-    rerouteComputeSeqRef.current = computeSeq;
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      void computeRerouteGeometryAsync(
-        {
-          trajectories: flights,
-          selectedFlightIds,
-          obstacles: rerouteObstacles,
-          funnels: rerouteFunnels,
-        },
-        {
-          signal: controller.signal,
-          batchSize: REROUTE_COMPUTE_BATCH_SIZE,
-          maxBlockingMs: REROUTE_COMPUTE_MAX_BLOCKING_MS,
-        },
-      )
-        .then((result) => {
-          if (controller.signal.aborted || rerouteComputeSeqRef.current !== computeSeq) return;
-          if (result.changedFlightCount <= 0) {
-            setRerouteGeometryResult(null);
-            return;
-          }
-
-          setRerouteGeometryResult(result);
-        })
-        .catch((error) => {
-          if (isAbortError(error) || rerouteComputeSeqRef.current !== computeSeq) return;
-          console.error("Failed to compute reroute geometry preview:", error);
-          setRerouteGeometryResult(null);
-        });
-    }, 0);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [
-    flights,
-    rerouteBaseSelectedFlightIds,
-    rerouteObstacles,
-    rerouteFunnels,
-    setRerouteGeometryResult,
-  ]);
+    updateReroutePreviewSource(map, rerouteProgramGeometryResult, reroutePreviewMode);
+  }, [rerouteProgramGeometryResult, reroutePreviewMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1194,17 +1182,24 @@ export default function MapCanvasReroute() {
     reroutePreviewPointRef.current = null;
     obstacleDraftPointsRef.current = [];
     obstaclePreviewPointRef.current = null;
-    funnelDraftCenterRef.current = null;
-    funnelDraftEdgeRef.current = null;
+    funnelDraftAffinityPointRef.current = null;
+    funnelDraftSelectionPointsRef.current = [];
+    funnelPreviewPointRef.current = null;
     syncRerouteCatcherOverlay();
     const sim = useSimStore.getState();
-    updateRerouteShapeSource(map, sim.rerouteObstacles, sim.rerouteFunnels, sim.rerouteSelectedShape);
+    updateRerouteShapeSource(
+      map,
+      buildRenderableObstacles(sim.rerouteCommittedMoves, sim.rerouteObstacles),
+      buildRenderableFunnels(sim.rerouteCommittedMoves, sim.rerouteFunnels),
+      sim.rerouteSelectedShape,
+    );
     updateRerouteShapeDraftSource(
       map,
       obstacleDraftPointsRef.current,
       obstaclePreviewPointRef.current,
-      funnelDraftCenterRef.current,
-      funnelDraftEdgeRef.current
+      funnelDraftAffinityPointRef.current,
+      funnelDraftSelectionPointsRef.current,
+      funnelPreviewPointRef.current
     );
   }, [isAnyDrawingActive]);
 
@@ -1216,15 +1211,17 @@ export default function MapCanvasReroute() {
       obstaclePreviewPointRef.current = null;
     }
     if (rerouteShapeToolMode !== "funnel") {
-      funnelDraftCenterRef.current = null;
-      funnelDraftEdgeRef.current = null;
+      funnelDraftAffinityPointRef.current = null;
+      funnelDraftSelectionPointsRef.current = [];
+      funnelPreviewPointRef.current = null;
     }
     updateRerouteShapeDraftSource(
       map,
       obstacleDraftPointsRef.current,
       obstaclePreviewPointRef.current,
-      funnelDraftCenterRef.current,
-      funnelDraftEdgeRef.current
+      funnelDraftAffinityPointRef.current,
+      funnelDraftSelectionPointsRef.current,
+      funnelPreviewPointRef.current
     );
   }, [rerouteShapeToolMode]);
 
@@ -1244,23 +1241,29 @@ export default function MapCanvasReroute() {
               map,
               obstacleDraftPointsRef.current,
               obstaclePreviewPointRef.current,
-              funnelDraftCenterRef.current,
-              funnelDraftEdgeRef.current
+              funnelDraftAffinityPointRef.current,
+              funnelDraftSelectionPointsRef.current,
+              funnelPreviewPointRef.current
             );
           }
           return;
         }
-        if (sim.rerouteShapeToolMode === "funnel" && funnelDraftCenterRef.current) {
+        if (
+          sim.rerouteShapeToolMode === "funnel" &&
+          (funnelDraftAffinityPointRef.current || funnelDraftSelectionPointsRef.current.length > 0)
+        ) {
           event.preventDefault();
-          funnelDraftCenterRef.current = null;
-          funnelDraftEdgeRef.current = null;
+          funnelDraftAffinityPointRef.current = null;
+          funnelDraftSelectionPointsRef.current = [];
+          funnelPreviewPointRef.current = null;
           if (map) {
             updateRerouteShapeDraftSource(
               map,
               obstacleDraftPointsRef.current,
               obstaclePreviewPointRef.current,
-              funnelDraftCenterRef.current,
-              funnelDraftEdgeRef.current
+              funnelDraftAffinityPointRef.current,
+              funnelDraftSelectionPointsRef.current,
+              funnelPreviewPointRef.current
             );
           }
           return;
@@ -1808,10 +1811,44 @@ function applyRerouteCatcherLayerColors(
   }
 }
 
+function buildRenderableObstacles(
+  committedMoves: RerouteCommittedMove[],
+  draftObstacles: RerouteObstacle[],
+): RenderRerouteObstacle[] {
+  const committed = (committedMoves || []).flatMap((move) =>
+    (move.obstacles || []).map((obstacle) => ({
+      ...obstacle,
+      locked: true,
+    })),
+  );
+  const draft = (draftObstacles || []).map((obstacle) => ({
+    ...obstacle,
+    locked: false,
+  }));
+  return [...committed, ...draft];
+}
+
+function buildRenderableFunnels(
+  committedMoves: RerouteCommittedMove[],
+  draftFunnels: RerouteFunnel[],
+): RenderRerouteFunnel[] {
+  const committed = (committedMoves || []).flatMap((move) =>
+    (move.funnels || []).map((funnel) => ({
+      ...funnel,
+      locked: true,
+    })),
+  );
+  const draft = (draftFunnels || []).map((funnel) => ({
+    ...funnel,
+    locked: false,
+  }));
+  return [...committed, ...draft];
+}
+
 function updateRerouteShapeSource(
   map: maplibregl.Map,
-  obstacles: RerouteObstacle[],
-  funnels: RerouteFunnel[],
+  obstacles: RenderRerouteObstacle[],
+  funnels: RenderRerouteFunnel[],
   selectedShape: { kind: "obstacle" | "funnel"; id: string } | null,
 ) {
   const source = map.getSource(REROUTE_SHAPES_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
@@ -1830,32 +1867,51 @@ function updateRerouteShapeSource(
         kind: "obstacle",
         id: obstacle.id,
         selected: selectedShape?.kind === "obstacle" && selectedShape.id === obstacle.id,
+        locked: obstacle.locked === true,
       },
     });
   }
 
   for (const funnel of funnels || []) {
-    if (!Number.isFinite(funnel.center[0]) || !Number.isFinite(funnel.center[1])) continue;
-    if (!Number.isFinite(funnel.radiusNm) || funnel.radiusNm <= 0) continue;
-    const circleCoords = buildCircleCoordinates(funnel.center, funnel.radiusNm);
-    if (circleCoords.length >= 2) {
-      features.push({
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: circleCoords },
-        properties: {
-          kind: "funnel-circle",
-          id: funnel.id,
-          selected: selectedShape?.kind === "funnel" && selectedShape.id === funnel.id,
-        },
-      });
+    if (
+      !Array.isArray(funnel.affinityPoint) ||
+      !Number.isFinite(funnel.affinityPoint[0]) ||
+      !Number.isFinite(funnel.affinityPoint[1])
+    ) {
+      continue;
     }
+    const polygonCoords = buildFunnelPolygonCoordinates(funnel.selectionPolyline);
+    if (polygonCoords.length < 4) continue;
+    const isSelected = selectedShape?.kind === "funnel" && selectedShape.id === funnel.id;
+
     features.push({
       type: "Feature",
-      geometry: { type: "Point", coordinates: funnel.center },
+      geometry: { type: "Polygon", coordinates: [polygonCoords] },
       properties: {
-        kind: "funnel-center",
+        kind: "funnel-polygon",
         id: funnel.id,
-        selected: selectedShape?.kind === "funnel" && selectedShape.id === funnel.id,
+        selected: isSelected,
+        locked: funnel.locked === true,
+      },
+    });
+    features.push({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: polygonCoords },
+      properties: {
+        kind: "funnel-outline",
+        id: funnel.id,
+        selected: isSelected,
+        locked: funnel.locked === true,
+      },
+    });
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: funnel.affinityPoint },
+      properties: {
+        kind: "funnel-affinity",
+        id: funnel.id,
+        selected: isSelected,
+        locked: funnel.locked === true,
       },
     });
   }
@@ -1870,8 +1926,9 @@ function updateRerouteShapeDraftSource(
   map: maplibregl.Map,
   obstacleDraftPoints: Point2D[],
   obstaclePreviewPoint: Point2D | null,
-  funnelDraftCenter: Point2D | null,
-  funnelDraftEdge: Point2D | null,
+  funnelDraftAffinityPoint: Point2D | null,
+  funnelDraftSelectionPoints: Point2D[],
+  funnelPreviewPoint: Point2D | null,
 ) {
   const source = map.getSource(REROUTE_SHAPES_DRAFT_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
   if (!source) return;
@@ -1911,37 +1968,61 @@ function updateRerouteShapeDraftSource(
   }
 
   if (
-    funnelDraftCenter &&
-    Number.isFinite(funnelDraftCenter[0]) &&
-    Number.isFinite(funnelDraftCenter[1])
+    funnelDraftAffinityPoint &&
+    Number.isFinite(funnelDraftAffinityPoint[0]) &&
+    Number.isFinite(funnelDraftAffinityPoint[1])
   ) {
     features.push({
       type: "Feature",
-      geometry: { type: "Point", coordinates: funnelDraftCenter },
-      properties: { kind: "funnel-draft-center-point" },
+      geometry: { type: "Point", coordinates: funnelDraftAffinityPoint },
+      properties: { kind: "funnel-draft-affinity-point" },
     });
   }
-  if (
-    funnelDraftEdge &&
-    Number.isFinite(funnelDraftEdge[0]) &&
-    Number.isFinite(funnelDraftEdge[1])
-  ) {
+
+  const validSelectionPoints = (funnelDraftSelectionPoints || []).filter(
+    (point) => Number.isFinite(point[0]) && Number.isFinite(point[1]),
+  );
+  for (const point of validSelectionPoints) {
     features.push({
       type: "Feature",
-      geometry: { type: "Point", coordinates: funnelDraftEdge },
-      properties: { kind: "funnel-draft-edge-point" },
+      geometry: { type: "Point", coordinates: point },
+      properties: { kind: "funnel-draft-selection-point" },
     });
   }
-  if (funnelDraftCenter && funnelDraftEdge) {
-    const radiusNm = distanceNm(funnelDraftCenter, funnelDraftEdge);
-    if (radiusNm > 0.001) {
+
+  const hasPreviewPoint =
+    !!funnelPreviewPoint &&
+    Number.isFinite(funnelPreviewPoint[0]) &&
+    Number.isFinite(funnelPreviewPoint[1]);
+  if (hasPreviewPoint) {
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: funnelPreviewPoint as Point2D },
+      properties: { kind: "funnel-draft-preview-point" },
+    });
+  }
+
+  if (funnelDraftAffinityPoint) {
+    const draftPath = hasPreviewPoint
+      ? [...validSelectionPoints, funnelPreviewPoint as Point2D]
+      : validSelectionPoints;
+
+    if (draftPath.length >= 2) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: draftPath },
+        properties: { kind: "funnel-draft-path" },
+      });
+    }
+
+    if (draftPath.length >= 3) {
       features.push({
         type: "Feature",
         geometry: {
           type: "LineString",
-          coordinates: buildCircleCoordinates(funnelDraftCenter, radiusNm),
+          coordinates: buildFunnelPolygonCoordinates(draftPath),
         },
-        properties: { kind: "funnel-draft" },
+        properties: { kind: "funnel-draft-outline" },
       });
     }
   }
@@ -2006,34 +2087,12 @@ function closeRing(vertices: Point2D[]): Point2D[] {
   return [...vertices, first];
 }
 
-function buildCircleCoordinates(center: Point2D, radiusNm: number, steps = 48): Point2D[] {
-  if (!Number.isFinite(radiusNm) || radiusNm <= 0) return [];
-  const lat = center[1];
-  const cosLat = Math.max(1e-6, Math.cos((lat * Math.PI) / 180));
-  const coords: Point2D[] = [];
-  for (let i = 0; i <= steps; i += 1) {
-    const angle = (2 * Math.PI * i) / steps;
-    const dxNm = radiusNm * Math.cos(angle);
-    const dyNm = radiusNm * Math.sin(angle);
-    const nextLat = center[1] + dyNm / 60;
-    const nextLon = center[0] + dxNm / (60 * cosLat);
-    coords.push([nextLon, nextLat]);
-  }
-  return coords;
-}
-
-function distanceNm(a: Point2D, b: Point2D): number {
-  const refLat = (a[1] + b[1]) / 2;
-  const [ax, ay] = toXYNm(a, refLat);
-  const [bx, by] = toXYNm(b, refLat);
-  const dx = bx - ax;
-  const dy = by - ay;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function toXYNm(point: Point2D, refLat: number): Point2D {
-  const cosLat = Math.cos((refLat * Math.PI) / 180);
-  return [point[0] * 60 * cosLat, point[1] * 60];
+function buildFunnelPolygonCoordinates(selectionPolyline: Point2D[]): Point2D[] {
+  const vertices = (selectionPolyline || []).filter(
+    (point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]),
+  );
+  if (vertices.length < 3) return [];
+  return closeRing(vertices);
 }
 
 function isKeyboardTargetEditable(target: EventTarget | null): boolean {
@@ -2041,10 +2100,6 @@ function isKeyboardTargetEditable(target: EventTarget | null): boolean {
   const tagName = target.tagName.toLowerCase();
   if (target.isContentEditable) return true;
   return tagName === "input" || tagName === "textarea" || tagName === "select";
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
 }
 
 async function loadImage(map: maplibregl.Map, url: string) {

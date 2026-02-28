@@ -14,8 +14,8 @@ export interface RerouteObstacle {
 
 export interface RerouteFunnel {
   id: string;
-  center: Point2D;
-  radiusNm: number;
+  affinityPoint: Point2D;
+  selectionPolyline: Point2D[];
 }
 
 export interface RerouteFlightResult {
@@ -302,10 +302,14 @@ function applyFunnelsInAlongPathOrder(flight: WorkingFlight, funnels: RerouteFun
   while (remaining.size > 0) {
     let chosen:
       | {
-          segmentIndex: number;
           funnel: RerouteFunnel;
-          projectedParam: number;
-          addedNm: number;
+          hit: {
+            segmentIndex: number;
+            startIndex: number;
+            endIndex: number;
+            polygon: Point2D[];
+            projectedParam: number;
+          };
         }
       | null = null;
 
@@ -316,31 +320,51 @@ function applyFunnelsInAlongPathOrder(flight: WorkingFlight, funnels: RerouteFun
 
       if (
         !chosen ||
-        hit.segmentIndex < chosen.segmentIndex ||
-        (hit.segmentIndex === chosen.segmentIndex && hit.projectedParam < chosen.projectedParam - EPS)
+        hit.segmentIndex < chosen.hit.segmentIndex ||
+        (hit.segmentIndex === chosen.hit.segmentIndex && hit.projectedParam < chosen.hit.projectedParam - EPS)
       ) {
         chosen = {
-          segmentIndex: hit.segmentIndex,
           funnel,
-          projectedParam: hit.projectedParam,
-          addedNm: hit.addedNm,
+          hit,
         };
       }
     }
 
     if (!chosen) break;
 
-    const segmentIndex = chosen.segmentIndex;
-    const a = flight.points[segmentIndex];
-    const b = flight.points[segmentIndex + 1];
-    const center = chosen.funnel.center;
+    const { startIndex, endIndex, polygon } = chosen.hit;
+    if (startIndex < 0 || endIndex >= flight.points.length || startIndex >= endIndex) {
+      flight.warnings.push(
+        `Funnel ${chosen.funnel.id}: cannot dissolve invalid span ${startIndex}-${endIndex}.`
+      );
+      remaining.delete(chosen.funnel.id);
+      continue;
+    }
 
-    flight.points.splice(segmentIndex + 1, 0, center);
-    flight.oldSegments.push({ start: a, end: b });
-    flight.newSegments.push({ start: a, end: center });
-    flight.newSegments.push({ start: center, end: b });
-    flight.extraNm += chosen.addedNm;
+    const a = flight.points[startIndex];
+    const b = flight.points[endIndex];
+    if (!pointStrictlyOutsideObstacle(a, polygon) || !pointStrictlyOutsideObstacle(b, polygon)) {
+      flight.warnings.push(
+        `Funnel ${chosen.funnel.id}: cannot dissolve span ${startIndex}-${endIndex}; endpoints not outside polygon.`
+      );
+      remaining.delete(chosen.funnel.id);
+      continue;
+    }
 
+    let oldPathNm = 0;
+    for (let idx = startIndex; idx < endIndex; idx += 1) {
+      const from = flight.points[idx];
+      const to = flight.points[idx + 1];
+      oldPathNm += distanceNm(from, to);
+      flight.oldSegments.push({ start: from, end: to });
+    }
+
+    const affinityPoint: Point2D = [chosen.funnel.affinityPoint[0], chosen.funnel.affinityPoint[1]];
+    const newPathNm = distanceNm(a, affinityPoint) + distanceNm(affinityPoint, b);
+    flight.points.splice(startIndex + 1, endIndex - startIndex - 1, affinityPoint);
+    flight.newSegments.push({ start: a, end: affinityPoint });
+    flight.newSegments.push({ start: affinityPoint, end: b });
+    flight.extraNm += Math.max(0, newPathNm - oldPathNm);
     remaining.delete(chosen.funnel.id);
   }
 }
@@ -348,21 +372,67 @@ function applyFunnelsInAlongPathOrder(flight: WorkingFlight, funnels: RerouteFun
 function findEarliestFunnelHit(
   points: Point2D[],
   funnel: RerouteFunnel,
-): { segmentIndex: number; projectedParam: number; addedNm: number } | null {
+): {
+  segmentIndex: number;
+  startIndex: number;
+  endIndex: number;
+  polygon: Point2D[];
+  projectedParam: number;
+} | null {
+  const polygon = buildFunnelPolygon(funnel);
+  if (polygon.length < 4) return null;
+
   for (let segIdx = 0; segIdx < points.length - 1; segIdx += 1) {
     const a = points[segIdx];
     const b = points[segIdx + 1];
-    const nearest = nearestPointParamOnSegmentNm(funnel.center, a, b);
-    if (nearest.distanceNm > funnel.radiusNm + EPS) continue;
+    const projectedParam = earliestSegmentPolygonContactParam(a, b, polygon);
+    if (projectedParam === null) continue;
 
-    const oldNm = distanceNm(a, b);
-    const newNm = distanceNm(a, funnel.center) + distanceNm(funnel.center, b);
+    let startIndex = segIdx;
+    while (startIndex > 0 && !pointStrictlyOutsideObstacle(points[startIndex], polygon)) {
+      startIndex -= 1;
+    }
+
+    let endIndex = segIdx + 1;
+    while (endIndex < points.length - 1 && !pointStrictlyOutsideObstacle(points[endIndex], polygon)) {
+      endIndex += 1;
+    }
+
     return {
       segmentIndex: segIdx,
-      projectedParam: nearest.param,
-      addedNm: Math.max(0, newNm - oldNm),
+      startIndex,
+      endIndex,
+      polygon,
+      projectedParam,
     };
   }
+  return null;
+}
+
+function buildFunnelPolygon(funnel: RerouteFunnel): Point2D[] {
+  if (!isPoint(funnel?.affinityPoint)) return [];
+  const vertices = (funnel.selectionPolyline || []).filter(isPoint);
+  if (vertices.length < 3) return [];
+  return ensureClosedPolygon(vertices);
+}
+
+function earliestSegmentPolygonContactParam(a: Point2D, b: Point2D, polygon: Point2D[]): number | null {
+  let best: number | null = pointInPolygonOrBoundary(a, polygon) ? 0 : null;
+
+  for (let i = 0; i < polygon.length - 1; i += 1) {
+    const p = polygon[i];
+    const q = polygon[i + 1];
+    const params = segmentIntersectionParams(a, b, p, q);
+    for (const param of params) {
+      if (best === null || param < best - EPS) {
+        best = param;
+      }
+    }
+  }
+
+  if (best !== null) return best;
+  if (pointInPolygonStrict(midpoint(a, b), polygon)) return 0.5;
+  if (pointInPolygonOrBoundary(b, polygon)) return 1;
   return null;
 }
 
@@ -460,6 +530,29 @@ function segmentIntersectionPoint(a: Point2D, b: Point2D, c: Point2D, d: Point2D
 
   const t = cross([c[0] - a[0], c[1] - a[1]], s) / denom;
   return [a[0] + t * r[0], a[1] + t * r[1]];
+}
+
+function segmentIntersectionParams(a: Point2D, b: Point2D, c: Point2D, d: Point2D): number[] {
+  if (!segmentsIntersect(a, b, c, d)) return [];
+
+  const r: Point2D = [b[0] - a[0], b[1] - a[1]];
+  const s: Point2D = [d[0] - c[0], d[1] - c[1]];
+  const denom = cross(r, s);
+
+  if (Math.abs(denom) <= EPS) {
+    const params: number[] = [];
+    for (const point of [a, b, c, d]) {
+      if (!onSegment(a, b, point) || !onSegment(c, d, point)) continue;
+      const param = pointParamAlongSegment(a, b, point);
+      if (!params.some((existing) => Math.abs(existing - param) <= EPS)) {
+        params.push(param);
+      }
+    }
+    return params;
+  }
+
+  const t = cross([c[0] - a[0], c[1] - a[1]], s) / denom;
+  return [Math.min(1, Math.max(0, t))];
 }
 
 function segmentsIntersect(a: Point2D, b: Point2D, c: Point2D, d: Point2D): boolean {
@@ -574,11 +667,15 @@ function normalizeFunnels(funnels: RerouteFunnel[]): RerouteFunnel[] {
   for (const funnel of funnels || []) {
     const id = String(funnel?.id ?? "").trim();
     if (!id || seen.has(id)) continue;
-    if (!isPoint(funnel?.center)) continue;
-    const radiusNm = Number(funnel?.radiusNm);
-    if (!Number.isFinite(radiusNm) || radiusNm <= 0) continue;
+    if (!isPoint(funnel?.affinityPoint)) continue;
+    const selectionPolyline = toUniquePointList(
+      (funnel?.selectionPolyline || [])
+        .filter(isPoint)
+        .map((point) => [point[0], point[1]] as [number, number]),
+    );
+    if (selectionPolyline.length < 3) continue;
     seen.add(id);
-    out.push({ id, center: funnel.center, radiusNm });
+    out.push({ id, affinityPoint: funnel.affinityPoint, selectionPolyline });
   }
 
   return out;
@@ -675,6 +772,15 @@ function segmentLengthSq(a: Point2D, b: Point2D): number {
   const dx = a[0] - b[0];
   const dy = a[1] - b[1];
   return dx * dx + dy * dy;
+}
+
+function pointParamAlongSegment(a: Point2D, b: Point2D, p: Point2D): number {
+  const lenSq = segmentLengthSq(a, b);
+  if (lenSq <= EPS) return 0;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const param = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lenSq;
+  return Math.min(1, Math.max(0, param));
 }
 
 function pointsEqual(a: Point2D, b: Point2D): boolean {

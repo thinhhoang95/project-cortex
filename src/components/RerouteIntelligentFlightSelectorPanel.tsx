@@ -31,7 +31,9 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     rerouteObstacles,
     rerouteFunnels,
     rerouteSelectedShape,
-    rerouteGeometryResult,
+    rerouteProgramGeometryResult,
+    rerouteDraftMoveGeometryResult,
+    rerouteGeometryComputing,
     reroutePreviewMode,
     setRerouteBaseFlightIds,
     setRerouteCatcherMode,
@@ -42,6 +44,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     clearRerouteObstacles,
     clearRerouteFunnels,
     removeRerouteSelectedShape,
+    commitRerouteDraftMove,
   } = useSimStore();
 
   const [queryInput, setQueryInput] = useState("");
@@ -56,9 +59,9 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     if (Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0) return true;
     return !!selectedTrafficVolume;
   }, [selectedTrafficVolumes, selectedTrafficVolume]);
-  const hasReroutePreview = (rerouteGeometryResult?.changedFlightCount ?? 0) > 0;
+  const hasReroutePreview = (rerouteProgramGeometryResult?.changedFlightCount ?? 0) > 0;
+  const canCommitDraft = (rerouteDraftMoveGeometryResult?.changedFlightCount ?? 0) > 0 && !rerouteGeometryComputing;
   const currentPreviewLabel = reroutePreviewMode === "rerouted" ? "After reroute" : "Current paths";
-  const togglePreviewLabel = reroutePreviewMode === "rerouted" ? "Show Current Paths" : "Show Rerouted Paths";
 
   const toggleCatcherMode = (mode: Exclude<RerouteCatcherMode, "off">) => {
     if (rerouteCatcherMode === mode) {
@@ -286,12 +289,17 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
               type="button"
               onClick={removeRerouteSelectedShape}
               disabled={!rerouteSelectedShape}
-              className={`w-full px-2 py-1.5 rounded border text-xs transition-colors ${
+              className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border text-xs transition-colors ${
                 rerouteSelectedShape
                   ? "border-rose-300/60 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
                   : "border-white/10 bg-white/5 text-white/45 cursor-not-allowed"
               }`}
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
               Delete Selected Shape
             </button>
 
@@ -299,16 +307,34 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
               {rerouteShapeToolMode === "obstacle" &&
                 "Obstacle: click to add vertices, double-click to close polygon, Esc to cancel draft."}
               {rerouteShapeToolMode === "funnel" &&
-                "Funnel: click center, move mouse for radius, click again to save. Dashed circle shows the radius."}
+                "Funnel: click the affinity point, then draw the polygon that marks waypoints to dissolve. Double-click closes the polygon; flights already selected in the base list reroute from the last waypoint before the polygon to the first waypoint after it through the affinity point."}
               {rerouteShapeToolMode === "off" &&
                 "Click a shape to select it, then press Delete/Backspace (or button) to remove it."}
             </p>
 
             <div className="text-[11px] opacity-75 border border-white/10 rounded p-2 bg-white/5">
-              <div>Changed flights: {rerouteGeometryResult?.changedFlightCount ?? 0}</div>
-              <div>Total extra NM: {(rerouteGeometryResult?.totalExtraNm ?? 0).toLocaleString("en-US")}</div>
+              <div>Draft changed flights: {rerouteDraftMoveGeometryResult?.changedFlightCount ?? 0}</div>
+              <div>Draft extra NM: {(rerouteDraftMoveGeometryResult?.totalExtraNm ?? 0).toLocaleString("en-US")}</div>
               <div>Preview mode: {currentPreviewLabel}</div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                commitRerouteDraftMove();
+              }}
+              disabled={!canCommitDraft}
+              className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                canCommitDraft
+                  ? "border-emerald-300/60 bg-emerald-500/25 text-emerald-100 hover:bg-emerald-500/35"
+                  : "border-white/10 bg-white/5 text-white/45 cursor-not-allowed"
+              }`}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Commit Draft Move
+            </button>
           </div>
         </div>
       </div>

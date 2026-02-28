@@ -18,6 +18,18 @@ function makeTrajectory(flightId: string, points: Array<[number, number]>): Traj
   };
 }
 
+function makeFunnel(
+  id: string,
+  affinityPoint: [number, number],
+  selectionPolyline: Array<[number, number]>,
+): RerouteFunnel {
+  return {
+    id,
+    affinityPoint,
+    selectionPolyline,
+  };
+}
+
 describe("rerouteGeometry", () => {
   it("chooses a valid obstacle detour and stores modified patch segments", () => {
     const trajectories = [makeTrajectory("F1", [[0, 0], [10, 0]])];
@@ -82,7 +94,14 @@ describe("rerouteGeometry", () => {
         ],
       },
     ];
-    const funnels: RerouteFunnel[] = [{ id: "FUN-TAN", center: [5, -0.15], radiusNm: 3 }];
+    const funnels: RerouteFunnel[] = [
+      makeFunnel("FUN-TAN", [5, 0.15], [
+        [4, -0.2],
+        [6, -0.2],
+        [6, 0.1],
+        [4, 0.1],
+      ]),
+    ];
 
     const result = computeRerouteGeometry({
       trajectories,
@@ -98,7 +117,14 @@ describe("rerouteGeometry", () => {
 
   it("applies each funnel at most once using earliest eligible segment", () => {
     const trajectories = [makeTrajectory("F4", [[0, 0], [10, 0], [20, 0]])];
-    const funnels: RerouteFunnel[] = [{ id: "FUN-1", center: [5, 0.05], radiusNm: 3 }];
+    const funnels: RerouteFunnel[] = [
+      makeFunnel("FUN-1", [5, 0.2], [
+        [4, -0.15],
+        [6, -0.15],
+        [6, 0.15],
+        [4, 0.15],
+      ]),
+    ];
 
     const result = computeRerouteGeometry({
       trajectories,
@@ -116,8 +142,18 @@ describe("rerouteGeometry", () => {
   it("processes multiple funnels in along-path order per flight", () => {
     const trajectories = [makeTrajectory("F5", [[0, 0], [10, 0], [20, 0]])];
     const funnels: RerouteFunnel[] = [
-      { id: "FUN-LATE", center: [15, 0.05], radiusNm: 3 },
-      { id: "FUN-EARLY", center: [5, 0.05], radiusNm: 3 },
+      makeFunnel("FUN-LATE", [15, 0.2], [
+        [14, -0.15],
+        [16, -0.15],
+        [16, 0.15],
+        [14, 0.15],
+      ]),
+      makeFunnel("FUN-EARLY", [5, 0.2], [
+        [4, -0.15],
+        [6, -0.15],
+        [6, 0.15],
+        [4, 0.15],
+      ]),
     ];
 
     const result = computeRerouteGeometry({
@@ -132,6 +168,45 @@ describe("rerouteGeometry", () => {
     expect(flight.oldSegments.length).toBe(2);
     expect(flight.oldSegments[0].start[0]).toBe(0);
     expect(flight.oldSegments[1].start[0]).toBe(10);
+  });
+
+  it("dissolves all waypoints inside a funnel polygon and reconnects through the affinity point", () => {
+    const trajectories = [
+      makeTrajectory("F5B", [
+        [0, 0],
+        [4.5, 0],
+        [5, 0.2],
+        [5.5, 0],
+        [10, 0],
+      ]),
+    ];
+    const funnels: RerouteFunnel[] = [
+      makeFunnel("FUN-DISSOLVE", [5, 2], [
+        [4, -1],
+        [6, -1],
+        [6, 1],
+        [4, 1],
+      ]),
+    ];
+
+    const result = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F5B"],
+      obstacles: [],
+      funnels,
+    });
+
+    expect(result.changedFlightCount).toBe(1);
+    expect(result.flights[0].reroutedPath).toEqual([
+      [0, 0],
+      [5, 2],
+      [10, 0],
+    ]);
+    expect(result.flights[0].oldSegments).toHaveLength(4);
+    expect(result.flights[0].newSegments).toEqual([
+      { start: [0, 0], end: [5, 2] },
+      { start: [5, 2], end: [10, 0] },
+    ]);
   });
 
   it("returns changed flights only and extraNm reflects obstacle + funnel delta", () => {
@@ -149,7 +224,14 @@ describe("rerouteGeometry", () => {
         ],
       },
     ];
-    const funnels: RerouteFunnel[] = [{ id: "FUN-6", center: [7, 0.05], radiusNm: 3 }];
+    const funnels: RerouteFunnel[] = [
+      makeFunnel("FUN-6", [7, 0.2], [
+        [6.2, -0.15],
+        [8.2, -0.15],
+        [8.2, 0.15],
+        [6.2, 0.15],
+      ]),
+    ];
 
     const result = computeRerouteGeometry({
       trajectories,
@@ -264,6 +346,34 @@ describe("rerouteGeometry", () => {
     expect(result.changedFlightCount).toBe(0);
   });
 
+  it("skips funnel dissolution when the contact span does not have outside endpoints", () => {
+    const trajectories = [
+      makeTrajectory("F9C", [
+        [4.5, 0],
+        [5, 0.2],
+        [10, 0],
+      ]),
+    ];
+    const funnels: RerouteFunnel[] = [
+      makeFunnel("FUN-INVALID-SPAN", [5, 2], [
+        [4, -1],
+        [6, -1],
+        [6, 1],
+        [4, 1],
+      ]),
+    ];
+
+    const result = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F9C"],
+      obstacles: [],
+      funnels,
+    });
+
+    expect(result.changedFlightCount).toBe(0);
+    expect(result.flights).toEqual([]);
+  });
+
   it("matches synchronous results when computed in async batches", async () => {
     const trajectories = [
       makeTrajectory("F10", [[0, 0], [10, 0], [20, 0]]),
@@ -279,7 +389,14 @@ describe("rerouteGeometry", () => {
         ],
       },
     ];
-    const funnels: RerouteFunnel[] = [{ id: "FUN-10", center: [15, 0.05], radiusNm: 3 }];
+    const funnels: RerouteFunnel[] = [
+      makeFunnel("FUN-10", [15, 0.2], [
+        [14, -0.15],
+        [16, -0.15],
+        [16, 0.15],
+        [14, 0.15],
+      ]),
+    ];
 
     const syncResult = computeRerouteGeometry({
       trajectories,
@@ -301,5 +418,38 @@ describe("rerouteGeometry", () => {
       ...syncResult,
       generatedAtEpochMs: 0,
     });
+  });
+
+  it("reroutes only segments intersecting the funnel polygon", () => {
+    const trajectories = [makeTrajectory("F12", [[0, 0], [10, 0], [10, 10]])];
+    const funnels: RerouteFunnel[] = [
+      makeFunnel("FUN-DIR", [5, 0.2], [
+        [4, -0.15],
+        [6, -0.15],
+        [6, 0.15],
+        [4, 0.15],
+      ]),
+    ];
+
+    const result = computeRerouteGeometry({
+      trajectories,
+      selectedFlightIds: ["F12"],
+      obstacles: [],
+      funnels,
+    });
+
+    expect(result.changedFlightCount).toBe(1);
+    expect(result.flights[0].oldSegments).toEqual([
+      {
+        start: [0, 0],
+        end: [10, 0],
+      },
+    ]);
+    expect(result.flights[0].reroutedPath).toEqual([
+      [0, 0],
+      [5, 0.2],
+      [10, 0],
+      [10, 10],
+    ]);
   });
 });

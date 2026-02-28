@@ -98,9 +98,34 @@ export default function NetworkStatusPanel({
         <div className="bg-white/5 rounded-lg p-4">
           <h2 className="font-semibold mb-3">Flights</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <MetricCard label="Total" value={flightsTotalDisplay} />
-            <MetricCard label="Landed" value={flightsLandedDisplay} />
-            <MetricCard label="Airborne" value={flightsAirborneDisplay} />
+            <MetricCard
+              label="Total"
+              value={flightsTotalDisplay}
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-.5-.5-2.5 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.2-1.1.6L3 8l6 5-3 3-3-1-2 2 4 4 2-2-1-3 3-3 5 6 1.2-.7c.4-.2.7-.6.6-1.1Z" />
+                </svg>
+              }
+            />
+            <MetricCard
+              label="Landed"
+              value={flightsLandedDisplay}
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M2 22h20" />
+                  <path d="M12 6l-2 2-5-2-1 1 3 4-2 2-2-1-1 1 2 3h13l3-10-3-1-5 2z" />
+                </svg>
+              }
+            />
+            <MetricCard
+              label="Airborne"
+              value={flightsAirborneDisplay}
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 13.5v-2l-8-5-1-1v-2.5a2 2 0 0 0-4 0v2.5l-1 1-8 5v2l8-2.5v4.5l-2 1.5v2l4-1 4 1v-2l-2-1.5v-4.5l8 2.5z" />
+                </svg>
+              }
+            />
           </div>
         </div>
 
@@ -130,7 +155,17 @@ export default function NetworkStatusPanel({
 
           {/* Average delay stacked with description */}
           <div className="mb-4">
-            <MetricCard label="Avg Delay / Flight" value={`${averageDelayMinutes} mins`} accent="bg-amber-400/30" />
+            <MetricCard
+              label="Avg Delay / Flight"
+              value={`${averageDelayMinutes} mins`}
+              accent="bg-amber-400/30"
+              icon={
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              }
+            />
             <div className="text-xs opacity-80 mt-2">
               Represents mean arrival delay across all flights in scope.
             </div>
@@ -178,11 +213,14 @@ export default function NetworkStatusPanel({
   );
 }
 
-function MetricCard({ label, value, accent }: { label: string; value: string | number; accent?: string }) {
+function MetricCard({ label, value, accent, icon }: { label: string; value: string | number; accent?: string; icon?: React.ReactNode }) {
   return (
-    <div className={`rounded-xl border border-white/10 bg-white/10 p-3 flex flex-col ${accent ? accent : ""}`}>
-      <div className="text-xs opacity-80">{label}</div>
-      <div className="text-xl font-semibold leading-tight">{value}</div>
+    <div className={`rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 flex items-center gap-2 ${accent ? accent : ""}`}>
+      {icon && <div className="text-white/40 shrink-0">{icon}</div>}
+      <div className="min-w-0 flex-1">
+        <div className="text-[9px] opacity-80 uppercase tracking-wider truncate">{label}</div>
+        <div className="text-sm font-semibold leading-tight mt-0.5 truncate">{value}</div>
+      </div>
     </div>
   );
 }
