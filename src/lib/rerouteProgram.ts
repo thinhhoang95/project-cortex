@@ -3,6 +3,7 @@ import {
   computeRerouteGeometryAsync,
   type ComputeRerouteGeometryAsyncOptions,
   type Point2D,
+  type RerouteFlightDiagnostic,
   type RerouteFlightResult,
   type RerouteFunnel,
   type RerouteGeometryResult,
@@ -32,6 +33,11 @@ type FlightContribution = {
   oldSegments: RerouteFlightResult["oldSegments"];
   newSegments: RerouteFlightResult["newSegments"];
   extraNm: number;
+  warnings: string[];
+};
+
+type FlightDiagnosticContribution = {
+  changed: boolean;
   warnings: string[];
 };
 
@@ -70,6 +76,7 @@ export async function computeRerouteProgramAsync(
 
   const moveResultsById: Record<string, RerouteGeometryResult | null> = {};
   const contributionsByFlight = new Map<string, FlightContribution>();
+  const diagnosticsByFlight = new Map<string, FlightDiagnosticContribution>();
 
   for (const move of normalizedMoves) {
     throwIfAborted(options.signal);
@@ -80,7 +87,7 @@ export async function computeRerouteProgramAsync(
       options,
     );
     moveResultsById[move.id] = stageResult;
-    applyStageResult(stageResult, currentPathById, contributionsByFlight);
+    applyStageResult(stageResult, currentPathById, contributionsByFlight, diagnosticsByFlight);
   }
 
   let draftResult: RerouteGeometryResult | null = null;
@@ -92,11 +99,22 @@ export async function computeRerouteProgramAsync(
       currentPathById,
       options,
     );
-    applyStageResult(draftResult, currentPathById, contributionsByFlight);
+    applyStageResult(draftResult, currentPathById, contributionsByFlight, diagnosticsByFlight);
   }
 
   const changedFlightIds = relevantFlightIds.filter((flightId) => contributionsByFlight.has(flightId));
-  if (changedFlightIds.length === 0) {
+  const diagnostics = relevantFlightIds
+    .map((flightId) => {
+      const diagnostic = diagnosticsByFlight.get(flightId);
+      if (!diagnostic || diagnostic.warnings.length === 0) return null;
+      return {
+        flightId,
+        changed: diagnostic.changed,
+        warnings: dedupeStrings(diagnostic.warnings),
+      } satisfies RerouteFlightDiagnostic;
+    })
+    .filter((diagnostic): diagnostic is RerouteFlightDiagnostic => diagnostic !== null);
+  if (changedFlightIds.length === 0 && diagnostics.length === 0) {
     return {
       programResult: null,
       draftResult,
@@ -133,6 +151,7 @@ export async function computeRerouteProgramAsync(
       changedFlightCount: flights.length,
       totalExtraNm,
       flights,
+      diagnostics,
     },
     draftResult,
     moveResultsById,
@@ -188,6 +207,7 @@ function applyStageResult(
   result: RerouteGeometryResult | null,
   currentPathById: Map<string, Point2D[]>,
   contributionsByFlight: Map<string, FlightContribution>,
+  diagnosticsByFlight: Map<string, FlightDiagnosticContribution>,
 ) {
   for (const flight of result?.flights || []) {
     currentPathById.set(flight.flightId, clonePointList(flight.reroutedPath));
@@ -202,6 +222,16 @@ function applyStageResult(
     existing.extraNm += Number.isFinite(flight.extraNm) ? flight.extraNm : 0;
     existing.warnings.push(...(flight.warnings || []));
     contributionsByFlight.set(flight.flightId, existing);
+  }
+
+  for (const diagnostic of result?.diagnostics || []) {
+    const existing = diagnosticsByFlight.get(diagnostic.flightId) || {
+      changed: false,
+      warnings: [],
+    };
+    existing.changed = existing.changed || diagnostic.changed;
+    existing.warnings.push(...(diagnostic.warnings || []));
+    diagnosticsByFlight.set(diagnostic.flightId, existing);
   }
 }
 

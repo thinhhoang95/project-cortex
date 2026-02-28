@@ -33,6 +33,46 @@ function makeMove(
   };
 }
 
+function makeObstacleMove(
+  id: string,
+  flightIds: string[],
+  vertices: Array<[number, number]>,
+): RerouteMoveDefinition {
+  return {
+    id,
+    flightIds,
+    obstacles: [
+      {
+        id: `${id}-OBSTACLE`,
+        vertices,
+      },
+    ],
+    funnels: [],
+  };
+}
+
+function makeDenseRectangleVertices(pointsPerEdge: number, centerX: number): Array<[number, number]> {
+  const vertices: Array<[number, number]> = [];
+  const steps = Math.max(2, pointsPerEdge);
+  for (let idx = 0; idx < steps; idx += 1) {
+    const t = idx / (steps - 1);
+    vertices.push([centerX - 1 + t * 2, -1]);
+  }
+  for (let idx = 1; idx < steps; idx += 1) {
+    const t = idx / (steps - 1);
+    vertices.push([centerX + 1, -1 + t * 2]);
+  }
+  for (let idx = 1; idx < steps; idx += 1) {
+    const t = idx / (steps - 1);
+    vertices.push([centerX + 1 - t * 2, 1]);
+  }
+  for (let idx = 1; idx < steps - 1; idx += 1) {
+    const t = idx / (steps - 1);
+    vertices.push([centerX - 1, 1 - t * 2]);
+  }
+  return vertices;
+}
+
 describe("rerouteProgram", () => {
   it("replays committed moves sequentially against the current rerouted path", async () => {
     const trajectories = [makeTrajectory("F1", [[0, 0], [10, 0], [20, 0]])];
@@ -57,6 +97,7 @@ describe("rerouteProgram", () => {
     expect(result.moveResultsById["MOVE-1"]?.changedFlightCount).toBe(1);
     expect(result.moveResultsById["MOVE-2"]?.changedFlightCount).toBe(1);
     expect(result.programResult?.changedFlightCount).toBe(1);
+    expect(result.programResult?.diagnostics).toEqual([]);
     expect(result.programResult?.flights[0].reroutedPath).toEqual([
       [0, 0],
       [5, 2],
@@ -111,5 +152,73 @@ describe("rerouteProgram", () => {
       start: [10, 0],
       end: [20, 0],
     });
+    expect(withBothMoves.programResult?.diagnostics).toEqual([]);
+    expect(withoutFirstMove.programResult?.diagnostics).toEqual([]);
+  });
+
+  it("preserves draft diagnostics when a draft move changes zero flights", async () => {
+    const trajectories = [makeTrajectory("F2", [[0, 0], [10, 0]])];
+    const oversizedObstacleMove = makeObstacleMove(
+      "MOVE-DIAG",
+      ["F2"],
+      makeDenseRectangleVertices(18, 5),
+    );
+
+    const result = await computeRerouteProgramAsync({
+      trajectories,
+      moves: [],
+      draftMove: oversizedObstacleMove,
+    });
+
+    expect(result.draftResult?.changedFlightCount).toBe(0);
+    expect(result.draftResult?.diagnostics).toEqual([
+      {
+        flightId: "F2",
+        changed: false,
+        warnings: [
+          "Obstacle MOVE-DIAG-OBSTACLE: multicorner fallback skipped for blocked span 0-1; polygon exceeds 64 vertices.",
+        ],
+      },
+    ]);
+    expect(result.programResult?.changedFlightCount).toBe(0);
+    expect(result.programResult?.diagnostics).toEqual(result.draftResult?.diagnostics);
+  });
+
+  it("aggregates diagnostics across committed and draft stages", async () => {
+    const trajectories = [makeTrajectory("F3", [[0, 0], [10, 0], [20, 0]])];
+    const committedMove = makeMove("MOVE-OK", ["F3"], [5, 2], [
+      [4, -1],
+      [6, -1],
+      [6, 1],
+      [4, 1],
+    ]);
+    const failingDraftMove = makeObstacleMove(
+      "MOVE-WARN",
+      ["F3"],
+      makeDenseRectangleVertices(18, 15),
+    );
+
+    const result = await computeRerouteProgramAsync({
+      trajectories,
+      moves: [committedMove],
+      draftMove: failingDraftMove,
+    });
+
+    expect(result.programResult?.changedFlightCount).toBe(1);
+    expect(result.programResult?.flights[0].reroutedPath).toEqual([
+      [0, 0],
+      [5, 2],
+      [10, 0],
+      [20, 0],
+    ]);
+    expect(result.programResult?.diagnostics).toEqual([
+      {
+        flightId: "F3",
+        changed: false,
+        warnings: [
+          "Obstacle MOVE-WARN-OBSTACLE: multicorner fallback skipped for blocked span 2-3; polygon exceeds 64 vertices.",
+        ],
+      },
+    ]);
   });
 });

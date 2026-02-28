@@ -28,6 +28,12 @@ export interface RerouteFlightResult {
   warnings: string[];
 }
 
+export interface RerouteFlightDiagnostic {
+  flightId: string;
+  changed: boolean;
+  warnings: string[];
+}
+
 export interface RerouteGeometryResult {
   generatedAtEpochMs: number;
   selectedFlightIds: string[];
@@ -36,6 +42,7 @@ export interface RerouteGeometryResult {
   changedFlightCount: number;
   totalExtraNm: number;
   flights: RerouteFlightResult[];
+  diagnostics: RerouteFlightDiagnostic[];
 }
 
 export interface ComputeRerouteGeometryParams {
@@ -61,7 +68,45 @@ interface WorkingFlight {
   warnings: string[];
 }
 
+interface ObstacleSpan {
+  startIndex: number;
+  endIndex: number;
+}
+
+interface BoundaryContact {
+  point: Point2D;
+  edgeStartIndex: number;
+  edgeParam: number;
+  segmentIndex: number;
+  segmentParam: number;
+}
+
+interface BoundaryContactsResult {
+  entryContact: BoundaryContact;
+  exitContact: BoundaryContact;
+}
+
+interface BoundaryDetourCandidate {
+  viaPoints: Point2D[];
+  newPathNm: number;
+}
+
+interface BoundaryDetourFailure {
+  warning: string;
+}
+
+type GeometryBudget = {
+  signal: AbortSignal | null;
+  maxBlockingMs: number;
+  lastYieldAt: number;
+  opCounter: number;
+  maybeYield: () => Promise<void>;
+};
+
 const EPS = 1e-7;
+const MAX_MULTICORNER_POLYGON_VERTICES = 64;
+const MAX_DETOUR_POINTS_PER_SPAN = 66;
+const YIELD_CHECK_EVERY_OPS = 64;
 
 export function computeRerouteGeometry(params: ComputeRerouteGeometryParams): RerouteGeometryResult {
   const prepared = prepareRerouteGeometry(params);
@@ -77,12 +122,13 @@ export async function computeRerouteGeometryAsync(
   const signal = options.signal ?? null;
   const batchSize = Math.max(1, Math.floor(options.batchSize ?? 8));
   const maxBlockingMs = Math.max(4, Number.isFinite(options.maxBlockingMs) ? Number(options.maxBlockingMs) : 12);
+  const budget = createGeometryBudget(signal, maxBlockingMs);
   let lastYieldAt = nowMs();
 
   for (let index = 0; index < prepared.flights.length; index += 1) {
     throwIfAborted(signal);
     const flight = prepared.flights[index];
-    applyObstacles(flight, prepared.obstacles);
+    await applyObstaclesAsync(flight, prepared.obstacles, budget);
     applyFunnelsInAlongPathOrder(flight, prepared.funnels);
 
     const shouldYield =
@@ -159,9 +205,16 @@ function finalizeRerouteGeometryResult(prepared: {
       flightId: flight.flightId,
       originalPath: clonePointList(flight.originalPoints),
       reroutedPath: clonePointList(flight.points),
-      oldSegments: flight.oldSegments,
-      newSegments: flight.newSegments,
+      oldSegments: flight.oldSegments.map(cloneSegment),
+      newSegments: flight.newSegments.map(cloneSegment),
       extraNm: roundTo3(flight.extraNm),
+      warnings: dedupeStrings(flight.warnings),
+    }));
+  const diagnostics: RerouteFlightDiagnostic[] = flights
+    .filter((flight) => flight.warnings.length > 0)
+    .map((flight) => ({
+      flightId: flight.flightId,
+      changed: flight.oldSegments.length > 0,
       warnings: dedupeStrings(flight.warnings),
     }));
 
@@ -177,7 +230,27 @@ function finalizeRerouteGeometryResult(prepared: {
     changedFlightCount: changedFlights.length,
     totalExtraNm,
     flights: changedFlights,
+    diagnostics,
   };
+}
+
+function createGeometryBudget(signal: AbortSignal | null, maxBlockingMs: number): GeometryBudget {
+  const budget: GeometryBudget = {
+    signal,
+    maxBlockingMs,
+    lastYieldAt: nowMs(),
+    opCounter: 0,
+    maybeYield: async () => {
+      budget.opCounter += 1;
+      if (budget.opCounter % YIELD_CHECK_EVERY_OPS !== 0) return;
+      throwIfAborted(signal);
+      if (nowMs() - budget.lastYieldAt < maxBlockingMs) return;
+      await yieldToMainThread();
+      budget.lastYieldAt = nowMs();
+      throwIfAborted(signal);
+    },
+  };
+  return budget;
 }
 
 function nowMs(): number {
@@ -205,6 +278,18 @@ function applyObstacles(flight: WorkingFlight, obstacles: RerouteObstacle[]) {
     const polygon = ensureClosedPolygon(obstacle.vertices);
     if (polygon.length < 4) continue;
     flight.points = buildObstacleDetourPoints(flight, obstacle.id, polygon);
+  }
+}
+
+async function applyObstaclesAsync(
+  flight: WorkingFlight,
+  obstacles: RerouteObstacle[],
+  budget: GeometryBudget,
+) {
+  for (const obstacle of obstacles) {
+    const polygon = ensureClosedPolygon(obstacle.vertices);
+    if (polygon.length < 4) continue;
+    flight.points = await buildObstacleDetourPointsAsync(flight, obstacle.id, polygon, budget);
   }
 }
 
@@ -239,42 +324,148 @@ function buildObstacleDetourPoints(
       continue;
     }
 
-    const candidate = chooseBestDetourVertex(a, b, polygon);
-    if (!candidate) {
-      flight.warnings.push(
-        `Obstacle ${obstacleId}: no valid 1-vertex detour for blocked span ${span.startIndex}-${span.endIndex}.`
+    const oneCornerCandidate = chooseBestDetourVertex(a, b, polygon);
+    if (oneCornerCandidate) {
+      applyDetourCandidate(
+        flight,
+        nextPoints,
+        sourcePoints,
+        span,
+        [oneCornerCandidate.vertex],
+        distanceNm(a, oneCornerCandidate.vertex) + distanceNm(oneCornerCandidate.vertex, b),
       );
+      cursor = span.endIndex;
+      continue;
+    }
+
+    const fallback = chooseBestBoundaryDetour(
+      obstacleId,
+      a,
+      b,
+      sourcePoints,
+      span,
+      polygon,
+    );
+    if (!("viaPoints" in fallback)) {
+      flight.warnings.push(fallback.warning);
       appendPointRange(nextPoints, sourcePoints, span.startIndex + 1, span.endIndex);
       cursor = span.endIndex;
       continue;
     }
 
-    let oldPathNm = 0;
-    for (let idx = span.startIndex; idx < span.endIndex; idx += 1) {
-      const from = sourcePoints[idx];
-      const to = sourcePoints[idx + 1];
-      oldPathNm += distanceNm(from, to);
-      flight.oldSegments.push({ start: from, end: to });
-    }
-
-    const newPathNm = distanceNm(a, candidate.vertex) + distanceNm(candidate.vertex, b);
-    flight.newSegments.push({ start: a, end: candidate.vertex });
-    flight.newSegments.push({ start: candidate.vertex, end: b });
-    flight.extraNm += Math.max(0, newPathNm - oldPathNm);
-
-    appendPoint(nextPoints, candidate.vertex);
-    appendPoint(nextPoints, b);
+    applyDetourCandidate(flight, nextPoints, sourcePoints, span, fallback.viaPoints, fallback.newPathNm);
     cursor = span.endIndex;
   }
 
   return nextPoints;
 }
 
+async function buildObstacleDetourPointsAsync(
+  flight: WorkingFlight,
+  obstacleId: string,
+  polygon: Point2D[],
+  budget: GeometryBudget,
+): Promise<Point2D[]> {
+  const sourcePoints = flight.points;
+  if (sourcePoints.length < 2) return sourcePoints;
+
+  const nextPoints: Point2D[] = [sourcePoints[0]];
+  let cursor = 0;
+
+  while (cursor < sourcePoints.length - 1) {
+    await budget.maybeYield();
+    const span = findNextObstacleSpan(sourcePoints, polygon, cursor);
+    if (!span) {
+      appendPointRange(nextPoints, sourcePoints, cursor + 1, sourcePoints.length - 1);
+      break;
+    }
+
+    appendPointRange(nextPoints, sourcePoints, cursor + 1, span.startIndex);
+    const a = sourcePoints[span.startIndex];
+    const b = sourcePoints[span.endIndex];
+
+    if (!pointStrictlyOutsideObstacle(a, polygon) || !pointStrictlyOutsideObstacle(b, polygon)) {
+      flight.warnings.push(
+        `Obstacle ${obstacleId}: cannot bypass blocked span ${span.startIndex}-${span.endIndex}.`
+      );
+      appendPointRange(nextPoints, sourcePoints, span.startIndex + 1, span.endIndex);
+      cursor = span.endIndex;
+      continue;
+    }
+
+    const oneCornerCandidate = chooseBestDetourVertex(a, b, polygon);
+    if (oneCornerCandidate) {
+      applyDetourCandidate(
+        flight,
+        nextPoints,
+        sourcePoints,
+        span,
+        [oneCornerCandidate.vertex],
+        distanceNm(a, oneCornerCandidate.vertex) + distanceNm(oneCornerCandidate.vertex, b),
+      );
+      cursor = span.endIndex;
+      continue;
+    }
+
+    const fallback = await chooseBestBoundaryDetourAsync(
+      obstacleId,
+      a,
+      b,
+      sourcePoints,
+      span,
+      polygon,
+      budget,
+    );
+    if (!("viaPoints" in fallback)) {
+      flight.warnings.push(fallback.warning);
+      appendPointRange(nextPoints, sourcePoints, span.startIndex + 1, span.endIndex);
+      cursor = span.endIndex;
+      continue;
+    }
+
+    applyDetourCandidate(flight, nextPoints, sourcePoints, span, fallback.viaPoints, fallback.newPathNm);
+    cursor = span.endIndex;
+  }
+
+  return nextPoints;
+}
+
+function applyDetourCandidate(
+  flight: WorkingFlight,
+  nextPoints: Point2D[],
+  sourcePoints: Point2D[],
+  span: ObstacleSpan,
+  viaPoints: Point2D[],
+  newPathNm: number,
+) {
+  let oldPathNm = 0;
+  for (let idx = span.startIndex; idx < span.endIndex; idx += 1) {
+    const from = sourcePoints[idx];
+    const to = sourcePoints[idx + 1];
+    oldPathNm += distanceNm(from, to);
+    flight.oldSegments.push({ start: from, end: to });
+  }
+
+  const segmentPoints = [sourcePoints[span.startIndex], ...viaPoints, sourcePoints[span.endIndex]];
+  for (let idx = 0; idx < segmentPoints.length - 1; idx += 1) {
+    flight.newSegments.push({
+      start: segmentPoints[idx],
+      end: segmentPoints[idx + 1],
+    });
+  }
+  flight.extraNm += Math.max(0, newPathNm - oldPathNm);
+
+  for (const point of viaPoints) {
+    appendPoint(nextPoints, point);
+  }
+  appendPoint(nextPoints, sourcePoints[span.endIndex]);
+}
+
 function findNextObstacleSpan(
   points: Point2D[],
   polygon: Point2D[],
   searchFrom: number,
-): { startIndex: number; endIndex: number } | null {
+): ObstacleSpan | null {
   for (let segIdx = searchFrom; segIdx < points.length - 1; segIdx += 1) {
     const a = points[segIdx];
     const b = points[segIdx + 1];
@@ -294,6 +485,487 @@ function findNextObstacleSpan(
   }
 
   return null;
+}
+
+function chooseBestBoundaryDetour(
+  obstacleId: string,
+  a: Point2D,
+  b: Point2D,
+  sourcePoints: Point2D[],
+  span: ObstacleSpan,
+  polygon: Point2D[],
+): BoundaryDetourCandidate | BoundaryDetourFailure {
+  const ring = polygon.slice(0, -1);
+  if (!pointStrictlyOutsideObstacle(a, polygon) || !pointStrictlyOutsideObstacle(b, polygon)) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; endpoints are not outside polygon.`,
+    };
+  }
+  if (ring.length > MAX_MULTICORNER_POLYGON_VERTICES) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; polygon exceeds ${MAX_MULTICORNER_POLYGON_VERTICES} vertices.`,
+    };
+  }
+  if (polygonRingSelfIntersects(ring)) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; polygon self-intersects.`,
+    };
+  }
+
+  const contacts = findObstacleSpanBoundaryContacts(sourcePoints, span, ring);
+  if (!contacts) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; could not determine boundary contacts.`,
+    };
+  }
+
+  const forwardChain = buildBoundaryChainForward(contacts.entryContact, contacts.exitContact, ring);
+  const reverseChain = buildBoundaryChainReverse(contacts.entryContact, contacts.exitContact, ring);
+  const forwardTooLong = dedupeAdjacentPoints(forwardChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  const reverseTooLong = dedupeAdjacentPoints(reverseChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  if (forwardTooLong && reverseTooLong) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; detour exceeds ${MAX_DETOUR_POINTS_PER_SPAN} points.`,
+    };
+  }
+  const forward = forwardTooLong ? null : evaluateBoundaryDetourCandidate(a, b, forwardChain, ring, polygon);
+  const reverse = reverseTooLong ? null : evaluateBoundaryDetourCandidate(a, b, reverseChain, ring, polygon);
+  return chooseBestBoundaryCandidate(obstacleId, span, forward, reverse);
+}
+
+async function chooseBestBoundaryDetourAsync(
+  obstacleId: string,
+  a: Point2D,
+  b: Point2D,
+  sourcePoints: Point2D[],
+  span: ObstacleSpan,
+  polygon: Point2D[],
+  budget: GeometryBudget,
+): Promise<BoundaryDetourCandidate | BoundaryDetourFailure> {
+  const ring = polygon.slice(0, -1);
+  if (!pointStrictlyOutsideObstacle(a, polygon) || !pointStrictlyOutsideObstacle(b, polygon)) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; endpoints are not outside polygon.`,
+    };
+  }
+  if (ring.length > MAX_MULTICORNER_POLYGON_VERTICES) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; polygon exceeds ${MAX_MULTICORNER_POLYGON_VERTICES} vertices.`,
+    };
+  }
+  if (await polygonRingSelfIntersectsAsync(ring, budget)) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; polygon self-intersects.`,
+    };
+  }
+
+  const contacts = await findObstacleSpanBoundaryContactsAsync(sourcePoints, span, ring, budget);
+  if (!contacts) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; could not determine boundary contacts.`,
+    };
+  }
+
+  const forwardChain = buildBoundaryChainForward(contacts.entryContact, contacts.exitContact, ring);
+  const reverseChain = buildBoundaryChainReverse(contacts.entryContact, contacts.exitContact, ring);
+  const forwardTooLong = dedupeAdjacentPoints(forwardChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  const reverseTooLong = dedupeAdjacentPoints(reverseChain).length > MAX_DETOUR_POINTS_PER_SPAN;
+  if (forwardTooLong && reverseTooLong) {
+    return {
+      warning: `Obstacle ${obstacleId}: multicorner fallback skipped for blocked span ${span.startIndex}-${span.endIndex}; detour exceeds ${MAX_DETOUR_POINTS_PER_SPAN} points.`,
+    };
+  }
+  const forward = forwardTooLong
+    ? null
+    : await evaluateBoundaryDetourCandidateAsync(a, b, forwardChain, ring, polygon, budget);
+  const reverse = reverseTooLong
+    ? null
+    : await evaluateBoundaryDetourCandidateAsync(a, b, reverseChain, ring, polygon, budget);
+  return chooseBestBoundaryCandidate(obstacleId, span, forward, reverse);
+}
+
+function chooseBestBoundaryCandidate(
+  obstacleId: string,
+  span: ObstacleSpan,
+  forward: BoundaryDetourCandidate | null,
+  reverse: BoundaryDetourCandidate | null,
+): BoundaryDetourCandidate | BoundaryDetourFailure {
+  if (forward && reverse) {
+    if (forward.newPathNm < reverse.newPathNm - EPS) return forward;
+    if (reverse.newPathNm < forward.newPathNm - EPS) return reverse;
+    return forward.viaPoints.length <= reverse.viaPoints.length ? forward : reverse;
+  }
+  if (forward) return forward;
+  if (reverse) return reverse;
+  return {
+    warning: `Obstacle ${obstacleId}: no valid boundary detour for blocked span ${span.startIndex}-${span.endIndex}.`,
+  };
+}
+
+function findObstacleSpanBoundaryContacts(
+  points: Point2D[],
+  span: ObstacleSpan,
+  ring: Point2D[],
+): BoundaryContactsResult | null {
+  const contacts: BoundaryContact[] = [];
+  for (let segIdx = span.startIndex; segIdx < span.endIndex; segIdx += 1) {
+    const a = points[segIdx];
+    const b = points[segIdx + 1];
+    const segmentContacts = collectSegmentBoundaryContacts(a, b, segIdx, ring);
+    for (const contact of segmentContacts) {
+      pushUniqueBoundaryContact(contacts, contact);
+    }
+  }
+  return contactsToBoundarySpan(contacts);
+}
+
+async function findObstacleSpanBoundaryContactsAsync(
+  points: Point2D[],
+  span: ObstacleSpan,
+  ring: Point2D[],
+  budget: GeometryBudget,
+): Promise<BoundaryContactsResult | null> {
+  const contacts: BoundaryContact[] = [];
+  for (let segIdx = span.startIndex; segIdx < span.endIndex; segIdx += 1) {
+    await budget.maybeYield();
+    const a = points[segIdx];
+    const b = points[segIdx + 1];
+    const segmentContacts = await collectSegmentBoundaryContactsAsync(a, b, segIdx, ring, budget);
+    for (const contact of segmentContacts) {
+      pushUniqueBoundaryContact(contacts, contact);
+    }
+  }
+  return contactsToBoundarySpan(contacts);
+}
+
+function contactsToBoundarySpan(contacts: BoundaryContact[]): BoundaryContactsResult | null {
+  if (contacts.length < 2) return null;
+  contacts.sort(compareBoundaryContacts);
+  const uniqueContacts = dedupeBoundaryContacts(contacts);
+  if (uniqueContacts.length < 2) return null;
+  const entryContact = uniqueContacts[0];
+  const exitContact = uniqueContacts[uniqueContacts.length - 1];
+  if (pointsEqual(entryContact.point, exitContact.point)) return null;
+  return { entryContact, exitContact };
+}
+
+function buildBoundaryChainForward(
+  entryContact: BoundaryContact,
+  exitContact: BoundaryContact,
+  ring: Point2D[],
+): Point2D[] {
+  if (ring.length === 0) return [];
+  if (
+    entryContact.edgeStartIndex === exitContact.edgeStartIndex &&
+    exitContact.edgeParam >= entryContact.edgeParam - EPS
+  ) {
+    return dedupeAdjacentPoints([entryContact.point, exitContact.point]);
+  }
+
+  const points: Point2D[] = [entryContact.point];
+  const n = ring.length;
+  let edgeIndex = entryContact.edgeStartIndex;
+
+  for (let steps = 0; steps < n; steps += 1) {
+    appendPoint(points, ring[(edgeIndex + 1) % n]);
+    edgeIndex = (edgeIndex + 1) % n;
+    if (edgeIndex === exitContact.edgeStartIndex) {
+      appendPoint(points, exitContact.point);
+      return dedupeAdjacentPoints(points);
+    }
+  }
+
+  return dedupeAdjacentPoints(points);
+}
+
+function buildBoundaryChainReverse(
+  entryContact: BoundaryContact,
+  exitContact: BoundaryContact,
+  ring: Point2D[],
+): Point2D[] {
+  return dedupeAdjacentPoints(
+    buildBoundaryChainForward(exitContact, entryContact, ring).slice().reverse()
+  );
+}
+
+function collectSegmentBoundaryContacts(
+  a: Point2D,
+  b: Point2D,
+  segmentIndex: number,
+  ring: Point2D[],
+): BoundaryContact[] {
+  const contacts: BoundaryContact[] = [];
+  for (let edgeIdx = 0; edgeIdx < ring.length; edgeIdx += 1) {
+    const p = ring[edgeIdx];
+    const q = ring[(edgeIdx + 1) % ring.length];
+    const rawContacts = segmentIntersectionContacts(a, b, p, q);
+    for (const rawContact of rawContacts) {
+      const contact = normalizeBoundaryContact(rawContact.point, edgeIdx, segmentIndex, rawContact.param, ring);
+      pushUniqueBoundaryContact(contacts, contact);
+    }
+  }
+  contacts.sort(compareBoundaryContacts);
+  return contacts;
+}
+
+async function collectSegmentBoundaryContactsAsync(
+  a: Point2D,
+  b: Point2D,
+  segmentIndex: number,
+  ring: Point2D[],
+  budget: GeometryBudget,
+): Promise<BoundaryContact[]> {
+  const contacts: BoundaryContact[] = [];
+  for (let edgeIdx = 0; edgeIdx < ring.length; edgeIdx += 1) {
+    await budget.maybeYield();
+    const p = ring[edgeIdx];
+    const q = ring[(edgeIdx + 1) % ring.length];
+    const rawContacts = segmentIntersectionContacts(a, b, p, q);
+    for (const rawContact of rawContacts) {
+      const contact = normalizeBoundaryContact(rawContact.point, edgeIdx, segmentIndex, rawContact.param, ring);
+      pushUniqueBoundaryContact(contacts, contact);
+    }
+  }
+  contacts.sort(compareBoundaryContacts);
+  return contacts;
+}
+
+function normalizeBoundaryContact(
+  point: Point2D,
+  edgeStartIndex: number,
+  segmentIndex: number,
+  segmentParam: number,
+  ring: Point2D[],
+): BoundaryContact {
+  for (let vertexIndex = 0; vertexIndex < ring.length; vertexIndex += 1) {
+    if (!pointsEqual(point, ring[vertexIndex])) continue;
+    return {
+      point: ring[vertexIndex],
+      edgeStartIndex: vertexIndex,
+      edgeParam: 0,
+      segmentIndex,
+      segmentParam,
+    };
+  }
+
+  const start = ring[edgeStartIndex];
+  const end = ring[(edgeStartIndex + 1) % ring.length];
+  return {
+    point,
+    edgeStartIndex,
+    edgeParam: pointParamAlongSegment(start, end, point),
+    segmentIndex,
+    segmentParam,
+  };
+}
+
+function pushUniqueBoundaryContact(contacts: BoundaryContact[], next: BoundaryContact) {
+  if (contacts.some((existing) => sameBoundaryContact(existing, next))) return;
+  contacts.push(next);
+}
+
+function sameBoundaryContact(a: BoundaryContact, b: BoundaryContact): boolean {
+  return (
+    a.segmentIndex === b.segmentIndex &&
+    Math.abs(a.segmentParam - b.segmentParam) <= EPS &&
+    pointsEqual(a.point, b.point)
+  );
+}
+
+function compareBoundaryContacts(a: BoundaryContact, b: BoundaryContact): number {
+  if (a.segmentIndex !== b.segmentIndex) return a.segmentIndex - b.segmentIndex;
+  if (Math.abs(a.segmentParam - b.segmentParam) > EPS) return a.segmentParam < b.segmentParam ? -1 : 1;
+  if (a.edgeStartIndex !== b.edgeStartIndex) return a.edgeStartIndex - b.edgeStartIndex;
+  return 0;
+}
+
+function dedupeBoundaryContacts(contacts: BoundaryContact[]): BoundaryContact[] {
+  const out: BoundaryContact[] = [];
+  for (const contact of contacts) {
+    if (out.some((existing) => sameBoundaryContact(existing, contact))) continue;
+    out.push(contact);
+  }
+  return out;
+}
+
+function evaluateBoundaryDetourCandidate(
+  a: Point2D,
+  b: Point2D,
+  chain: Point2D[],
+  ring: Point2D[],
+  polygon: Point2D[],
+): BoundaryDetourCandidate | null {
+  const viaPoints = normalizeBoundaryViaPoints(chain, a, b);
+  if (!viaPoints) return null;
+  if (viaPoints.length < 2) return null;
+  const entryPoint = viaPoints[0];
+  const exitPoint = viaPoints[viaPoints.length - 1];
+  if (!segmentTouchesPolygonOnlyAtEndpoint(a, entryPoint, polygon, entryPoint)) return null;
+  if (!segmentTouchesPolygonOnlyAtEndpoint(exitPoint, b, polygon, exitPoint)) return null;
+  if (!boundaryChainIsValid(viaPoints, ring)) return null;
+
+  const fullPath = dedupeAdjacentPoints([a, ...viaPoints, b]);
+  if (fullPath.length < 4) return null;
+  if (pathHasSelfIntersection(fullPath)) return null;
+  return {
+    viaPoints,
+    newPathNm: sumPathNm(fullPath),
+  };
+}
+
+async function evaluateBoundaryDetourCandidateAsync(
+  a: Point2D,
+  b: Point2D,
+  chain: Point2D[],
+  ring: Point2D[],
+  polygon: Point2D[],
+  budget: GeometryBudget,
+): Promise<BoundaryDetourCandidate | null> {
+  const viaPoints = normalizeBoundaryViaPoints(chain, a, b);
+  if (!viaPoints) return null;
+  if (viaPoints.length < 2) return null;
+  const entryPoint = viaPoints[0];
+  const exitPoint = viaPoints[viaPoints.length - 1];
+  await budget.maybeYield();
+  if (!segmentTouchesPolygonOnlyAtEndpoint(a, entryPoint, polygon, entryPoint)) return null;
+  await budget.maybeYield();
+  if (!segmentTouchesPolygonOnlyAtEndpoint(exitPoint, b, polygon, exitPoint)) return null;
+  if (!(await boundaryChainIsValidAsync(viaPoints, ring, budget))) return null;
+
+  const fullPath = dedupeAdjacentPoints([a, ...viaPoints, b]);
+  if (fullPath.length < 4) return null;
+  if (await pathHasSelfIntersectionAsync(fullPath, budget)) return null;
+  return {
+    viaPoints,
+    newPathNm: sumPathNm(fullPath),
+  };
+}
+
+function normalizeBoundaryViaPoints(chain: Point2D[], a: Point2D, b: Point2D): Point2D[] | null {
+  const normalized = dedupeAdjacentPoints(chain).filter((point) => !pointsEqual(point, a) && !pointsEqual(point, b));
+  if (normalized.length === 0) return null;
+  if (normalized.length > MAX_DETOUR_POINTS_PER_SPAN) return null;
+  return normalized;
+}
+
+function segmentTouchesPolygonOnlyAtEndpoint(
+  a: Point2D,
+  b: Point2D,
+  polygon: Point2D[],
+  allowedEndpoint: Point2D,
+): boolean {
+  if (segmentLengthSq(a, b) <= EPS * EPS) return false;
+  if (pointInPolygonStrict(midpoint(a, b), polygon)) return false;
+  const contacts = segmentPolygonContacts(a, b, polygon);
+  if (contacts.length === 0) return false;
+  for (const contact of contacts) {
+    if (pointsEqual(contact.point, allowedEndpoint)) continue;
+    return false;
+  }
+  return true;
+}
+
+function boundaryChainIsValid(points: Point2D[], ring: Point2D[]): boolean {
+  if (points.length < 2) return false;
+  for (let idx = 0; idx < points.length - 1; idx += 1) {
+    if (!segmentLiesOnPolygonBoundary(points[idx], points[idx + 1], ring)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function boundaryChainIsValidAsync(
+  points: Point2D[],
+  ring: Point2D[],
+  budget: GeometryBudget,
+): Promise<boolean> {
+  if (points.length < 2) return false;
+  for (let idx = 0; idx < points.length - 1; idx += 1) {
+    await budget.maybeYield();
+    if (!segmentLiesOnPolygonBoundary(points[idx], points[idx + 1], ring)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function segmentLiesOnPolygonBoundary(a: Point2D, b: Point2D, ring: Point2D[]): boolean {
+  if (segmentLengthSq(a, b) <= EPS * EPS) return false;
+  for (let edgeIdx = 0; edgeIdx < ring.length; edgeIdx += 1) {
+    const p = ring[edgeIdx];
+    const q = ring[(edgeIdx + 1) % ring.length];
+    if (onSegment(p, q, a) && onSegment(p, q, b)) return true;
+  }
+  return false;
+}
+
+function pathHasSelfIntersection(points: Point2D[]): boolean {
+  for (let i = 0; i < points.length - 1; i += 1) {
+    for (let j = i + 1; j < points.length - 1; j += 1) {
+      if (Math.abs(i - j) <= 1) continue;
+      if (segmentsIntersect(points[i], points[i + 1], points[j], points[j + 1])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+async function pathHasSelfIntersectionAsync(points: Point2D[], budget: GeometryBudget): Promise<boolean> {
+  for (let i = 0; i < points.length - 1; i += 1) {
+    for (let j = i + 1; j < points.length - 1; j += 1) {
+      await budget.maybeYield();
+      if (Math.abs(i - j) <= 1) continue;
+      if (segmentsIntersect(points[i], points[i + 1], points[j], points[j + 1])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function sumPathNm(points: Point2D[]): number {
+  let total = 0;
+  for (let idx = 0; idx < points.length - 1; idx += 1) {
+    total += distanceNm(points[idx], points[idx + 1]);
+  }
+  return total;
+}
+
+function polygonRingSelfIntersects(ring: Point2D[]): boolean {
+  const n = ring.length;
+  if (n < 3) return true;
+  for (let i = 0; i < n; i += 1) {
+    const a = ring[i];
+    const b = ring[(i + 1) % n];
+    for (let j = i + 1; j < n; j += 1) {
+      if (Math.abs(i - j) <= 1) continue;
+      if (i === 0 && j === n - 1) continue;
+      const c = ring[j];
+      const d = ring[(j + 1) % n];
+      if (segmentsIntersect(a, b, c, d)) return true;
+    }
+  }
+  return false;
+}
+
+async function polygonRingSelfIntersectsAsync(ring: Point2D[], budget: GeometryBudget): Promise<boolean> {
+  const n = ring.length;
+  if (n < 3) return true;
+  for (let i = 0; i < n; i += 1) {
+    const a = ring[i];
+    const b = ring[(i + 1) % n];
+    for (let j = i + 1; j < n; j += 1) {
+      await budget.maybeYield();
+      if (Math.abs(i - j) <= 1) continue;
+      if (i === 0 && j === n - 1) continue;
+      const c = ring[j];
+      const d = ring[(j + 1) % n];
+      if (segmentsIntersect(a, b, c, d)) return true;
+    }
+  }
+  return false;
 }
 
 function applyFunnelsInAlongPathOrder(flight: WorkingFlight, funnels: RerouteFunnel[]) {
@@ -499,40 +1171,38 @@ function segmentHitsPolygon(a: Point2D, b: Point2D, polygon: Point2D[]): boolean
 }
 
 function segmentPolygonIntersections(a: Point2D, b: Point2D, polygon: Point2D[]): Point2D[] {
-  const out: Point2D[] = [];
+  return segmentPolygonContacts(a, b, polygon).map((contact) => contact.point);
+}
+
+function segmentPolygonContacts(a: Point2D, b: Point2D, polygon: Point2D[]): Array<{ point: Point2D; param: number }> {
+  const out: Array<{ point: Point2D; param: number }> = [];
 
   for (let i = 0; i < polygon.length - 1; i += 1) {
     const p = polygon[i];
     const q = polygon[i + 1];
-    const intersection = segmentIntersectionPoint(a, b, p, q);
-    if (!intersection) continue;
-    if (!out.some((existing) => pointsEqual(existing, intersection))) {
-      out.push(intersection);
+    const contacts = segmentIntersectionContacts(a, b, p, q);
+    for (const contact of contacts) {
+      if (!out.some((existing) => pointsEqual(existing.point, contact.point))) {
+        out.push(contact);
+      }
     }
   }
 
+  out.sort((left, right) => left.param - right.param);
   return out;
 }
 
 function segmentIntersectionPoint(a: Point2D, b: Point2D, c: Point2D, d: Point2D): Point2D | null {
-  if (!segmentsIntersect(a, b, c, d)) return null;
-
-  const r: Point2D = [b[0] - a[0], b[1] - a[1]];
-  const s: Point2D = [d[0] - c[0], d[1] - c[1]];
-  const denom = cross(r, s);
-
-  if (Math.abs(denom) <= EPS) {
-    for (const point of [a, b, c, d]) {
-      if (onSegment(a, b, point) && onSegment(c, d, point)) return point;
-    }
-    return null;
-  }
-
-  const t = cross([c[0] - a[0], c[1] - a[1]], s) / denom;
-  return [a[0] + t * r[0], a[1] + t * r[1]];
+  const contacts = segmentIntersectionContacts(a, b, c, d);
+  return contacts.length > 0 ? contacts[0].point : null;
 }
 
-function segmentIntersectionParams(a: Point2D, b: Point2D, c: Point2D, d: Point2D): number[] {
+function segmentIntersectionContacts(
+  a: Point2D,
+  b: Point2D,
+  c: Point2D,
+  d: Point2D,
+): Array<{ point: Point2D; param: number }> {
   if (!segmentsIntersect(a, b, c, d)) return [];
 
   const r: Point2D = [b[0] - a[0], b[1] - a[1]];
@@ -540,19 +1210,27 @@ function segmentIntersectionParams(a: Point2D, b: Point2D, c: Point2D, d: Point2
   const denom = cross(r, s);
 
   if (Math.abs(denom) <= EPS) {
-    const params: number[] = [];
+    const contacts: Array<{ point: Point2D; param: number }> = [];
     for (const point of [a, b, c, d]) {
       if (!onSegment(a, b, point) || !onSegment(c, d, point)) continue;
       const param = pointParamAlongSegment(a, b, point);
-      if (!params.some((existing) => Math.abs(existing - param) <= EPS)) {
-        params.push(param);
+      if (!contacts.some((existing) => pointsEqual(existing.point, point))) {
+        contacts.push({ point, param });
       }
     }
-    return params;
+    contacts.sort((left, right) => left.param - right.param);
+    return contacts;
   }
 
   const t = cross([c[0] - a[0], c[1] - a[1]], s) / denom;
-  return [Math.min(1, Math.max(0, t))];
+  return [{
+    point: [a[0] + t * r[0], a[1] + t * r[1]],
+    param: Math.min(1, Math.max(0, t)),
+  }];
+}
+
+function segmentIntersectionParams(a: Point2D, b: Point2D, c: Point2D, d: Point2D): number[] {
+  return segmentIntersectionContacts(a, b, c, d).map((contact) => contact.param);
 }
 
 function segmentsIntersect(a: Point2D, b: Point2D, c: Point2D, d: Point2D): boolean {
@@ -709,6 +1387,13 @@ function clonePointList(points: Point2D[]): Point2D[] {
   return (points || []).map((point) => [point[0], point[1]]);
 }
 
+function cloneSegment(segment: RerouteSegment): RerouteSegment {
+  return {
+    start: [segment.start[0], segment.start[1]],
+    end: [segment.end[0], segment.end[1]],
+  };
+}
+
 function appendPoint(points: Point2D[], point: Point2D) {
   if (points.length === 0 || !pointsEqual(points[points.length - 1], point)) {
     points.push(point);
@@ -785,6 +1470,14 @@ function pointParamAlongSegment(a: Point2D, b: Point2D, p: Point2D): number {
 
 function pointsEqual(a: Point2D, b: Point2D): boolean {
   return Math.abs(a[0] - b[0]) <= EPS && Math.abs(a[1] - b[1]) <= EPS;
+}
+
+function dedupeAdjacentPoints(points: Point2D[]): Point2D[] {
+  const out: Point2D[] = [];
+  for (const point of points) {
+    appendPoint(out, point);
+  }
+  return out;
 }
 
 function isPoint(value: unknown): value is Point2D {

@@ -95,6 +95,7 @@ describe("useSimStore reroute tools", () => {
           warnings: [],
         },
       ],
+      diagnostics: [],
     });
 
     const commitId = store.commitRerouteDraftMove();
@@ -137,6 +138,7 @@ describe("useSimStore reroute tools", () => {
           warnings: [],
         },
       ],
+      diagnostics: [],
     });
     const firstMoveId = store.commitRerouteDraftMove();
 
@@ -166,6 +168,7 @@ describe("useSimStore reroute tools", () => {
           warnings: [],
         },
       ],
+      diagnostics: [],
     });
     const secondMoveId = useSimStore.getState().commitRerouteDraftMove();
 

@@ -62,6 +62,14 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
   const hasReroutePreview = (rerouteProgramGeometryResult?.changedFlightCount ?? 0) > 0;
   const canCommitDraft = (rerouteDraftMoveGeometryResult?.changedFlightCount ?? 0) > 0 && !rerouteGeometryComputing;
   const currentPreviewLabel = reroutePreviewMode === "rerouted" ? "After reroute" : "Current paths";
+  const draftWarnings = useMemo(
+    () =>
+      (rerouteDraftMoveGeometryResult?.diagnostics || []).flatMap((diagnostic) =>
+        (diagnostic.warnings || []).map((warning) => `${diagnostic.flightId}: ${warning}`)
+      ),
+    [rerouteDraftMoveGeometryResult]
+  );
+  const visibleDraftWarnings = draftWarnings.slice(0, 3);
 
   const toggleCatcherMode = (mode: Exclude<RerouteCatcherMode, "off">) => {
     if (rerouteCatcherMode === mode) {
@@ -316,6 +324,21 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
               <div>Draft changed flights: {rerouteDraftMoveGeometryResult?.changedFlightCount ?? 0}</div>
               <div>Draft extra NM: {(rerouteDraftMoveGeometryResult?.totalExtraNm ?? 0).toLocaleString("en-US")}</div>
               <div>Preview mode: {currentPreviewLabel}</div>
+              {visibleDraftWarnings.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-[10px] uppercase tracking-[0.14em] text-amber-200/80">Draft diagnostics</div>
+                  {visibleDraftWarnings.map((warning) => (
+                    <div key={warning} className="text-[11px] text-amber-100/90">
+                      {warning}
+                    </div>
+                  ))}
+                  {draftWarnings.length > visibleDraftWarnings.length && (
+                    <div className="text-[11px] text-amber-100/75">
+                      +{(draftWarnings.length - visibleDraftWarnings.length).toLocaleString("en-US")} more warnings
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <button
