@@ -126,6 +126,8 @@ interface TrafficVolumeReliefMapProps {
   heightClassName?: string;
   loading?: boolean;
   emptyMessage?: string;
+  negativeLegendLabel?: string;
+  positiveLegendLabel?: string;
 }
 
 export default function TrafficVolumeReliefMap({
@@ -134,6 +136,8 @@ export default function TrafficVolumeReliefMap({
   heightClassName = "h-[260px]",
   loading,
   emptyMessage = "No pre/post occupancy deltas available for this view.",
+  negativeLegendLabel = "Relief",
+  positiveLegendLabel = "Strain",
 }: TrafficVolumeReliefMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -410,9 +414,9 @@ export default function TrafficVolumeReliefMap({
       <div className="mt-3 space-y-1.5">
         <div className="h-2.5 w-full rounded-full bg-[linear-gradient(90deg,#16a34a_0%,#86efac_35%,#94a3b8_50%,#fca5a5_65%,#dc2626_100%)]" />
         <div className="flex items-center justify-between text-[11px] text-white/65">
-          <span>Relief</span>
+          <span>{negativeLegendLabel}</span>
           <span className="font-mono text-white/75">{rangeLabel}</span>
-          <span>Strain</span>
+          <span>{positiveLegendLabel}</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/55">
           <span>{deltaEntries.length} TV metrics</span>

@@ -10,8 +10,10 @@ import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import TrafficVolumeShockwaves from "@/components/TrafficVolumeShockwaves";
 import SelectChevron from "@/components/SelectChevron";
 import { normalizeCapacity } from "@/lib/capacity";
+import { formatShockwaveHorizonLabel } from "@/lib/trafficVolumeShockwaves";
 import {
   ComposedChart,
   Bar,
@@ -45,6 +47,21 @@ type CountsResponse = {
   };
 };
 
+const SHOCKWAVE_HORIZON_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "0", label: "T" },
+  { value: "15", label: "T+15" },
+  { value: "30", label: "T+30" },
+  { value: "45", label: "T+45" },
+  { value: "60", label: "T+60" },
+  { value: "90", label: "T+90" },
+  { value: "120", label: "T+120" },
+  { value: "150", label: "T+150" },
+  { value: "180", label: "T+180" },
+];
+
+const TV_PAGE_SIZE = 24;
+
 export default function OriginalCountPage() {
   const router = useRouter();
   const user = useSimStore((state) => state.user);
@@ -64,6 +81,9 @@ export default function OriginalCountPage() {
   const [viewToTime, setViewToTime] = useState<string>("23:59");
   const [showRequest, setShowRequest] = useState<boolean>(false);
   const [showResponse, setShowResponse] = useState<boolean>(false);
+  const [shockwaveHorizonMode, setShockwaveHorizonMode] = useState<string>("30");
+  const [visibleMentionedTvCount, setVisibleMentionedTvCount] = useState<number>(TV_PAGE_SIZE);
+  const [visibleTopTvCount, setVisibleTopTvCount] = useState<number>(TV_PAGE_SIZE);
 
   useEffect(() => {
     const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
@@ -188,6 +208,52 @@ export default function OriginalCountPage() {
     const order = data?.metadata?.ranked_tv_ids;
     const ids = order && order.length > 0 ? order.filter((id) => counts[id]) : Object.keys(counts);
     return ids.map((tv) => ({ tvId: tv, series: counts[tv] || [], capacitySeries: capacity[tv] || [], labels }));
+  }, [data]);
+
+  const visibleMentionedItems = useMemo(
+    () => mentionedItems.slice(0, visibleMentionedTvCount),
+    [mentionedItems, visibleMentionedTvCount],
+  );
+  const visibleTopItems = useMemo(
+    () => topItems.slice(0, visibleTopTvCount),
+    [topItems, visibleTopTvCount],
+  );
+
+  const shockwaveCounts = useMemo<Record<string, number[]>>(() => {
+    const next: Record<string, number[]> = {};
+
+    const assignSeries = (seriesByTv?: Record<string, number[]>) => {
+      Object.entries(seriesByTv || {}).forEach(([tvId, series]) => {
+        if (!Array.isArray(series)) return;
+        next[tvId] = series;
+      });
+    };
+
+    assignSeries(data?.counts);
+    assignSeries(data?.mentioned_counts);
+    return next;
+  }, [data]);
+
+  const shockwaveTargetTime = useMemo(() => {
+    if (shockwaveHorizonMode === "auto") {
+      return viewToTime;
+    }
+    return formatMinutesToHHMMWith24(
+      hhmmToMinutes(viewFromTime) + (Number(shockwaveHorizonMode) || 0),
+    );
+  }, [viewFromTime, viewToTime, shockwaveHorizonMode]);
+  const shockwaveOffsetMinutes = useMemo(
+    () => Math.max(0, hhmmToMinutes(shockwaveTargetTime) - hhmmToMinutes(viewFromTime)),
+    [viewFromTime, shockwaveTargetTime],
+  );
+  const shockwaveHorizonLabel = useMemo(() => {
+    if (shockwaveHorizonMode === "auto") return "Auto";
+    return formatShockwaveHorizonLabel(Number(shockwaveHorizonMode) || 0);
+  }, [shockwaveHorizonMode]);
+
+  useEffect(() => {
+    setVisibleMentionedTvCount(TV_PAGE_SIZE);
+    setVisibleTopTvCount(TV_PAGE_SIZE);
   }, [data]);
 
   // Ensure hooks are always called before any early return
@@ -318,27 +384,88 @@ export default function OriginalCountPage() {
             </div>
           </div>
 
+          {data && (
+            <section className="mb-8">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-white/60">
+                      Traffic Volume Shockwaves
+                    </div>
+                    <div className="mt-1 text-xs text-white/65">
+                      Uses the start of the histogram view range as <span className="font-mono">T</span>.
+                      Colors show <span className="font-mono">count(T+Δ) - count(T)</span>.
+                    </div>
+                    <div className="mt-1 text-[11px] text-white/50">
+                      Comparing <span className="font-mono">{viewFromTime}</span> to{" "}
+                      <span className="font-mono">{shockwaveTargetTime}</span> ({shockwaveHorizonLabel})
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-40">
+                    <div className="text-[11px] opacity-80 mb-1 text-white">Horizon</div>
+                    <div className="relative">
+                      <select
+                        value={shockwaveHorizonMode}
+                        onChange={(e) => setShockwaveHorizonMode(e.currentTarget.value)}
+                        className="w-full appearance-none pl-3 pr-10 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                      >
+                        {SHOCKWAVE_HORIZON_OPTIONS.map((option) => (
+                          <option key={`shockwave-${option.value}`} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <SelectChevron />
+                    </div>
+                  </div>
+                </div>
+                <TrafficVolumeShockwaves
+                  countsByTv={shockwaveCounts}
+                  binMinutes={data?.time_bin_minutes ?? 15}
+                  selectedTime={viewFromTime}
+                  offsetMinutes={shockwaveOffsetMinutes}
+                  labels={data?.timebins?.labels || []}
+                  startBin={data?.timebins?.start_bin}
+                  loading={querying}
+                  emptyMessage="No traffic-volume counts available for the selected shockwave comparison."
+                />
+              </div>
+            </section>
+          )}
+
           {/* Mentioned TVs */}
           <section className="mb-8">
             <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Mentioned Traffic Volumes</div>
             {data?.mentioned_counts && Object.keys(data.mentioned_counts).length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2">
-                {mentionedItems.map(({ tvId, series, labels, capacitySeries }) => (
-                  <ChartCard
-                    key={`m-${tvId}`}
-                    tvId={tvId}
-                    series={series}
-                    capacitySeries={capacitySeries}
-                    labels={labels}
-                    minutesPerBin={data?.time_bin_minutes ?? 15}
-                    showCapacity={rollingHour}
-                    viewFromMin={Math.floor(hhmmToSec(viewFromTime) / 60)}
-                    viewToMin={Math.floor(hhmmToSec(viewToTime) / 60)}
-                    viewFromTime={viewFromTime}
-                    viewToTime={viewToTime}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2">
+                  {visibleMentionedItems.map(({ tvId, series, labels, capacitySeries }) => (
+                    <ChartCard
+                      key={`m-${tvId}`}
+                      tvId={tvId}
+                      series={series}
+                      capacitySeries={capacitySeries}
+                      labels={labels}
+                      minutesPerBin={data?.time_bin_minutes ?? 15}
+                      showCapacity={rollingHour}
+                      viewFromMin={Math.floor(hhmmToSec(viewFromTime) / 60)}
+                      viewToMin={Math.floor(hhmmToSec(viewToTime) / 60)}
+                      viewFromTime={viewFromTime}
+                      viewToTime={viewToTime}
+                    />
+                  ))}
+                </div>
+                {mentionedItems.length > visibleMentionedItems.length && (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      onClick={() => setVisibleMentionedTvCount((count) => Math.min(count + TV_PAGE_SIZE, mentionedItems.length))}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white"
+                    >
+                      Show More...
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="text-xs text-gray-300">No specific traffic volumes selected.</div>
             )}
@@ -348,23 +475,35 @@ export default function OriginalCountPage() {
           <section className="mb-4">
             <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Top Traffic Volumes</div>
             {data?.counts && Object.keys(data.counts).length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
-                {topItems.map(({ tvId, series, labels, capacitySeries }) => (
-                  <ChartCard
-                    key={`t-${tvId}`}
-                    tvId={tvId}
-                    series={series}
-                    capacitySeries={capacitySeries}
-                    labels={labels}
-                    minutesPerBin={data?.time_bin_minutes ?? 15}
-                    showCapacity={rollingHour}
-                    viewFromMin={Math.floor(hhmmToSec(viewFromTime) / 60)}
-                    viewToMin={Math.floor(hhmmToSec(viewToTime) / 60)}
-                    viewFromTime={viewFromTime}
-                    viewToTime={viewToTime}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
+                  {visibleTopItems.map(({ tvId, series, labels, capacitySeries }) => (
+                    <ChartCard
+                      key={`t-${tvId}`}
+                      tvId={tvId}
+                      series={series}
+                      capacitySeries={capacitySeries}
+                      labels={labels}
+                      minutesPerBin={data?.time_bin_minutes ?? 15}
+                      showCapacity={rollingHour}
+                      viewFromMin={Math.floor(hhmmToSec(viewFromTime) / 60)}
+                      viewToMin={Math.floor(hhmmToSec(viewToTime) / 60)}
+                      viewFromTime={viewFromTime}
+                      viewToTime={viewToTime}
+                    />
+                  ))}
+                </div>
+                {topItems.length > visibleTopItems.length && (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      onClick={() => setVisibleTopTvCount((count) => Math.min(count + TV_PAGE_SIZE, topItems.length))}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white"
+                    >
+                      Show More...
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="text-xs text-gray-300">No data yet. Run a query.</div>
             )}
