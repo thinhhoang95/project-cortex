@@ -4,6 +4,7 @@ import Script from 'next/script'
 import { cookies } from 'next/headers'
 import '../styles/globals.css'
 import ThemeProvider from '@/components/ThemeProvider'
+import RegionSwitchBanner from '@/components/RegionSwitchBanner'
 import {
   DEFAULT_THEME,
   THEMES,
@@ -43,7 +44,10 @@ export default async function RootLayout({
         <Script id="init-theme" strategy="beforeInteractive">
           {themeInitScript}
         </Script>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <RegionSwitchBanner />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   )
