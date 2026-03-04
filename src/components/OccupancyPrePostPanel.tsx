@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Line } from "recharts";
 import { binIndexToRangeLabel, hhmmToMinutesSafe } from "@/lib/time";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
@@ -49,7 +49,116 @@ interface TvRowPoint {
   cap?: number | null;
 }
 
-export default function OccupancyPrePostPanel({
+const EMPTY_ROWS: TvRowPoint[] = [];
+
+interface TvChartCardProps {
+  tv: string;
+  rows: TvRowPoint[];
+  isPinned: boolean;
+  compact?: boolean;
+  binMinutes: number;
+  showLabels: boolean;
+  viewFrom: string;
+  viewTo: string;
+  hasPreSeries: boolean;
+  hasPostSeries: boolean;
+}
+
+const TvChartCard = memo(function TvChartCard({
+  tv, rows, isPinned, compact, binMinutes, showLabels, viewFrom, viewTo, hasPreSeries, hasPostSeries,
+}: TvChartCardProps) {
+  const hasData = rows.length > 0;
+  const preSegments = useMemo(() => buildOverloadSegments(rows, binMinutes, tv, 'pre'), [rows, binMinutes, tv]);
+  const postSegments = useMemo(() => buildOverloadSegments(rows, binMinutes, tv, 'post'), [rows, binMinutes, tv]);
+
+  return (
+    <div
+      className={`rounded-xl border p-3 transition ${
+        isPinned
+          ? "border-emerald-300/60 bg-emerald-500/10 shadow-[0_16px_32px_-28px_rgba(16,185,129,0.6)]"
+          : "border-white/10 bg-white/5"
+      }`}
+    >
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <div className="text-sm font-semibold text-white/90 truncate">
+          <TrafficVolumeInfoTooltip trafficVolumeId={tv} className="truncate max-w-full">
+            <span className="truncate">{tv}</span>
+          </TrafficVolumeInfoTooltip>
+        </div>
+        {isPinned ? (
+          <span className="shrink-0 rounded-full border border-emerald-300/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
+            Pinned
+          </span>
+        ) : null}
+      </div>
+      <div className={compact ? "h-32" : "h-36"}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={rows} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
+            <XAxis
+              dataKey="idx"
+              tick={showLabels ? { fontSize: 10 } : false}
+              axisLine={showLabels}
+              tickLine={showLabels}
+              hide={false}
+              interval="preserveStartEnd"
+              tickFormatter={(value: any) => {
+                const i = Number(value ?? 0);
+                return binIndexToRangeLabel(i, binMinutes);
+              }}
+            />
+            <YAxis tick={showLabels ? { fontSize: 10 } : false} axisLine={showLabels} tickLine={showLabels} width={showLabels ? 32 : 0} />
+            <Tooltip
+              contentStyle={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
+              formatter={(value: any, name: any, ctx: any) => {
+                const i = ctx?.payload?.idx ?? 0;
+                const pre = ctx?.payload?.pre ?? 0;
+                const post = ctx?.payload?.post ?? 0;
+                const cap = ctx?.payload?.cap;
+                if (name === 'inc') return [`+${value}`, 'Post-Pre'];
+                if (name === 'dec') return [`-${value}`, 'Pre-Post'];
+                if (name === 'base') return [String(value), 'Base'];
+                return [String(value), String(name)];
+              }}
+              labelFormatter={(label: any) => {
+                const i = Number(label ?? 0);
+                return binIndexToRangeLabel(i, binMinutes);
+              }}
+            />
+            <Bar dataKey="base" stackId="a" fill="#60a5fa" name="base" isAnimationActive={false} />
+            <Bar dataKey="inc" stackId="a" fill="#ef4444" name="inc" isAnimationActive={false} />
+            <Bar dataKey="dec" stackId="a" fill="#22c55e" name="dec" isAnimationActive={false} />
+            <Line type="monotone" dataKey="cap" name="Capacity" stroke="#f59e0b" dot={false} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-4 space-y-1.5">
+        {hasPreSeries && (
+          <div className="flex items-center gap-2 text-[11px] text-white/70">
+            <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Pre</div>
+            <div className="grow min-w-0">
+              <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={preSegments} showTime={preSegments.length > 0} showOkWhenNoData={false} />
+            </div>
+          </div>
+        )}
+        {hasPostSeries && (
+          <div className="flex items-center gap-2 text-[11px] text-white/70">
+            <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Post</div>
+            <div className="grow min-w-0">
+              <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={postSegments} showTime={postSegments.length > 0} showOkWhenNoData={false} />
+            </div>
+          </div>
+        )}
+        {!hasPreSeries && !hasPostSeries && (
+          <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={[]} showTime={false} showOkWhenNoData={false} />
+        )}
+      </div>
+      {!hasData && <div className="text-[11px] text-gray-300 mt-2">No data in selected time window.</div>}
+    </div>
+  );
+});
+
+function OccupancyPrePostPanelInner({
   postCounts,
   preCounts,
   capacity,
@@ -72,6 +181,8 @@ export default function OccupancyPrePostPanel({
   showReliefMap = false,
   reliefMapTitle = "Traffic Volume Relief Map",
 }: OccupancyPrePostPanelProps) {
+  const [isPending, startTransition] = useTransition();
+
   // Internal state for uncontrolled sort mode
   const [internalSort, setInternalSort] = useState<SortMode>(defaultSortMode);
   const effectiveSort: SortMode = sortMode || internalSort;
@@ -329,101 +440,26 @@ export default function OccupancyPrePostPanel({
       )}
 
       {/* Grid of per-TV charts */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-4 transition-opacity duration-200${isPending ? " opacity-60 pointer-events-none" : ""}`}>
         {displayTvs.map((tv) => {
           const isPinned = pinnedSet.has(tv);
-          const rows = rowsByTv.get(tv) || [];
-          const hasData = rows.length > 0;
-          const preSegments = buildOverloadSegments(rows, binMinutes, tv, 'pre');
-          const postSegments = buildOverloadSegments(rows, binMinutes, tv, 'post');
+          const rows = rowsByTv.get(tv) ?? EMPTY_ROWS;
           const hasPreSeries = Array.isArray(effectivePre?.[tv]) && (effectivePre?.[tv] || []).length > 0;
           const hasPostSeries = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
           return (
-            <div
+            <TvChartCard
               key={tv}
-              className={`rounded-xl border p-3 transition ${
-                isPinned
-                  ? "border-emerald-300/60 bg-emerald-500/10 shadow-[0_16px_32px_-28px_rgba(16,185,129,0.6)]"
-                  : "border-white/10 bg-white/5"
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2 gap-2">
-                <div className="text-sm font-semibold text-white/90 truncate">
-                  <TrafficVolumeInfoTooltip trafficVolumeId={tv} className="truncate max-w-full">
-                    <span className="truncate">{tv}</span>
-                  </TrafficVolumeInfoTooltip>
-                </div>
-                {isPinned ? (
-                  <span className="shrink-0 rounded-full border border-emerald-300/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
-                    Pinned
-                  </span>
-                ) : null}
-              </div>
-              <div className={compact ? "h-32" : "h-36"}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={rows} margin={{ top: 4, right: 6, left: 0, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-                    <XAxis
-                      dataKey="idx"
-                      tick={showLabels ? { fontSize: 10 } : false}
-                      axisLine={showLabels}
-                      tickLine={showLabels}
-                      hide={false}
-                      interval="preserveStartEnd"
-                      tickFormatter={(value: any) => {
-                        const i = Number(value ?? 0);
-                        return binIndexToRangeLabel(i, binMinutes);
-                      }}
-                    />
-                    <YAxis tick={showLabels ? { fontSize: 10 } : false} axisLine={showLabels} tickLine={showLabels} width={showLabels ? 32 : 0} />
-                    <Tooltip
-                      contentStyle={{ background: "rgba(15,23,42,0.9)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, color: "white" }}
-                      formatter={(value: any, name: any, ctx: any) => {
-                        const i = ctx?.payload?.idx ?? 0;
-                        const pre = ctx?.payload?.pre ?? 0;
-                        const post = ctx?.payload?.post ?? 0;
-                        const cap = ctx?.payload?.cap;
-                        if (name === 'inc') return [`+${value}`, 'Post-Pre'];
-                        if (name === 'dec') return [`-${value}`, 'Pre-Post'];
-                        if (name === 'base') return [String(value), 'Base'];
-                        return [String(value), String(name)];
-                      }}
-                      labelFormatter={(label: any) => {
-                        const i = Number(label ?? 0);
-                        return binIndexToRangeLabel(i, binMinutes);
-                      }}
-                    />
-                    <Bar dataKey="base" stackId="a" fill="#60a5fa" name="base" />
-                    <Bar dataKey="inc" stackId="a" fill="#ef4444" name="inc" />
-                    <Bar dataKey="dec" stackId="a" fill="#22c55e" name="dec" />
-                    {/* capacity overlay if present */}
-                    <Line type="monotone" dataKey="cap" name="Capacity" stroke="#f59e0b" dot={false} isAnimationActive={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-4 space-y-1.5">
-                {hasPreSeries && (
-                  <div className="flex items-center gap-2 text-[11px] text-white/70">
-                    <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Pre</div>
-                    <div className="grow min-w-0">
-                      <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={preSegments} showTime={preSegments.length > 0} showOkWhenNoData={false} />
-                    </div>
-                  </div>
-                )}
-                {hasPostSeries && (
-                  <div className="flex items-center gap-2 text-[11px] text-white/70">
-                    <div className="shrink-0 w-12 uppercase tracking-wider text-white/60">Post</div>
-                    <div className="grow min-w-0">
-                      <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={postSegments} showTime={postSegments.length > 0} showOkWhenNoData={false} />
-                    </div>
-                  </div>
-                )}
-                {!hasPreSeries && !hasPostSeries && (
-                  <TrafficOverloadBar fromTime={viewFrom} toTime={viewTo} data={[]} showTime={false} showOkWhenNoData={false} />
-                )}
-              </div>
-              {!hasData && <div className="text-[11px] text-gray-300 mt-2">No data in selected time window.</div>}
-            </div>
+              tv={tv}
+              rows={rows}
+              isPinned={isPinned}
+              compact={compact}
+              binMinutes={binMinutes}
+              showLabels={showLabels}
+              viewFrom={viewFrom}
+              viewTo={viewTo}
+              hasPreSeries={hasPreSeries}
+              hasPostSeries={hasPostSeries}
+            />
           );
         })}
       </div>
@@ -441,6 +477,31 @@ export default function OccupancyPrePostPanel({
     </div>
   );
 }
+
+const OccupancyPrePostPanel = memo(OccupancyPrePostPanelInner, (prev, next) =>
+  prev.postCounts === next.postCounts &&
+  prev.preCounts === next.preCounts &&
+  prev.capacity === next.capacity &&
+  prev.tvOrder === next.tvOrder &&
+  prev.pinnedTvIds === next.pinnedTvIds &&
+  prev.sortMode === next.sortMode &&
+  prev.viewFrom === next.viewFrom &&
+  prev.viewTo === next.viewTo &&
+  prev.binMinutes === next.binMinutes &&
+  prev.loading === next.loading &&
+  prev.error === next.error &&
+  prev.compact === next.compact &&
+  prev.showLabels === next.showLabels &&
+  prev.showReliefMap === next.showReliefMap &&
+  prev.initialLimit === next.initialLimit &&
+  prev.title === next.title &&
+  prev.defaultSortMode === next.defaultSortMode &&
+  prev.reliefMapTitle === next.reliefMapTitle &&
+  prev.onSortModeChange === next.onSortModeChange &&
+  prev.fetchPre === next.fetchPre
+);
+
+export default OccupancyPrePostPanel;
 
 function buildOverloadSegments(
   rows: TvRowPoint[],

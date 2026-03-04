@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -159,6 +159,7 @@ export default function AgentSaResultSummaryPanel({
   className = '',
   run,
 }: AgentSaResultSummaryPanelProps) {
+  const commitTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [selectedSeries, setSelectedSeries] = useState<SaObjectiveHistorySeries>('best');
   const [objectiveView, setObjectiveView] = useState<ObjectiveViewMode>('total');
   const [analysisData, setAnalysisData] = useState<SaPosthocAnalysisResponse | null>(null);
@@ -727,8 +728,8 @@ export default function AgentSaResultSummaryPanel({
                   time_to={viewTo}
                   stepMinutes={occupancyBinMinutes}
                   onCommit={(from, to) => {
-                    setViewFrom(from);
-                    setViewTo(to);
+                    clearTimeout(commitTimeout.current);
+                    commitTimeout.current = setTimeout(() => { setViewFrom(from); setViewTo(to); }, 150);
                   }}
                 />
               </div>

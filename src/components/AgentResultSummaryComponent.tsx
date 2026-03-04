@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from 'react';
 import type { FocusEvent, HTMLAttributes, MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -291,6 +292,8 @@ interface PinnedTvSummary {
 }
 
 type ViewMode = 'per_episode' | 'whole_plan' | 'unselected';
+
+const EMPTY_OCC: Record<string, number[]> = {};
 
 const FLOW_ID_KEYS = [
   'flow_ids',
@@ -1263,6 +1266,9 @@ export default function AgentResultSummaryComponent({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [isPendingView, startViewTransition] = useTransition();
+  const commitTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   const [selectedSolutionRank, setSelectedSolutionRank] = useState<number>(1);
   const [selectedStepNumber, setSelectedStepNumber] = useState<number>(1);
   const [viewMode, setViewMode] = useState<ViewMode>('unselected');
@@ -1919,13 +1925,13 @@ export default function AgentResultSummaryComponent({
 
   const handleStepSelect = useCallback(
     (stepNumber: number) => {
-      setSelectedStepNumber(stepNumber);
+      startViewTransition(() => setSelectedStepNumber(stepNumber));
       const node = stepButtonRefs.current?.get(stepNumber);
       if (node) {
         node.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
       }
     },
-    [],
+    [startViewTransition],
   );
 
   const handleFlightRowClick = useCallback(
@@ -2125,7 +2131,7 @@ export default function AgentResultSummaryComponent({
               <div className="mb-4 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setViewMode('per_episode')}
+                  onClick={() => startViewTransition(() => setViewMode('per_episode'))}
                   aria-pressed={viewMode === 'per_episode'}
                   className={`rounded-md border px-3 py-1.5 text-xs ${viewMode === 'per_episode'
                     ? 'border-emerald-400/70 bg-emerald-400/15'
@@ -2136,7 +2142,7 @@ export default function AgentResultSummaryComponent({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setViewMode('whole_plan')}
+                  onClick={() => startViewTransition(() => setViewMode('whole_plan'))}
                   aria-pressed={viewMode === 'whole_plan'}
                   className={`rounded-md border px-3 py-1.5 text-xs ${viewMode === 'whole_plan'
                     ? 'border-emerald-400/70 bg-emerald-400/15'
@@ -2208,7 +2214,7 @@ export default function AgentResultSummaryComponent({
                         <button
                           key={`solution-rank-${solution.rank}`}
                           type="button"
-                          onClick={() => setSelectedSolutionRank(solution.rank)}
+                          onClick={() => startViewTransition(() => setSelectedSolutionRank(solution.rank))}
                           aria-pressed={isSelected}
                           className={`min-w-[150px] rounded-xl border px-4 py-3 text-left transition ${isSelected
                             ? 'border-emerald-400/70 bg-emerald-500/15 shadow-[0_14px_30px_-18px_rgba(16,185,129,0.9)]'
@@ -2422,8 +2428,8 @@ export default function AgentResultSummaryComponent({
                           time_to={viewTo}
                           stepMinutes={binMinutes}
                           onCommit={(f, t) => {
-                            setViewFrom(f);
-                            setViewTo(t);
+                            clearTimeout(commitTimeout.current);
+                            commitTimeout.current = setTimeout(() => { setViewFrom(f); setViewTo(t); }, 150);
                           }}
                         />
                       </div>
@@ -2555,7 +2561,7 @@ export default function AgentResultSummaryComponent({
 
                     <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
                       <OccupancyPrePostPanel
-                        postCounts={detailsData?.pre_post?.post_counts ?? {}}
+                        postCounts={detailsData?.pre_post?.post_counts ?? EMPTY_OCC}
                         preCounts={detailsData?.pre_post?.pre_counts ?? undefined}
                         capacity={filteredCapacityCounts}
                         tvOrder={detailsData?.pre_post?.tv_ids_order ?? undefined}
