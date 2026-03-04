@@ -10,6 +10,7 @@ import {
 import type { FocusEvent, HTMLAttributes, MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import FlightListStatistics from '@/components/FlightListStatistics';
+import AgentSaResultSummaryPanel from '@/components/AgentSaResultSummaryPanel';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
 import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
 import PerAccDelayAttributionPanel from '@/components/PerAccDelayAttributionPanel';
@@ -26,6 +27,11 @@ import type {
   Trajectory,
 } from '@/lib/models';
 import { authFetch } from '@/lib/auth';
+import type { AgentRunRef, AgentSolListRun } from '@/lib/agentRuns';
+import {
+  normalizeAgentRunMethodology,
+  toAgentRunRef,
+} from '@/lib/agentRuns';
 import { normalizePerAccAttribMode } from '@/lib/perAccAttribution';
 import {
   Line,
@@ -40,9 +46,19 @@ interface AgentSolSummaryResponse {
   runs: AgentRunSummary[];
 }
 
+interface AgentSolListResponse {
+  runs: AgentSolListRun[];
+}
+
 interface AgentRunSummary {
   run_id: string;
   best_total_improvement: number | null;
+  solutions: AgentSolutionSummary[];
+  metadata?: AgentRunMetadata;
+}
+
+interface AgentRunBrowserEntry extends AgentSolListRun {
+  ref: AgentRunRef;
   solutions: AgentSolutionSummary[];
   metadata?: AgentRunMetadata;
 }
@@ -157,7 +173,7 @@ interface AgentResultSummaryComponentProps {
    * to make mocking and testing easier.
    */
   endpoint?: string;
-  initialRunId?: string;
+  initialRun?: AgentRunRef;
 }
 
 interface StepAggregate {
@@ -1221,14 +1237,28 @@ const historicalTooltip = ({ active, payload }: any) => {
   );
 };
 
+const RUN_METHODOLOGY_META = {
+  rz: {
+    label: 'RZ',
+    badge: 'border border-cyan-400/35 bg-cyan-500/10 text-cyan-100',
+    description: 'Regulation zoning solutions',
+  },
+  sa: {
+    label: 'SA',
+    badge: 'border border-fuchsia-400/35 bg-fuchsia-500/10 text-fuchsia-100',
+    description: 'Simulated annealing analytics',
+  },
+} as const;
+
 export default function AgentResultSummaryComponent({
   className = '',
   endpoint = '/api/agent_sol_summary',
-  initialRunId,
+  initialRun,
 }: AgentResultSummaryComponentProps) {
-  const [data, setData] = useState<AgentSolSummaryResponse | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(
-    () => initialRunId ?? null,
+  const [runListData, setRunListData] = useState<AgentSolListResponse | null>(null);
+  const [rzSummaryData, setRzSummaryData] = useState<AgentSolSummaryResponse | null>(null);
+  const [selectedRunRef, setSelectedRunRef] = useState<AgentRunRef | null>(
+    () => initialRun ?? null,
   );
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -1252,18 +1282,59 @@ export default function AgentResultSummaryComponent({
   const flights = useSimStore((state) => state.flights);
 
   useEffect(() => {
-    if (!initialRunId) return;
-    setSelectedRunId((current) => (current === initialRunId ? current : initialRunId));
-  }, [initialRunId]);
+    if (!initialRun) return;
+    setSelectedRunRef((current) =>
+      current?.runKey === initialRun.runKey ? current : initialRun,
+    );
+  }, [initialRun]);
 
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
 
-    async function fetchSummary() {
+    async function fetchRunList() {
       try {
         setLoading(true);
         setError(null);
+        const response = await authFetch('/api/agent_sol_ls', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as AgentSolListResponse;
+        if (cancelled) return;
+        setRunListData(payload);
+      } catch (err) {
+        if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Failed to load runs');
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchRunList();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function fetchRzSummary() {
+      try {
         const response = await authFetch(endpoint, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
@@ -1276,20 +1347,17 @@ export default function AgentResultSummaryComponent({
 
         const payload = (await response.json()) as AgentSolSummaryResponse;
         if (cancelled) return;
-        setData(payload);
+        setRzSummaryData(payload);
       } catch (err) {
         if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) {
           return;
         }
-        setError(err instanceof Error ? err.message : 'Failed to load summary');
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        console.error('Failed to load RZ summary enrichment:', err);
+        setRzSummaryData(null);
       }
     }
 
-    fetchSummary();
+    fetchRzSummary();
 
     return () => {
       cancelled = true;
@@ -1297,29 +1365,58 @@ export default function AgentResultSummaryComponent({
     };
   }, [endpoint]);
 
+  const runEntries = useMemo<AgentRunBrowserEntry[]>(() => {
+    const rzById = new Map(
+      (rzSummaryData?.runs ?? []).map((run) => [run.run_id, run]),
+    );
+    const entries: AgentRunBrowserEntry[] = [];
+
+    for (const run of runListData?.runs ?? []) {
+      const ref = toAgentRunRef(run);
+      if (!ref) continue;
+      const rzSummary = ref.methodology === 'rz' ? rzById.get(ref.runId) : undefined;
+      entries.push({
+        ...run,
+        ref,
+        best_total_improvement:
+          run.best_total_improvement ?? rzSummary?.best_total_improvement ?? null,
+        solutions: rzSummary?.solutions ?? [],
+        metadata: rzSummary?.metadata,
+      });
+    }
+
+    return entries;
+  }, [runListData?.runs, rzSummaryData?.runs]);
+
   useEffect(() => {
-    if (!data?.runs?.length) return;
-    setSelectedRunId((current) => {
-      const runs = data.runs;
-      const hasCurrent = current && runs.some((run) => run.run_id === current);
+    if (!runEntries.length) return;
+    setSelectedRunRef((current) => {
+      const hasCurrent =
+        current && runEntries.some((run) => run.ref.runKey === current.runKey);
       if (hasCurrent) {
         return current;
       }
       const preferred =
-        initialRunId && runs.some((run) => run.run_id === initialRunId)
-          ? initialRunId
-          : runs[0]?.run_id ?? null;
+        initialRun &&
+        runEntries.some((run) => run.ref.runKey === initialRun.runKey)
+          ? initialRun
+          : runEntries[0]?.ref ?? null;
       return preferred ?? null;
     });
-  }, [data, initialRunId]);
+  }, [initialRun, runEntries]);
 
   const selectedRun = useMemo(() => {
-    if (!selectedRunId || !data?.runs?.length) return null;
-    return data.runs.find((run) => run.run_id === selectedRunId) ?? null;
-  }, [data, selectedRunId]);
+    if (!selectedRunRef || !runEntries.length) return null;
+    return runEntries.find((run) => run.ref.runKey === selectedRunRef.runKey) ?? null;
+  }, [runEntries, selectedRunRef]);
+
+  const selectedRzRun = useMemo(
+    () => (selectedRun?.ref.methodology === 'rz' ? selectedRun : null),
+    [selectedRun],
+  );
 
   useEffect(() => {
-    if (!selectedRunId) {
+    if (!selectedRzRun) {
       setBestData(null);
       setBestError(null);
       setBestLoading(false);
@@ -1338,7 +1435,7 @@ export default function AgentResultSummaryComponent({
 
     (async () => {
       try {
-        const params = new URLSearchParams({ run_id: selectedRunId });
+        const params = new URLSearchParams({ run_id: selectedRzRun.run_id });
         const response = await authFetch(`/api/agent_sol_best?${params.toString()}`, {
           method: 'GET',
           signal: controller.signal,
@@ -1379,7 +1476,7 @@ export default function AgentResultSummaryComponent({
       cancelled = true;
       controller.abort();
     };
-  }, [selectedRunId]);
+  }, [selectedRzRun]);
 
   const bestSolutions = useMemo(
     () => (Array.isArray(bestData?.solutions) ? bestData?.solutions : []),
@@ -1417,13 +1514,13 @@ export default function AgentResultSummaryComponent({
 
   useEffect(() => {
     setSelectedFlightIds([]);
-  }, [selectedRunId, selectedSolutionRank, selectedStepNumber, viewMode]);
+  }, [selectedRzRun?.run_id, selectedSolutionRank, selectedStepNumber, viewMode]);
 
   useEffect(() => {
     if (viewMode !== 'per_episode') {
       return;
     }
-    if (!selectedRunId || !selectedSolution) {
+    if (!selectedRzRun || !selectedSolution) {
       setDetailsData(null);
       setDetailsError(null);
       setDetailsLoading(false);
@@ -1443,7 +1540,7 @@ export default function AgentResultSummaryComponent({
     (async () => {
       try {
         const params = new URLSearchParams({
-          run_id: selectedRunId,
+          run_id: selectedRzRun.run_id,
           solution_rank: String(selectedSolutionRank),
           step_number: String(stepNumber),
           per_acc_attrib_mode: perAccAttribMode,
@@ -1475,7 +1572,7 @@ export default function AgentResultSummaryComponent({
       controller.abort();
     };
   }, [
-    selectedRunId,
+    selectedRzRun,
     selectedSolution,
     selectedSolutionRank,
     selectedStepNumber,
@@ -1488,7 +1585,7 @@ export default function AgentResultSummaryComponent({
     if (viewMode !== 'whole_plan') {
       return;
     }
-    if (!selectedRunId || !selectedSolution) {
+    if (!selectedRzRun || !selectedSolution) {
       setDetailsData(null);
       setDetailsError(null);
       setDetailsLoading(false);
@@ -1501,7 +1598,7 @@ export default function AgentResultSummaryComponent({
     (async () => {
       try {
         const params = new URLSearchParams({
-          run_id: selectedRunId,
+          run_id: selectedRzRun.run_id,
           solution_rank: String(selectedSolutionRank),
           per_acc_attrib_mode: perAccAttribMode,
         });
@@ -1539,7 +1636,7 @@ export default function AgentResultSummaryComponent({
       cancelled = true;
       controller.abort();
     };
-  }, [viewMode, selectedRunId, selectedSolution, selectedSolutionRank, perAccAttribMode]);
+  }, [viewMode, selectedRzRun, selectedSolution, selectedSolutionRank, perAccAttribMode]);
 
   const stepAggregates = useMemo(
     () => computeStepAggregates(selectedSolution),
@@ -1858,7 +1955,7 @@ export default function AgentResultSummaryComponent({
     [solutionMetrics, selectedStepAggregate],
   );
 
-  const runSolutionSummaries = selectedRun?.solutions ?? [];
+  const runSolutionSummaries = selectedRzRun?.solutions ?? [];
 
   return (
     <div
@@ -1869,7 +1966,7 @@ export default function AgentResultSummaryComponent({
           {loading && (
             <div className="flex h-full items-center justify-center">
               <ShimmeringText
-                text="Loading agent summary…"
+                text="Loading agent runs…"
                 className="text-sm text-white/60 font-normal"
               />
             </div>
@@ -1879,17 +1976,22 @@ export default function AgentResultSummaryComponent({
               {error}
             </div>
           )}
-          {!loading && !error && !data?.runs?.length && (
+          {!loading && !error && !runEntries.length && (
             <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
               No agent runs available yet.
             </div>
           )}
-          {!loading && !error && data?.runs?.length ? (
+          {!loading && !error && runEntries.length ? (
             <div className="space-y-4">
-              {data.runs.map((run) => {
-                const isSelected = run.run_id === selectedRunId;
+              {runEntries.map((run) => {
+                const isSelected = run.ref.runKey === selectedRunRef?.runKey;
+                const methodologyMeta =
+                  RUN_METHODOLOGY_META[
+                    normalizeAgentRunMethodology(run.methodology) ?? 'rz'
+                  ];
                 const chartData =
-                  run.metadata?.historical_best?.map((entry) => ({
+                  run.ref.methodology === 'rz'
+                    ? run.metadata?.historical_best?.map((entry) => ({
                     time: new Date(entry.ts_iso).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -1899,13 +2001,14 @@ export default function AgentResultSummaryComponent({
                         entry.best_total_improvement !== undefined
                         ? entry.best_total_improvement
                         : Number.NaN,
-                  })) ?? [];
+                    })) ?? []
+                    : [];
 
                 return (
                   <button
-                    key={run.run_id}
+                    key={run.ref.runKey}
                     type="button"
-                    onClick={() => setSelectedRunId(run.run_id)}
+                    onClick={() => setSelectedRunRef(run.ref)}
                     aria-pressed={isSelected}
                     className={`group block w-full rounded-2xl border px-5 py-4 text-left transition-all duration-150 ${isSelected
                       ? 'border-emerald-400/70 bg-emerald-400/10 shadow-[0_18px_40px_-24px_rgba(16,185,129,0.8)]'
@@ -1914,11 +2017,21 @@ export default function AgentResultSummaryComponent({
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <div className="text-xs font-medium text-white/60">
-                          Run ID
+                        <div className="flex items-center gap-2">
+                          <div className="text-xs font-medium text-white/60">
+                            Run ID
+                          </div>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${methodologyMeta.badge}`}
+                          >
+                            {methodologyMeta.label}
+                          </span>
                         </div>
                         <div className="mt-1 text-lg font-semibold text-white">
                           {run.run_id}
+                        </div>
+                        <div className="mt-1 text-xs text-white/55">
+                          {methodologyMeta.description}
                         </div>
                       </div>
                       <div className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
@@ -1926,26 +2039,34 @@ export default function AgentResultSummaryComponent({
                       </div>
                     </div>
 
-                    <div className="mt-4 space-y-3">
-                      {run.solutions.map((solution) => {
-                        const trajectoryLabel = formatTrajectoryLength(solution.trajectory_length);
-                        return (
-                          <div
-                            key={`${run.run_id}-solution-${solution.rank}`}
-                            className="rounded-xl border border-white/5 bg-black/20 px-4 py-3 transition group-hover:border-white/10"
-                          >
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="font-medium text-white/85">
-                                {`Rank ${solution.rank} · ${trajectoryLabel}`}
-                              </span>
-                              <span className="font-semibold text-emerald-200">
-                                {formatImprovement(solution.total_improvement)}
-                              </span>
+                    {run.ref.methodology === 'rz' && run.solutions.length > 0 ? (
+                      <div className="mt-4 space-y-3">
+                        {run.solutions.map((solution) => {
+                          const trajectoryLabel = formatTrajectoryLength(solution.trajectory_length);
+                          return (
+                            <div
+                              key={`${run.ref.runKey}-solution-${solution.rank}`}
+                              className="rounded-xl border border-white/5 bg-black/20 px-4 py-3 transition group-hover:border-white/10"
+                            >
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium text-white/85">
+                                  {`Rank ${solution.rank} · ${trajectoryLabel}`}
+                                </span>
+                                <span className="font-semibold text-emerald-200">
+                                  {formatImprovement(solution.total_improvement)}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-xl border border-white/5 bg-black/20 px-4 py-3 text-sm text-white/60">
+                        {run.ref.methodology === 'sa'
+                          ? 'Objective progress, occupancy, TV relief, and delay attribution are available in the SA detail panel.'
+                          : 'No ranked RZ solutions available for this run.'}
+                      </div>
+                    )}
 
                     {chartData.length > 0 && (
                       <div className="mt-4 h-24 rounded-xl border border-white/5 bg-slate-900/60 px-3 py-2">
@@ -1979,24 +2100,26 @@ export default function AgentResultSummaryComponent({
           ) : null}
         </div>
       </aside>
-
-      <section className="agent-result-summary__details-pane relative flex flex-col">
-        {error ? (
-          <div className="flex h-full items-center justify-center px-6 text-sm text-red-300">
-            {error}
-          </div>
-        ) : !selectedRun ? (
-          <div className="flex h-full items-center justify-center">
-            {loading ? (
-              <ShimmeringText
-                text="Loading runs…"
-                className="text-sm text-white/50 font-normal"
-              />
-            ) : (
-              'Select a run to view its solutions.'
-            )}
-          </div>
-        ) : (
+      {error ? (
+        <section className="col-span-2 flex h-full items-center justify-center px-6 text-sm text-red-300">
+          {error}
+        </section>
+      ) : !selectedRun ? (
+        <section className="col-span-2 flex h-full items-center justify-center">
+          {loading ? (
+            <ShimmeringText
+              text="Loading runs…"
+              className="text-sm text-white/50 font-normal"
+            />
+          ) : (
+            'Select a run to view its solutions.'
+          )}
+        </section>
+      ) : selectedRun.ref.methodology === 'sa' ? (
+        <AgentSaResultSummaryPanel run={selectedRun.ref} />
+      ) : (
+        <>
+          <section className="agent-result-summary__details-pane relative flex flex-col">
           <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-6">
             <div className="space-y-6">
               <div className="mb-4 flex justify-end gap-2">
@@ -2515,10 +2638,9 @@ export default function AgentResultSummaryComponent({
               )}
             </div>
           </div>
-        )}
-      </section>
+          </section>
 
-      <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5">
+          <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5">
         {!selectedRun ? (
           <div className="flex h-full items-center justify-center text-sm text-white/60">
             Select a run to view flight impacts.
@@ -2683,7 +2805,9 @@ export default function AgentResultSummaryComponent({
             </div>
           </>
         )}
-      </aside>
+          </aside>
+        </>
+      )}
     </div >
   );
 }

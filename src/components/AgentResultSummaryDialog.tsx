@@ -2,17 +2,18 @@
 
 import ModalDialog from './ModalDialog';
 import AgentResultSummaryComponent from './AgentResultSummaryComponent';
+import type { AgentRunRef } from '@/lib/agentRuns';
 
 interface AgentResultSummaryDialogProps {
   open: boolean;
   onClose: () => void;
-  initialRunId?: string | null;
+  initialRun?: AgentRunRef | null;
 }
 
 export default function AgentResultSummaryDialog({
   open,
   onClose,
-  initialRunId,
+  initialRun,
 }: AgentResultSummaryDialogProps) {
   return (
     <ModalDialog
@@ -25,7 +26,7 @@ export default function AgentResultSummaryDialog({
     >
       <AgentResultSummaryComponent
         className="h-full p-6"
-        initialRunId={initialRunId ?? undefined}
+        initialRun={initialRun ?? undefined}
       />
     </ModalDialog>
   );

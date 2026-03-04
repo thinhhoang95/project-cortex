@@ -28,6 +28,8 @@ interface PerAccDelayAttributionPanelProps {
   unavailableMessage?: string;
   title?: string;
   variant?: "dialog" | "page";
+  allowModeChange?: boolean;
+  metricsGridClassName?: string;
 }
 
 const toTrimmedString = (value: unknown): string => {
@@ -80,6 +82,8 @@ export default function PerAccDelayAttributionPanel({
   unavailableMessage = "ACC attribution is unavailable for the current response.",
   title = "ACC Delay Attribution",
   variant = "dialog",
+  allowModeChange = true,
+  metricsGridClassName = "grid gap-4 sm:grid-cols-2 lg:grid-cols-5",
 }: PerAccDelayAttributionPanelProps) {
   const topHeadingClass =
     variant === "dialog"
@@ -126,19 +130,25 @@ export default function PerAccDelayAttributionPanel({
         <div className={topHeadingClass}>{title}</div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="text-[11px] uppercase tracking-wider text-white/60">Mode</div>
-          <select
-            aria-label="Select per-ACC delay attribution mode"
-            className="h-8 px-3 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 transition-colors text-[12px] disabled:opacity-60"
-            value={mode}
-            onChange={(event) => void onModeChange(event.currentTarget.value as RegulationPlanPerAccAttribMode)}
-            disabled={loading}
-          >
-            {PER_ACC_ATTRIB_MODE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          {allowModeChange ? (
+            <select
+              aria-label="Select per-ACC delay attribution mode"
+              className="h-8 px-3 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15 transition-colors text-[12px] disabled:opacity-60"
+              value={mode}
+              onChange={(event) => void onModeChange(event.currentTarget.value as RegulationPlanPerAccAttribMode)}
+              disabled={loading}
+            >
+              {PER_ACC_ATTRIB_MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="rounded-md border border-white/15 bg-white/10 px-3 py-1.5 text-[12px] text-white/75">
+              {resultModeLabel}
+            </div>
+          )}
           {loading && (
             <div className="text-[11px] text-white/70">
               <ShimmeringText text="Refreshing attribution..." />
@@ -155,7 +165,7 @@ export default function PerAccDelayAttributionPanel({
 
       {perAccAttrib ? (
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className={metricsGridClassName}>
             <div className={`bg-white/5 border border-white/10 ${panelRadiusClass} p-4`}>
               <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Mode</div>
               <div className="text-lg font-semibold text-white">{resultModeLabel}</div>
@@ -269,4 +279,3 @@ export default function PerAccDelayAttributionPanel({
     </div>
   );
 }
-

@@ -10,6 +10,7 @@ import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import { computeNetDeltaByTv } from "@/lib/trafficVolumeRelief";
 
 const PAGE_SIZE = 20;
+const CAPACITY_HIDE_THRESHOLD = 998;
 
 type SortMode = "total" | "abs_change" | "relative_change" | "exceedance";
 
@@ -172,7 +173,8 @@ export default function OccupancyPrePostPanel({
         const inc = Math.max(0, bb - aa);
         const dec = Math.max(0, aa - bb);
         const capRaw = Number((C || [])[i] ?? NaN);
-        const cap = Number.isFinite(capRaw) ? capRaw : null;
+        const cap =
+          Number.isFinite(capRaw) && capRaw <= CAPACITY_HIDE_THRESHOLD ? capRaw : null;
         return { idx: i, startMin, base, inc, dec, pre: aa, post: bb, cap };
       });
       const filtered = arr.filter((r) => r.startMin >= vFrom && r.startMin <= vTo);

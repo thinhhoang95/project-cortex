@@ -10,6 +10,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
 import AgentModal from '@/components/AgentModal';
 import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
+import type { AgentRunRef } from '@/lib/agentRuns';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
 import { formatFlightLevelRange } from '@/lib/trafficVolumeFormat';
@@ -30,7 +31,7 @@ export default function Header() {
   const [collapsedSectors, setCollapsedSectors] = useState<any[]>([]);
   const [showAgent, setShowAgent] = useState(false);
   const [showAgentSummary, setShowAgentSummary] = useState(false);
-  const [agentSummaryRunId, setAgentSummaryRunId] = useState<string | null>(null);
+  const [agentSummaryRun, setAgentSummaryRun] = useState<AgentRunRef | null>(null);
   const [showFlightQuery, setShowFlightQuery] = useState(false);
   const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
 
@@ -201,8 +202,8 @@ export default function Header() {
     window.dispatchEvent(event);
   };
 
-  const handleShowAgentSummary = (runId: string) => {
-    setAgentSummaryRunId(runId);
+  const handleShowAgentSummary = (run: AgentRunRef) => {
+    setAgentSummaryRun(run);
     setShowAgentSummary(true);
     setShowAgent(false);
   };
@@ -506,9 +507,9 @@ export default function Header() {
         open={showAgentSummary}
         onClose={() => {
           setShowAgentSummary(false);
-          setAgentSummaryRunId(null);
+          setAgentSummaryRun(null);
         }}
-        initialRunId={agentSummaryRunId}
+        initialRun={agentSummaryRun}
       />
       <FlightQueryDialog
         open={showFlightQuery}

@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import AgentRunResultsList from './AgentRunResultsList';
+import type { AgentRunRef } from '@/lib/agentRuns';
 
 interface AgentModalProps {
   open: boolean;
   onClose: () => void;
-  onShowSummary?: (runId: string) => void;
+  onShowSummary?: (run: AgentRunRef) => void;
 }
 
 export default function AgentModal({ open, onClose, onShowSummary }: AgentModalProps) {
@@ -22,9 +23,9 @@ export default function AgentModal({ open, onClose, onShowSummary }: AgentModalP
 
   if (!open) return null;
 
-  const handleRunSelect = (runId: string) => {
+  const handleRunSelect = (run: AgentRunRef) => {
     onClose();
-    onShowSummary?.(runId);
+    onShowSummary?.(run);
   };
 
   return (
