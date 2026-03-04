@@ -170,6 +170,9 @@ export default function AgentSaResultSummaryPanel({
   const [selectedWindowLabel, setSelectedWindowLabel] = useState<string | null>(null);
   const [viewFrom, setViewFrom] = useState<string>('00:00');
   const [viewTo, setViewTo] = useState<string>('23:59');
+  const [occSortMode, setOccSortMode] = useState<
+    'total' | 'abs_change' | 'relative_change' | 'exceedance'
+  >('abs_change');
 
   useEffect(() => {
     setSelectedSeries('best');
@@ -292,6 +295,25 @@ export default function AgentSaResultSummaryPanel({
     if (!selectedWindow) return {};
     return analysisData?.tv_relief?.absolute_maps?.[selectedWindow.label] ?? {};
   }, [analysisData?.tv_relief?.absolute_maps, selectedWindow]);
+
+  const canRankOccAllChanges = useMemo(() => {
+    const pre = occupancyData?.pre_post?.pre_counts || {};
+    const post = occupancyData?.pre_post?.post_counts || {};
+    const hasPre = Object.values(pre).some(
+      (series) => Array.isArray(series) && (series as unknown[]).length > 0,
+    );
+    const hasPost = Object.values(post).some(
+      (series) => Array.isArray(series) && (series as unknown[]).length > 0,
+    );
+    return hasPre && hasPost;
+  }, [occupancyData?.pre_post?.pre_counts, occupancyData?.pre_post?.post_counts]);
+
+  const hasOccCapacity = useMemo(() => {
+    const capacity = occupancyData?.pre_post?.capacity || {};
+    return Object.values(capacity).some(
+      (series) => Array.isArray(series) && (series as unknown[]).length > 0,
+    );
+  }, [occupancyData?.pre_post?.capacity]);
 
   const status = String(
     analysisData?.metadata?.status ??
@@ -697,7 +719,7 @@ export default function AgentSaResultSummaryPanel({
           </div>
 
           <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4">
-            <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(280px,1fr)_auto] items-end">
+            <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(280px,1fr)_auto_auto] items-end">
               <div>
                 <div className="text-[11px] uppercase tracking-wide text-white/45 mb-2">Visible Time Range</div>
                 <TimeScaleControl
@@ -709,6 +731,41 @@ export default function AgentSaResultSummaryPanel({
                     setViewTo(to);
                   }}
                 />
+              </div>
+              <div className="flex items-center justify-start lg:justify-end gap-2">
+                <select
+                  className="h-[40px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
+                  value={occSortMode}
+                  aria-label="SA occupancy histogram sort"
+                  onChange={(e) =>
+                    setOccSortMode(
+                      e.currentTarget.value as 'total' | 'abs_change' | 'relative_change' | 'exceedance',
+                    )
+                  }
+                >
+                  <option value="total">Rank by Total</option>
+                  <option
+                    value="abs_change"
+                    disabled={!canRankOccAllChanges}
+                    title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
+                  >
+                    Rank by Absolute Changes
+                  </option>
+                  <option
+                    value="relative_change"
+                    disabled={!canRankOccAllChanges}
+                    title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
+                  >
+                    Rank by Relative Changes
+                  </option>
+                  <option
+                    value="exceedance"
+                    disabled={!hasOccCapacity}
+                    title={!hasOccCapacity ? 'Capacity data required to rank by exceedance.' : undefined}
+                  >
+                    By Exceedances
+                  </option>
+                </select>
               </div>
               <div className="text-xs text-white/55">
                 View {viewFrom} → {viewTo}
@@ -728,7 +785,8 @@ export default function AgentSaResultSummaryPanel({
                 binMinutes={occupancyBinMinutes}
                 viewFrom={viewFrom}
                 viewTo={viewTo}
-                defaultSortMode="abs_change"
+                sortMode={occSortMode}
+                onSortModeChange={setOccSortMode}
                 loading={occupancyLoading}
                 error={occupancyError}
                 showReliefMap={false}
