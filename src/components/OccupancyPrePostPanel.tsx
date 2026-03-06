@@ -7,6 +7,7 @@ import type { OccupancySeriesByTv } from "@/lib/models";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
+import ShimmeringText from "@/components/ShimmeringText";
 import { computeNetDeltaByTv } from "@/lib/trafficVolumeRelief";
 
 const PAGE_SIZE = 20;
@@ -426,7 +427,13 @@ function OccupancyPrePostPanelInner({
         <div className="text-[11px] text-amber-300 mb-2">Warning: fetched bin size ({fetchedBin}m) differs from expected ({binMinutes}m). Using {binMinutes}m for axes.</div>
       )}
       {err && <div className="text-xs text-rose-300 mb-2">{err}</div>}
-      {isLoading && <div className="text-xs text-white/70 mb-2">Loading...</div>}
+      {isLoading && (
+        <ShimmeringText
+          text="Loading..."
+          className="mb-2 text-xs text-white/70 font-normal"
+          theme="dark"
+        />
+      )}
 
       {showReliefMap && (
         <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">

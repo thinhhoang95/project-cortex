@@ -7,6 +7,7 @@ import { useSimStore } from '@/components/useSimStore';
 export default function LoginForm() {
   const router = useRouter();
   const login = useSimStore((s) => s.login);
+  const resourceDate = useSimStore((s) => s.resourceDate);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export default function LoginForm() {
         setLoading(false);
         return;
       }
-      router.push('/');
+      router.push(resourceDate ? '/' : '/select-date');
     } catch (err) {
       setError('Unable to sign in. Please try again.');
       setLoading(false);

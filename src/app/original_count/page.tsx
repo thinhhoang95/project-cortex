@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from 'next/navigation';
+import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from '@/components/useSimStore';
 import Header from "@/components/Header";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import ShimmeringText from "@/components/ShimmeringText";
 import { loadSectors } from "@/lib/airspace";
-import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
@@ -63,9 +63,7 @@ const SHOCKWAVE_HORIZON_OPTIONS = [
 const TV_PAGE_SIZE = 24;
 
 export default function OriginalCountPage() {
-  const router = useRouter();
-  const user = useSimStore((state) => state.user);
-  const [hydrated, setHydrated] = useState(false);
+  const resourceDate = useSimStore((state) => state.resourceDate);
   const [options, setOptions] = useState<ChipOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [selectedTVs, setSelectedTVs] = useState<string[]>([]);
@@ -85,26 +83,17 @@ export default function OriginalCountPage() {
   const [visibleMentionedTvCount, setVisibleMentionedTvCount] = useState<number>(TV_PAGE_SIZE);
   const [visibleTopTvCount, setVisibleTopTvCount] = useState<number>(TV_PAGE_SIZE);
 
-  useEffect(() => {
-    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(useSimStore.persist.hasHydrated());
-    return () => {
-      unsub();
-    };
-  }, []);
+  const { hydrated, ready, user } = useResourceDateGuard();
 
   useEffect(() => {
-    if (hydrated && !user) {
-      router.push('/login');
-    }
-  }, [hydrated, user, router]);
+    if (!resourceDate) return;
 
-  useEffect(() => {
+    const resourcePaths = getResourcePathsForDate(resourceDate);
     let cancelled = false;
     const load = async () => {
       setLoadingOptions(true);
       try {
-        const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
+        const fc = await loadSectors(resourcePaths.airspaceGeojson);
         if (cancelled) return;
         const opts: ChipOption[] = (fc.features || [])
           .map((f: any) => {
@@ -134,7 +123,7 @@ export default function OriginalCountPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [resourceDate]);
 
   const valid = useMemo(() => {
     const from = hhmmToSec(fromTime);
@@ -257,12 +246,12 @@ export default function OriginalCountPage() {
   }, [data]);
 
   // Ensure hooks are always called before any early return
-  if (!hydrated || !user) {
+  if (!hydrated || !ready || !user) {
     return null;
   }
 
   return (
-    <main className="min-h-screen w-screen overflow-x-hidden analytics-surface relative">
+    <main key={resourceDate ?? "no-resource-date"} className="min-h-screen w-screen overflow-x-hidden analytics-surface relative">
       <Header />
       <div className="pt-16 pb-12 px-6">
         <div className="max-w-7xl mx-auto">

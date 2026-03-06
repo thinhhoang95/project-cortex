@@ -19,7 +19,7 @@ const TITILER_BASE = "https://wxtiles.tailwind-api.intuelle.com";
 const COG_BASE = `${TITILER_BASE}/cogs`;
 
 export function isoHourFrom(dateStr: string, t: number): string {
-  const [ddStr, mmStr, yyyyStr] = String(dateStr || "").split("/") as [string, string, string];
+  const [yyyyStr, mmStr, ddStr] = String(dateStr || "").split("-") as [string, string, string];
   const dd = Number(ddStr || "1");
   const mm = Number(mmStr || "1");
   const yyyy = Number(yyyyStr || "1970");

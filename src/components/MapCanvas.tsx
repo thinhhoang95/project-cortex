@@ -5,11 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
-import {
-  AIRSPACE_GEOJSON_PATH,
-  COLLAPSED_SECTORS_GEOJSON_PATH,
-  FLIGHTS_CSV_PATH,
-} from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import { SectorFeatureProps, Trajectory } from "@/lib/models";
@@ -48,7 +44,7 @@ export default function MapCanvas() {
   const lastTs = useRef<number>(performance.now());
   const {
     t,
-    date,
+    resourceDate,
     weatherOverlay,
     tick,
     setRange,
@@ -81,6 +77,10 @@ export default function MapCanvas() {
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
+  const resourcePaths = useMemo(
+    () => (resourceDate ? getResourcePathsForDate(resourceDate) : null),
+    [resourceDate],
+  );
 
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -91,6 +91,8 @@ export default function MapCanvas() {
 
   // init map
   useEffect(() => {
+    if (!resourcePaths) return;
+
     const map = new maplibregl.Map({
       container: "map",
       style: createMapStyle(theme, 512),
@@ -103,9 +105,9 @@ export default function MapCanvas() {
       setBaseDataLoading(true);
       // Data
       const [sectors, tracks, collapsedSectorsRaw] = await Promise.all([
-        loadSectors(AIRSPACE_GEOJSON_PATH),
-        loadTrajectories(FLIGHTS_CSV_PATH),
-        loadSectors(COLLAPSED_SECTORS_GEOJSON_PATH).catch((error) => {
+        loadSectors(resourcePaths.airspaceGeojson),
+        loadTrajectories(resourcePaths.flightsCsv),
+        loadSectors(resourcePaths.collapsedSectorsGeojson).catch((error) => {
           console.error("Failed to preload collapsed sectors:", error);
           return null;
         }),
@@ -465,7 +467,7 @@ export default function MapCanvas() {
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+  }, [resourcePaths, theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
@@ -518,7 +520,7 @@ export default function MapCanvas() {
       return;
     }
 
-    const targetHour = isoHourFrom(date, t);
+    const targetHour = isoHourFrom(resourceDate ?? "1970-01-01", t);
 
     const apply = () => {
       try {
@@ -547,7 +549,7 @@ export default function MapCanvas() {
       cancelled = true;
       try { map.off('render', waitForReady); } catch { }
     };
-  }, [weatherOverlay, t, date]);
+  }, [resourceDate, t, weatherOverlay]);
 
   // on showFlightLineLabels change, update layer visibility
   useEffect(() => {

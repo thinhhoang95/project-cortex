@@ -158,7 +158,7 @@ export default function AgentRunResultsList({
             <ShimmeringText
               text="Loading agent runs…"
               className="text-sm text-[color:var(--panel-text-muted)] font-normal"
-              theme="light"
+              theme="dark"
             />
           </div>
         ) : error ? (

@@ -1,40 +1,125 @@
-/**
- * Central configuration for data file paths
- * This module provides a single source of truth for all data file locations
- */
+import resourceManifestJson from "../../public/data/resource_manifest.json";
 
-/**
- * Path to the main flight trajectories CSV file
- */
-export const FLIGHTS_CSV_PATH = "/data/flights_20230717_0000-2359.csv";
+export type ResourceManifestResourceKey =
+  | "flightsCsv"
+  | "airspaceGeojson"
+  | "collapsedSectorsGeojson"
+  | "airspaceJson"
+  | "tvCapacityRanges";
 
-/**
- * Primary path to the airspace GeoJSON file
- */
-export const AIRSPACE_GEOJSON_PATH = "/data/wxm_sm_ih_maxpool_plus_nonas.geojson";
+export type ResourceManifestEntry = {
+  resources: Record<ResourceManifestResourceKey, string>;
+};
 
-/**
- * Path to collapsed sectors artifact
- */
-export const COLLAPSED_SECTORS_GEOJSON_PATH = "/data/collapsed_sectors.geojson";
+export type ResourceManifest = {
+  version: number;
+  dates: Record<string, Partial<ResourceManifestEntry>>;
+};
 
-// Backward-compatible alias while older call sites are migrated.
-export const ELEMENTARY_SECTORS_GEOJSON_PATH = COLLAPSED_SECTORS_GEOJSON_PATH;
+export type ResolvedResourcePaths = {
+  flightsCsv: string;
+  airspaceGeojson: string;
+  collapsedSectorsGeojson: string;
+  airspaceJson: string;
+  tvCapacityRanges: string;
+  airspaceCandidates: readonly [string, string];
+};
 
-/**
- * Fallback path to the airspace JSON file (for backwards compatibility)
- */
-export const AIRSPACE_JSON_PATH = "/data/airspace.json";
-
-/**
- * Array of airspace file paths to try in order of preference
- */
-export const AIRSPACE_PATH_CANDIDATES = [
-  AIRSPACE_GEOJSON_PATH,
-  AIRSPACE_JSON_PATH,
+const REQUIRED_RESOURCE_KEYS: readonly ResourceManifestResourceKey[] = [
+  "flightsCsv",
+  "airspaceGeojson",
+  "collapsedSectorsGeojson",
+  "airspaceJson",
+  "tvCapacityRanges",
 ] as const;
 
-/**
- * Path to traffic-volume capacity range mapping data
- */
-export const TV_CAPACITY_RANGES_BY_ES_PATH = "/data/tv_capacity_ranges_by_es_test.json";
+const parsedManifest = resourceManifestJson as ResourceManifest;
+
+function isNonEmptyPath(value: unknown): value is string {
+  return typeof value === "string" && value.trim().startsWith("/");
+}
+
+function withDateCacheKey(path: string, date: string): string {
+  const normalizedPath = String(path ?? "").trim();
+  if (!normalizedPath) return normalizedPath;
+  const joiner = normalizedPath.includes("?") ? "&" : "?";
+  return `${normalizedPath}${joiner}resourceDate=${encodeURIComponent(date)}`;
+}
+
+function getManifestEntry(date: string): Partial<ResourceManifestEntry> | null {
+  const normalizedDate = String(date ?? "").trim();
+  if (!normalizedDate) return null;
+  return parsedManifest?.dates?.[normalizedDate] ?? null;
+}
+
+export function getResourceManifest(): ResourceManifest {
+  return parsedManifest;
+}
+
+export function listLocalResourceDates(): string[] {
+  return Object.keys(parsedManifest?.dates ?? {}).sort();
+}
+
+export function getManifestMissingKeys(date: string): ResourceManifestResourceKey[] {
+  const entry = getManifestEntry(date);
+  if (!entry?.resources || typeof entry.resources !== "object") {
+    return REQUIRED_RESOURCE_KEYS.slice();
+  }
+
+  return REQUIRED_RESOURCE_KEYS.filter((key) => !isNonEmptyPath(entry.resources?.[key]));
+}
+
+export function hasLocalResourceSupport(date: string): boolean {
+  return getManifestMissingKeys(date).length === 0;
+}
+
+export function getResourcePathsForDate(date: string): ResolvedResourcePaths {
+  const normalizedDate = String(date ?? "").trim();
+  const entry = getManifestEntry(normalizedDate);
+  const missingKeys = getManifestMissingKeys(normalizedDate);
+
+  if (!entry?.resources || missingKeys.length > 0) {
+    throw new Error(
+      `Local resource manifest is incomplete for ${normalizedDate || "unknown date"}: ${missingKeys.join(", ")}`
+    );
+  }
+
+  const flightsCsv = withDateCacheKey(entry.resources.flightsCsv, normalizedDate);
+  const airspaceGeojson = withDateCacheKey(entry.resources.airspaceGeojson, normalizedDate);
+  const collapsedSectorsGeojson = withDateCacheKey(entry.resources.collapsedSectorsGeojson, normalizedDate);
+  const airspaceJson = withDateCacheKey(entry.resources.airspaceJson, normalizedDate);
+  const tvCapacityRanges = withDateCacheKey(entry.resources.tvCapacityRanges, normalizedDate);
+
+  return {
+    flightsCsv,
+    airspaceGeojson,
+    collapsedSectorsGeojson,
+    airspaceJson,
+    tvCapacityRanges,
+    airspaceCandidates: [airspaceGeojson, airspaceJson],
+  };
+}
+
+export function getFlightsCsvPath(date: string): string {
+  return getResourcePathsForDate(date).flightsCsv;
+}
+
+export function getAirspaceGeojsonPath(date: string): string {
+  return getResourcePathsForDate(date).airspaceGeojson;
+}
+
+export function getCollapsedSectorsGeojsonPath(date: string): string {
+  return getResourcePathsForDate(date).collapsedSectorsGeojson;
+}
+
+export function getAirspaceJsonPath(date: string): string {
+  return getResourcePathsForDate(date).airspaceJson;
+}
+
+export function getAirspacePathCandidates(date: string): readonly [string, string] {
+  return getResourcePathsForDate(date).airspaceCandidates;
+}
+
+export function getTvCapacityRangesPath(date: string): string {
+  return getResourcePathsForDate(date).tvCapacityRanges;
+}

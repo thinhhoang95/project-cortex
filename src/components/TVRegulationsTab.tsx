@@ -3,7 +3,8 @@ import MultiSelectWithChips, { ChipOption } from "./MultiSelectWithChips";
 import TrafficVolumeMiniMap from "./TrafficVolumeMiniMap";
 import { TrafficVolumeRegulation } from "@/types/scenarios";
 import { loadSectors } from "@/lib/airspace";
-import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
+import { useSimStore } from "@/components/useSimStore";
 
 interface TVRegulationsTabProps {
     regulations: TrafficVolumeRegulation[];
@@ -14,16 +15,20 @@ export default function TVRegulationsTab({
     regulations,
     onChange,
 }: TVRegulationsTabProps) {
+    const resourceDate = useSimStore((state) => state.resourceDate);
     const [options, setOptions] = useState<ChipOption[]>([]);
     const [loadingOptions, setLoadingOptions] = useState(false);
     const [selectedTVs, setSelectedTVs] = useState<string[]>([]);
 
     useEffect(() => {
+        if (!resourceDate) return;
+
+        const resourcePaths = getResourcePathsForDate(resourceDate);
         let cancelled = false;
         const load = async () => {
             setLoadingOptions(true);
             try {
-                const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
+                const fc = await loadSectors(resourcePaths.airspaceGeojson);
                 if (cancelled) return;
                 const opts: ChipOption[] = (fc.features || [])
                     .map((f: any) => {
@@ -60,7 +65,7 @@ export default function TVRegulationsTab({
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [resourceDate]);
 
     const handleAddRegulation = (tvId: string) => {
         // Check if already exists to avoid duplicates if desired, 

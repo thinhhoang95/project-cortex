@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
 import {
   CartesianGrid,
   Line,
@@ -16,6 +17,7 @@ import PerAccDelayAttributionPanel from '@/components/PerAccDelayAttributionPane
 import ShimmeringText from '@/components/ShimmeringText';
 import TimeScaleControl from '@/components/TimeScaleControl';
 import TrafficVolumeReliefMap from '@/components/TrafficVolumeReliefMap';
+import { useSimStore } from '@/components/useSimStore';
 import { authFetch } from '@/lib/auth';
 import type {
   SaObjectiveHistorySeries,
@@ -26,6 +28,7 @@ import type {
 } from '@/lib/agentSaTypes';
 import { toSaPerAccAttrib } from '@/lib/agentSaTypes';
 import type { AgentRunRef } from '@/lib/agentRuns';
+import type { Trajectory } from '@/lib/models';
 
 type ObjectiveViewMode = 'total' | 'components';
 
@@ -58,6 +61,26 @@ function formatTimestamp(value: unknown): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function formatMinutes(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '—';
+  }
+  if (Math.abs(value) >= 100) {
+    return Math.round(value).toString();
+  }
+  const rounded = Number(value.toFixed(1));
+  return rounded.toString();
+}
+
+function pickString(values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 function minutesToHHmm(totalMinutes: number): string {
@@ -129,6 +152,89 @@ function buildObjectiveChartData(
   }));
 }
 
+interface SaFlightRowData {
+  flightId: string;
+  callsign: string;
+  origin: string;
+  destination: string;
+  delayMinutes: number;
+}
+
+function buildSaFlightRows(
+  analysis: SaPosthocAnalysisResponse | null,
+  flightsById: Map<string, Trajectory>,
+): SaFlightRowData[] {
+  const delays = analysis?.best_solution?.delays_by_flight;
+  if (!delays || typeof delays !== 'object') return [];
+
+  const bestSolution = analysis?.best_solution as Record<string, unknown> | undefined;
+  const flightMetadataByFlightRaw =
+    bestSolution?.flight_metadata_by_flight ??
+    bestSolution?.flight_metadata ??
+    bestSolution?.metadata_by_flight;
+  const flightMetadataByFlight =
+    flightMetadataByFlightRaw &&
+    typeof flightMetadataByFlightRaw === 'object' &&
+    !Array.isArray(flightMetadataByFlightRaw)
+      ? (flightMetadataByFlightRaw as Record<string, unknown>)
+      : undefined;
+
+  const rows: SaFlightRowData[] = [];
+  for (const [flightIdRaw, delayRaw] of Object.entries(delays)) {
+    const flightId = String(flightIdRaw).trim();
+    if (!flightId) continue;
+
+    const delayMinutes = toFiniteNumber(delayRaw);
+    if (delayMinutes === null) continue;
+
+    const sim = flightsById.get(flightId);
+    const flightMetadataRaw = flightMetadataByFlight?.[flightId];
+    const flightMetadata =
+      flightMetadataRaw &&
+      typeof flightMetadataRaw === 'object' &&
+      !Array.isArray(flightMetadataRaw)
+        ? (flightMetadataRaw as Record<string, unknown>)
+        : undefined;
+
+    rows.push({
+      flightId,
+      callsign:
+        pickString([
+          flightMetadata?.callsign,
+          flightMetadata?.call_sign,
+          sim?.callSign,
+          sim?.flightId,
+          flightId,
+        ]) ?? flightId,
+      origin: pickString([flightMetadata?.origin, flightMetadata?.origin_aerodrome, sim?.origin]) ?? '—',
+      destination:
+        pickString([
+          flightMetadata?.destination,
+          flightMetadata?.destination_aerodrome,
+          sim?.destination,
+        ]) ?? '—',
+      delayMinutes,
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (Math.abs(b.delayMinutes - a.delayMinutes) > 0.001) {
+      return b.delayMinutes - a.delayMinutes;
+    }
+    const callsignOrder = a.callsign.localeCompare(b.callsign, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+    if (callsignOrder !== 0) return callsignOrder;
+    return a.flightId.localeCompare(b.flightId, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  });
+
+  return rows;
+}
+
 function objectiveTooltip({
   active,
   payload,
@@ -174,10 +280,13 @@ export default function AgentSaResultSummaryPanel({
   const [occSortMode, setOccSortMode] = useState<
     'total' | 'abs_change' | 'relative_change' | 'exceedance'
   >('abs_change');
+  const [pinnedTrafficVolumes, setPinnedTrafficVolumes] = useState<string[]>([]);
+  const flights = useSimStore((state) => state.flights);
 
   useEffect(() => {
     setSelectedSeries('best');
     setObjectiveView('total');
+    setPinnedTrafficVolumes([]);
   }, [run.runKey]);
 
   useEffect(() => {
@@ -285,6 +394,21 @@ export default function AgentSaResultSummaryPanel({
     () => buildObjectiveChartData(analysisData),
     [analysisData],
   );
+  const flightsById = useMemo(() => {
+    const map = new Map<string, Trajectory>();
+    for (const flight of flights) {
+      map.set(String(flight.flightId), flight);
+    }
+    return map;
+  }, [flights]);
+  const delayRows = useMemo(
+    () => buildSaFlightRows(analysisData, flightsById),
+    [analysisData, flightsById],
+  );
+  const delayedRowsCount = useMemo(
+    () => delayRows.filter((row) => row.delayMinutes > 0).length,
+    [delayRows],
+  );
 
   const selectedWindow = useMemo<SaTvReliefWindow | null>(() => {
     const windows = analysisData?.tv_relief?.windows ?? [];
@@ -315,6 +439,53 @@ export default function AgentSaResultSummaryPanel({
       (series) => Array.isArray(series) && (series as unknown[]).length > 0,
     );
   }, [occupancyData?.pre_post?.capacity]);
+  const availableTrafficVolumes = useMemo(() => {
+    const set = new Set<string>();
+    const prePost = occupancyData?.pre_post;
+    if (prePost) {
+      Object.keys(prePost.post_counts ?? {}).forEach((key) => set.add(String(key)));
+      Object.keys(prePost.pre_counts ?? {}).forEach((key) => set.add(String(key)));
+      Object.keys(prePost.capacity ?? {}).forEach((key) => set.add(String(key)));
+      (prePost.tv_ids_order ?? []).forEach((key) => set.add(String(key)));
+    }
+    return Array.from(set)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [occupancyData?.pre_post]);
+  const trafficVolumeOptions = useMemo<ChipOption[]>(
+    () =>
+      availableTrafficVolumes.map((tv) => ({
+        id: tv,
+        label: `TV ${tv}`,
+      })),
+    [availableTrafficVolumes],
+  );
+  const availableTrafficVolumeSet = useMemo(
+    () => new Set(availableTrafficVolumes),
+    [availableTrafficVolumes],
+  );
+  useEffect(() => {
+    setPinnedTrafficVolumes((current) => {
+      if (!current.length) return current;
+      const sanitized = current.filter((id) => availableTrafficVolumeSet.has(id));
+      return sanitized.length === current.length ? current : sanitized;
+    });
+  }, [availableTrafficVolumeSet]);
+  const handlePinnedTrafficVolumesChange = useCallback(
+    (ids: string[]) => {
+      const seen = new Set<string>();
+      const next: string[] = [];
+      for (const raw of ids) {
+        const trimmed = raw.trim();
+        if (!trimmed || !availableTrafficVolumeSet.has(trimmed) || seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        next.push(trimmed);
+      }
+      setPinnedTrafficVolumes(next);
+    },
+    [availableTrafficVolumeSet],
+  );
 
   const status = String(
     analysisData?.metadata?.status ??
@@ -449,8 +620,9 @@ export default function AgentSaResultSummaryPanel({
   );
 
   return (
-    <section className={`col-span-2 flex min-w-0 flex-col overflow-y-auto no-scrollbar ${className}`}>
-      <div className="space-y-6 px-6 py-6">
+    <>
+      <section className={`agent-result-summary__details-pane flex min-w-0 flex-col overflow-y-auto no-scrollbar ${className}`}>
+        <div className="space-y-6 px-6 py-6">
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_40px_-24px_rgba(168,85,247,0.68)] backdrop-blur-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -719,85 +891,190 @@ export default function AgentSaResultSummaryPanel({
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4">
-            <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(280px,1fr)_auto_auto] items-end">
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-white/45 mb-2">Visible Time Range</div>
-                <TimeScaleControl
-                  time_from={viewFrom}
-                  time_to={viewTo}
-                  stepMinutes={occupancyBinMinutes}
-                  onCommit={(from, to) => {
-                    clearTimeout(commitTimeout.current);
-                    commitTimeout.current = setTimeout(() => { setViewFrom(from); setViewTo(to); }, 150);
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-start lg:justify-end gap-2">
-                <select
-                  className="h-[40px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
-                  value={occSortMode}
-                  aria-label="SA occupancy histogram sort"
-                  onChange={(e) =>
-                    setOccSortMode(
-                      e.currentTarget.value as 'total' | 'abs_change' | 'relative_change' | 'exceedance',
-                    )
-                  }
-                >
-                  <option value="total">Rank by Total</option>
-                  <option
-                    value="abs_change"
-                    disabled={!canRankOccAllChanges}
-                    title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
-                  >
-                    Rank by Absolute Changes
-                  </option>
-                  <option
-                    value="relative_change"
-                    disabled={!canRankOccAllChanges}
-                    title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
-                  >
-                    Rank by Relative Changes
-                  </option>
-                  <option
-                    value="exceedance"
-                    disabled={!hasOccCapacity}
-                    title={!hasOccCapacity ? 'Capacity data required to rank by exceedance.' : undefined}
-                  >
-                    By Exceedances
-                  </option>
-                </select>
-              </div>
-              <div className="text-xs text-white/55">
-                View {viewFrom} → {viewTo}
-              </div>
-            </div>
+	          <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-4">
+	            <div className="mb-4 grid items-end gap-3 lg:grid-cols-[minmax(280px,1fr)_auto_auto]">
+	              <div>
+	                <div className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Visible Time Range</div>
+	                <TimeScaleControl
+	                  time_from={viewFrom}
+	                  time_to={viewTo}
+	                  stepMinutes={occupancyBinMinutes}
+	                  onCommit={(from, to) => {
+	                    clearTimeout(commitTimeout.current);
+	                    commitTimeout.current = setTimeout(() => {
+	                      setViewFrom(from);
+	                      setViewTo(to);
+	                    }, 150);
+	                  }}
+	                />
+	              </div>
+	              <div className="flex items-center justify-start gap-2 lg:justify-end">
+	                <select
+	                  className="h-[40px] rounded-md border border-white/20 bg-white/10 px-3 text-[12px] text-white/90 focus:outline-none"
+	                  value={occSortMode}
+	                  aria-label="SA occupancy histogram sort"
+	                  onChange={(e) =>
+	                    setOccSortMode(
+	                      e.currentTarget.value as
+	                        | 'total'
+	                        | 'abs_change'
+	                        | 'relative_change'
+	                        | 'exceedance',
+	                    )
+	                  }
+	                >
+	                  <option value="total">Rank by Total</option>
+	                  <option
+	                    value="abs_change"
+	                    disabled={!canRankOccAllChanges}
+	                    title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
+	                  >
+	                    Rank by Absolute Changes
+	                  </option>
+	                  <option
+	                    value="relative_change"
+	                    disabled={!canRankOccAllChanges}
+	                    title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
+	                  >
+	                    Rank by Relative Changes
+	                  </option>
+	                  <option
+	                    value="exceedance"
+	                    disabled={!hasOccCapacity}
+	                    title={!hasOccCapacity ? 'Capacity data required to rank by exceedance.' : undefined}
+	                  >
+	                    By Exceedances
+	                  </option>
+	                </select>
+	              </div>
+	              <div className="text-xs text-white/55">
+	                View {viewFrom} → {viewTo}
+	              </div>
+	            </div>
+	            <div className="mb-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-4">
+	              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+	                <div>
+	                  <h4 className="text-sm font-semibold text-white/85">Pinned TVs</h4>
+	                  <p className="text-xs text-white/55">
+	                    Pin traffic volumes to keep them visible while exploring occupancy changes.
+	                  </p>
+	                </div>
+	                <div className="w-full max-w-sm">
+	                  <MultiSelectWithChips
+	                    options={trafficVolumeOptions}
+	                    selectedIds={pinnedTrafficVolumes}
+	                    onChange={handlePinnedTrafficVolumesChange}
+	                    placeholder={
+	                      trafficVolumeOptions.length
+	                        ? 'Search traffic volumes...'
+	                        : 'No traffic volumes available'
+	                    }
+	                    disabled={!trafficVolumeOptions.length}
+	                  />
+	                </div>
+	              </div>
+	            </div>
 
-            {occupancyError && !occupancyData?.pre_post ? (
-              <div className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-                {occupancyError}
-              </div>
-            ) : (
-              <OccupancyPrePostPanel
-                postCounts={occupancyData?.pre_post?.post_counts ?? {}}
-                preCounts={occupancyData?.pre_post?.pre_counts ?? {}}
-                capacity={occupancyData?.pre_post?.capacity ?? undefined}
-                tvOrder={occupancyData?.pre_post?.tv_ids_order ?? undefined}
-                binMinutes={occupancyBinMinutes}
-                viewFrom={viewFrom}
-                viewTo={viewTo}
-                sortMode={occSortMode}
-                onSortModeChange={setOccSortMode}
-                loading={occupancyLoading}
-                error={occupancyError}
-                showReliefMap={false}
-                compact
-                showLabels={false}
-              />
-            )}
+	            {occupancyError && !occupancyData?.pre_post ? (
+	              <div className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+	                {occupancyError}
+	              </div>
+	            ) : (
+	              <OccupancyPrePostPanel
+	                postCounts={occupancyData?.pre_post?.post_counts ?? {}}
+	                preCounts={occupancyData?.pre_post?.pre_counts ?? {}}
+	                capacity={occupancyData?.pre_post?.capacity ?? undefined}
+	                tvOrder={occupancyData?.pre_post?.tv_ids_order ?? undefined}
+	                binMinutes={occupancyBinMinutes}
+	                viewFrom={viewFrom}
+	                viewTo={viewTo}
+	                sortMode={occSortMode}
+	                onSortModeChange={setOccSortMode}
+	                pinnedTvIds={pinnedTrafficVolumes}
+	                loading={occupancyLoading}
+	                error={occupancyError}
+	                showReliefMap={false}
+	                compact
+	                showLabels={false}
+	              />
+	            )}
+	          </div>
+        </div>
+        </div>
+      </section>
+      <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5">
+        <div className="border-b border-white/10 px-4 py-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-white/85">Flights (Whole Plan)</h3>
+              <p className="text-xs text-white/55">
+                Concrete delay assignment for each flight from SA final solution
+              </p>
+            </div>
+            <div className="shrink-0 whitespace-nowrap text-right text-[11px] uppercase tracking-wide text-white/45">
+              <div>{delayRows.length} flights</div>
+              <div>{delayedRowsCount} delayed</div>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+        <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-4">
+          {analysisLoading && delayRows.length === 0 ? (
+            <div className="flex h-full justify-center">
+              <ShimmeringText
+                text="Loading flights…"
+                className="text-sm text-white/60 font-normal"
+              />
+            </div>
+          ) : analysisError && delayRows.length === 0 ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {analysisError}
+            </div>
+          ) : delayRows.length > 0 ? (
+            <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-[0_12px_30px_-20px_rgba(8,145,178,0.6)]">
+              <table className="w-full table-fixed text-xs text-white/80">
+                <thead>
+                  <tr className="bg-white/10 text-[11px] uppercase tracking-wide text-white/55">
+                    <th className="w-10 px-3 py-2 text-center">✓</th>
+                    <th className="w-24 px-3 py-2 text-left">Callsign</th>
+                    <th className="w-16 px-3 py-2 text-left">Origin</th>
+                    <th className="w-16 px-3 py-2 text-left">Dest</th>
+                    <th className="px-3 py-2 text-right">Delay (min)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {delayRows.map((row, index) => {
+                    const isDelayed = row.delayMinutes > 0;
+                    return (
+                      <tr
+                        key={row.flightId}
+                        className={`border-t border-white/10 text-sm transition ${
+                          index % 2 === 0 ? 'bg-white/5 hover:bg-white/10' : 'bg-white/10 hover:bg-white/15'
+                        }`}
+                      >
+                        <td className="px-3 py-2 text-center text-sm font-semibold text-white/90">
+                          {isDelayed ? '✓' : ''}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-sm text-white">
+                          {row.callsign}
+                        </td>
+                        <td className="px-3 py-2 text-sm">{row.origin}</td>
+                        <td className="px-3 py-2 text-sm">{row.destination}</td>
+                        <td className="px-3 py-2 text-right font-mono text-sm">
+                          {formatMinutes(row.delayMinutes)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-5 text-sm text-white/60">
+              No delay assignments available for this SA run.
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
   );
 }

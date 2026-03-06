@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ModalDialog from "@/components/ModalDialog";
@@ -25,7 +25,7 @@ import {
 } from "@/lib/comparison";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
-import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import { getFlightsCsvPath } from "@/lib/dataPaths";
 import { normalizeCapacity } from "@/lib/capacity";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
@@ -278,10 +278,9 @@ function formatFlights(value: number): string {
 }
 
 export default function SolutionComparisonPage() {
-  const router = useRouter();
-  const user = useSimStore((state) => state.user);
+  const resourceDate = useSimStore((state) => state.resourceDate);
   const { flights, setFlights, setRange } = useSimStore();
-  const [hydrated, setHydrated] = useState(false);
+  const { hydrated, ready, user } = useResourceDateGuard();
 
   const [snapshots, setSnapshots] = useState<SolutionSnapshot[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -302,18 +301,6 @@ export default function SolutionComparisonPage() {
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [exportText, setExportText] = useState("");
-
-  useEffect(() => {
-    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(useSimStore.persist.hasHydrated());
-    return () => { unsub(); };
-  }, []);
-
-  useEffect(() => {
-    if (hydrated && !user) {
-      router.push("/login");
-    }
-  }, [hydrated, user, router]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -337,7 +324,8 @@ export default function SolutionComparisonPage() {
     let cancelled = false;
     (async () => {
       try {
-        const tracks = await loadTrajectories(FLIGHTS_CSV_PATH);
+        if (!resourceDate) throw new Error("No resource date selected");
+        const tracks = await loadTrajectories(getFlightsCsvPath(resourceDate));
         if (cancelled) return;
         setFlights(tracks);
         if (tracks && tracks.length > 0) {
@@ -350,7 +338,7 @@ export default function SolutionComparisonPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [flights.length, setFlights, setRange]);
+  }, [flights.length, resourceDate, setFlights, setRange]);
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -1367,12 +1355,12 @@ export default function SolutionComparisonPage() {
   const visibleTvs = filteredTvIds.slice(0, visibleTvCount);
   const remainingTvCount = Math.max(0, filteredTvIds.length - visibleTvCount);
 
-  if (!hydrated || !user) {
+  if (!hydrated || !ready || !user) {
     return null;
   }
 
   return (
-    <main className="min-h-screen w-screen overflow-x-hidden analytics-surface relative">
+    <main key={resourceDate ?? "no-resource-date"} className="min-h-screen w-screen overflow-x-hidden analytics-surface relative">
       <Header />
       <div className="pt-16 pb-12 px-6">
         <div className="max-w-7xl mx-auto">

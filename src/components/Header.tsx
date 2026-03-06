@@ -4,10 +4,12 @@ import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 import { useThemeStore } from '@/components/useThemeStore';
 import { loadSectors } from '@/lib/airspace';
-import { AIRSPACE_GEOJSON_PATH, COLLAPSED_SECTORS_GEOJSON_PATH } from '@/lib/dataPaths';
+import { getResourcePathsForDate } from '@/lib/dataPaths';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
+import { clearTrafficVolumeCache } from '@/lib/trafficVolumes';
+import { clearTvCapacityRangesCache } from '@/lib/tvCapacityRanges';
 import AgentModal from '@/components/AgentModal';
 import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
 import type { AgentRunRef } from '@/lib/agentRuns';
@@ -45,18 +47,24 @@ export default function Header() {
     setSelectedTrafficVolume,
     setSelectedCollapsedSector,
     setAirspaceDisplayMode,
+    clearResourceDate,
+    resetAll,
     logout,
     user,
+    resourceDate,
   } = useSimStore();
   const { theme, toggleTheme } = useThemeStore();
   const pathname = usePathname();
 
   // Load traffic volumes + collapsed sectors on component mount
   useEffect(() => {
+    if (!resourceDate) return;
+
+    const resourcePaths = getResourcePathsForDate(resourceDate);
     const loadAirspaceData = async () => {
       const [tvResult, csResult] = await Promise.allSettled([
-        loadSectors(AIRSPACE_GEOJSON_PATH),
-        loadSectors(COLLAPSED_SECTORS_GEOJSON_PATH),
+        loadSectors(resourcePaths.airspaceGeojson),
+        loadSectors(resourcePaths.collapsedSectorsGeojson),
       ]);
 
       if (tvResult.status === 'fulfilled') {
@@ -72,7 +80,7 @@ export default function Header() {
       }
     };
     loadAirspaceData();
-  }, []);
+  }, [resourceDate]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -439,9 +447,16 @@ export default function Header() {
                   <button
                     onClick={async () => {
                       await clearAppCache();
+                      clearTrafficVolumeCache();
+                      clearTvCapacityRangesCache();
+                      clearResourceDate();
+                      resetAll();
+                      setTrafficVolumes([]);
+                      setCollapsedSectors([]);
+                      setSearchResults([]);
+                      setShowSearchResults(false);
                       setShowDropdown(false);
-                      // Give lightweight feedback; keep UX simple for now
-                      alert('Cached data cleared');
+                      router.replace('/select-date?reason=missing');
                     }}
                     className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
                   >

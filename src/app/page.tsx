@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from "@/components/useSimStore";
 import MapCanvas from "@/components/MapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
@@ -31,13 +31,11 @@ function countTimesUpTo(sortedTimes: number[], value: number): number {
 
 const DAY_SECONDS = 24 * 60 * 60;
 export default function Page() {
-  const router = useRouter();
-  const user = useSimStore((state) => state.user);
   const flights = useSimStore((state) => state.flights);
   const t = useSimStore((state) => state.t);
-  const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
+  const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
 
   const sortedStartTimes = useMemo(() => {
     if (!flights || flights.length === 0) {
@@ -90,26 +88,12 @@ export default function Page() {
     };
   }, [flights, sortedStartTimes, sortedEndTimes, t]);
 
-  useEffect(() => {
-    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(useSimStore.persist.hasHydrated());
-    return () => {
-      unsub();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (hydrated && !user) {
-      router.push('/login');
-    }
-  }, [hydrated, user, router]);
-
-  if (!hydrated || !user) {
+  if (!hydrated || !ready || !user) {
     return null;
   }
 
   return (
-    <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
+    <main key={resourceDate ?? "no-resource-date"} className="h-screen w-screen overflow-hidden bg-slate-900 relative">
       <StateResetOnPageLoad />
       <Header />
       <MapCanvas />
