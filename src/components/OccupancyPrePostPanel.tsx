@@ -1,14 +1,17 @@
 "use client";
-import { memo, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Line } from "recharts";
 import { binIndexToRangeLabel, hhmmToMinutesSafe } from "@/lib/time";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { OccupancySeriesByTv } from "@/lib/models";
+import {
+  computeOccupancyWindowStatsByTv,
+  getOccupancyWindowRange,
+} from "@/lib/occupancyWindowStats";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import ShimmeringText from "@/components/ShimmeringText";
-import { computeNetDeltaByTv } from "@/lib/trafficVolumeRelief";
 
 const PAGE_SIZE = 20;
 const CAPACITY_HIDE_THRESHOLD = 998;
@@ -182,10 +185,8 @@ function OccupancyPrePostPanelInner({
   showReliefMap = false,
   reliefMapTitle = "Traffic Volume Relief Map",
 }: OccupancyPrePostPanelProps) {
-  const [isPending, startTransition] = useTransition();
-
   // Internal state for uncontrolled sort mode
-  const [internalSort, setInternalSort] = useState<SortMode>(defaultSortMode);
+  const [internalSort] = useState<SortMode>(defaultSortMode);
   const effectiveSort: SortMode = sortMode || internalSort;
 
   const pinnedSet = useMemo(() => {
@@ -259,95 +260,63 @@ function OccupancyPrePostPanelInner({
 
   // Availability flags for sort control enablement (even if control is external)
   const hasBothPrePostForAny = useMemo(() => UNION_TVS.some(tv => Array.isArray(effectivePre?.[tv]) && Array.isArray(postCounts?.[tv]) && (effectivePre?.[tv] || []).length > 0 && (postCounts?.[tv] || []).length > 0), [UNION_TVS, effectivePre, postCounts]);
-
-  // Build rows per TV filtered by time window
-  const vFrom = hhmmToMinutesSafe(viewFrom);
-  const vTo = hhmmToMinutesSafe(viewTo);
-
-  const rowsByTv = useMemo(() => {
-    const map = new Map<string, TvRowPoint[]>();
-    for (const tv of UNION_TVS) {
-      const A = effectivePre?.[tv];
-      const B = postCounts?.[tv];
-      const C = effectiveCap?.[tv];
-      const hasA = Array.isArray(A) && A.length > 0;
-      const hasB = Array.isArray(B) && B.length > 0;
-      const hasC = Array.isArray(C) && C.length > 0;
-      if (!hasA && !hasB && !hasC) { map.set(tv, []); continue; }
-      const n = hasA && hasB ? Math.min(A!.length, B!.length) : Math.max((A || []).length, (B || []).length);
-      const arr: TvRowPoint[] = new Array(n).fill(0).map((_, i) => {
-        const startMin = i * binMinutes;
-        const a = Number((A || [])[i] ?? 0);
-        const b = Number((B || [])[i] ?? 0);
-        const aa = Number.isFinite(a) ? a : 0;
-        const bb = Number.isFinite(b) ? b : 0;
-        const base = Math.min(aa, bb);
-        const inc = Math.max(0, bb - aa);
-        const dec = Math.max(0, aa - bb);
-        const capRaw = Number((C || [])[i] ?? NaN);
-        const cap =
-          Number.isFinite(capRaw) && capRaw <= CAPACITY_HIDE_THRESHOLD ? capRaw : null;
-        return { idx: i, startMin, base, inc, dec, pre: aa, post: bb, cap };
-      });
-      const filtered = arr.filter((r) => r.startMin >= vFrom && r.startMin <= vTo);
-      map.set(tv, filtered);
-    }
-    return map;
-  }, [UNION_TVS, effectivePre, postCounts, effectiveCap, binMinutes, vFrom, vTo]);
-
-  const exceedanceNormalization = useMemo(() => (binMinutes > 0 ? binMinutes / 60 : 1), [binMinutes]);
+  const windowRange = useMemo(
+    () => getOccupancyWindowRange(hhmmToMinutesSafe(viewFrom), hhmmToMinutesSafe(viewTo), binMinutes),
+    [viewFrom, viewTo, binMinutes],
+  );
+  const statsByTv = useMemo(
+    () =>
+      computeOccupancyWindowStatsByTv({
+        postCounts,
+        preCounts: effectivePre,
+        capacity: effectiveCap,
+        tvIds: UNION_TVS,
+        windowRange,
+        binMinutes,
+        capacityHideThreshold: CAPACITY_HIDE_THRESHOLD,
+      }),
+    [postCounts, effectivePre, effectiveCap, UNION_TVS, windowRange, binMinutes],
+  );
+  const orderIndex = useMemo(() => {
+    const index: Record<string, number> = {};
+    (tvOrder || []).forEach((tv, idx) => {
+      index[String(tv)] = idx;
+    });
+    return index;
+  }, [tvOrder]);
 
   // Compute sort scores
   const scoresByTv = useMemo(() => {
     const s: Record<string, number> = {};
     for (const tv of UNION_TVS) {
-      const rows = rowsByTv.get(tv) || [];
+      const stats = statsByTv[tv];
+      if (!stats) {
+        s[tv] = 0;
+        continue;
+      }
       if (effectiveSort === 'total') {
-        const preferPost = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
-        const series = preferPost ? 'post' : 'pre';
-        s[tv] = rows.reduce((acc, r) => acc + (series === 'post' ? (r.post || 0) : (r.pre || 0)), 0);
+        s[tv] = stats.total;
       } else if (effectiveSort === 'abs_change') {
-        const hasA = Array.isArray(effectivePre?.[tv]) && (effectivePre?.[tv] || []).length > 0;
-        const hasB = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
-        if (!hasA || !hasB) { s[tv] = 0; continue; }
-        s[tv] = rows.reduce((acc, r) => acc + Math.abs((r.post || 0) - (r.pre || 0)), 0);
+        s[tv] = stats.hasPreSeries && stats.hasPostSeries ? stats.absChange : 0;
       } else if (effectiveSort === 'relative_change') {
-        const hasA = Array.isArray(effectivePre?.[tv]) && (effectivePre?.[tv] || []).length > 0;
-        const hasB = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
-        if (!hasA || !hasB) {
+        if (!stats.hasPreSeries || !stats.hasPostSeries) {
           s[tv] = 0;
           continue;
         }
-        let deltaSum = 0;
-        let baseSum = 0;
-        for (const r of rows) {
-          const preVal = r.pre ?? 0;
-          const postVal = r.post ?? preVal;
-          deltaSum += Math.abs(postVal - preVal);
-          baseSum += Math.abs(preVal);
-        }
-        if (baseSum > 0) {
-          s[tv] = deltaSum / baseSum;
+        if (stats.relativeBase > 0) {
+          s[tv] = stats.relativeDelta / stats.relativeBase;
         } else {
-          s[tv] = deltaSum > 0 ? Number.MAX_SAFE_INTEGER : 0;
+          s[tv] = stats.relativeDelta > 0 ? Number.MAX_SAFE_INTEGER : 0;
         }
       } else {
-        // exceedance: sum positive (display - capacity) using display = post if available else pre
-        const preferPost = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
-        s[tv] = rows.reduce((acc, r) => {
-          const d = preferPost ? (r.post || 0) : (r.pre || 0);
-          const c = Number.isFinite(r.cap as number) && (r.cap as number) >= 0 ? (r.cap as number) : Number.POSITIVE_INFINITY;
-          return acc + Math.max(0, d - c) * exceedanceNormalization;
-        }, 0);
+        s[tv] = stats.exceedance;
       }
     }
     return s;
-  }, [UNION_TVS, rowsByTv, postCounts, effectivePre, effectiveSort, exceedanceNormalization]);
+  }, [UNION_TVS, statsByTv, effectiveSort]);
 
   // Sorted TVs with stable tie-breakers
   const sortedTvs = useMemo(() => {
-    const orderIndex: Record<string, number> = {};
-    (tvOrder || []).forEach((tv, idx) => { orderIndex[String(tv)] = idx; });
     const arr = UNION_TVS.slice();
     arr.sort((a, b) => {
       const sa = Number(scoresByTv[a] || 0);
@@ -359,7 +328,7 @@ function OccupancyPrePostPanelInner({
       return a.localeCompare(b);
     });
     return arr;
-  }, [UNION_TVS, scoresByTv, tvOrder]);
+  }, [UNION_TVS, scoresByTv, orderIndex]);
 
   const pinnedTvs = useMemo(() => sortedTvs.filter((tv) => pinnedSet.has(tv)), [sortedTvs, pinnedSet]);
   const unpinnedTvs = useMemo(() => sortedTvs.filter((tv) => !pinnedSet.has(tv)), [sortedTvs, pinnedSet]);
@@ -405,15 +374,32 @@ function OccupancyPrePostPanelInner({
   const err = error || internalError || null;
 
   const reliefDeltasByTv = useMemo(() => {
-    return computeNetDeltaByTv({
-      preCounts: effectivePre,
-      postCounts,
-      binMinutes,
-      viewFrom,
-      viewTo,
-      tvIds: UNION_TVS,
-    });
-  }, [effectivePre, postCounts, binMinutes, viewFrom, viewTo, UNION_TVS]);
+    if (!showReliefMap) return null;
+    const deltas: Record<string, number> = {};
+    for (const tv of UNION_TVS) {
+      const stats = statsByTv[tv];
+      if (!stats?.hasPreSeries || !stats.hasPostSeries) continue;
+      deltas[tv] = stats.netDelta;
+    }
+    return deltas;
+  }, [showReliefMap, UNION_TVS, statsByTv]);
+  const rowsByDisplayedTv = useMemo(() => {
+    const map = new Map<string, TvRowPoint[]>();
+    for (const tv of displayTvs) {
+      map.set(
+        tv,
+        buildRowsForWindow({
+          preSeries: effectivePre?.[tv],
+          postSeries: postCounts?.[tv],
+          capacitySeries: effectiveCap?.[tv],
+          binMinutes,
+          startIndex: windowRange.startIndex,
+          endIndex: windowRange.endIndex,
+        }),
+      );
+    }
+    return map;
+  }, [displayTvs, effectivePre, postCounts, effectiveCap, binMinutes, windowRange]);
   const reliefMapEmptyMessage = hasBothPrePostForAny
     ? "No pre/post occupancy deltas in the selected time window."
     : "Pre and post occupancy series are required to display relief and strain.";
@@ -439,7 +425,7 @@ function OccupancyPrePostPanelInner({
         <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
           <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">{reliefMapTitle}</div>
           <TrafficVolumeReliefMap
-            deltasByTv={reliefDeltasByTv}
+            deltasByTv={reliefDeltasByTv ?? {}}
             loading={isLoading}
             emptyMessage={reliefMapEmptyMessage}
           />
@@ -447,12 +433,13 @@ function OccupancyPrePostPanelInner({
       )}
 
       {/* Grid of per-TV charts */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-4 transition-opacity duration-200${isPending ? " opacity-60 pointer-events-none" : ""}`}>
+      <div className="grid grid-cols-1 gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3">
         {displayTvs.map((tv) => {
           const isPinned = pinnedSet.has(tv);
-          const rows = rowsByTv.get(tv) ?? EMPTY_ROWS;
-          const hasPreSeries = Array.isArray(effectivePre?.[tv]) && (effectivePre?.[tv] || []).length > 0;
-          const hasPostSeries = Array.isArray(postCounts?.[tv]) && (postCounts?.[tv] || []).length > 0;
+          const rows = rowsByDisplayedTv.get(tv) ?? EMPTY_ROWS;
+          const stats = statsByTv[tv];
+          const hasPreSeries = Boolean(stats?.hasPreSeries);
+          const hasPostSeries = Boolean(stats?.hasPostSeries);
           return (
             <TvChartCard
               key={tv}
@@ -509,6 +496,63 @@ const OccupancyPrePostPanel = memo(OccupancyPrePostPanelInner, (prev, next) =>
 );
 
 export default OccupancyPrePostPanel;
+
+function buildRowsForWindow(options: {
+  preSeries?: number[];
+  postSeries?: number[];
+  capacitySeries?: number[];
+  binMinutes: number;
+  startIndex: number;
+  endIndex: number;
+}): TvRowPoint[] {
+  const {
+    preSeries,
+    postSeries,
+    capacitySeries,
+    binMinutes,
+    startIndex,
+    endIndex,
+  } = options;
+  const hasPreSeries = Array.isArray(preSeries) && preSeries.length > 0;
+  const hasPostSeries = Array.isArray(postSeries) && postSeries.length > 0;
+  const length =
+    hasPreSeries && hasPostSeries
+      ? Math.min(preSeries.length, postSeries.length)
+      : Math.max(preSeries?.length ?? 0, postSeries?.length ?? 0);
+
+  if (length <= 0) return EMPTY_ROWS;
+
+  const safeStartIndex = Math.max(0, startIndex);
+  const safeEndIndex = Math.min(Math.max(safeStartIndex, endIndex), length - 1);
+  if (safeStartIndex > safeEndIndex) return EMPTY_ROWS;
+
+  const rows: TvRowPoint[] = [];
+  for (let index = safeStartIndex; index <= safeEndIndex; index += 1) {
+    const startMin = index * binMinutes;
+    const preValueRaw = Number(preSeries?.[index] ?? 0);
+    const postValueRaw = Number(postSeries?.[index] ?? 0);
+    const preValue = Number.isFinite(preValueRaw) ? preValueRaw : 0;
+    const postValue = Number.isFinite(postValueRaw) ? postValueRaw : 0;
+    const capacityValueRaw = Number(capacitySeries?.[index] ?? NaN);
+    const capacityValue =
+      Number.isFinite(capacityValueRaw) && capacityValueRaw <= CAPACITY_HIDE_THRESHOLD
+        ? capacityValueRaw
+        : null;
+
+    rows.push({
+      idx: index,
+      startMin,
+      base: Math.min(preValue, postValue),
+      inc: Math.max(0, postValue - preValue),
+      dec: Math.max(0, preValue - postValue),
+      pre: preValue,
+      post: postValue,
+      cap: capacityValue,
+    });
+  }
+
+  return rows;
+}
 
 function buildOverloadSegments(
   rows: TvRowPoint[],

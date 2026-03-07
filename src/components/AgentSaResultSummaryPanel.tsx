@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
 import {
   CartesianGrid,
@@ -282,6 +282,10 @@ export default function AgentSaResultSummaryPanel({
   >('abs_change');
   const [pinnedTrafficVolumes, setPinnedTrafficVolumes] = useState<string[]>([]);
   const flights = useSimStore((state) => state.flights);
+  const deferredOccSortMode = useDeferredValue(occSortMode);
+  const deferredPinnedTrafficVolumes = useDeferredValue(pinnedTrafficVolumes);
+  const deferredViewFrom = useDeferredValue(viewFrom);
+  const deferredViewTo = useDeferredValue(viewTo);
 
   useEffect(() => {
     setSelectedSeries('best');
@@ -986,11 +990,11 @@ export default function AgentSaResultSummaryPanel({
 	                capacity={occupancyData?.pre_post?.capacity ?? undefined}
 	                tvOrder={occupancyData?.pre_post?.tv_ids_order ?? undefined}
 	                binMinutes={occupancyBinMinutes}
-	                viewFrom={viewFrom}
-	                viewTo={viewTo}
-	                sortMode={occSortMode}
+	                viewFrom={deferredViewFrom}
+	                viewTo={deferredViewTo}
+	                sortMode={deferredOccSortMode}
 	                onSortModeChange={setOccSortMode}
-	                pinnedTvIds={pinnedTrafficVolumes}
+	                pinnedTvIds={deferredPinnedTrafficVolumes}
 	                loading={occupancyLoading}
 	                error={occupancyError}
 	                showReliefMap={false}

@@ -8,13 +8,13 @@ import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 
 function getReasonText(reason: string | null): string | null {
   if (reason === "missing") {
-    return "Select a supported resource date before entering the application.";
+    return "Choose a date to get started.";
   }
   if (reason === "invalid") {
-    return "Your previously saved resource date is no longer supported by both the API and the local manifest. Pick a new one to continue.";
+    return "Your saved date is no longer available. Pick a new one.";
   }
   if (reason === "out_of_sync") {
-    return "The server restarted with a different active resource date than the one saved in your browser. Pick a date again to re-synchronize the session.";
+    return "The server's active date has changed. Please reselect.";
   }
   return null;
 }
@@ -39,10 +39,10 @@ export default function SelectDatePage() {
         <div className="w-full">
           <div className="mb-8 max-w-3xl">
             <h1 className="text-4xl font-semibold tracking-tight text-white">
-              Choose the dataset version for this session
+              Select a date
             </h1>
             <p className="mt-3 text-base leading-7 text-white/65">
-              The app now validates both the backend runtime and local browser resources before loading a date. Pick one supported on both sides, then continue into the workspace.
+              Choose a date available on both the client and server, then continue.
             </p>
           </div>
 

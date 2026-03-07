@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import PanelCloseButton from "@/components/PanelCloseButton";
+import ModalDialog from "@/components/ModalDialog";
 import ShimmeringText from "@/components/ShimmeringText";
 import { clearAppCache } from "@/lib/cache";
 import { fetchResourceContext, selectResourceDate } from "@/lib/resourceContextClient";
@@ -114,35 +114,25 @@ export default function ResourceDateSelectorPanel({
 
   if (!open) return null;
 
-  const panel = (
-    <div className="rounded-[28px] border border-white/20 bg-white/12 text-white shadow-[0_30px_80px_-35px_rgba(14,165,233,0.55)] backdrop-blur-xl">
-      <div className="border-b border-white/10 px-6 py-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-white">
-              {variant === "page" ? "Pick the data snapshot to load" : "Switch data snapshot"}
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/65">
-              Only dates supported by both the backend runtime and the local manifest can be activated.
-            </p>
-          </div>
-          {variant === "dialog" && onClose ? (
-            <PanelCloseButton onClick={onClose} ariaLabel="Close date selector" title="Close date selector" />
-          ) : null}
+  const reasonAndError = (
+    <>
+      {reason ? (
+        <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100/90">
+          {reason}
         </div>
-        {reason ? (
-          <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100/90">
-            {reason}
-          </div>
-        ) : null}
-        {error ? (
-          <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-            {error}
-          </div>
-        ) : null}
-      </div>
+      ) : null}
+      {error ? (
+        <div className="rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+          {error}
+        </div>
+      ) : null}
+    </>
+  );
 
-      <div className="grid gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1.35fr)_320px]">
+  const content = (
+    <div className="space-y-4">
+      {reasonAndError}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_320px]">
         <section className="rounded-[24px] border border-white/10 bg-slate-950/35 p-4">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
@@ -163,8 +153,8 @@ export default function ResourceDateSelectorPanel({
             </div>
             <div className="flex items-center gap-2 text-[11px] text-white/55">
               <LegendDot className="bg-emerald-300" /> Ready
-              <LegendDot className="bg-amber-300" /> Missing local
-              <LegendDot className="bg-rose-300" /> Missing API
+              <LegendDot className="bg-amber-300" /> No local data
+              <LegendDot className="bg-rose-300" /> No server data
             </div>
           </div>
 
@@ -199,10 +189,9 @@ export default function ResourceDateSelectorPanel({
                   >
                     <div className="flex h-full flex-col justify-between">
                       <div className="text-sm font-semibold">{cell.dayNumber}</div>
-                      <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em]">
-                        <span className="opacity-70">{cell.status === "ready" ? "ok" : cell.status === "missing_local" ? "local" : "api"}</span>
-                        {cell.isActive ? <span className="text-cyan-100">active</span> : null}
-                      </div>
+                      {cell.isActive ? (
+                        <div className="text-[10px] text-cyan-100">active</div>
+                      ) : null}
                     </div>
                   </button>
                 );
@@ -223,27 +212,27 @@ export default function ResourceDateSelectorPanel({
               </div>
 
               <div className="mt-5 space-y-3 text-sm">
-                <SupportRow label="Local manifest" supported={selectedAvailability.localSupported} />
-                <SupportRow label="Backend runtime" supported={selectedAvailability.apiSupported} />
+                <SupportRow label="Local data" supported={selectedAvailability.localSupported} />
+                <SupportRow label="Server" supported={selectedAvailability.apiSupported} />
                 {selectedAvailability.missingLocalKeys.length > 0 ? (
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/70">
-                    Missing local entries: {selectedAvailability.missingLocalKeys.join(", ")}
+                    Missing locally: {selectedAvailability.missingLocalKeys.join(", ")}
                   </div>
                 ) : null}
                 {!selectedAvailability.apiSupported ? (
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/70">
-                    The backend does not advertise this date in `resource_context`.
+                    Not available on the server.
                   </div>
                 ) : null}
                 {resourceContext ? (
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-white/55">
-                    Runtime generation: {resourceContext.generation}
+                    Generation: {resourceContext.generation}
                   </div>
                 ) : null}
               </div>
             </>
           ) : (
-            <div className="mt-4 text-sm text-white/55">Choose a date to inspect client and API support.</div>
+            <div className="mt-4 text-sm text-white/55">Select a date to see details.</div>
           )}
 
           <div className="mt-6 flex flex-col gap-3">
@@ -273,7 +262,7 @@ export default function ResourceDateSelectorPanel({
             >
               {pendingDate ? (
                 <ShimmeringText
-                  text={`Switching to ${pendingDate}...`}
+                  text="Switching..."
                   className="text-sm font-semibold"
                   theme="dark"
                 />
@@ -296,7 +285,7 @@ export default function ResourceDateSelectorPanel({
 
           {loading ? (
             <div className="mt-4 text-sm text-white/55">
-              <ShimmeringText text="Loading available dates..." className="text-sm font-medium" />
+              <ShimmeringText text="Loading..." className="text-sm font-medium" />
             </div>
           ) : null}
         </aside>
@@ -305,13 +294,30 @@ export default function ResourceDateSelectorPanel({
   );
 
   if (variant === "page") {
-    return panel;
+    return (
+      <div className="rounded-[28px] border border-white/20 bg-white/12 text-white shadow-[0_30px_80px_-35px_rgba(14,165,233,0.55)] backdrop-blur-xl">
+        <div className="border-b border-white/10 px-6 py-5">
+          <h2 className="text-2xl font-semibold text-white">Select a date</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/65">
+            Only dates available on both the server and locally can be activated.
+          </p>
+        </div>
+        <div className="px-6 py-6">{content}</div>
+      </div>
+    );
   }
 
   return (
-    <div className="fixed inset-0 z-[2600] flex items-center justify-center bg-slate-950/68 px-4 py-8 backdrop-blur-md">
-      <div className="w-full max-w-6xl">{panel}</div>
-    </div>
+    <ModalDialog
+      open={open}
+      onClose={onClose ?? (() => {})}
+      title="Switch date"
+      description="Only dates available on both the server and locally can be activated."
+      width="w-[min(1200px,96vw)]"
+      height="h-[min(860px,92vh)]"
+    >
+      <div className="px-6 py-6">{content}</div>
+    </ModalDialog>
   );
 }
 

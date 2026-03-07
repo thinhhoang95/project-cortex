@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export type ChipOption = {
@@ -19,6 +19,10 @@ type MultiSelectWithChipsProps = {
   renderOptionLabel?: (opt: ChipOption) => React.ReactNode;
 };
 
+const VIRTUALIZE_THRESHOLD = 150;
+const VIRTUAL_OPTION_HEIGHT = 44;
+const VIRTUAL_OVERSCAN = 6;
+
 export default function MultiSelectWithChips({
   options,
   selectedIds,
@@ -34,6 +38,7 @@ export default function MultiSelectWithChips({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuScrollTop, setMenuScrollTop] = useState(0);
   const [menuRect, setMenuRect] = useState<{
     left: number;
     width: number;
@@ -88,14 +93,22 @@ export default function MultiSelectWithChips({
   }, [open, maxMenuHeight]);
 
   const selectedSet = useMemo(() => new Set(selectedIds.map(String)), [selectedIds]);
+  const optionsById = useMemo(() => {
+    const next = new Map<string, ChipOption>();
+    options.forEach((option) => {
+      next.set(option.id, option);
+    });
+    return next;
+  }, [options]);
+  const deferredQuery = useDeferredValue(query);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (!q) return options;
     return options.filter((o) =>
       o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q)
     );
-  }, [options, query]);
+  }, [options, deferredQuery]);
 
   const toggle = (id: string) => {
     const next = new Set(selectedSet);
@@ -112,9 +125,41 @@ export default function MultiSelectWithChips({
   const clearAll = () => onChange([]);
 
   const selectedOptions = useMemo(
-    () => options.filter((o) => selectedSet.has(o.id)),
-    [options, selectedSet]
+    () => selectedIds.map((id) => optionsById.get(String(id))).filter((opt): opt is ChipOption => Boolean(opt)),
+    [selectedIds, optionsById]
   );
+  const virtualized = filtered.length >= VIRTUALIZE_THRESHOLD;
+  const resolvedMenuHeight = useMemo(() => {
+    const fallbackHeight = typeof maxMenuHeight === "number" ? maxMenuHeight : Number(maxMenuHeight) || 240;
+    if (!menuRect) return fallbackHeight;
+    return typeof menuRect.maxH === "number" ? menuRect.maxH : fallbackHeight;
+  }, [maxMenuHeight, menuRect]);
+  const visibleCount = Math.max(1, Math.ceil(resolvedMenuHeight / VIRTUAL_OPTION_HEIGHT));
+  const startIndex = virtualized
+    ? Math.max(0, Math.floor(menuScrollTop / VIRTUAL_OPTION_HEIGHT) - VIRTUAL_OVERSCAN)
+    : 0;
+  const endIndex = virtualized
+    ? Math.min(filtered.length, startIndex + visibleCount + VIRTUAL_OVERSCAN * 2)
+    : filtered.length;
+  const renderedOptions = useMemo(
+    () => filtered.slice(startIndex, endIndex),
+    [filtered, startIndex, endIndex]
+  );
+  const topSpacerHeight = virtualized ? startIndex * VIRTUAL_OPTION_HEIGHT : 0;
+  const bottomSpacerHeight = virtualized
+    ? Math.max(0, (filtered.length - endIndex) * VIRTUAL_OPTION_HEIGHT)
+    : 0;
+
+  useEffect(() => {
+    if (!open) {
+      setMenuScrollTop(0);
+      return;
+    }
+    setMenuScrollTop(0);
+    if (menuRef.current) {
+      menuRef.current.scrollTop = 0;
+    }
+  }, [open, deferredQuery]);
 
   return (
     <div ref={containerRef} className="relative">
@@ -194,6 +239,7 @@ export default function MultiSelectWithChips({
         <div
           ref={menuRef}
           onMouseDown={(e) => e.stopPropagation()}
+          onScroll={(e) => setMenuScrollTop(e.currentTarget.scrollTop)}
           className="fixed glass-menu rounded-lg shadow-xl z-[9999] overflow-hidden"
           style={{ left: menuRect.left, width: menuRect.width, top: menuRect.top, bottom: menuRect.bottom, maxHeight: typeof menuRect.maxH === "number" ? `${menuRect.maxH}px` : menuRect.maxH, overflowY: "auto" }}
         >
@@ -201,7 +247,8 @@ export default function MultiSelectWithChips({
             <div className="px-3 py-3 text-sm glass-menu-muted">No options</div>
           ) : (
             <ul className="py-1">
-              {filtered.map((opt) => {
+              {topSpacerHeight > 0 && <li aria-hidden="true" style={{ height: `${topSpacerHeight}px` }} />}
+              {renderedOptions.map((opt) => {
                 const isSelected = selectedSet.has(opt.id);
                 return (
                   <li key={opt.id}>
@@ -230,6 +277,7 @@ export default function MultiSelectWithChips({
                   </li>
                 );
               })}
+              {bottomSpacerHeight > 0 && <li aria-hidden="true" style={{ height: `${bottomSpacerHeight}px` }} />}
             </ul>
           )}
         </div>, document.body

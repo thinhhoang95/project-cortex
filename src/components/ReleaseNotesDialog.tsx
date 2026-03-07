@@ -12,13 +12,22 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
+  <h4 class="font-bold mb-4">Fri. 06/03/2026</h4>
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Support for multi-date switching.</strong> You can now switch operational datasets by date using a calendar-based selector, with consistent date handling across the app using ISO format (`YYYY-MM-DD`).</li>
+    <li><strong>Date feasibility validation (client + API).</strong> Dates are enabled only when both sides are ready: local browser artifacts declared in `resource_manifest.json` and backend runtime support from `resource_context`.</li>
+    <li><strong>Server/client date sync guard.</strong> If the backend restarts and the active server date no longer matches the browser-saved date, pages now redirect to date selection to re-synchronize safely.</li>
+    <li><strong>First-session date onboarding.</strong> Users without a selected resource date are now routed to a dedicated selection page before entering the workspace.</li>
+    <li><strong>Hard cache invalidation on date switch.</strong> Switching date now clears browser storage cache and in-memory preloaded artifact caches so flight lists, traffic volume definitions, and TV capacity ranges are re-downloaded for the selected date.</li>
+    <li><strong>Manual cache clear now performs full reset.</strong> The profile menu cache action now clears cache storage, invalidates preloaded artifact caches, clears selected date, and routes back to date selection to prevent stale cross-date data.</li>
+  </ul>
+
   <h4 class="font-bold mb-4">Fri. 27/02/2026</h4>
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Flight Catcher.</strong> Now you can draw directly on the map to indicate which flights you want to catch. It works across reroutes, regulation and DeepFlow's flight selection.</li>
-  </ul>
-  
+    <li><strong>Reroute Scenario Design.</strong> It is now possible to use the two Reroute Design Tools (obstacle and funnel) to design reroute scenarios and quickly preview the extra NMs. In future Tailwind's update, we will support regeneration of 4D trajectory and lexicographic optimization of both regulations and reroute scenarios.</li>
+    </ul>
   <h4 class="font-bold mb-4">Sat. 21/02/2026</h4>
-  <p>This will also be my last update to Project Cortex for a while. My research at ENAC had been finished, and I'm moving on to the next chapter of my career.</p>
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Flow Heuristics.</strong> We now show the flow heuristics by default, with the option to toggle flight lists manually.</li>
     <li><strong>Collapsed Sectors View.</strong> It is now possible to toggle the CS view to further analyze the component of hotspots. This is particularly helpful in inspecting whether it is possible to open more sectors.</li>
@@ -59,35 +68,44 @@ const RELEASE_NOTES_CONTENT = `
   
   <h2 class="text-2xl font-bold mb-4">Tell us what you think!</h2>
   <p class="mb-4">We value your feedback and are constantly improving the app. Please share your thoughts with me via dthoang@intuelle.com.</p>
-  
-  <h2 class="text-2xl font-bold mb-4">Looking ahead</h2>
-  <p>A new prediction tab is coming, with the ability to visualize predictions for every single flight, along with confidence intervals for occupancy counts and probability of overloads.</p>
 
   <p class="mt-8">Happy cooking!</p>
   <p> Yours truly, Thinh.</p>
 `;
 
-export default function ReleaseNotesDialog() {
-  const [open, setOpen] = useState(false);
+type ReleaseNotesDialogProps = {
+  open?: boolean;
+  onClose?: () => void;
+};
+
+export default function ReleaseNotesDialog({ open: controlledOpen, onClose }: ReleaseNotesDialogProps = {}) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const [checkedVersion, setCheckedVersion] = useState(false);
+  const isControlled = typeof controlledOpen === "boolean";
+  const open = isControlled ? controlledOpen : internalOpen;
 
   useEffect(() => {
+    if (isControlled) return;
     if (checkedVersion) return;
 
     if (typeof window === "undefined") return;
 
     const storedVersion = window.localStorage.getItem(LOCAL_STORAGE_KEY);
     if (storedVersion !== RELEASE_NOTES_VERSION) {
-      setOpen(true);
+      setInternalOpen(true);
     }
     setCheckedVersion(true);
-  }, [checkedVersion]);
+  }, [checkedVersion, isControlled]);
 
   const handleClose = () => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LOCAL_STORAGE_KEY, RELEASE_NOTES_VERSION);
     }
-    setOpen(false);
+    if (isControlled) {
+      onClose?.();
+      return;
+    }
+    setInternalOpen(false);
   };
 
   if (!open) {

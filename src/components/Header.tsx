@@ -12,6 +12,7 @@ import { clearTrafficVolumeCache } from '@/lib/trafficVolumes';
 import { clearTvCapacityRangesCache } from '@/lib/tvCapacityRanges';
 import AgentModal from '@/components/AgentModal';
 import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
+import ReleaseNotesDialog from '@/components/ReleaseNotesDialog';
 import type { AgentRunRef } from '@/lib/agentRuns';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
@@ -36,6 +37,7 @@ export default function Header() {
   const [agentSummaryRun, setAgentSummaryRun] = useState<AgentRunRef | null>(null);
   const [showFlightQuery, setShowFlightQuery] = useState(false);
   const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
 
   const router = useRouter();
   const {
@@ -474,6 +476,15 @@ export default function Header() {
                   <button
                     onClick={() => {
                       setShowDropdown(false);
+                      setShowReleaseNotes(true);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
+                  >
+                    Show Release Notes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDropdown(false);
                       logout();
                       router.push('/login');
                     }}
@@ -531,6 +542,10 @@ export default function Header() {
         onClose={() => setShowFlightQuery(false)}
         initialPrompt={flightQueryInitialPrompt}
         fullScreen
+      />
+      <ReleaseNotesDialog
+        open={showReleaseNotes}
+        onClose={() => setShowReleaseNotes(false)}
       />
     </>
   );
