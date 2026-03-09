@@ -1,6 +1,6 @@
 "use client";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -17,7 +17,7 @@ import {
 } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
-import { FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import { getFlightsCsvPath } from "@/lib/dataPaths";
 import { normalizeCapacity } from "@/lib/capacity";
 import {
   ComposedChart,
@@ -42,6 +42,7 @@ import { AutorateOccupancyResponse } from "@/lib/autorate";
 import { normalizePerAccAttribMode } from "@/lib/perAccAttribution";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import {
   SolutionSnapshot,
   loadSnapshots,
@@ -109,9 +110,8 @@ export default function FlowEvaluationPage() {
 }
 
 function FlowEvaluationPageContent() {
-  const router = useRouter();
-  const user = useSimStore((state) => state.user);
-  const [hydrated, setHydrated] = useState(false);
+  const resourceDate = useSimStore((state) => state.resourceDate);
+  const { hydrated, ready, user } = useResourceDateGuard();
   const sp = useSearchParams();
   const payloadParam = sp?.get("payload") || null;
   const autostart = (sp?.get("autostart") || "0") === "1" || !!payloadParam;
@@ -157,20 +157,6 @@ function FlowEvaluationPageContent() {
   const [autoratePerAccAttribMode, setAutoratePerAccAttribMode] = useState<RegulationPlanPerAccAttribMode>("dwelling_spread");
   const [autoratePerAccAttribLoading, setAutoratePerAccAttribLoading] = useState(false);
   const [autoratePerAccAttribError, setAutoratePerAccAttribError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(useSimStore.persist.hasHydrated());
-    return () => {
-      unsub();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (hydrated && !user) {
-      router.push('/login');
-    }
-  }, [hydrated, user, router]);
 
   // Initialize default histogram view range once based on earliest target "from" time
   const didInitViewDefault = useRef<boolean>(false);
@@ -631,7 +617,8 @@ function FlowEvaluationPageContent() {
     if (flights.length > 0) return;
     (async () => {
       try {
-        const tracks = await loadTrajectories(FLIGHTS_CSV_PATH);
+        if (!resourceDate) throw new Error("No resource date selected");
+        const tracks = await loadTrajectories(getFlightsCsvPath(resourceDate));
         if (cancelled) return;
         setFlights(tracks);
         if (tracks && tracks.length > 0) {
@@ -644,7 +631,7 @@ function FlowEvaluationPageContent() {
       }
     })();
     return () => { cancelled = true; };
-  }, [flights.length, setFlights, setRange]);
+  }, [flights.length, resourceDate, setFlights, setRange]);
 
   const handleRun = async () => {
     if (!input) return;
@@ -1023,12 +1010,12 @@ function FlowEvaluationPageContent() {
     { key: 'rate_change_upper_bound_min', description: 'Minutes to expand above latest target bin', default: 0 },
   ]), []);
 
-  if (!hydrated || !user) {
+  if (!hydrated || !ready || !user) {
     return null;
   }
 
   return (
-    <main className="min-h-screen w-screen overflow-x-hidden analytics-surface relative">
+    <main key={resourceDate ?? "no-resource-date"} className="min-h-screen w-screen overflow-x-hidden analytics-surface relative">
       <Header />
       <div className="pt-16 pb-12 px-6">
         <div className="max-w-7xl mx-auto">

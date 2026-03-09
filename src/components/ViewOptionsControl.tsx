@@ -2,8 +2,11 @@
 
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import FlightLevelRangeControl from "@/components/FlightLevelRangeControl";
+import ResourceDateSelectorPanel from "@/components/ResourceDateSelectorPanel";
+import ShimmeringText from "@/components/ShimmeringText";
 import TimeScrubberPopover from "@/components/TimeScrubberPopover";
 import { useSimStore } from "@/components/useSimStore";
+import { getDateDisplayParts } from "@/lib/resourceDates";
 import { formatSecondsToHHMMSS } from "@/lib/time";
 import { Slider } from "@/components/Slider";
 
@@ -21,7 +24,7 @@ export default function ViewOptionsControl({
   const {
     t,
     setT,
-    date,
+    resourceDate,
     weatherOverlay,
     setWeatherOverlay,
     showFlightLineLabels,
@@ -43,9 +46,10 @@ export default function ViewOptionsControl({
     viewOptionsMinimized,
   } = useSimStore();
 
-  const { dow, month, day } = useMemo(() => formatDateParts(date), [date]);
+  const { month, day } = useMemo(() => getDateDisplayParts(resourceDate), [resourceDate]);
 
   const [showTimeSeeker, setShowTimeSeeker] = useState(false);
+  const [showDateSelector, setShowDateSelector] = useState(false);
   const timeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [localT, setLocalT] = useState(t);
@@ -59,6 +63,7 @@ export default function ViewOptionsControl({
   useEffect(() => {
     if (minimized) {
       setShowTimeSeeker(false);
+      setShowDateSelector(false);
     }
   }, [minimized]);
 
@@ -85,7 +90,25 @@ export default function ViewOptionsControl({
         )}
         {/* Left: Date & Time */}
         <div className="flex items-center gap-3">
-          <div>
+          <div className="flex flex-col items-start gap-0.5">
+            <button
+              type="button"
+              className="leading-tight text-left"
+              onClick={() => {
+                setShowTimeSeeker(false);
+                setShowDateSelector(true);
+              }}
+              aria-haspopup="dialog"
+              title="Choose resource date"
+            >
+              {resourceDate ? (
+                <div className="text-[10px] tracking-wider uppercase">
+                  <span className="opacity-70">{month}</span> <span className="text-white/100 font-bold">{day}</span>
+                </div>
+              ) : (
+                <ShimmeringText text="Loading date" className="text-[10px] tracking-wider uppercase" />
+              )}
+            </button>
             <button
               ref={timeButtonRef}
               type="button"
@@ -95,9 +118,6 @@ export default function ViewOptionsControl({
               aria-haspopup="dialog"
               title="Click to toggle time seeker"
             >
-              <div className="text-[10px] tracking-wider uppercase">
-                <span className="opacity-70">{dow}, {month}</span> <span className="text-white/100 font-bold">{day}</span>
-              </div>
               <div className="text-xl font-bold tabular-nums">
                 {formatSecondsToHHMMSS(t)} <span className="text-xs opacity-70 ml-1">UTC</span>
               </div>
@@ -247,6 +267,11 @@ export default function ViewOptionsControl({
       <>
         {panelCard}
         {timeScrubberPopover}
+        <ResourceDateSelectorPanel
+          open={showDateSelector}
+          onClose={() => setShowDateSelector(false)}
+          onComplete={() => setShowDateSelector(false)}
+        />
       </>
     );
   }
@@ -254,6 +279,11 @@ export default function ViewOptionsControl({
   return (
     <>
       {timeScrubberPopover}
+      <ResourceDateSelectorPanel
+        open={showDateSelector}
+        onClose={() => setShowDateSelector(false)}
+        onComplete={() => setShowDateSelector(false)}
+      />
       <div className="fixed left-1/2 bottom-0 -translate-x-1/2 z-40 pointer-events-none">
         <div
           className={`transform transition-all duration-300 ease-in-out ${minimized
@@ -318,35 +348,4 @@ function IconToggle({ title, active, onClick, children }: { title: string; activ
       {children}
     </button>
   );
-}
-
-function formatDateParts(dateStr: string) {
-  try {
-    const [ddStr, mmStr, yyyyStr] = dateStr.split("/");
-    const dd = Number(ddStr);
-    const mm = Number(mmStr);
-    const yyyy = Number(yyyyStr);
-    const jsDate = new Date(Date.UTC(yyyy, (mm || 1) - 1, dd || 1));
-    const DOW = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-    const MONTHS = [
-      "JANUARY",
-      "FEBRUARY",
-      "MARCH",
-      "APRIL",
-      "MAY",
-      "JUNE",
-      "JULY",
-      "AUGUST",
-      "SEPTEMBER",
-      "OCTOBER",
-      "NOVEMBER",
-      "DECEMBER",
-    ];
-    const dow = DOW[jsDate.getUTCDay()];
-    const month = MONTHS[(mm || 1) - 1];
-    const day = String(dd || 1).padStart(2, "0");
-    return { dow, month, day };
-  } catch {
-    return { dow: "MON", month: "JANUARY", day: "01" };
-  }
 }

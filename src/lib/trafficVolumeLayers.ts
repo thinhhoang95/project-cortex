@@ -2,7 +2,10 @@ import type maplibregl from "maplibre-gl";
 import type { FilterSpecification } from "maplibre-gl";
 import * as turf from "@turf/turf";
 import type { ThemeName } from "@/styles/theme";
-import { getTrafficVolumeFlIntersectionFilter } from "@/lib/mapUtils";
+import {
+  getTrafficVolumeFlIntersectionFilter,
+  normalizeTrafficVolumeFeatureProperties,
+} from "@/lib/airspaceDisplay";
 
 export const TRAFFIC_VOLUME_SOURCE_ID = "sectors";
 export const TRAFFIC_VOLUME_CENTROIDS_SOURCE_ID = "tv-centroids";
@@ -114,7 +117,7 @@ function normalizeFeature(feature: GeoJSON.Feature): GeoJSON.Feature {
   return {
     ...feature,
     properties: {
-      ...props,
+      ...normalizeTrafficVolumeFeatureProperties(props),
       source_geom_type: sourceGeomType,
       tv_kind: tvKind,
     },

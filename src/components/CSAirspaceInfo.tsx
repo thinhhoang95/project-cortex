@@ -92,21 +92,11 @@ function areSetsEqual(a: Set<string>, b: Set<string>): boolean {
   return true;
 }
 
-function toApiDate(storeDate: string): string | null {
-  const [ddRaw, mmRaw, yyyyRaw] = String(storeDate || "").split("/");
-  const dd = Number(ddRaw);
-  const mm = Number(mmRaw);
-  const yyyy = Number(yyyyRaw);
-  if (!Number.isFinite(dd) || !Number.isFinite(mm) || !Number.isFinite(yyyy)) return null;
-  if (yyyy < 1900 || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
-  return `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
-}
-
 export default function CSAirspaceInfo() {
   const {
     selectedCollapsedSector,
     selectedCollapsedSectorData,
-    date,
+    resourceDate,
     t,
     flights,
     focusMode,
@@ -185,9 +175,9 @@ export default function CSAirspaceInfo() {
       return;
     }
 
-    const preferredDate = toApiDate(date);
+    const preferredDate = resourceDate;
     if (!preferredDate) {
-      setError("Invalid operation date format; expected DD/MM/YYYY");
+      setError("Invalid operation date format; expected YYYY-MM-DD");
       setOccupancyData(null);
       return;
     }
@@ -256,7 +246,7 @@ export default function CSAirspaceInfo() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCollapsedSector, date, sectorMetadata?.metadata?.open_times_date]);
+  }, [resourceDate, sectorMetadata?.metadata?.open_times_date, selectedCollapsedSector]);
 
   useEffect(() => {
     if (!selectedCollapsedSector) {

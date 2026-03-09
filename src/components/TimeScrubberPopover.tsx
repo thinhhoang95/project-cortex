@@ -46,6 +46,7 @@ type Position = {
 const SLIDER_MIN = 0;
 const SLIDER_MAX = 24 * 3600 - 1;
 const SLIDER_STEP = 60;
+const POPOVER_GAP_PX = 12;
 
 export default function TimeScrubberPopover({
   anchor,
@@ -76,21 +77,24 @@ export default function TimeScrubberPopover({
 
     const updatePosition = () => {
       const rect = anchor.getBoundingClientRect();
+      let top = rect.top + window.scrollY;
 
       // Default to centering on the anchor (current behavior)
       let left = rect.left + window.scrollX + rect.width / 2;
       let centerX = true;
 
-      // If the anchor is inside the ViewOptions panel card, align to the panel's left edge instead
-      const panelCard = anchor.closest('.rounded-2xl') as HTMLElement | null;
+      // If the anchor is inside the ViewOptions panel card, align to the panel's left edge
+      // and position the popover above the panel itself so it does not cover the trigger.
+      const panelCard = anchor.closest(".rounded-2xl") as HTMLElement | null;
       if (panelCard) {
         const panelRect = panelCard.getBoundingClientRect();
         left = panelRect.left + window.scrollX;
+        top = panelRect.top + window.scrollY - POPOVER_GAP_PX;
         centerX = false;
       }
 
       setPosition({
-        top: rect.top + window.scrollY,
+        top,
         left,
         centerX,
       });
@@ -180,7 +184,7 @@ export default function TimeScrubberPopover({
         className="absolute pointer-events-auto"
         style={{ top: position.top, left: position.left }}
       >
-        <div className={`transform ${position.centerX ? "-translate-x-1/2" : ""} -translate-y-full -mt-3 px-3 py-2 rounded-xl border border-white/20 bg-white/[0.04] backdrop-blur-md shadow-lg`}>
+        <div className={`transform ${position.centerX ? "-translate-x-1/2" : ""} -translate-y-full px-3 py-2 rounded-xl border border-white/20 bg-white/[0.04] backdrop-blur-md shadow-lg`}>
           <div className="flex items-center gap-2">
             <Slider
               min={SLIDER_MIN}

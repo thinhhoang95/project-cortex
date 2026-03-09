@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import { loadSectors } from "@/lib/airspace";
-import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { authFetch } from "@/lib/auth";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -58,6 +58,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     addFlightsToBasketFlow,
     setFlowBasketPeriod,
     addTargetCells,
+    resourceDate,
   } = useSimStore();
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -75,12 +76,15 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [selectedTvRanges, setSelectedTvRanges] = useState<Array<{ tvId: string; label: string }>>([]);
 
   useEffect(() => {
+    if (!resourceDate) return;
+
+    const resourcePaths = getResourcePathsForDate(resourceDate);
     let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
-        const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
+        const fc = await loadSectors(resourcePaths.airspaceGeojson);
         if (cancelled) return;
         const opts: ChipOption[] = (fc.features || [])
           .map((f: any) => {
@@ -111,7 +115,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     };
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [resourceDate]);
 
   useEffect(() => {
     let cancelled = false;

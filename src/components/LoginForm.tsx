@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ShimmeringText from '@/components/ShimmeringText';
 import { useSimStore } from '@/components/useSimStore';
 
 export default function LoginForm() {
   const router = useRouter();
   const login = useSimStore((s) => s.login);
+  const resourceDate = useSimStore((s) => s.resourceDate);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export default function LoginForm() {
         setLoading(false);
         return;
       }
-      router.push('/');
+      router.push(resourceDate ? '/' : '/select-date');
     } catch (err) {
       setError('Unable to sign in. Please try again.');
       setLoading(false);
@@ -79,7 +81,11 @@ export default function LoginForm() {
         disabled={loading}
         className="group inline-flex w-full items-center justify-center rounded-lg bg-cyan-500 px-4 py-2.5 font-medium text-slate-900 transition hover:bg-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/50 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {loading ? 'Signing In…' : 'Sign In'}
+        {loading ? (
+          <ShimmeringText text="Signing In..." theme="dark" className="leading-none" />
+        ) : (
+          'Sign In'
+        )}
         {!loading && (
           <svg
             viewBox="0 0 24 24"

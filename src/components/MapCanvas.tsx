@@ -1,15 +1,11 @@
 "use client";
-import maplibregl, { FilterSpecification, LngLatBoundsLike } from "maplibre-gl";
+import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
-import {
-  AIRSPACE_GEOJSON_PATH,
-  COLLAPSED_SECTORS_GEOJSON_PATH,
-  FLIGHTS_CSV_PATH,
-} from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import { SectorFeatureProps, Trajectory } from "@/lib/models";
@@ -17,7 +13,12 @@ import FlightDetailsPopup from "@/components/FlightDetailsPopup";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
-import { getHourBin, getTrafficVolumeFilter, getTrafficVolumeFlIntersectionFilter } from "@/lib/mapUtils";
+import {
+  getAirspaceDisplayFilter,
+  getHourBin,
+  getMinuteOfDay,
+  normalizeCollapsedSectors,
+} from "@/lib/airspaceDisplay";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
@@ -48,7 +49,7 @@ export default function MapCanvas() {
   const lastTs = useRef<number>(performance.now());
   const {
     t,
-    date,
+    resourceDate,
     weatherOverlay,
     tick,
     setRange,
@@ -81,6 +82,10 @@ export default function MapCanvas() {
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
+  const resourcePaths = useMemo(
+    () => (resourceDate ? getResourcePathsForDate(resourceDate) : null),
+    [resourceDate],
+  );
 
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -91,6 +96,8 @@ export default function MapCanvas() {
 
   // init map
   useEffect(() => {
+    if (!resourcePaths) return;
+
     const map = new maplibregl.Map({
       container: "map",
       style: createMapStyle(theme, 512),
@@ -103,9 +110,9 @@ export default function MapCanvas() {
       setBaseDataLoading(true);
       // Data
       const [sectors, tracks, collapsedSectorsRaw] = await Promise.all([
-        loadSectors(AIRSPACE_GEOJSON_PATH),
-        loadTrajectories(FLIGHTS_CSV_PATH),
-        loadSectors(COLLAPSED_SECTORS_GEOJSON_PATH).catch((error) => {
+        loadSectors(resourcePaths.airspaceGeojson),
+        loadTrajectories(resourcePaths.flightsCsv),
+        loadSectors(resourcePaths.collapsedSectorsGeojson).catch((error) => {
           console.error("Failed to preload collapsed sectors:", error);
           return null;
         }),
@@ -465,7 +472,7 @@ export default function MapCanvas() {
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+  }, [resourcePaths, theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
@@ -518,7 +525,7 @@ export default function MapCanvas() {
       return;
     }
 
-    const targetHour = isoHourFrom(date, t);
+    const targetHour = isoHourFrom(resourceDate ?? "1970-01-01", t);
 
     const apply = () => {
       try {
@@ -547,7 +554,7 @@ export default function MapCanvas() {
       cancelled = true;
       try { map.off('render', waitForReady); } catch { }
     };
-  }, [weatherOverlay, t, date]);
+  }, [resourceDate, t, weatherOverlay]);
 
   // on showFlightLineLabels change, update layer visibility
   useEffect(() => {
@@ -863,143 +870,6 @@ export default function MapCanvas() {
       </div> */}
     </>
   );
-}
-
-type OpenTimeRange = {
-  startMinute: number;
-  endMinute: number;
-};
-
-type NormalizedCollapsedSectors = {
-  collection: GeoJSON.FeatureCollection;
-  maxOpenRangeCount: number;
-};
-
-type AirspaceFilterParams = {
-  mode: "tv" | "es";
-  flLowerBound: number;
-  flUpperBound: number;
-  currentTrafficVolumeBin: string;
-  currentMinuteOfDay: number;
-  csOpenRangeCount: number;
-};
-
-function normalizeCollapsedSectors(collection: GeoJSON.FeatureCollection): NormalizedCollapsedSectors {
-  const rawFeatures = (collection.features || []).filter((feature) => feature?.geometry != null);
-  const parsedRangesByFeature = rawFeatures.map((feature) => {
-    const properties = (feature.properties ?? {}) as Record<string, unknown>;
-    return parseOpenTimeRanges(properties.open_times);
-  });
-  const maxOpenRangeCount = parsedRangesByFeature.reduce((max, ranges) => Math.max(max, ranges.length), 0);
-
-  const features = rawFeatures.map((feature, index) => {
-    const properties = (feature.properties ?? {}) as Record<string, unknown>;
-    const collapsedSectorId = String(properties.collapsed_sector ?? "").trim();
-    const id = collapsedSectorId || `CS_${String(index + 1).padStart(4, "0")}`;
-    const openRanges = parsedRangesByFeature[index] || [];
-    const openRangeProps: Record<string, number> = {
-      open_range_count: openRanges.length,
-    };
-    for (let i = 0; i < maxOpenRangeCount; i += 1) {
-      const range = openRanges[i];
-      openRangeProps[`open_start_min_${i}`] = range ? range.startMinute : -1;
-      openRangeProps[`open_end_min_${i}`] = range ? range.endMinute : -1;
-    }
-    return {
-      ...feature,
-      properties: {
-        ...properties,
-        traffic_volume_id: id,
-        label: properties.label != null ? String(properties.label) : id,
-        ...openRangeProps,
-      },
-    };
-  });
-
-  return {
-    collection: { ...collection, features },
-    maxOpenRangeCount,
-  };
-}
-
-function parseOpenTimeRanges(value: unknown): OpenTimeRange[] {
-  if (!Array.isArray(value)) return [];
-  const ranges: OpenTimeRange[] = [];
-  for (const raw of value) {
-    if (typeof raw !== "string") continue;
-    const trimmed = raw.trim();
-    const [startRaw, endRaw] = trimmed.split("-");
-    const startMinute = parseHhMmToMinute(startRaw);
-    const endMinute = parseHhMmToMinute(endRaw);
-    if (startMinute == null || endMinute == null) continue;
-    ranges.push({ startMinute, endMinute });
-  }
-  return ranges;
-}
-
-function parseHhMmToMinute(value: string | undefined): number | null {
-  if (!value) return null;
-  const match = /^(\d{2}):(\d{2})$/.exec(value.trim());
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-  return hours * 60 + minutes;
-}
-
-function getMinuteOfDay(seconds: number): number {
-  const secondsInDay = 24 * 3600;
-  const wholeSeconds = Math.floor(Number.isFinite(seconds) ? seconds : 0);
-  const normalized = ((wholeSeconds % secondsInDay) + secondsInDay) % secondsInDay;
-  return Math.floor(normalized / 60);
-}
-
-function getAirspaceDisplayFilter({
-  mode,
-  flLowerBound,
-  flUpperBound,
-  currentTrafficVolumeBin,
-  currentMinuteOfDay,
-  csOpenRangeCount,
-}: AirspaceFilterParams): FilterSpecification {
-  if (mode === "tv") {
-    return getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin);
-  }
-
-  const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);
-  const openNowFilter = buildCollapsedSectorOpenNowFilter(currentMinuteOfDay, csOpenRangeCount);
-  return ["all", flFilter, openNowFilter] as FilterSpecification;
-}
-
-function buildCollapsedSectorOpenNowFilter(currentMinuteOfDay: number, maxOpenRangeCount: number): FilterSpecification {
-  if (maxOpenRangeCount <= 0) {
-    return ["==", 1, 1] as FilterSpecification;
-  }
-  const current = Math.max(0, Math.min(1439, Math.floor(currentMinuteOfDay)));
-  const conditions: FilterSpecification[] = [];
-  for (let i = 0; i < maxOpenRangeCount; i += 1) {
-    const startExpr = ["to-number", ["get", `open_start_min_${i}`], -1];
-    const endExpr = ["to-number", ["get", `open_end_min_${i}`], -1];
-    const inNonWrapRange: FilterSpecification = [
-      "all",
-      ["<=", startExpr, endExpr],
-      [">=", current, startExpr],
-      ["<=", current, endExpr],
-    ] as unknown as FilterSpecification;
-    const inWrapRange: FilterSpecification = [
-      "all",
-      [">", startExpr, endExpr],
-      ["any", [">=", current, startExpr], ["<=", current, endExpr]],
-    ] as unknown as FilterSpecification;
-    conditions.push([
-      "all",
-      [">=", startExpr, 0],
-      [">=", endExpr, 0],
-      ["any", inNonWrapRange, inWrapRange],
-    ] as unknown as FilterSpecification);
-  }
-  return ["any", ...conditions] as FilterSpecification;
 }
 
 function setActiveAirspaceSources(

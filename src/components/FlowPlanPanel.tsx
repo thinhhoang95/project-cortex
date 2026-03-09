@@ -7,7 +7,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import { loadSectors } from "@/lib/airspace";
-import { AIRSPACE_GEOJSON_PATH } from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import ModalDialog from "./ModalDialog";
 
@@ -50,6 +50,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowViewEnabled,
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
+    resourceDate,
   } = useSimStore();
 
   const [isMinimized, setIsMinimized] = useState(false);
@@ -208,10 +209,13 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
 
   // Load traffic volumes once for the search box
   useEffect(() => {
+    if (!resourceDate) return;
+
+    const resourcePaths = getResourcePathsForDate(resourceDate);
     let cancelled = false;
     const load = async () => {
       try {
-        const fc = await loadSectors(AIRSPACE_GEOJSON_PATH);
+        const fc = await loadSectors(resourcePaths.airspaceGeojson);
         if (!cancelled) setTrafficVolumes(fc.features || []);
       } catch (e) {
         // ignore
@@ -219,7 +223,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     };
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [resourceDate]);
 
   useEffect(() => {
     setSavedPlans(loadSavedPlansFromStorage());

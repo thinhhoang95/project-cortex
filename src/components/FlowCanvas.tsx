@@ -4,14 +4,14 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
-import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import { Trajectory } from "@/lib/models";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
-import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
+import { getHourBin, getTrafficVolumeFilter } from "@/lib/airspaceDisplay";
 import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
@@ -49,7 +49,7 @@ export default function FlowCanvas() {
   const lastUpdateRef = useRef<number>(performance.now());
   const {
     t,
-    date,
+    resourceDate,
     weatherOverlay,
     tick,
     setRange,
@@ -85,6 +85,10 @@ export default function FlowCanvas() {
   const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   const theme = useThemeStore((state) => state.theme);
+  const resourcePaths = useMemo(
+    () => (resourceDate ? getResourcePathsForDate(resourceDate) : null),
+    [resourceDate],
+  );
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
   const isCatcherDrawing = regulationCatcherActive && regulationCatcherMode !== "off";
   const selectedTvHighlightIds = useMemo(
@@ -105,6 +109,8 @@ export default function FlowCanvas() {
 
   // init map
   useEffect(() => {
+    if (!resourcePaths) return;
+
     const map = new maplibregl.Map({
       container: "map",
       style: createMapStyle(theme, 256),
@@ -118,8 +124,8 @@ export default function FlowCanvas() {
       try {
         // Data
         const [sectors, tracks] = await Promise.all([
-          loadSectors(AIRSPACE_GEOJSON_PATH),
-          loadTrajectories(FLIGHTS_CSV_PATH)
+          loadSectors(resourcePaths.airspaceGeojson),
+          loadTrajectories(resourcePaths.flightsCsv)
         ]);
 
         // Store flights in global store and compute global time range
@@ -470,7 +476,7 @@ export default function FlowCanvas() {
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+  }, [resourcePaths, theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
@@ -576,7 +582,7 @@ export default function FlowCanvas() {
       return;
     }
 
-    const targetHour = isoHourFrom(date, t);
+    const targetHour = isoHourFrom(resourceDate ?? "1970-01-01", t);
 
     const apply = () => {
       try {
@@ -603,7 +609,7 @@ export default function FlowCanvas() {
       cancelled = true;
       try { map.off("render", waitForReady); } catch { }
     };
-  }, [weatherOverlay, t, date]);
+  }, [resourceDate, t, weatherOverlay]);
 
   // on showFlightLineLabels change, toggle visibility
   useEffect(() => {

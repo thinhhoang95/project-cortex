@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useResourceDateGuard } from '@/components/useResourceDateGuard';
 import { useSimStore } from '@/components/useSimStore';
 import RegulationCanvas from "@/components/RegulationCanvas";
 import LeftControl1Regulation from "@/components/LeftControl1Regulation";
@@ -20,12 +20,9 @@ import {
 } from '@/lib/reg-comparison';
 
 export default function RegulationsPage() {
-  const router = useRouter();
-  const user = useSimStore((state) => state.user);
   const isRegulationPanelOpen = useSimStore((state) => state.isRegulationPanelOpen);
   const selectedTrafficVolume = useSimStore((state) => state.selectedTrafficVolume);
   const selectedTrafficVolumes = useSimStore((state) => state.selectedTrafficVolumes);
-  const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
   const [regComparisonToast, setRegComparisonToast] = useState<{
@@ -33,20 +30,7 @@ export default function RegulationsPage() {
     action?: { label: string; href: string };
     kind?: 'info' | 'warning';
   } | null>(null);
-
-  useEffect(() => {
-    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(useSimStore.persist.hasHydrated());
-    return () => {
-      unsub();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (hydrated && !user) {
-      router.push('/login');
-    }
-  }, [hydrated, user, router]);
+  const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -94,7 +78,7 @@ export default function RegulationsPage() {
     return () => window.clearTimeout(id);
   }, [regComparisonToast]);
 
-  if (!hydrated || !user) {
+  if (!hydrated || !ready || !user) {
     return null;
   }
 
@@ -104,7 +88,7 @@ export default function RegulationsPage() {
   const showRegulationPanel = Boolean(isRegulationPanelOpen && hasSelectedTrafficVolume);
 
   return (
-    <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
+    <main key={resourceDate ?? "no-resource-date"} className="h-screen w-screen overflow-hidden bg-slate-900 relative">
       <StateResetOnPageLoad />
       <Header />
       <RegulationCanvas />

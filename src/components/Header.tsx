@@ -4,12 +4,16 @@ import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 import { useThemeStore } from '@/components/useThemeStore';
 import { loadSectors } from '@/lib/airspace';
-import { AIRSPACE_GEOJSON_PATH, COLLAPSED_SECTORS_GEOJSON_PATH } from '@/lib/dataPaths';
+import { getResourcePathsForDate } from '@/lib/dataPaths';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearAppCache } from '@/lib/cache';
+import { clearTrafficVolumeCache } from '@/lib/trafficVolumes';
+import { clearTvCapacityRangesCache } from '@/lib/tvCapacityRanges';
 import AgentModal from '@/components/AgentModal';
 import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
+import ReleaseNotesDialog from '@/components/ReleaseNotesDialog';
+import type { AgentRunRef } from '@/lib/agentRuns';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
 import { formatFlightLevelRange } from '@/lib/trafficVolumeFormat';
@@ -30,9 +34,10 @@ export default function Header() {
   const [collapsedSectors, setCollapsedSectors] = useState<any[]>([]);
   const [showAgent, setShowAgent] = useState(false);
   const [showAgentSummary, setShowAgentSummary] = useState(false);
-  const [agentSummaryRunId, setAgentSummaryRunId] = useState<string | null>(null);
+  const [agentSummaryRun, setAgentSummaryRun] = useState<AgentRunRef | null>(null);
   const [showFlightQuery, setShowFlightQuery] = useState(false);
   const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
 
   const router = useRouter();
   const {
@@ -44,18 +49,24 @@ export default function Header() {
     setSelectedTrafficVolume,
     setSelectedCollapsedSector,
     setAirspaceDisplayMode,
+    clearResourceDate,
+    resetAll,
     logout,
     user,
+    resourceDate,
   } = useSimStore();
   const { theme, toggleTheme } = useThemeStore();
   const pathname = usePathname();
 
   // Load traffic volumes + collapsed sectors on component mount
   useEffect(() => {
+    if (!resourceDate) return;
+
+    const resourcePaths = getResourcePathsForDate(resourceDate);
     const loadAirspaceData = async () => {
       const [tvResult, csResult] = await Promise.allSettled([
-        loadSectors(AIRSPACE_GEOJSON_PATH),
-        loadSectors(COLLAPSED_SECTORS_GEOJSON_PATH),
+        loadSectors(resourcePaths.airspaceGeojson),
+        loadSectors(resourcePaths.collapsedSectorsGeojson),
       ]);
 
       if (tvResult.status === 'fulfilled') {
@@ -71,7 +82,7 @@ export default function Header() {
       }
     };
     loadAirspaceData();
-  }, []);
+  }, [resourceDate]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -201,8 +212,8 @@ export default function Header() {
     window.dispatchEvent(event);
   };
 
-  const handleShowAgentSummary = (runId: string) => {
-    setAgentSummaryRunId(runId);
+  const handleShowAgentSummary = (run: AgentRunRef) => {
+    setAgentSummaryRun(run);
     setShowAgentSummary(true);
     setShowAgent(false);
   };
@@ -438,9 +449,16 @@ export default function Header() {
                   <button
                     onClick={async () => {
                       await clearAppCache();
+                      clearTrafficVolumeCache();
+                      clearTvCapacityRangesCache();
+                      clearResourceDate();
+                      resetAll();
+                      setTrafficVolumes([]);
+                      setCollapsedSectors([]);
+                      setSearchResults([]);
+                      setShowSearchResults(false);
                       setShowDropdown(false);
-                      // Give lightweight feedback; keep UX simple for now
-                      alert('Cached data cleared');
+                      router.replace('/select-date?reason=missing');
                     }}
                     className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
                   >
@@ -454,6 +472,15 @@ export default function Header() {
                   >
                     <span>Appearance</span>
                     <span className="text-xs uppercase glass-menu-muted">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDropdown(false);
+                      setShowReleaseNotes(true);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
+                  >
+                    Show Release Notes
                   </button>
                   <button
                     onClick={() => {
@@ -491,7 +518,7 @@ export default function Header() {
                 </svg>
               </button>
               <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-2 px-2 py-1 text-xs rounded-md bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
-                Regulation Planner
+                Agent
               </div>
             </div>
           </div>
@@ -506,15 +533,19 @@ export default function Header() {
         open={showAgentSummary}
         onClose={() => {
           setShowAgentSummary(false);
-          setAgentSummaryRunId(null);
+          setAgentSummaryRun(null);
         }}
-        initialRunId={agentSummaryRunId}
+        initialRun={agentSummaryRun}
       />
       <FlightQueryDialog
         open={showFlightQuery}
         onClose={() => setShowFlightQuery(false)}
         initialPrompt={flightQueryInitialPrompt}
         fullScreen
+      />
+      <ReleaseNotesDialog
+        open={showReleaseNotes}
+        onClose={() => setShowReleaseNotes(false)}
       />
     </>
   );

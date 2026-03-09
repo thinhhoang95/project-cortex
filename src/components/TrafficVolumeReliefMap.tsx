@@ -89,7 +89,7 @@ function computeBounds(features: TrafficVolumeFeature[]): LngLatBoundsLike | nul
   ];
 }
 
-function buildReliefColorExpression(domain: number): any[] {
+function buildSignedReliefColorExpression(domain: number): any[] {
   const d = Math.max(1e-6, Math.abs(domain));
   return [
     "interpolate",
@@ -105,6 +105,25 @@ function buildReliefColorExpression(domain: number): any[] {
     "#fca5a5",
     d,
     "#dc2626",
+  ];
+}
+
+function buildAbsoluteReliefColorExpression(domain: number): any[] {
+  const d = Math.max(1e-6, Math.abs(domain));
+  return [
+    "interpolate",
+    ["linear"],
+    ["to-number", ["coalesce", ["get", "relief_delta"], 0]],
+    0,
+    "#dbeafe",
+    d * 0.25,
+    "#93c5fd",
+    d * 0.5,
+    "#38bdf8",
+    d * 0.75,
+    "#0ea5e9",
+    d,
+    "#075985",
   ];
 }
 
@@ -128,6 +147,9 @@ interface TrafficVolumeReliefMapProps {
   emptyMessage?: string;
   negativeLegendLabel?: string;
   positiveLegendLabel?: string;
+  colorMode?: "signed" | "absolute";
+  domainMax?: number | null;
+  valueLabel?: string;
 }
 
 export default function TrafficVolumeReliefMap({
@@ -138,6 +160,9 @@ export default function TrafficVolumeReliefMap({
   emptyMessage = "No pre/post occupancy deltas available for this view.",
   negativeLegendLabel = "Relief",
   positiveLegendLabel = "Strain",
+  colorMode = "signed",
+  domainMax,
+  valueLabel = "TV metrics",
 }: TrafficVolumeReliefMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -162,8 +187,15 @@ export default function TrafficVolumeReliefMap({
   const hasDeltaData = normalizedIds.length > 0;
 
   const reliefDomain = useMemo(() => {
+    if (Number.isFinite(domainMax)) {
+      return Math.max(1, Number(domainMax));
+    }
+    if (colorMode === "absolute") {
+      const maxValue = deltaEntries.reduce((acc, [, delta]) => Math.max(acc, Math.abs(delta)), 0);
+      return Math.max(1, maxValue);
+    }
     return computeRobustSymmetricDomain(deltaEntries.map(([, delta]) => delta), 0.95, 1);
-  }, [deltaEntries]);
+  }, [colorMode, deltaEntries, domainMax]);
 
   const decoratedFeatureCollection = useMemo(() => {
     if (!features.length) return EMPTY_COLLECTION;
@@ -293,7 +325,9 @@ export default function TrafficVolumeReliefMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const colorExpression = buildReliefColorExpression(reliefDomain);
+    const colorExpression = colorMode === "absolute"
+      ? buildAbsoluteReliefColorExpression(reliefDomain)
+      : buildSignedReliefColorExpression(reliefDomain);
 
     if (!map.getSource(SOURCE_ID)) {
       map.addSource(SOURCE_ID, {
@@ -359,7 +393,7 @@ export default function TrafficVolumeReliefMap({
     } else {
       map.easeTo({ center: [3, 45], zoom: 3.5, duration: 0 });
     }
-  }, [mapReady, decoratedFeatureCollection, reliefDomain, features, bounds]);
+  }, [mapReady, decoratedFeatureCollection, reliefDomain, features, bounds, colorMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -381,7 +415,12 @@ export default function TrafficVolumeReliefMap({
   const effectiveLoading = Boolean(loading) || loadingFeature;
   const showEmpty = !effectiveLoading && !hasDeltaData;
   const showMissing = !effectiveLoading && hasDeltaData && features.length === 0;
-  const rangeLabel = `${formatLegendValue(-reliefDomain)} to ${formatLegendValue(reliefDomain)}`;
+  const rangeLabel = colorMode === "absolute"
+    ? `0 to ${formatLegendValue(reliefDomain)}`
+    : `${formatLegendValue(-reliefDomain)} to ${formatLegendValue(reliefDomain)}`;
+  const legendGradient = colorMode === "absolute"
+    ? "bg-[linear-gradient(90deg,#dbeafe_0%,#93c5fd_25%,#38bdf8_50%,#0ea5e9_75%,#075985_100%)]"
+    : "bg-[linear-gradient(90deg,#16a34a_0%,#86efac_35%,#94a3b8_50%,#fca5a5_65%,#dc2626_100%)]";
 
   return (
     <div className={rootClassName}>
@@ -412,14 +451,14 @@ export default function TrafficVolumeReliefMap({
       </div>
 
       <div className="mt-3 space-y-1.5">
-        <div className="h-2.5 w-full rounded-full bg-[linear-gradient(90deg,#16a34a_0%,#86efac_35%,#94a3b8_50%,#fca5a5_65%,#dc2626_100%)]" />
+        <div className={`h-2.5 w-full rounded-full ${legendGradient}`} />
         <div className="flex items-center justify-between text-[11px] text-white/65">
           <span>{negativeLegendLabel}</span>
           <span className="font-mono text-white/75">{rangeLabel}</span>
           <span>{positiveLegendLabel}</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/55">
-          <span>{deltaEntries.length} TV metrics</span>
+          <span>{deltaEntries.length} {valueLabel}</span>
           {unresolvedCount > 0 && <span>{unresolvedCount} without geometry</span>}
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { fetchCached } from "./cache";
-import { TV_CAPACITY_RANGES_BY_ES_PATH } from "./dataPaths";
+import { getTvCapacityRangesPath, listLocalResourceDates } from "./dataPaths";
+import { useSimStore } from "@/components/useSimStore";
 
 export type TvCapacityRangeEntry = {
   constituent_es?: string[];
@@ -11,8 +12,13 @@ export type TvCapacityRangeEntry = {
 
 export type TvCapacityRangeMap = Record<string, TvCapacityRangeEntry>;
 
-let tvCapacityRangesCache: TvCapacityRangeMap | null = null;
-let tvCapacityRangesLoadPromise: Promise<TvCapacityRangeMap> | null = null;
+const tvCapacityRangesCacheByDate = new Map<string, TvCapacityRangeMap>();
+const tvCapacityRangesLoadPromiseByDate = new Map<string, Promise<TvCapacityRangeMap>>();
+
+export function clearTvCapacityRangesCache(): void {
+  tvCapacityRangesCacheByDate.clear();
+  tvCapacityRangesLoadPromiseByDate.clear();
+}
 
 function normalizeTvId(tvId: string | null | undefined): string {
   if (!tvId) return "";
@@ -41,35 +47,45 @@ export function formatDerivedCapacityRange(entry: TvCapacityRangeEntry | null | 
   return `${lower} to ${upper}`;
 }
 
+function getCurrentResourceDate(): string {
+  return useSimStore.getState().resourceDate ?? listLocalResourceDates()[0] ?? "";
+}
+
 export async function loadTvCapacityRanges(): Promise<TvCapacityRangeMap> {
-  if (tvCapacityRangesCache) return tvCapacityRangesCache;
-  if (!tvCapacityRangesLoadPromise) {
-    tvCapacityRangesLoadPromise = (async () => {
-      const response = await fetchCached(TV_CAPACITY_RANGES_BY_ES_PATH);
+  const resourceDate = getCurrentResourceDate();
+  const cached = tvCapacityRangesCacheByDate.get(resourceDate);
+  if (cached) return cached;
+
+  if (!tvCapacityRangesLoadPromiseByDate.has(resourceDate)) {
+    tvCapacityRangesLoadPromiseByDate.set(resourceDate, (async () => {
+      const response = await fetchCached(getTvCapacityRangesPath(resourceDate));
       if (!response.ok) {
         throw new Error(`Failed to load TV capacity ranges: ${response.status} ${response.statusText}`);
       }
       const payload = await response.json();
       const normalized = normalizeRangeMap(payload);
-      tvCapacityRangesCache = normalized;
+      tvCapacityRangesCacheByDate.set(resourceDate, normalized);
       return normalized;
     })().catch((error) => {
-      tvCapacityRangesLoadPromise = null;
-      tvCapacityRangesCache = null;
+      tvCapacityRangesLoadPromiseByDate.delete(resourceDate);
+      tvCapacityRangesCacheByDate.delete(resourceDate);
       throw error;
-    });
+    }));
   }
-  return tvCapacityRangesLoadPromise;
+  return tvCapacityRangesLoadPromiseByDate.get(resourceDate)!;
 }
 
 export function getCachedTvCapacityRanges(): TvCapacityRangeMap | null {
-  return tvCapacityRangesCache;
+  const resourceDate = getCurrentResourceDate();
+  if (!resourceDate) return null;
+  return tvCapacityRangesCacheByDate.get(resourceDate) ?? null;
 }
 
 export function getDerivedCapacityRangeForTv(tvId: string | null | undefined): string | null {
   const normalizedTvId = normalizeTvId(tvId);
-  if (!normalizedTvId || !tvCapacityRangesCache) return null;
-  return formatDerivedCapacityRange(tvCapacityRangesCache[normalizedTvId]);
+  const ranges = getCachedTvCapacityRanges();
+  if (!normalizedTvId || !ranges) return null;
+  return formatDerivedCapacityRange(ranges[normalizedTvId]);
 }
 
 export async function getDerivedCapacityRangeForTvAsync(tvId: string | null | undefined): Promise<string | null> {

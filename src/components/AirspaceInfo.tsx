@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -103,6 +103,44 @@ const CHART_COLORS = [
   "#a78bfa",
 ];
 
+function AirspaceCustomTooltip({
+  active,
+  payload,
+  label,
+  chartSeries,
+}: {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  chartSeries: ChartSeriesMeta[];
+}) {
+  if (!active) return null;
+  const row = (payload || []).find((entry) => entry?.payload)?.payload as MergedMultiTvChartRow | undefined;
+  if (!row) return null;
+
+  return (
+    <div className="bg-slate-800/90 backdrop-blur-sm border border-white/20 rounded-lg p-2 text-white text-sm space-y-1">
+      <p className="font-medium">{label}</p>
+      {chartSeries.map((series) => {
+        const rawCount = row[series.countKey];
+        const rawCapacity = row[series.capacityKey];
+        const count = typeof rawCount === "number" && Number.isFinite(rawCount) ? rawCount : null;
+        const capacity = typeof rawCapacity === "number" && Number.isFinite(rawCapacity) ? rawCapacity : null;
+        if (count === null && capacity === null) return null;
+        return (
+          <div key={series.tvId} className="text-xs">
+            <p className="font-medium" style={{ color: series.color }}>
+              {series.tvId}{series.isPrimary ? " (Primary)" : ""}
+            </p>
+            <p>Occupancy: {count !== null ? Math.round(count) : "N/A"}</p>
+            <p>Anchor capacity: {capacity !== null ? Math.round(capacity) : "N/A"}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AirspaceInfo() {
   const {
     selectedTrafficVolume,
@@ -116,6 +154,8 @@ export default function AirspaceInfo() {
     setT,
     setFlowPreviewFlightId,
   } = useSimStore();
+
+  const deferredT = useDeferredValue(t);
 
   const selectedTvIds = useMemo(() => {
     const source =
@@ -344,13 +384,13 @@ export default function AirspaceInfo() {
 
   const displayChartRows = useMemo(() => {
     if (!focusMode) return mergedChartRows;
-    return filterChartRowsByWindow(mergedChartRows, t, windowSeconds);
-  }, [focusMode, mergedChartRows, t, windowSeconds]);
+    return filterChartRowsByWindow(mergedChartRows, deferredT, windowSeconds);
+  }, [focusMode, mergedChartRows, deferredT, windowSeconds]);
 
   const primaryDisplayChartData = useMemo(() => {
     if (!focusMode) return primaryChartData;
-    return filterChartRowsByWindow(primaryChartData, t, windowSeconds);
-  }, [focusMode, primaryChartData, t, windowSeconds]);
+    return filterChartRowsByWindow(primaryChartData, deferredT, windowSeconds);
+  }, [focusMode, primaryChartData, deferredT, windowSeconds]);
 
   const currentTimeHours = t / 3600;
 
@@ -496,7 +536,7 @@ export default function AirspaceInfo() {
 
     let rows = intersectionFlightRows;
     if (focusMode) {
-      const windowEnd = t + windowSeconds;
+      const windowEnd = deferredT + windowSeconds;
       rows = rows.filter((row) =>
         selectedTvIds.some((tvId) => {
           const metric = row.sortMetric.perTv[tvId];
@@ -507,7 +547,7 @@ export default function AirspaceInfo() {
               : typeof metric.windowStartSeconds === "number" && Number.isFinite(metric.windowStartSeconds)
                 ? metric.windowStartSeconds
                 : null;
-          return candidate !== null && candidate >= t && candidate <= windowEnd;
+          return candidate !== null && candidate >= deferredT && candidate <= windowEnd;
         }),
       );
     }
@@ -517,7 +557,7 @@ export default function AirspaceInfo() {
       displayFlightTableData: capped,
       filteredFlightIds: new Set(capped.map((row) => String(row.flightId))),
     };
-  }, [selectedTvIds, flightDataReadyForSelection, flightListError, intersectionFlightRows, focusMode, t, windowSeconds]);
+  }, [selectedTvIds, flightDataReadyForSelection, flightListError, intersectionFlightRows, focusMode, deferredT, windowSeconds]);
 
   const hiddenFlightCount = Math.max(0, displayFlightTableData.length - MAX_VISIBLE);
 
@@ -678,33 +718,10 @@ export default function AirspaceInfo() {
   const dynamicFlightColumnCount = selectedTvIds.length * 2;
   const tableColSpan = 4 + dynamicFlightColumnCount;
 
-  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) => {
-    if (!active) return null;
-    const row = (payload || []).find((entry) => entry?.payload)?.payload as MergedMultiTvChartRow | undefined;
-    if (!row) return null;
-
-    return (
-      <div className="bg-slate-800/90 backdrop-blur-sm border border-white/20 rounded-lg p-2 text-white text-sm space-y-1">
-        <p className="font-medium">{label}</p>
-        {chartSeries.map((series) => {
-          const rawCount = row[series.countKey];
-          const rawCapacity = row[series.capacityKey];
-          const count = typeof rawCount === "number" && Number.isFinite(rawCount) ? rawCount : null;
-          const capacity = typeof rawCapacity === "number" && Number.isFinite(rawCapacity) ? rawCapacity : null;
-          if (count === null && capacity === null) return null;
-          return (
-            <div key={series.tvId} className="text-xs">
-              <p className="font-medium" style={{ color: series.color }}>
-                {series.tvId}{series.isPrimary ? " (Primary)" : ""}
-              </p>
-              <p>Occupancy: {count !== null ? Math.round(count) : "N/A"}</p>
-              <p>Anchor capacity: {capacity !== null ? Math.round(capacity) : "N/A"}</p>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
+  const renderTooltip = useCallback(
+    (props: any) => <AirspaceCustomTooltip {...props} chartSeries={chartSeries} />,
+    [chartSeries],
+  );
 
   return (
     <div className="space-y-4">
@@ -835,7 +852,7 @@ export default function AirspaceInfo() {
                         tickMargin={0}
                         width={32}
                       />
-                      <Tooltip content={<CustomTooltip />} />
+                      <Tooltip content={renderTooltip} />
                       {chartSeries.map((series) => (
                         <Bar
                           key={series.countKey}

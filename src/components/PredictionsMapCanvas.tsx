@@ -1,11 +1,11 @@
 "use client";
 import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
-import { AIRSPACE_GEOJSON_PATH, FLIGHTS_CSV_PATH } from "@/lib/dataPaths";
+import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
@@ -25,16 +25,22 @@ export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
   const lastTs = useRef<number>(performance.now());
-  const { t, date, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, setSelectedTrafficVolume, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute } = useSimStore();
+  const { t, resourceDate, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, setSelectedTrafficVolume, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
+  const resourcePaths = useMemo(
+    () => (resourceDate ? getResourcePathsForDate(resourceDate) : null),
+    [resourceDate],
+  );
 
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
 
   // init map
   useEffect(() => {
+    if (!resourcePaths) return;
+
     const map = new maplibregl.Map({
       container: "map",
       style: createMapStyle(theme, 512),
@@ -47,8 +53,8 @@ export default function MapCanvas() {
       setBaseDataLoading(true);
       // Data
       const [sectors, tracks] = await Promise.all([
-        loadSectors(AIRSPACE_GEOJSON_PATH),
-        loadTrajectories(FLIGHTS_CSV_PATH)
+        loadSectors(resourcePaths.airspaceGeojson),
+        loadTrajectories(resourcePaths.flightsCsv)
       ]);
 
       // Store flights in global store and compute global time range
@@ -327,7 +333,7 @@ export default function MapCanvas() {
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+  }, [resourcePaths, theme]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
@@ -380,7 +386,7 @@ export default function MapCanvas() {
       return;
     }
 
-    const targetHour = isoHourFrom(date, t);
+    const targetHour = isoHourFrom(resourceDate ?? "1970-01-01", t);
 
     const apply = () => {
       try {
@@ -409,7 +415,7 @@ export default function MapCanvas() {
       cancelled = true;
       try { map.off('render', waitForReady); } catch { }
     };
-  }, [weatherOverlay, t, date]);
+  }, [resourceDate, t, weatherOverlay]);
 
   // on showFlightLineLabels change, update layer visibility
   useEffect(() => {

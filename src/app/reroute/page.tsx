@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useSimStore } from "@/components/useSimStore";
+import { useState } from "react";
+import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import Header from "@/components/Header";
 import LeftControl1 from "@/components/LeftControl1";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
@@ -17,31 +16,16 @@ import RerouteTvSelectionInfoPanel from "@/components/RerouteTvSelectionInfoPane
 import RerouteTvBaseListSync from "@/components/RerouteTvBaseListSync";
 
 export default function ReroutePage() {
-  const router = useRouter();
-  const user = useSimStore((state) => state.user);
-
-  const [hydrated, setHydrated] = useState(false);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
+  const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
 
-  useEffect(() => {
-    const unsub = useSimStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(useSimStore.persist.hasHydrated());
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    if (hydrated && !user) {
-      router.push("/login");
-    }
-  }, [hydrated, user, router]);
-
-  if (!hydrated || !user) {
+  if (!hydrated || !ready || !user) {
     return null;
   }
 
   return (
-    <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
+    <main key={resourceDate ?? "no-resource-date"} className="h-screen w-screen overflow-hidden bg-slate-900 relative">
       <StateResetOnPageLoad />
       <Header />
       <RerouteTvBaseListSync />

@@ -2,18 +2,19 @@
 
 import { useState } from 'react';
 import AgentRunResultsList from './AgentRunResultsList';
+import type { AgentRunRef } from '@/lib/agentRuns';
 
 interface AgentModalProps {
   open: boolean;
   onClose: () => void;
-  onShowSummary?: (runId: string) => void;
+  onShowSummary?: (run: AgentRunRef) => void;
 }
 
 export default function AgentModal({ open, onClose, onShowSummary }: AgentModalProps) {
   const [promptText, setPromptText] = useState('');
 
   const promptHints: string[] = [
-    'Help me plan for regulations with Regulation Planner, budget 1024 sims',
+    'Help me plan for regulations, budget 1024 sims',
     'Help me regulate Upper Munich Airspace from 10:00 - 12:00',
     'Design a regulation plan with minimal total delay and bounded max delay',
     'Identify hotspots between 09:00 - 13:00 and propose cap adjustments',
@@ -22,9 +23,9 @@ export default function AgentModal({ open, onClose, onShowSummary }: AgentModalP
 
   if (!open) return null;
 
-  const handleRunSelect = (runId: string) => {
+  const handleRunSelect = (run: AgentRunRef) => {
     onClose();
-    onShowSummary?.(runId);
+    onShowSummary?.(run);
   };
 
   return (
@@ -44,7 +45,7 @@ export default function AgentModal({ open, onClose, onShowSummary }: AgentModalP
                 <div className="flex items-start justify-between gap-6">
                   <div className="space-y-3 max-w-2xl">
                     
-                    <h2 className="text-3xl font-semibold text-white">Regulation Planner</h2>
+                    <h2 className="text-3xl font-semibold text-white">Regulation Agent</h2>
                     <p className="text-sm text-white/60 leading-relaxed">
                       By default, up to 12 independent runs with varying parameters will be executed in parallel.
                     </p>
@@ -71,7 +72,7 @@ export default function AgentModal({ open, onClose, onShowSummary }: AgentModalP
                           <textarea
                             value={promptText}
                             onChange={(e) => setPromptText(e.target.value)}
-                            placeholder="Describe your preferred solutions in natural language for the Regulation Planner"
+                            placeholder="Describe your preferred solutions in natural language for the Regulation Agent"
                             className="flex-1 w-full resize-none rounded-[20px] border border-white/5 bg-white/[0.02] px-5 py-4 text-lg leading-relaxed text-white placeholder:text-white/50 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-purple-400/40"
                           />
                           <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

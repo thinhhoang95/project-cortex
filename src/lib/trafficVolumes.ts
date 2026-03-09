@@ -1,14 +1,19 @@
 import { loadSectors } from "./airspace";
 import type { SectorFeatureProps } from "./models";
-import { AIRSPACE_PATH_CANDIDATES } from "./dataPaths";
+import { getAirspacePathCandidates, listLocalResourceDates } from "./dataPaths";
+import { useSimStore } from "@/components/useSimStore";
 
 export type TrafficVolumeFeature = GeoJSON.Feature<GeoJSON.Geometry, SectorFeatureProps>;
 
-const TRAFFIC_VOLUME_URL_CANDIDATES = AIRSPACE_PATH_CANDIDATES;
+const trafficVolumeFeatureCollectionByDate = new Map<string, GeoJSON.FeatureCollection>();
+const trafficVolumeFeatureMapByDate = new Map<string, Map<string, TrafficVolumeFeature>>();
+const trafficVolumeLoadPromiseByDate = new Map<string, Promise<Map<string, TrafficVolumeFeature>>>();
 
-let trafficVolumeFeatureCollection: GeoJSON.FeatureCollection | null = null;
-let trafficVolumeFeatureMap: Map<string, TrafficVolumeFeature> | null = null;
-let trafficVolumeLoadPromise: Promise<Map<string, TrafficVolumeFeature>> | null = null;
+export function clearTrafficVolumeCache(): void {
+  trafficVolumeFeatureCollectionByDate.clear();
+  trafficVolumeFeatureMapByDate.clear();
+  trafficVolumeLoadPromiseByDate.clear();
+}
 
 function normalizeTrafficVolumeId(id: string | null | undefined): string {
   if (!id) return "";
@@ -30,9 +35,13 @@ function buildFeatureMap(collection: GeoJSON.FeatureCollection): Map<string, Tra
   return map;
 }
 
-async function loadTrafficVolumeCollection(): Promise<GeoJSON.FeatureCollection> {
+function getCurrentResourceDate(): string {
+  return useSimStore.getState().resourceDate ?? listLocalResourceDates()[0] ?? "";
+}
+
+async function loadTrafficVolumeCollection(resourceDate: string): Promise<GeoJSON.FeatureCollection> {
   let lastError: unknown = null;
-  for (const url of TRAFFIC_VOLUME_URL_CANDIDATES) {
+  for (const url of getAirspacePathCandidates(resourceDate)) {
     try {
       const collection = await loadSectors(url);
       if (collection && collection.type === "FeatureCollection") {
@@ -50,27 +59,28 @@ async function loadTrafficVolumeCollection(): Promise<GeoJSON.FeatureCollection>
   throw new Error("Failed to load traffic volume definitions.");
 }
 
-async function ensureTrafficVolumeMap(): Promise<Map<string, TrafficVolumeFeature>> {
-  if (trafficVolumeFeatureMap) {
-    return trafficVolumeFeatureMap;
+async function ensureTrafficVolumeMap(resourceDate = getCurrentResourceDate()): Promise<Map<string, TrafficVolumeFeature>> {
+  const cachedMap = trafficVolumeFeatureMapByDate.get(resourceDate);
+  if (cachedMap) {
+    return cachedMap;
   }
 
-  if (!trafficVolumeLoadPromise) {
-    trafficVolumeLoadPromise = (async () => {
-      const collection = await loadTrafficVolumeCollection();
-      trafficVolumeFeatureCollection = collection;
+  if (!trafficVolumeLoadPromiseByDate.has(resourceDate)) {
+    trafficVolumeLoadPromiseByDate.set(resourceDate, (async () => {
+      const collection = await loadTrafficVolumeCollection(resourceDate);
+      trafficVolumeFeatureCollectionByDate.set(resourceDate, collection);
       const map = buildFeatureMap(collection);
-      trafficVolumeFeatureMap = map;
+      trafficVolumeFeatureMapByDate.set(resourceDate, map);
       return map;
     })().catch((err) => {
-      trafficVolumeLoadPromise = null;
-      trafficVolumeFeatureCollection = null;
-      trafficVolumeFeatureMap = null;
+      trafficVolumeLoadPromiseByDate.delete(resourceDate);
+      trafficVolumeFeatureCollectionByDate.delete(resourceDate);
+      trafficVolumeFeatureMapByDate.delete(resourceDate);
       throw err;
-    });
+    }));
   }
 
-  return trafficVolumeLoadPromise;
+  return trafficVolumeLoadPromiseByDate.get(resourceDate)!;
 }
 
 export async function preloadTrafficVolumes(): Promise<void> {
@@ -86,8 +96,9 @@ export async function fetchTrafficVolumeFeature(id: string): Promise<TrafficVolu
 
 export function getCachedTrafficVolumeFeature(id: string): TrafficVolumeFeature | null {
   const normalized = normalizeTrafficVolumeId(id);
-  if (!normalized || !trafficVolumeFeatureMap) return null;
-  return trafficVolumeFeatureMap.get(normalized) ?? null;
+  const resourceDate = getCurrentResourceDate();
+  if (!normalized || !resourceDate) return null;
+  return trafficVolumeFeatureMapByDate.get(resourceDate)?.get(normalized) ?? null;
 }
 
 export async function fetchTrafficVolumeProperties(id: string): Promise<SectorFeatureProps | null> {
@@ -100,10 +111,15 @@ export function getCachedTrafficVolumeProperties(id: string): SectorFeatureProps
 }
 
 export function listTrafficVolumeIdsSync(): string[] | null {
-  if (!trafficVolumeFeatureMap) return null;
-  return Array.from(trafficVolumeFeatureMap.keys());
+  const resourceDate = getCurrentResourceDate();
+  if (!resourceDate) return null;
+  const map = trafficVolumeFeatureMapByDate.get(resourceDate);
+  if (!map) return null;
+  return Array.from(map.keys());
 }
 
 export function getTrafficVolumeFeatureCollectionSync(): GeoJSON.FeatureCollection | null {
-  return trafficVolumeFeatureCollection;
+  const resourceDate = getCurrentResourceDate();
+  if (!resourceDate) return null;
+  return trafficVolumeFeatureCollectionByDate.get(resourceDate) ?? null;
 }

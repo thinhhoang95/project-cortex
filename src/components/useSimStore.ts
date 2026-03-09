@@ -103,7 +103,7 @@ type State = {
   range: [number, number]; // global window
   speed: number;
   playing: boolean;
-  date: string;            // operation date in DD/MM/YYYY
+  resourceDate: string | null; // canonical operation date in YYYY-MM-DD
   // Weather overlay selection
   weatherOverlay: 'none' | 'surface-precip';
   showFlightLineLabels: boolean;
@@ -211,7 +211,8 @@ type State = {
   setRange: (r: [number, number], t?: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (v: number) => void;
-  setDate: (date: string) => void;
+  setResourceDate: (date: string | null) => void;
+  clearResourceDate: () => void;
   setWeatherOverlay: (overlay: 'none' | 'surface-precip') => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
@@ -353,7 +354,7 @@ const defaultState: Pick<State,
   | 'range'
   | 'playing'
   | 'speed'
-  | 'date'
+  | 'resourceDate'
   | 'weatherOverlay'
   | 'showFlightLineLabels'
   | 'showCallsigns'
@@ -450,7 +451,7 @@ const defaultState: Pick<State,
   range: [0, 24 * 3600],
   playing: false,
   speed: 1,
-  date: '17/07/2023',
+  resourceDate: null,
   weatherOverlay: 'none',
   showFlightLineLabels: false,
   showCallsigns: false,
@@ -561,7 +562,7 @@ function cloneRerouteFunnel(funnel: RerouteFunnel): RerouteFunnel {
   };
 }
 
-export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((set, get) => {
+export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'resourceDate'>>((set, get) => {
   const selectedTvDataCache = new Map<string, { properties: SectorFeatureProps } | null>();
 
   const recomputePinnedFlights = (
@@ -645,7 +646,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
-  setDate: (date) => set({ date }),
+  setResourceDate: (resourceDate) => set({ resourceDate: resourceDate ? String(resourceDate).trim() : null }),
+  clearResourceDate: () => set({ resourceDate: null }),
   setWeatherOverlay: (overlay) => set({ weatherOverlay: overlay }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
@@ -1325,7 +1327,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
   // Reset all stateful values back to defaults (used on page navigation)
   resetAll: () => {
     selectedTvDataCache.clear();
-    set((state) => ({ ...defaultState, user: state.user }));
+    set((state) => ({ ...defaultState, user: state.user, resourceDate: state.resourceDate }));
   }
   ,
   // Target Cells actions
@@ -1436,7 +1438,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user'>>((s
 },
 {
   name: 'sim-storage',
-  partialize: (state) => ({ user: state.user }),
+  partialize: (state) => ({ user: state.user, resourceDate: state.resourceDate }),
 }
 ));
 

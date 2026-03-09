@@ -3,21 +3,22 @@
 import { useEffect, useState } from 'react';
 import { authFetch } from '@/lib/auth';
 import ShimmeringText from '@/components/ShimmeringText';
+import {
+  type AgentRunMethodology,
+  type AgentRunRef,
+  type AgentSolListRun,
+  normalizeAgentRunMethodology,
+  toAgentRunRef,
+} from '@/lib/agentRuns';
 
 interface AgentSolListResponse {
   runs: AgentSolListRun[];
 }
 
-interface AgentSolListRun {
-  run_id: string;
-  best_total_improvement: number | null;
-  status: 'completed' | 'ongoing' | string;
-}
-
 interface AgentRunResultsListProps {
   className?: string;
   endpoint?: string;
-  onRunSelect?: (runId: string) => void;
+  onRunSelect?: (run: AgentRunRef) => void;
 }
 
 interface FetchState {
@@ -52,6 +53,22 @@ const STATUS_TONE_CLASSES: Record<StatusTone, { badge: string; dot: string }> = 
     badge:
       'border border-[color:var(--panel-divider)] bg-[var(--panel-bg)] text-[color:var(--panel-text-muted)]',
     dot: 'bg-slate-300/70',
+  },
+};
+
+const METHODOLOGY_META: Record<
+  AgentRunMethodology,
+  { label: string; badge: string; subtitle: string }
+> = {
+  rz: {
+    label: 'RZ',
+    badge: 'border border-cyan-400/35 bg-cyan-500/10 text-cyan-100',
+    subtitle: 'RZ optimization',
+  },
+  sa: {
+    label: 'SA',
+    badge: 'border border-fuchsia-400/35 bg-fuchsia-500/10 text-fuchsia-100',
+    subtitle: 'SA optimization',
   },
 };
 
@@ -141,7 +158,7 @@ export default function AgentRunResultsList({
             <ShimmeringText
               text="Loading agent runs…"
               className="text-sm text-[color:var(--panel-text-muted)] font-normal"
-              theme="light"
+              theme="dark"
             />
           </div>
         ) : error ? (
@@ -159,6 +176,8 @@ export default function AgentRunResultsList({
                 label: formatStatusText(run.status),
                 tone: 'neutral' as const,
               };
+              const methodology = normalizeAgentRunMethodology(run.methodology);
+              const methodologyMeta = methodology ? METHODOLOGY_META[methodology] : null;
               const toneClasses = STATUS_TONE_CLASSES[status.tone];
               const improvementValue = run.best_total_improvement;
               const hasImprovement =
@@ -173,18 +192,35 @@ export default function AgentRunResultsList({
                 <li key={run.run_id}>
                   <button
                     type="button"
-                    onClick={() => onRunSelect?.(run.run_id)}
+                    onClick={() => {
+                      const ref = toAgentRunRef(run);
+                      if (ref) {
+                        onRunSelect?.(ref);
+                      }
+                    }}
                     className="glass-panel-muted w-full rounded-2xl px-5 py-4 text-left transition-all duration-200 hover:bg-[var(--panel-bg-strong)] hover:shadow-[var(--panel-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-                    aria-label={`Show summary for run ${run.run_id}`}
+                    aria-label={`Show summary for ${methodologyMeta?.label ?? 'agent'} run ${run.run_id}`}
                   >
                     <div className="flex flex-wrap items-stretch justify-between gap-4">
                       <div className="flex flex-col gap-3">
                         <div>
-                          <span className="text-[10px] uppercase text-[color:var(--panel-text-muted)]">
-                            Run Id
-                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] uppercase text-[color:var(--panel-text-muted)]">
+                              Run Id
+                            </span>
+                            {methodologyMeta ? (
+                              <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${methodologyMeta.badge}`}
+                              >
+                                {methodologyMeta.label}
+                              </span>
+                            ) : null}
+                          </div>
                           <p className="mt-2 text-lg font-semibold leading-6 text-[color:var(--panel-text-primary)]">
                             {run.run_id.toUpperCase()}
+                          </p>
+                          <p className="mt-1 text-xs text-[color:var(--panel-text-muted)]">
+                            {methodologyMeta?.subtitle ?? 'Optimization run'}
                           </p>
                         </div>
                         <span
@@ -201,13 +237,15 @@ export default function AgentRunResultsList({
                       </div>
                       <div className="flex flex-col justify-center gap-2 text-right">
                         <span className="text-[10px] uppercase text-[color:var(--panel-text-muted)]">
-                          Total Δ
+                          Best Total Δ
                         </span>
                         <span className={`text-2xl font-semibold leading-none ${improvementColor}`}>
                           {formatImprovement(run.best_total_improvement)}
                         </span>
                         <span className="text-xs text-[color:var(--panel-text-muted)]">
-                          vs. baseline scenario
+                          {methodology === 'sa' && !hasImprovement
+                            ? 'cached summary unavailable'
+                            : 'vs. baseline scenario'}
                         </span>
                       </div>
                     </div>

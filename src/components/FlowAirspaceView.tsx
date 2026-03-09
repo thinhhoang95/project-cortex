@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import {
   useSimStore,
@@ -122,6 +122,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     addFlowBasketWithPeriod,
     addTargetCells
   } = useSimStore();
+
+  const deferredT = useDeferredValue(t);
 
   const [inputValue, setInputValue] = useState("");
   const [queryDialogOpen, setQueryDialogOpen] = useState(false);
@@ -368,18 +370,18 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     if (!chartData.length) return [] as typeof chartData;
     const [from, to] = regulationTimeWindow;
     const windowDuration = to - from;
-    const currentTime = t;
-    
+    const currentTime = deferredT;
+
     // Create symmetric range around current time for display,
     // using the full regulation window on each side of t
     const displayFrom = currentTime - windowDuration;
     const displayTo = currentTime + windowDuration;
-    
+
     return chartData.filter(d => {
       const sec = d.hour * 3600;
       return sec >= displayFrom && sec <= displayTo;
     });
-  }, [chartData, regulationTimeWindow, t]);
+  }, [chartData, regulationTimeWindow, deferredT]);
 
   const trafficOverloadSegments = useMemo(() => {
     if (!chartData.length) return [];
