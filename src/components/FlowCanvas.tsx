@@ -11,7 +11,7 @@ import { Trajectory } from "@/lib/models";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
-import { getHourBin, getTrafficVolumeFilter } from "@/lib/mapUtils";
+import { getHourBin, getTrafficVolumeFilter } from "@/lib/airspaceDisplay";
 import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {

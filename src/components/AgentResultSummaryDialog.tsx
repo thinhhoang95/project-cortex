@@ -19,7 +19,7 @@ export default function AgentResultSummaryDialog({
     <ModalDialog
       open={open}
       onClose={onClose}
-      title="Planner's Solutions Summary"
+      title="Agent Solutions"
       description="Solutions preview and impact."
       width="w-[calc(100vw-3rem)]"
       height="h-[calc(100vh-3rem)]"

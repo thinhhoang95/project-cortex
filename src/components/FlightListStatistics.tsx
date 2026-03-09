@@ -163,6 +163,13 @@ type TvOccupancyComputation = {
   minutesMismatch: boolean;
 };
 
+type TrafficVolumeResponseEntry = {
+  traffic_volume_id?: unknown;
+  tv_id?: unknown;
+  id?: unknown;
+  name?: unknown;
+};
+
 export interface FlightListAnalysis {
   selectedFlights: Trajectory[];
   requestedUniqueCount: number;
@@ -223,6 +230,40 @@ const EMPTY_ANALYSIS: FlightListAnalysis = {
   busiestTakeoffHour: null,
   longestFlight: null,
 };
+
+function normalizeTrafficVolumeId(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value).trim();
+  }
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  const entry = value as TrafficVolumeResponseEntry;
+  for (const candidate of [entry.traffic_volume_id, entry.tv_id, entry.id, entry.name]) {
+    if (typeof candidate === "string" || typeof candidate === "number") {
+      const normalized = String(candidate).trim();
+      if (normalized) return normalized;
+    }
+  }
+
+  return "";
+}
+
+export function extractTrafficVolumeIds(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const normalized = normalizeTrafficVolumeId(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    ids.push(normalized);
+  }
+
+  return ids;
+}
 
 export function buildAnalysisForFlightIds(
   flights: Trajectory[],
@@ -526,9 +567,7 @@ function FlightListStatistics({
           throw new Error(text || `Failed to fetch common traffic volumes (${res.status})`);
         }
         const json = await res.json();
-        const ids = Array.isArray(json?.traffic_volumes)
-          ? (json.traffic_volumes as any[]).map(v => String(v)).filter(Boolean)
-          : [];
+        const ids = extractTrafficVolumeIds(json?.traffic_volumes);
         setTrafficState({
           loading: false,
           error: null,
@@ -651,12 +690,13 @@ function FlightListStatistics({
     const flightCounts = contribCountsState.data?.flight_list_counts ?? {};
     const capacityMap = contribCountsState.data?.capacity ?? {};
 
-    const ranked = contribCountsState.data?.metadata?.ranked_tv_ids ?? Object.keys(totalCounts);
-    if (!Array.isArray(ranked) || ranked.length === 0) {
+    const ranked = extractTrafficVolumeIds(contribCountsState.data?.metadata?.ranked_tv_ids);
+    const orderedTvIds = ranked.length > 0 ? ranked : Object.keys(totalCounts);
+    if (orderedTvIds.length === 0) {
       return { list, map, minutesPerBin, startBin, labelCount, minutesMismatch };
     }
 
-    for (const tvId of ranked) {
+    for (const tvId of orderedTvIds) {
       const totalsRaw = totalCounts[tvId] || [];
       const selectedRaw = flightCounts[tvId] || [];
       const capacityRaw = capacityMap?.[tvId] || [];

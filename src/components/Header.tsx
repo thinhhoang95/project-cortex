@@ -518,7 +518,7 @@ export default function Header() {
                 </svg>
               </button>
               <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-2 px-2 py-1 text-xs rounded-md bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
-                Regulation Planner
+                Agent
               </div>
             </div>
           </div>

@@ -15,6 +15,7 @@ import AgentSaResultSummaryPanel from '@/components/AgentSaResultSummaryPanel';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
 import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
 import PerAccDelayAttributionPanel from '@/components/PerAccDelayAttributionPanel';
+import PerStageRewardPanel, { type PerStageRewardEntry } from '@/components/PerStageRewardPanel';
 import TrafficVolumeInfoTooltip from '@/components/TrafficVolumeInfoTooltip';
 import TrafficVolumeMiniMap from '@/components/TrafficVolumeMiniMap';
 import TimeScaleControl from '@/components/TimeScaleControl';
@@ -124,7 +125,9 @@ interface AgentSolutionRegulation {
 }
 
 interface AgentSolDetailsResponse {
+  trajectory_key?: string;
   selected_step?: AgentSolutionStep;
+  per_stage_reward?: PerStageRewardEntry[];
   step_delays_by_flight?: Record<string, AgentSolutionFlightDelay | number | string>;
   pre_post?: AgentSolutionPrePost;
   per_acc_attrib?: RegulationPlanPerAccAttrib;
@@ -1245,11 +1248,17 @@ const RUN_METHODOLOGY_META = {
     label: 'RZ',
     badge: 'border border-cyan-400/35 bg-cyan-500/10 text-cyan-100',
     description: 'Regulation zoning solutions',
+    selectedCard:
+      'border-emerald-400/70 bg-emerald-400/10 shadow-[0_18px_40px_-24px_rgba(16,185,129,0.8)]',
+    selectedMetric: 'bg-emerald-500/15 text-emerald-300',
   },
   sa: {
     label: 'SA',
     badge: 'border border-fuchsia-400/35 bg-fuchsia-500/10 text-fuchsia-100',
     description: 'Simulated annealing analytics',
+    selectedCard:
+      'border-fuchsia-400/60 bg-fuchsia-500/10 shadow-[0_18px_40px_-24px_rgba(168,85,247,0.68)]',
+    selectedMetric: 'bg-fuchsia-500/15 text-fuchsia-100',
   },
 } as const;
 
@@ -1991,10 +2000,9 @@ export default function AgentResultSummaryComponent({
             <div className="space-y-4">
               {runEntries.map((run) => {
                 const isSelected = run.ref.runKey === selectedRunRef?.runKey;
-                const methodologyMeta =
-                  RUN_METHODOLOGY_META[
-                    normalizeAgentRunMethodology(run.methodology) ?? 'rz'
-                  ];
+                const methodologyKey =
+                  normalizeAgentRunMethodology(run.methodology) ?? run.ref.methodology ?? 'rz';
+                const methodologyMeta = RUN_METHODOLOGY_META[methodologyKey];
                 const chartData =
                   run.ref.methodology === 'rz'
                     ? run.metadata?.historical_best?.map((entry) => ({
@@ -2017,7 +2025,7 @@ export default function AgentResultSummaryComponent({
                     onClick={() => setSelectedRunRef(run.ref)}
                     aria-pressed={isSelected}
                     className={`group block w-full rounded-2xl border px-5 py-4 text-left transition-all duration-150 ${isSelected
-                      ? 'border-emerald-400/70 bg-emerald-400/10 shadow-[0_18px_40px_-24px_rgba(16,185,129,0.8)]'
+                      ? methodologyMeta.selectedCard
                       : 'border-white/10 bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.06]'
                       }`}
                   >
@@ -2040,7 +2048,12 @@ export default function AgentResultSummaryComponent({
                           {methodologyMeta.description}
                         </div>
                       </div>
-                      <div className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
+                      <div
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${isSelected
+                          ? methodologyMeta.selectedMetric
+                          : 'bg-white/10 text-white/75'
+                          }`}
+                      >
                         {formatImprovement(run.best_total_improvement)}
                       </div>
                     </div>
@@ -2580,21 +2593,38 @@ export default function AgentResultSummaryComponent({
                       />
                     </div>
 
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-                      <PerAccDelayAttributionPanel
-                        perAccAttrib={detailsData?.per_acc_attrib}
-                        mode={perAccAttribMode}
-                        loading={detailsLoading}
-                        error={detailsError}
-                        onModeChange={setPerAccAttribMode}
-                        variant="page"
-                        unavailableMessage={
-                          viewMode === 'per_episode'
-                            ? 'ACC attribution is unavailable for this step detail response. Try switching attribution mode or select a different step.'
-                            : 'ACC attribution is unavailable for this whole-plan detail response. Try switching attribution mode or select a different solution.'
-                        }
-                      />
-                    </div>
+                    {viewMode === 'per_episode' ? (
+                      <div className="mt-4 space-y-4">
+                        <PerStageRewardPanel
+                          rewards={detailsData?.per_stage_reward}
+                          selectedStepNumber={selectedStepNumber}
+                          loading={detailsLoading}
+                          error={detailsError}
+                          truncated={Boolean(detailsData?.metadata?.stage_reward_truncated)}
+                        />
+                        <PerAccDelayAttributionPanel
+                          perAccAttrib={detailsData?.per_acc_attrib}
+                          mode={perAccAttribMode}
+                          loading={detailsLoading}
+                          error={detailsError}
+                          onModeChange={setPerAccAttribMode}
+                          variant="page"
+                          unavailableMessage="ACC attribution is unavailable for this step detail response. Try switching attribution mode or select a different step."
+                        />
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
+                        <PerAccDelayAttributionPanel
+                          perAccAttrib={detailsData?.per_acc_attrib}
+                          mode={perAccAttribMode}
+                          loading={detailsLoading}
+                          error={detailsError}
+                          onModeChange={setPerAccAttribMode}
+                          variant="page"
+                          unavailableMessage="ACC attribution is unavailable for this whole-plan detail response. Try switching attribution mode or select a different solution."
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_10px_32px_-20px_rgba(8,145,178,0.7)] backdrop-blur-sm">
