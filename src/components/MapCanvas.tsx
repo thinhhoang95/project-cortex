@@ -70,6 +70,7 @@ export default function MapCanvas() {
     hotspots,
     getActiveHotspots,
     flowPreviewFlightId,
+    flightLinePreviewFlightIds,
     playing,
     focusMode,
     focusFlightIds,
@@ -506,7 +507,7 @@ export default function MapCanvas() {
   useEffect(() => { if (!playing) updatePlanePositions(mapRef.current); }, [t, playing]);
 
   // When a single-flight preview is toggled via hover, update filters immediately
-  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId]);
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId, flightLinePreviewFlightIds]);
 
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedCollapsedSector]);
@@ -1001,7 +1002,10 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   // Filter flight line + label layers
   // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
   let lineIdsToShow: string[];
-  if (sim.flowPreviewFlightId) {
+  const flightLinePreviewIds = Array.from(sim.flightLinePreviewFlightIds).map(String).filter(Boolean);
+  if (flightLinePreviewIds.length > 0) {
+    lineIdsToShow = flightLinePreviewIds;
+  } else if (sim.flowPreviewFlightId) {
     const pid = String(sim.flowPreviewFlightId);
     // Show preview only when the flight is currently active and within the selected FL range.
     lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
@@ -1029,8 +1033,8 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     map.setFilter("flight-lines", filterExpr as any);
     if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
     if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.selectedCollapsedSector || !!sim.flowPreviewFlightId;
-    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.selectedCollapsedSector || !!sim.flowPreviewFlightId || flightLinePreviewIds.length > 0;
+    const lineOpacity = (sim.flowPreviewFlightId || flightLinePreviewIds.length > 0) ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);

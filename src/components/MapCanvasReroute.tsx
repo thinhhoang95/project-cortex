@@ -117,6 +117,7 @@ export default function MapCanvasReroute() {
     flowPreviewGroupId,
     flowGroups,
     flowPreviewFlightId,
+    flightLinePreviewFlightIds,
     playing,
     focusMode,
     focusFlightIds,
@@ -1080,7 +1081,7 @@ export default function MapCanvasReroute() {
   useEffect(() => { if (!playing) updatePlanePositions(mapRef.current); }, [t, playing]);
 
   // When a single-flight/group preview is toggled, update filters immediately
-  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId, flowGroups]);
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId, flowGroups, flightLinePreviewFlightIds]);
 
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedCollapsedSector]);
@@ -2082,6 +2083,7 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     insideRangeActiveFlightIds: insideRangeActiveSet,
     focusMode: sim.focusMode,
     focusFlightIds: sim.focusFlightIds,
+    flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
     flowPreviewFlightId: sim.flowPreviewFlightId,
     flowPreviewGroupId: sim.flowPreviewGroupId,
     flowCommunities: sim.flowCommunities,
@@ -2112,9 +2114,10 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       !!sim.selectedTrafficVolume ||
       !!sim.selectedCollapsedSector ||
       !!sim.flowPreviewFlightId ||
-      !!sim.flowPreviewGroupId;
+      !!sim.flowPreviewGroupId ||
+      sim.flightLinePreviewFlightIds.size > 0;
     const lineOpacity =
-      sim.flowPreviewFlightId || sim.flowPreviewGroupId
+      sim.flowPreviewFlightId || sim.flowPreviewGroupId || sim.flightLinePreviewFlightIds.size > 0
         ? 0.8
         : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;

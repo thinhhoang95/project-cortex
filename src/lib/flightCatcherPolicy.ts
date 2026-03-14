@@ -141,6 +141,7 @@ export function deriveVisibleFlightLineIds(params: {
   insideRangeActiveFlightIds: IdIterable;
   focusMode: boolean;
   focusFlightIds: IdIterable;
+  flightLinePreviewFlightIds?: IdIterable;
   flowPreviewFlightId?: string | null;
   flowPreviewGroupId?: string | null;
   flowCommunities?: Record<string, number> | null;
@@ -155,9 +156,12 @@ export function deriveVisibleFlightLineIds(params: {
 }): string[] {
   const inside = normalizeFlightIds(params.insideRangeActiveFlightIds);
   const insideSet = new Set(inside);
+  const flightLinePreviewIds = normalizeFlightIds(params.flightLinePreviewFlightIds);
   let visible: string[] = [];
 
-  if (params.proposalPreviewActive) {
+  if (flightLinePreviewIds.length > 0) {
+    visible = flightLinePreviewIds;
+  } else if (params.proposalPreviewActive) {
     visible = normalizeFlightIds(params.proposalPreviewFlightIds);
   } else if (params.regulationPreviewActive) {
     visible = normalizeFlightIds(params.regulationTargetFlightIds);
@@ -187,7 +191,7 @@ export function deriveVisibleFlightLineIds(params: {
     visible = inside;
   }
 
-  if (!params.clampToActiveSet) {
+  if (!params.clampToActiveSet || flightLinePreviewIds.length > 0) {
     return visible;
   }
   return visible.filter((id) => insideSet.has(id));

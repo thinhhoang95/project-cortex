@@ -145,6 +145,7 @@ type State = {
   // Flow preview (hover) state
   flowPreviewGroupId: string | null;
   flowPreviewFlightId: string | null;
+  flightLinePreviewFlightIds: Set<string>;
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationPreviewActive: boolean;
@@ -245,6 +246,7 @@ type State = {
   setFlowError: (error: string | null) => void;
   setFlowPreviewGroupId: (groupId: string | null) => void;
   setFlowPreviewFlightId: (flightId: string | null) => void;
+  setFlightLinePreviewFlightIds: (flightIds: Set<string>) => void;
   setFlowColorByCommunity: (m: Record<string, string> | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
@@ -392,6 +394,7 @@ const defaultState: Pick<State,
   | 'flowError'
   | 'flowPreviewGroupId'
   | 'flowPreviewFlightId'
+  | 'flightLinePreviewFlightIds'
   | 'regulationTargetFlightIds'
   | 'regulationPreviewActive'
   | 'regulationVisibleFlightIds'
@@ -489,6 +492,7 @@ const defaultState: Pick<State,
   flowError: null,
   flowPreviewGroupId: null,
   flowPreviewFlightId: null,
+  flightLinePreviewFlightIds: new Set<string>(),
   regulationTargetFlightIds: new Set<string>(),
   regulationPreviewActive: false,
   regulationVisibleFlightIds: [],
@@ -850,6 +854,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setFlowError: (error) => set({ flowError: error }),
   setFlowPreviewGroupId: (groupId) => set({ flowPreviewGroupId: groupId }),
   setFlowPreviewFlightId: (flightId) => set({ flowPreviewFlightId: flightId }),
+  setFlightLinePreviewFlightIds: (flightIds) => set({ flightLinePreviewFlightIds: flightIds }),
   setFlowColorByCommunity: (m) => set({ flowColorByCommunity: m }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   setRegulationListedFlightIds: (ids) => set({ regulationListedFlightIds: ids }),

@@ -68,6 +68,7 @@ export default function FlowCanvas() {
     flowGroups,
     flowPreviewGroupId,
     flowPreviewFlightId,
+    flightLinePreviewFlightIds,
     regulationCatcherActive,
     regulationCatcherMode,
     cancelRegulationCatcher,
@@ -511,6 +512,7 @@ export default function FlowCanvas() {
 
   // When a single-flight or group preview is toggled via hover, update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId]);
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flightLinePreviewFlightIds]);
 
   // Also react to group preview changes from FlowRegulationPanel header hover
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewGroupId]);
@@ -742,6 +744,7 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     insideRangeActiveFlightIds: insideRangeActiveSet,
     focusMode: sim.focusMode,
     focusFlightIds: sim.focusFlightIds,
+    flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
     flowPreviewFlightId: sim.flowPreviewFlightId,
     flowPreviewGroupId: sim.flowPreviewGroupId,
     flowCommunities: sim.flowCommunities,
@@ -768,9 +771,10 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
+    const hasFlightLinePreview = sim.flightLinePreviewFlightIds.size > 0;
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId || hasFlightLinePreview;
     const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
-    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
+    const lineOpacity = (sim.flowPreviewFlightId || hasFlightLinePreview) ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);

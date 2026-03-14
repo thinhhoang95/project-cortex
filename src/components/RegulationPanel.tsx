@@ -4,6 +4,7 @@ import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Toolti
 import { useSimStore, type RegulationCatcherMode, type RegulationCatcherTimeframe } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
@@ -1282,6 +1283,16 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               </div>
             )}
           </div>
+        )}
+
+        {occupancyData?.flight_level_counts?.bins?.length > 0 && (
+          <FlightLevelBinCountChart
+            data={occupancyData?.flight_level_counts}
+            trafficVolumeId={primaryTvId}
+            filterToWindow
+            windowStartSeconds={regulationTimeWindow[0]}
+            windowSeconds={Math.max(0, regulationTimeWindow[1] - regulationTimeWindow[0])}
+          />
         )}
 
         {trafficOverloadSegments.length > 0 && (

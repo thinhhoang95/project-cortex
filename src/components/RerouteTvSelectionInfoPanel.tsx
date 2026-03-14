@@ -20,14 +20,17 @@ import {
   buildRollingChartDataFromOccupancy,
   type RollingChartDataPoint,
 } from "@/lib/airspaceInfoMultiTv";
+import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import PanelCloseButton from "@/components/PanelCloseButton";
+import { type FlightLevelCountsPayload } from "@/lib/flightLevelBinCounts";
 
 type OccupancyData = {
   traffic_volume_id: string;
   occupancy_counts: Record<string, number>;
   hourly_capacity: Record<string, number>;
   anchor_capacity?: Record<string, number>;
+  flight_level_counts?: FlightLevelCountsPayload;
   metadata: {
     time_bin_minutes: number;
     total_time_windows: number;
@@ -385,6 +388,13 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
                 </div>
               </div>
             )}
+
+            {primaryOccupancy?.flight_level_counts?.bins?.length ? (
+              <FlightLevelBinCountChart
+                data={primaryOccupancy?.flight_level_counts}
+                trafficVolumeId={primaryTvId}
+              />
+            ) : null}
 
             {overloadSegments.data.length > 0 && (
               <div className="bg-white/5 rounded-lg p-4">

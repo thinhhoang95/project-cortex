@@ -114,6 +114,17 @@ describe("applyCatcherToRerouteState", () => {
 
 describe("deriveVisibleFlightLineIds", () => {
   it("respects preview and flow precedence, then clamps when requested", () => {
+    const visibleFromFlightLinePreview = deriveVisibleFlightLineIds({
+      insideRangeActiveFlightIds: ["A", "B", "C"],
+      focusMode: true,
+      focusFlightIds: ["A", "B", "D"],
+      flightLinePreviewFlightIds: ["D", "E"],
+      flowPreviewGroupId: "group-1",
+      flowGroups: { "group-1": ["B", "D"] },
+      clampToActiveSet: true,
+    });
+    expect(visibleFromFlightLinePreview).toEqual(["D", "E"]);
+
     const visibleFromFlowPreview = deriveVisibleFlightLineIds({
       insideRangeActiveFlightIds: ["A", "B", "C"],
       focusMode: true,

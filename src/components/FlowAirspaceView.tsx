@@ -8,6 +8,7 @@ import {
 } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
@@ -1413,6 +1414,16 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Capacity</span></div>
             </div>
           </div>
+        )}
+
+        {occupancyData?.flight_level_counts?.bins?.length > 0 && (
+          <FlightLevelBinCountChart
+            data={occupancyData?.flight_level_counts}
+            trafficVolumeId={primaryTvId}
+            filterToWindow
+            windowStartSeconds={regulationTimeWindow[0]}
+            windowSeconds={Math.max(0, regulationTimeWindow[1] - regulationTimeWindow[0])}
+          />
         )}
 
         {trafficOverloadSegments.length > 0 && (
