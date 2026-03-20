@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import type { RerouteImpactResponse } from "@/lib/rerouteImpact";
 import { useSimStore } from "./useSimStore";
 
 describe("useSimStore reroute tools", () => {
@@ -177,5 +178,80 @@ describe("useSimStore reroute tools", () => {
 
     expect(nextState.rerouteCommittedMoves).toHaveLength(1);
     expect(nextState.rerouteCommittedMoves[0].id).toBe(secondMoveId);
+  });
+
+  it("stores and clears reroute impact session state", () => {
+    const store = useSimStore.getState();
+    const impactResult: RerouteImpactResponse = {
+      resource_date: "2023-07-17",
+      time_bin_minutes: 15,
+      num_bins: 2,
+      flight_ids: ["F1"],
+      barred_polygon_ids: ["MOVE-1:OBS-1"],
+      tv_ids_order: ["TV_A"],
+      timebins: {
+        labels: ["00:00-00:15", "00:15-00:30"],
+      },
+      raw: {
+        pre_counts: { TV_A: [1, 0] },
+        post_counts: { TV_A: [2, 0] },
+        delta_counts: { TV_A: [1, 0] },
+      },
+      rolling_hour: {
+        pre_counts: { TV_A: [1, 0] },
+        post_counts: { TV_A: [2, 1] },
+        delta_counts: { TV_A: [1, 1] },
+      },
+      diagnostics: {
+        summary: {
+          requested_flight_count: 1,
+          found_flight_count: 1,
+          missing_flight_ids: [],
+          processed_flight_count: 1,
+          rerouted_flight_count: 1,
+          unchanged_flight_count: 0,
+          skipped_flight_count: 0,
+          requested_polygon_count: 1,
+          changed_tv_count: 1,
+        },
+        flights: {
+          F1: {
+            status: "rerouted",
+            blocked_interval_count: 1,
+          },
+        },
+      },
+      detoured_segments: {
+        included: true,
+        flight_count: 1,
+        rerouted_flight_count: 1,
+        flights: {
+          F1: {
+            status: "rerouted",
+            interval_count: 1,
+            intervals: [],
+          },
+        },
+      },
+      capacity: {
+        TV_A: [20, 20],
+      },
+    };
+
+    store.setRerouteImpactResult(impactResult);
+    store.setRerouteImpactScenarioSignature("scenario-1");
+    store.setIsRerouteImpactResultsOpen(true);
+
+    expect(useSimStore.getState().rerouteImpactResult).toEqual(impactResult);
+    expect(useSimStore.getState().rerouteImpactScenarioSignature).toBe("scenario-1");
+    expect(useSimStore.getState().isRerouteImpactResultsOpen).toBe(true);
+
+    useSimStore.getState().setIsRerouteImpactResultsOpen(false);
+    useSimStore.getState().setRerouteImpactResult(null);
+    useSimStore.getState().setRerouteImpactScenarioSignature(null);
+
+    expect(useSimStore.getState().rerouteImpactResult).toBeNull();
+    expect(useSimStore.getState().rerouteImpactScenarioSignature).toBeNull();
+    expect(useSimStore.getState().isRerouteImpactResultsOpen).toBe(false);
   });
 });

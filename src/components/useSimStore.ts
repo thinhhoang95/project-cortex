@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse, AlternativeRouteResponse, AlternativeRouteSegment } from "@/lib/models";
+import type { RerouteImpactResponse } from "@/lib/rerouteImpact";
 import type { RerouteFunnel, RerouteGeometryResult, RerouteObstacle } from "@/lib/rerouteGeometry";
 import { toggleOrderedTrafficVolumes } from "@/lib/multiTrafficVolumeSelection";
 import {
@@ -199,6 +200,9 @@ type State = {
   rerouteGeometryComputing: boolean;
   rerouteGeometryError: string | null;
   reroutePreviewMode: ReroutePreviewMode;
+  rerouteImpactResult: RerouteImpactResponse | null;
+  isRerouteImpactResultsOpen: boolean;
+  rerouteImpactScenarioSignature: string | null;
   regulationCatcherMode: RegulationCatcherMode;
   regulationCatcherTimeframe: RegulationCatcherTimeframe;
   regulationCatcherActive: boolean;
@@ -303,6 +307,9 @@ type State = {
   setRerouteGeometryComputing: (computing: boolean) => void;
   setRerouteGeometryError: (error: string | null) => void;
   toggleReroutePreviewMode: () => void;
+  setRerouteImpactResult: (result: RerouteImpactResponse | null) => void;
+  setIsRerouteImpactResultsOpen: (open: boolean) => void;
+  setRerouteImpactScenarioSignature: (signature: string | null) => void;
   setRegulationCatcherMode: (mode: RegulationCatcherMode) => void;
   setRegulationCatcherTimeframe: (timeframe: RegulationCatcherTimeframe) => void;
   cancelRegulationCatcher: () => void;
@@ -444,6 +451,9 @@ const defaultState: Pick<State,
   | 'rerouteGeometryComputing'
   | 'rerouteGeometryError'
   | 'reroutePreviewMode'
+  | 'rerouteImpactResult'
+  | 'isRerouteImpactResultsOpen'
+  | 'rerouteImpactScenarioSignature'
   | 'regulationCatcherMode'
   | 'regulationCatcherTimeframe'
   | 'regulationCatcherActive'
@@ -542,6 +552,9 @@ const defaultState: Pick<State,
   rerouteGeometryComputing: false,
   rerouteGeometryError: null,
   reroutePreviewMode: "rerouted",
+  rerouteImpactResult: null,
+  isRerouteImpactResultsOpen: false,
+  rerouteImpactScenarioSignature: null,
   regulationCatcherMode: "off",
   regulationCatcherTimeframe: "1h",
   regulationCatcherActive: false,
@@ -1317,6 +1330,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     set((state) => ({
       reroutePreviewMode: state.reroutePreviewMode === "rerouted" ? "current" : "rerouted",
     })),
+  setRerouteImpactResult: (result) => set({ rerouteImpactResult: result }),
+  setIsRerouteImpactResultsOpen: (open) => set({ isRerouteImpactResultsOpen: open }),
+  setRerouteImpactScenarioSignature: (signature) =>
+    set({ rerouteImpactScenarioSignature: signature ? String(signature) : null }),
   setRegulationCatcherMode: (mode) =>
     set({
       regulationCatcherMode: mode,

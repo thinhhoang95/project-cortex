@@ -8,6 +8,7 @@ interface ModalDialogProps {
   onClose: () => void;
   title: React.ReactNode;
   description?: React.ReactNode;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   width?: string;
   height?: string;
@@ -18,6 +19,7 @@ export default function ModalDialog({
   onClose,
   title,
   description,
+  headerActions,
   children,
   width = "w-[min(1080px,95vw)]",
   height = "h-[min(860px,92vh)]",
@@ -28,7 +30,7 @@ export default function ModalDialog({
       <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-6">
         <div
-          className={`${width} ${height} rounded-2xl border border-white/15 bg-slate-900/95 text-white shadow-[0_24px_80px_-32px_rgba(59,130,246,0.8)] overflow-hidden relative flex flex-col isolate`}
+          className={`${width} ${height} rounded-2xl border border-white/15 bg-slate-900/95 text-white overflow-hidden relative flex flex-col isolate`}
         >
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
             <div>
@@ -37,11 +39,14 @@ export default function ModalDialog({
                 <p className="text-xs text-white/60 mt-0.5">{description}</p>
               )}
             </div>
-            <PanelCloseButton
-              onClick={onClose}
-              ariaLabel="Close dialog"
-              title="Close dialog"
-            />
+            <div className="flex items-center gap-2">
+              {headerActions}
+              <PanelCloseButton
+                onClick={onClose}
+                ariaLabel="Close dialog"
+                title="Close dialog"
+              />
+            </div>
           </div>
           <div className="overflow-y-auto flex-1">
             {children}

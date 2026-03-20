@@ -39,6 +39,7 @@ const REGULATION_CATCHER_SOURCE_ID = "regulation-catcher-source";
 const REGULATION_CATCHER_DRAFT_LAYER_ID = "regulation-catcher-draft";
 const REGULATION_CATCHER_PREVIEW_LAYER_ID = "regulation-catcher-preview";
 const REGULATION_CATCHER_POINTS_LAYER_ID = "regulation-catcher-points";
+const SLACK_LAYER_ID = "sector-slack";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -116,6 +117,8 @@ export default function RegulationCanvas() {
           : [],
     [selectedTrafficVolumes, selectedTrafficVolume],
   );
+  const slackSourceTrafficVolumeId = selectedTvHighlightIds.length === 1 ? selectedTvHighlightIds[0] ?? null : null;
+  const slackEligible = !!slackSourceTrafficVolumeId;
 
   const syncRegulationCatcherOverlay = () => {
     const map = mapRef.current;
@@ -158,13 +161,13 @@ export default function RegulationCanvas() {
       addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
 
       // Slack overlay layer (initially hidden). Place below points + labels so clicks work.
-      if (!map.getLayer("sector-slack")) {
+      if (!map.getLayer(SLACK_LAYER_ID)) {
         map.addLayer({
-          id: "sector-slack",
+          id: SLACK_LAYER_ID,
           type: "fill",
           source: "sectors",
           layout: { visibility: "none" },
-          paint: { "fill-color": "#facc15", "fill-opacity": 0.03 }
+          paint: { "fill-color": "#22c55e", "fill-opacity": 0 }
         }, TRAFFIC_VOLUME_LAYER_IDS.point);
       }
 
@@ -769,26 +772,38 @@ export default function RegulationCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!showTrafficVolumes) { hideSlackOverlay(map); return; }
-    if (!selectedTrafficVolume) { hideSlackOverlay(map); setSlackMode('off'); return; }
+    if (!showTrafficVolumes) {
+      hideSlackOverlay(map);
+      return;
+    }
+    if (!slackEligible || !slackSourceTrafficVolumeId) {
+      hideSlackOverlay(map);
+      lastSlackKeyRef.current = null;
+      if (slackMode !== 'off') setSlackMode('off');
+      return;
+    }
     const refStr = formatSecondsToHHMM(t);
-    const key = `${selectedTrafficVolume}|${refStr}|${slackSign}|${deltaMin}`;
+    const key = `${slackSourceTrafficVolumeId}|${refStr}|${slackSign}|${deltaMin}`;
     if (lastSlackKeyRef.current === key) return;
     lastSlackKeyRef.current = key;
     const showNow = slackMode !== 'off';
-    fetchAndApplySlack(map, selectedTrafficVolume, refStr, slackSign, deltaMin, setIsFetchingSlack, setSlackMetaByTv, showNow);
-  }, [selectedTrafficVolume, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack, showTrafficVolumes]);
+    void fetchAndApplySlack(map, slackSourceTrafficVolumeId, refStr, slackSign, deltaMin, setIsFetchingSlack, setSlackMetaByTv, showNow).then((success) => {
+      if (!success && lastSlackKeyRef.current === key) {
+        lastSlackKeyRef.current = null;
+      }
+    });
+  }, [slackSourceTrafficVolumeId, slackEligible, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack, showTrafficVolumes]);
 
   // Show/hide slack overlay based on mode (Off/Minus/Plus)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!showTrafficVolumes || slackMode === 'off') {
+    if (!showTrafficVolumes || !slackEligible || slackMode === 'off') {
       hideSlackOverlay(map);
-    } else if (map.getLayer('sector-slack')) {
-      map.setLayoutProperty('sector-slack', 'visibility', 'visible');
+    } else if (map.getLayer(SLACK_LAYER_ID)) {
+      map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'visible');
     }
-  }, [slackMode, showTrafficVolumes]);
+  }, [slackMode, showTrafficVolumes, slackEligible]);
 
   return (
     <>
@@ -1159,14 +1174,15 @@ async function fetchAndApplySlack(
   setIsFetching: (v: boolean) => void,
   setSlackMetaByTv: React.Dispatch<React.SetStateAction<Record<string, { time_window: string; slack: number; occupancy: number }>>>,
   showImmediately?: boolean
-) {
-  if (!map || !map.isStyleLoaded()) return;
+): Promise<boolean> {
+  if (!map || !map.isStyleLoaded()) return false;
   setIsFetching(true);
   try {
     const url = new URL(`/api/slack_distribution`, window.location.origin);
     url.searchParams.set('traffic_volume_id', trafficVolumeId);
     url.searchParams.set('ref_time_str', refTimeStr);
     url.searchParams.set('sign', sign);
+    url.searchParams.set('tv_kind', 'any');
     if (!Number.isNaN(deltaMin)) {
       url.searchParams.set('delta_min', String(deltaMin));
     }
@@ -1175,85 +1191,128 @@ async function fetchAndApplySlack(
     if (!resp.ok) throw new Error(`Slack API error ${resp.status}`);
     const data = await resp.json();
     const results: any[] = Array.isArray(data?.results) ? data.results : [];
-    const slackByTv = new Map<string, number>();
     const metaRecord: Record<string, { time_window: string; slack: number; occupancy: number }> = {};
     for (const r of results) {
       const tv = String(r?.traffic_volume_id ?? '');
       const sv = typeof r?.slack === 'number' ? r.slack : Number(r?.slack) || 0;
-      if (tv) slackByTv.set(tv, sv);
       if (tv) metaRecord[tv] = { time_window: String(r?.time_window ?? ''), slack: Number(sv), occupancy: Number(r?.occupancy ?? 0) };
     }
     setSlackMetaByTv(metaRecord);
-    applySlackOverlay(map, slackByTv);
+    applySlackOverlay(map, results);
     const showTraffic = useSimStore.getState().showTrafficVolumes;
     if (showImmediately && showTraffic) {
-      if (map.getLayer('sector-slack')) {
-        map.setLayoutProperty('sector-slack', 'visibility', 'visible');
+      if (map.getLayer(SLACK_LAYER_ID)) {
+        map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'visible');
       }
     } else {
       hideSlackOverlay(map);
     }
+    return true;
   } catch (e) {
     console.error('Failed to fetch/apply slack:', e);
     hideSlackOverlay(map);
+    return false;
   } finally {
     setIsFetching(false);
   }
 }
 
-function applySlackOverlay(map: maplibregl.Map, slackByTv: Map<string, number>) {
+function applySlackOverlay(map: maplibregl.Map, results: any[]) {
   if (!map || !map.isStyleLoaded()) return;
   const src = map.getSource('sectors') as maplibregl.GeoJSONSource | undefined;
   const base = (map as any).__sectors as GeoJSON.FeatureCollection | undefined;
   if (!src || !base) return;
 
-  // Merge slack values into sector GeoJSON
+  const slackByTv = new Map<string, { slack: number; capacity: number }>();
+  for (const result of results) {
+    const tvId = String(result?.traffic_volume_id ?? '').trim();
+    if (!tvId) continue;
+    const slackValue = typeof result?.slack === 'number' ? result.slack : Number(result?.slack);
+    const capacityValue =
+      typeof result?.capacity_per_bin === 'number'
+        ? result.capacity_per_bin
+        : Number(result?.capacity_per_bin);
+    slackByTv.set(tvId, {
+      slack: Number.isFinite(slackValue) ? slackValue : 0,
+      capacity: Number.isFinite(capacityValue) ? capacityValue : 0,
+    });
+  }
+
   const updated: GeoJSON.FeatureCollection = {
     type: 'FeatureCollection',
     features: (base.features as any[]).map((f: any) => {
       const tvId = String(f?.properties?.traffic_volume_id ?? '');
-      const sv = slackByTv.get(tvId) ?? 0;
-      return { ...f, properties: { ...f.properties, slack_value: sv } };
+      const slackInfo = slackByTv.get(tvId);
+      const capacity = slackInfo?.capacity ?? 0;
+      const slack = slackInfo?.slack ?? 0;
+      const hasData = !!slackInfo;
+      const ratio = hasData && capacity > 0 ? slack / capacity : 0;
+      const intensity = clamp01(Math.min(Math.abs(ratio), 1));
+      const opacity = !hasData
+        ? 0
+        : slack <= 0
+          ? 0.12 + intensity * 0.24
+          : 0.08 + intensity * 0.2;
+      return {
+        ...f,
+        properties: {
+          ...f.properties,
+          slack_value: slack,
+          slack_capacity: capacity,
+          slack_missing: !hasData,
+          slack_hotspot: hasData ? slack <= 0 : false,
+          slack_fill_opacity: opacity,
+        },
+      };
     })
   } as any;
-
-  // Compute max slack for color scaling
-  let sMax = 0;
-  for (const f of updated.features as any[]) {
-    const sv = Number(f?.properties?.slack_value ?? 0);
-    if (sv > sMax) sMax = sv;
-  }
-  if (sMax <= 0) sMax = 1; // avoid divide-by-zero and keep visible scale
 
   src.setData(updated as any);
   (map as any).__sectors = updated;
 
-  // Ensure layer exists and is visible
-  if (!map.getLayer('sector-slack')) {
+  if (!map.getLayer(SLACK_LAYER_ID)) {
     map.addLayer({
-      id: 'sector-slack',
+      id: SLACK_LAYER_ID,
       type: 'fill',
       source: 'sectors',
       layout: { visibility: 'none' },
-      paint: { 'fill-color': '#facc15', 'fill-opacity': 0.03 }
+      paint: { 'fill-color': '#22c55e', 'fill-opacity': 0 }
     }, TRAFFIC_VOLUME_LAYER_IDS.point);
   }
-  if (map.getLayer('sector-slack')) {
-    const colorExpr: any = [
-      'interpolate', ['linear'], ['to-number', ['coalesce', ['get', 'slack_value'], 0]],
-      0, '#a855f7',           // bright purple (congested)
-      sMax * 0.25, '#facc15', // yellow
-      sMax * 0.5, '#3b82f6',  // blue
-      sMax, '#22c55e'         // green (plenty of slack)
-    ];
-    map.setPaintProperty('sector-slack', 'fill-color', colorExpr as any);
-    map.setPaintProperty('sector-slack', 'fill-opacity', 0.05);
+  if (map.getLayer(SLACK_LAYER_ID)) {
+    map.setPaintProperty(
+      SLACK_LAYER_ID,
+      'fill-color',
+      [
+        'case',
+        ['boolean', ['get', 'slack_missing'], true],
+        '#22c55e',
+        ['boolean', ['get', 'slack_hotspot'], false],
+        '#ef4444',
+        '#22c55e',
+      ] as any,
+    );
+    map.setPaintProperty(
+      SLACK_LAYER_ID,
+      'fill-opacity',
+      [
+        'case',
+        ['boolean', ['get', 'slack_missing'], true],
+        0,
+        ['to-number', ['coalesce', ['get', 'slack_fill_opacity'], 0]],
+      ] as any,
+    );
   }
 }
 
 function hideSlackOverlay(map: maplibregl.Map) {
   if (!map || !map.isStyleLoaded()) return;
-  if (map.getLayer('sector-slack')) {
-    map.setLayoutProperty('sector-slack', 'visibility', 'none');
+  if (map.getLayer(SLACK_LAYER_ID)) {
+    map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'none');
   }
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }

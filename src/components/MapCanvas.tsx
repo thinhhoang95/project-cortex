@@ -34,11 +34,14 @@ import {
   TRAFFIC_VOLUME_LAYER_IDS,
   TRAFFIC_VOLUME_SOURCE_ID,
 } from "@/lib/trafficVolumeLayers";
+import { formatSecondsToHHMM } from "@/lib/time";
 
 type AirspaceSources = {
   sectors: GeoJSON.FeatureCollection;
   centroids: GeoJSON.FeatureCollection;
 };
+
+const SLACK_LAYER_ID = "sector-slack";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -79,6 +82,11 @@ export default function MapCanvas() {
     selectedTrafficVolume,
     selectedTrafficVolumes,
     selectedCollapsedSector,
+    slackMode,
+    setSlackMode,
+    slackSign,
+    deltaMin,
+    setIsFetchingSlack,
   } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
@@ -91,9 +99,25 @@ export default function MapCanvas() {
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
+  const [slackMetaByTv, setSlackMetaByTv] = useState<Record<string, { time_window: string; slack: number; occupancy: number }>>({});
+  const [hoverLabelPoint, setHoverLabelPoint] = useState<{ x: number; y: number } | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
+  const lastSlackKeyRef = useRef<string | null>(null);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
   const currentMinuteOfDay = useMemo(() => getMinuteOfDay(t), [t]);
+  const selectedTvIds = useMemo(
+    () =>
+      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
+        ? selectedTrafficVolumes
+        : selectedTrafficVolume
+          ? [selectedTrafficVolume]
+          : [],
+    [selectedTrafficVolume, selectedTrafficVolumes],
+  );
+  const slackSourceTrafficVolumeId = airspaceDisplayMode === "tv" && selectedTvIds.length === 1
+    ? selectedTvIds[0] ?? null
+    : null;
+  const slackEligible = !!slackSourceTrafficVolumeId;
 
   // init map
   useEffect(() => {
@@ -136,8 +160,20 @@ export default function MapCanvas() {
         csSourcesRef.current = null;
       }
       addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
+      if (!map.getLayer(SLACK_LAYER_ID)) {
+        map.addLayer({
+          id: SLACK_LAYER_ID,
+          type: "fill",
+          source: TRAFFIC_VOLUME_SOURCE_ID,
+          layout: { visibility: "none" },
+          paint: {
+            "fill-color": "#22c55e",
+            "fill-opacity": 0,
+          },
+        }, TRAFFIC_VOLUME_LAYER_IDS.point);
+      }
 
-      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
+      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
       const sim = useSimStore.getState();
       if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
         console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
@@ -152,7 +188,7 @@ export default function MapCanvas() {
         currentMinuteOfDay: getMinuteOfDay(sim.t),
         csOpenRangeCount: csOpenRangeCountRef.current,
       });
-      applyTrafficVolumeFilters(map, initialFilter);
+      applyTrafficVolumeFilters(map, initialFilter, { includeSlack: true });
 
       // --- Flight lines (static geometry) ---
       const lineFC: GeoJSON.FeatureCollection = {
@@ -432,11 +468,15 @@ export default function MapCanvas() {
         map.getCanvas().style.cursor = 'pointer';
         const trafficVolumeId = getTrafficVolumeIdFromEvent(e);
         if (trafficVolumeId) setHoveredTrafficVolume(trafficVolumeId);
+        if (e.point && useSimStore.getState().slackMode !== 'off') {
+          setHoverLabelPoint({ x: (e.point as any).x, y: (e.point as any).y });
+        }
       };
 
       const handleTrafficVolumeHoverExit = () => {
         map.getCanvas().style.cursor = '';
         setHoveredTrafficVolume(null);
+        setHoverLabelPoint(null);
       };
 
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
@@ -598,7 +638,7 @@ export default function MapCanvas() {
         currentMinuteOfDay,
         csOpenRangeCount: csOpenRangeCountRef.current,
       });
-      applyTrafficVolumeFilters(map, filterExpression);
+      applyTrafficVolumeFilters(map, filterExpression, { includeSlack: true });
     };
 
     if (map.isStyleLoaded()) {
@@ -627,7 +667,7 @@ export default function MapCanvas() {
 
     const apply = () => {
       try {
-        applyTrafficVolumeVisibility(map, showTrafficVolumes);
+        applyTrafficVolumeVisibility(map, showTrafficVolumes, { includeSlack: true });
       } catch (err) {
         console.error("Failed to update traffic volume visibility", err);
       }
@@ -727,6 +767,65 @@ export default function MapCanvas() {
     const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
     applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
   }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (slackEligible) return;
+    hideSlackOverlay(map);
+    setHoverLabelPoint(null);
+    lastSlackKeyRef.current = null;
+    if (slackMode !== "off") {
+      setSlackMode("off");
+    }
+  }, [slackEligible, slackMode, setSlackMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!showTrafficVolumes || !slackEligible || slackMode === "off") {
+      hideSlackOverlay(map);
+      return;
+    }
+    if (map.getLayer(SLACK_LAYER_ID)) {
+      map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "visible");
+    }
+  }, [showTrafficVolumes, slackEligible, slackMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!showTrafficVolumes || !slackEligible || slackMode === "off" || !slackSourceTrafficVolumeId) {
+      return;
+    }
+    const refStr = formatSecondsToHHMM(t);
+    const key = `${slackSourceTrafficVolumeId}|${refStr}|${slackSign}|${deltaMin}`;
+    if (lastSlackKeyRef.current === key) return;
+    lastSlackKeyRef.current = key;
+    void fetchAndApplySlack(
+      map,
+      slackSourceTrafficVolumeId,
+      refStr,
+      slackSign,
+      deltaMin,
+      setIsFetchingSlack,
+      setSlackMetaByTv,
+      slackMode !== "off",
+    ).then((success) => {
+      if (!success && lastSlackKeyRef.current === key) {
+        lastSlackKeyRef.current = null;
+      }
+    });
+  }, [
+    deltaMin,
+    setIsFetchingSlack,
+    showTrafficVolumes,
+    slackEligible,
+    slackMode,
+    slackSign,
+    slackSourceTrafficVolumeId,
+    t,
+  ]);
 
   // Listen for dialog close events to clear highlighting
   useEffect(() => {
@@ -849,6 +948,32 @@ export default function MapCanvas() {
       />
 
       <PageLoadingIndicator visible={baseDataLoading} />
+      {slackMode !== 'off' && hoveredTrafficVolume && hoverLabelPoint && (slackMetaByTv as any)[hoveredTrafficVolume] && (
+        <div
+          className="absolute pointer-events-none z-50"
+          style={{ left: hoverLabelPoint.x + 12, top: hoverLabelPoint.y - 12 }}
+        >
+          <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg px-3 py-2 shadow-lg">
+            <div className="text-[10px] uppercase tracking-wide text-gray-300 mb-1">{hoveredTrafficVolume}</div>
+            <div className="text-xs text-gray-200 flex items-center gap-3">
+              <div className="flex items-baseline gap-1">
+                <span className="text-gray-300">Window</span>
+                <span className="font-semibold text-white">{(slackMetaByTv as any)[hoveredTrafficVolume].time_window}</span>
+              </div>
+              <div className="w-px h-4 bg-white/20" />
+              <div className="flex items-baseline gap-1">
+                <span className="text-gray-300">Slack</span>
+                <span className="font-semibold text-emerald-300">{Number((slackMetaByTv as any)[hoveredTrafficVolume].slack).toFixed(1)}</span>
+              </div>
+              <div className="w-px h-4 bg-white/20" />
+              <div className="flex items-baseline gap-1">
+                <span className="text-gray-300">Occup.</span>
+                <span className="font-semibold text-sky-300">{Number((slackMetaByTv as any)[hoveredTrafficVolume].occupancy).toFixed(1)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-96">
         <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-4 py-3 shadow-lg flex items-center space-x-3">
@@ -1043,3 +1168,148 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   }
 }
 
+async function fetchAndApplySlack(
+  map: maplibregl.Map,
+  trafficVolumeId: string,
+  refTimeStr: string,
+  sign: "minus" | "plus",
+  deltaMin: number,
+  setIsFetching: (value: boolean) => void,
+  setSlackMetaByTv: React.Dispatch<React.SetStateAction<Record<string, { time_window: string; slack: number; occupancy: number }>>>,
+  showImmediately?: boolean,
+): Promise<boolean> {
+  if (!map || !map.isStyleLoaded()) return false;
+  setIsFetching(true);
+  try {
+    const url = new URL("/api/slack_distribution", window.location.origin);
+    url.searchParams.set("traffic_volume_id", trafficVolumeId);
+    url.searchParams.set("ref_time_str", refTimeStr);
+    url.searchParams.set("sign", sign);
+    url.searchParams.set("tv_kind", "any");
+    if (!Number.isNaN(deltaMin)) {
+      url.searchParams.set("delta_min", String(deltaMin));
+    }
+    const { authFetch } = await import("@/lib/auth");
+    const response = await authFetch(url.toString());
+    if (!response.ok) throw new Error(`Slack API error ${response.status}`);
+    const data = await response.json();
+    const results: any[] = Array.isArray(data?.results) ? data.results : [];
+    const metaRecord: Record<string, { time_window: string; slack: number; occupancy: number }> = {};
+    for (const result of results) {
+      const tvId = String(result?.traffic_volume_id ?? "");
+      const slackValue = typeof result?.slack === "number" ? result.slack : Number(result?.slack) || 0;
+      if (tvId) {
+        metaRecord[tvId] = {
+          time_window: String(result?.time_window ?? ""),
+          slack: Number(slackValue),
+          occupancy: Number(result?.occupancy ?? 0),
+        };
+      }
+    }
+    setSlackMetaByTv(metaRecord);
+    applySlackOverlay(map, results);
+    const showTraffic = useSimStore.getState().showTrafficVolumes;
+    if (showImmediately && showTraffic && map.getLayer(SLACK_LAYER_ID)) {
+      map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "visible");
+    } else {
+      hideSlackOverlay(map);
+    }
+    return true;
+  } catch (error) {
+    console.error("Failed to fetch/apply slack:", error);
+    hideSlackOverlay(map);
+    return false;
+  } finally {
+    setIsFetching(false);
+  }
+}
+
+function applySlackOverlay(map: maplibregl.Map, results: any[]) {
+  if (!map || !map.isStyleLoaded()) return;
+  const source = map.getSource(TRAFFIC_VOLUME_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+  const base = (map as any).__sectors as GeoJSON.FeatureCollection | undefined;
+  if (!source || !base) return;
+
+  const slackByTv = new Map<string, { slack: number; capacity: number }>();
+  for (const result of results) {
+    const tvId = String(result?.traffic_volume_id ?? "").trim();
+    if (!tvId) continue;
+    const slackValue = typeof result?.slack === "number" ? result.slack : Number(result?.slack);
+    const capacityValue =
+      typeof result?.capacity_per_bin === "number"
+        ? result.capacity_per_bin
+        : Number(result?.capacity_per_bin);
+    slackByTv.set(tvId, {
+      slack: Number.isFinite(slackValue) ? slackValue : 0,
+      capacity: Number.isFinite(capacityValue) ? capacityValue : 0,
+    });
+  }
+
+  const updated: GeoJSON.FeatureCollection = {
+    type: "FeatureCollection",
+    features: (base.features as any[]).map((feature: any) => {
+      const tvId = String(feature?.properties?.traffic_volume_id ?? "");
+      const slackInfo = slackByTv.get(tvId);
+      const capacity = slackInfo?.capacity ?? 0;
+      const slack = slackInfo?.slack ?? 0;
+      const hasData = !!slackInfo;
+      const ratio = hasData && capacity > 0 ? slack / capacity : 0;
+      const intensity = clamp01(Math.min(Math.abs(ratio), 1));
+      const opacity = !hasData
+        ? 0
+        : slack <= 0
+          ? 0.12 + intensity * 0.24
+          : 0.08 + intensity * 0.2;
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          slack_value: slack,
+          slack_capacity: capacity,
+          slack_missing: !hasData,
+          slack_hotspot: hasData ? slack <= 0 : false,
+          slack_fill_opacity: opacity,
+        },
+      };
+    }),
+  } as any;
+
+  source.setData(updated);
+  (map as any).__sectors = updated;
+
+  if (!map.getLayer(SLACK_LAYER_ID)) return;
+  map.setPaintProperty(
+    SLACK_LAYER_ID,
+    "fill-color",
+    [
+      "case",
+      ["boolean", ["get", "slack_missing"], true],
+      "#22c55e",
+      ["boolean", ["get", "slack_hotspot"], false],
+      "#ef4444",
+      "#22c55e",
+    ] as any,
+  );
+  map.setPaintProperty(
+    SLACK_LAYER_ID,
+    "fill-opacity",
+    [
+      "case",
+      ["boolean", ["get", "slack_missing"], true],
+      0,
+      ["to-number", ["coalesce", ["get", "slack_fill_opacity"], 0]],
+    ] as any,
+  );
+}
+
+function hideSlackOverlay(map: maplibregl.Map) {
+  if (!map || !map.isStyleLoaded()) return;
+  if (map.getLayer(SLACK_LAYER_ID)) {
+    map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "none");
+  }
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}

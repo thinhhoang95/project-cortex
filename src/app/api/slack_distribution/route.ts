@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
   const refTimeStr = searchParams.get('ref_time_str');
   const signParam = (searchParams.get('sign') || 'minus').toLowerCase();
   const deltaMinParam = searchParams.get('delta_min');
+  const tvKindParam = (searchParams.get('tv_kind') || 'as').toLowerCase();
 
   if (!trafficVolumeId) {
     return NextResponse.json(
@@ -25,12 +26,14 @@ export async function GET(request: NextRequest) {
 
   const sign = signParam === 'plus' ? 'plus' : 'minus';
   const deltaMin = deltaMinParam !== null ? Number(deltaMinParam) : undefined;
+  const tvKind = tvKindParam === 'nonas' || tvKindParam === 'any' ? tvKindParam : 'as';
 
   try {
     const url = new URL(`${API_BASE_URL}/slack_distribution`);
     url.searchParams.set('traffic_volume_id', trafficVolumeId);
     url.searchParams.set('ref_time_str', refTimeStr);
     url.searchParams.set('sign', sign);
+    url.searchParams.set('tv_kind', tvKind);
     if (typeof deltaMin === 'number' && !Number.isNaN(deltaMin)) {
       url.searchParams.set('delta_min', String(deltaMin));
     }

@@ -10,6 +10,7 @@ import RegulationPanel from "@/components/RegulationPanel";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
+import SlackViewControl from "@/components/SlackViewControl";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import {
@@ -134,6 +135,7 @@ export default function RegulationsPage() {
           </div>
         )}
       </div>
+      <SlackViewControl />
       <ViewOptionsControl />
       {regComparisonToast && (
         <div

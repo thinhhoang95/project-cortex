@@ -12,10 +12,16 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
+  <h4 class="font-bold mb-4">Fri. 20/03/2026</h4>
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Slack Overlay for Traffic Volumes.</strong> You can now toggle a slack overlay directly on the map and canvas views (Flow, Regulation, and Reroute) to quickly visualize the slack between demand and capacity across traffic volumes.</li>
+    <li><strong>Slack Distribution API Enhancement.</strong> The slack distribution API now accepts a \`tv_kind\` parameter, enabling more granular data retrieval for different traffic volume types.</li>
+  </ul>
+
   <h4 class="font-bold mb-4">Fri. 06/03/2026</h4>
   <ul class="list-disc pl-6 space-y-2 mb-4">
-    <li><strong>Support for multi-date switching.</strong> You can now switch operational datasets by date using a calendar-based selector, with consistent date handling across the app using ISO format (`YYYY-MM-DD`).</li>
-    <li><strong>Date feasibility validation (client + API).</strong> Dates are enabled only when both sides are ready: local browser artifacts declared in `resource_manifest.json` and backend runtime support from `resource_context`.</li>
+    <li><strong>Support for multi-date switching.</strong> You can now switch operational datasets by date using a calendar-based selector, with consistent date handling across the app using ISO format (\`YYYY-MM-DD\`).</li>
+    <li><strong>Date feasibility validation (client + API).</strong> Dates are enabled only when both sides are ready: local browser artifacts declared in \`resource_manifest.json\` and backend runtime support from \`resource_context\`.</li>
     <li><strong>Server/client date sync guard.</strong> If the backend restarts and the active server date no longer matches the browser-saved date, pages now redirect to date selection to re-synchronize safely.</li>
     <li><strong>First-session date onboarding.</strong> Users without a selected resource date are now routed to a dedicated selection page before entering the workspace.</li>
     <li><strong>Hard cache invalidation on date switch.</strong> Switching date now clears browser storage cache and in-memory preloaded artifact caches so flight lists, traffic volume definitions, and TV capacity ranges are re-downloaded for the selected date.</li>
