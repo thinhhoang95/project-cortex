@@ -38,6 +38,7 @@ export default function RerouteImpactResults({
   const [viewFrom, setViewFrom] = useState("00:00");
   const [viewTo, setViewTo] = useState("23:59");
   const [sortMode, setSortMode] = useState<SortMode>("abs_change");
+  const [diagExpanded, setDiagExpanded] = useState(true);
 
   useEffect(() => {
     if (!open || !result) return;
@@ -45,6 +46,7 @@ export default function RerouteImpactResults({
     setViewFrom("00:00");
     setViewTo("23:59");
     setSortMode("abs_change");
+    setDiagExpanded(true);
   }, [open, result]);
 
   const summary = result?.diagnostics?.summary ?? null;
@@ -96,9 +98,13 @@ export default function RerouteImpactResults({
     <button
       type="button"
       onClick={() => setMinimized(true)}
-      className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/85 transition-colors hover:bg-white/15"
+      title="Minimize"
+      aria-label="Minimize"
+      className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
     >
-      Minimize
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
+      </svg>
     </button>
   );
 
@@ -116,11 +122,7 @@ export default function RerouteImpactResults({
         height="h-[min(860px,92vh)]"
       >
         <div className="p-6 space-y-6">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-            <MetricCard
-              label="Resource Date"
-              value={result.resource_date || "Unknown"}
-            />
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
             <MetricCard
               label="Requested Flights"
               value={formatInteger(summary?.requested_flight_count ?? result.flight_ids.length)}
@@ -207,8 +209,27 @@ export default function RerouteImpactResults({
           </div>
 
           <div className="space-y-3">
-            <div className="text-sm uppercase tracking-wider text-gray-300">Per-flight Diagnostics</div>
-            {flightRows.length === 0 ? (
+            <button
+              type="button"
+              className="flex w-full items-center justify-between text-sm uppercase tracking-wider text-gray-300 hover:text-white transition-colors"
+              onClick={() => setDiagExpanded((v) => !v)}
+              aria-expanded={diagExpanded}
+            >
+              <span>Per-flight Diagnostics</span>
+              <svg
+                className={`h-4 w-4 text-white/70 transition-transform ${diagExpanded ? "rotate-90" : ""}`}
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+            {diagExpanded && (flightRows.length === 0 ? (
               <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-6 text-sm text-white/70">
                 No per-flight diagnostics were returned by the simulation.
               </div>
@@ -251,7 +272,7 @@ export default function RerouteImpactResults({
                   </tbody>
                 </table>
               </div>
-            )}
+            ))}
           </div>
         </div>
       </ModalDialog>

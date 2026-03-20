@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
+import ShimmeringText from "@/components/ShimmeringText";
 import {
   buildRerouteImpactScenarioSignature,
   simulateRerouteImpactScenario,
@@ -101,7 +102,7 @@ export default function RerouteProposalsPanel({ embedded = false }: ReroutePropo
               }`}
               title={simulateDisabledReason || "Simulate reroute impact"}
             >
-              {simulateLoading ? "Simulating..." : "Simulate"}
+              {simulateLoading ? <ShimmeringText text="Simulating..." /> : "Simulate"}
             </button>
           </div>
         </div>

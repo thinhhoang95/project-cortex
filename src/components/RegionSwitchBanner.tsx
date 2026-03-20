@@ -85,7 +85,7 @@ export default function RegionSwitchBanner({
           </span>
         </span>
         <Link
-          href={targetHref}
+          href="https://accounts.swim.faa.gov/realms/swim/protocol/openid-connect/auth?client_id=swim-ui&redirect_uri=https%3A%2F%2Fportal.swim.faa.gov%2F&state=49209e14-9cc5-4cd4-aabe-eb56aa7230df&response_mode=fragment&response_type=code&scope=openid&nonce=9b87569b-ac3b-425a-bed2-adeec43292cc&code_challenge=r4BXfnwoHFPwOucdC0NeQ12v6JbWN87CB9IlsDQDx1M&code_challenge_method=S256"
           className="text-sm text-cyan-200 underline underline-offset-2 transition-colors hover:text-white"
         >
           To switch to the US version, click here.

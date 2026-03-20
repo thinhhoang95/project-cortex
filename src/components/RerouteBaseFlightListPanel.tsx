@@ -219,7 +219,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
   const hiddenCount = Math.max(0, rows.length - visibleRows.length);
   const tableColSpan = 5 + (showTvColumns ? selectedTvIds.length * 2 : 0);
   const panelClassName = embedded
-    ? "w-full max-w-[384px] mx-auto rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
+    ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
     : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col";
 
   const restoreSelectedPreview = useCallback(() => {
@@ -364,7 +364,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
               type="button"
               onClick={clearRerouteBaseFlightIds}
               disabled={rows.length === 0 || showTvColumns}
-              className="text-xs px-2.5 py-1 rounded-md border border-white/20 bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="h-7 text-xs px-2.5 rounded-md border border-white/20 bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
               title={showTvColumns ? "TV selection controls this list" : "Clear base flight list"}
             >
               Clear

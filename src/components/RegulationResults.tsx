@@ -37,6 +37,11 @@ import {
   RegSnapshotLimitError,
   REG_SNAPSHOT_STORAGE_KEY,
 } from "@/lib/reg-comparison";
+import {
+  PER_ACC_COMPARISON_MODES,
+  clonePerAccAttrib,
+  type StoredPerAccAttribByMode,
+} from "@/lib/perAccComparison";
 
 interface RegulationResultsProps {
   open: boolean;
@@ -745,11 +750,32 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     }
     setRegSnapshotSaving(true);
     setRegSnapshotSaveError(null);
-    try {
+    const saveSnapshot = async () => {
       const description = regSnapshotDescription.trim() || `Regulation Plan ${regSnapshotList.length + 1}`;
+      const perAccAttribByMode: StoredPerAccAttribByMode = {};
+      const currentPerAccAttrib = clonePerAccAttrib(result.per_acc_attrib);
+      if (currentPerAccAttrib) {
+        perAccAttribByMode[normalizePerAccAttribMode(currentPerAccAttrib.mode)] = currentPerAccAttrib;
+      }
+
+      for (const mode of PER_ACC_COMPARISON_MODES) {
+        if (perAccAttribByMode[mode]) continue;
+        const refreshedResult = await simulateRegulationPlan({
+          regulations,
+          flights,
+          perAccAttribMode: mode,
+        });
+        const nextAttrib = clonePerAccAttrib(refreshedResult.per_acc_attrib);
+        if (!nextAttrib) {
+          throw new Error(`ACC attribution is unavailable for ${mode.replace(/_/g, " ")} mode.`);
+        }
+        perAccAttribByMode[mode] = nextAttrib;
+      }
+
       const snapshot = createRegulationSnapshot({
         description,
         result,
+        perAccAttribByMode,
         sourceRoute: "regulations",
       });
       const next = addRegSnapshot(snapshot, { replaceId: regSnapshotReplaceId || undefined });
@@ -765,15 +791,19 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("reg-snapshot-changed"));
       }
-    } catch (err: any) {
-      if (err instanceof RegSnapshotLimitError) {
-        setRegSnapshotSaveError(`Only ${err.limit} snapshots can be stored. Select one to replace or remove an existing snapshot.`);
-      } else {
-        setRegSnapshotSaveError(err?.message || "Failed to save snapshot.");
-      }
-    } finally {
-      setRegSnapshotSaving(false);
-    }
+    };
+
+    void saveSnapshot()
+      .catch((err: any) => {
+        if (err instanceof RegSnapshotLimitError) {
+          setRegSnapshotSaveError(`Only ${err.limit} snapshots can be stored. Select one to replace or remove an existing snapshot.`);
+        } else {
+          setRegSnapshotSaveError(err?.message || "Failed to save snapshot.");
+        }
+      })
+      .finally(() => {
+        setRegSnapshotSaving(false);
+      });
   };
 
   if (!open || !result) return null;

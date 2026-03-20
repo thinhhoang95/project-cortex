@@ -48,9 +48,9 @@ export default function ReroutePage() {
 
       <div
         style={{ transform: leftPanelsMinimized ? "translateX(calc(-100% - 1.5rem))" : "none" }}
-        className={`absolute top-0 left-4 z-40 w-[420px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none transition-all duration-300 ease-in-out ${leftPanelsMinimized ? "opacity-0" : "opacity-100"}`}
+        className={`absolute top-0 left-4 z-40 w-[360px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none transition-all duration-300 ease-in-out ${leftPanelsMinimized ? "opacity-0" : "opacity-100"}`}
       >
-        <div className="pointer-events-auto w-full max-w-[384px] mx-auto">
+        <div className="pointer-events-auto">
           <LeftControl1 embedded />
         </div>
         <div className="pointer-events-auto">

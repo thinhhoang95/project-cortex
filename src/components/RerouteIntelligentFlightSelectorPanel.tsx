@@ -326,7 +326,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
               <div>Preview mode: {currentPreviewLabel}</div>
               {visibleDraftWarnings.length > 0 && (
                 <div className="mt-2 space-y-1">
-                  <div className="text-[10px] uppercase tracking-[0.14em] text-amber-200/80">Draft diagnostics</div>
+                  <div className="text-[10px] uppercase text-amber-200/80">Draft diagnostics</div>
                   {visibleDraftWarnings.map((warning) => (
                     <div key={warning} className="text-[11px] text-amber-100/90">
                       {warning}

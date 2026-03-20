@@ -1,6 +1,10 @@
 import { RegulationPlanSimulationResponse, RegulationPlanDelayStats } from "@/lib/models";
+import {
+  sanitizeStoredPerAccAttribs,
+  type StoredPerAccAttribByMode,
+} from "@/lib/perAccComparison";
 
-export const REG_SNAPSHOT_VERSION = 1;
+export const REG_SNAPSHOT_VERSION = 2;
 export const REG_SNAPSHOT_STORAGE_KEY = "cortex.regulationSnapshots";
 export const MAX_REG_SNAPSHOTS = 4;
 export const REG_SNAPSHOT_SIZE_WARN_THRESHOLD = Math.floor(4.5 * 1024 * 1024);
@@ -31,6 +35,7 @@ export interface RegulationSnapshot {
   aggregatedRolling: RegulationAggregatedRolling;
   delayStats: RegulationPlanDelayStats;
   delaysMin?: Record<string, number> | null;
+  perAccAttribByMode?: StoredPerAccAttribByMode | null;
   metadata?: Record<string, any> | null;
   shareUrl?: string | null;
   objective?: RegulationObjectiveSummary | null;
@@ -95,12 +100,21 @@ export function generateRegSnapshotId(): string {
 export function createRegulationSnapshot(params: {
   description: string;
   result: RegulationPlanSimulationResponse;
+  perAccAttribByMode?: StoredPerAccAttribByMode | null;
   sourceRoute?: string;
   id?: string;
   createdAt?: string;
   shareUrl?: string | null;
 }): RegulationSnapshot {
-  const { description, result, sourceRoute = "regulations", id = generateRegSnapshotId(), createdAt = new Date().toISOString(), shareUrl = null } = params;
+  const {
+    description,
+    result,
+    perAccAttribByMode,
+    sourceRoute = "regulations",
+    id = generateRegSnapshotId(),
+    createdAt = new Date().toISOString(),
+    shareUrl = null,
+  } = params;
 
   const rollingList = Array.isArray(result.rolling_changed_tvs) && result.rolling_changed_tvs.length > 0
     ? result.rolling_changed_tvs
@@ -197,6 +211,7 @@ export function createRegulationSnapshot(params: {
     aggregatedRolling,
     delayStats,
     delaysMin: Object.keys(delaysMin).length > 0 ? delaysMin : null,
+    perAccAttribByMode: sanitizeStoredPerAccAttribs(perAccAttribByMode, result.per_acc_attrib),
     metadata: result.metadata ? { ...result.metadata } : null,
     shareUrl,
     objective,
@@ -229,6 +244,10 @@ function readRegSnapshotsFromStorage(): RegulationSnapshot[] {
           ...(item as any),
           version: typeof (item as any).version === "number" ? (item as any).version : REG_SNAPSHOT_VERSION,
           aggregatedRolling: sanitizedAggregated,
+          perAccAttribByMode: sanitizeStoredPerAccAttribs(
+            (item as any).perAccAttribByMode,
+            (item as any).per_acc_attrib,
+          ),
           objective: sanitizedObjective,
         } as RegulationSnapshot;
       })

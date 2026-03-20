@@ -57,10 +57,20 @@ export type RerouteImpactFlightInterval = {
   [extra: string]: unknown;
 };
 
+export type RerouteImpactPostTrajectory = {
+  path: RerouteImpactPathPoint[];
+  segments?: RerouteImpactDetouredSegment[];
+  start_time?: string;
+  end_time?: string;
+  segment_count?: number;
+  [extra: string]: unknown;
+};
+
 export type RerouteImpactDetouredFlight = {
   status?: string;
   interval_count?: number;
   intervals?: RerouteImpactFlightInterval[];
+  post_trajectory?: RerouteImpactPostTrajectory;
   [extra: string]: unknown;
 };
 
@@ -555,26 +565,41 @@ export function extractRerouteImpactOverlayFeatures(
 ): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = [];
 
-  for (const [flightId, flight] of Object.entries(result?.detoured_segments?.flights || {})) {
-    const intervals = Array.isArray(flight?.intervals) ? flight.intervals : [];
-    for (let intervalIndex = 0; intervalIndex < intervals.length; intervalIndex += 1) {
-      const interval = intervals[intervalIndex];
-      const coordinates = toCoordinateList(interval?.detour_path || []);
-      if (coordinates.length < 2) continue;
+  for (const [flightId, flight] of Object.entries(result?.detoured_segments?.flights ?? {})) {
+    const path = flight?.post_trajectory?.path;
+    if (Array.isArray(path) && path.length >= 2) {
       features.push({
         type: "Feature",
         geometry: {
           type: "LineString",
-          coordinates,
+          coordinates: path.map((p) => [p.longitude, p.latitude]),
         },
         properties: {
+          kind: "rerouted-flight-path",
           flightId,
-          intervalIndex,
-          previewMode: "rerouted",
-          source: "reroute_impact",
-          status: typeof flight?.status === "string" ? flight.status : "unknown",
+          status: typeof flight.status === "string" ? flight.status : "unknown",
         },
       });
+      continue;
+    }
+
+    // Fallback for older servers that don't return post_trajectory
+    for (const interval of flight?.intervals ?? []) {
+      const detour = interval?.detour_path ?? [];
+      if (detour.length >= 2) {
+        features.push({
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: detour.map((p) => [p.longitude, p.latitude]),
+          },
+          properties: {
+            kind: "reroute-interval",
+            flightId,
+            status: typeof flight.status === "string" ? flight.status : "unknown",
+          },
+        });
+      }
     }
   }
 

@@ -33,6 +33,8 @@ export default function SlackViewControl() {
     }
   }, [slackEligible, slackMode, setSlackMode]);
 
+  if (!slackEligible) return null;
+
   const controlButtonClass = (active: boolean, disabled: boolean) =>
     `flex items-center gap-1 px-2 py-1 rounded-md transition-colors ${
       disabled
@@ -47,14 +49,6 @@ export default function SlackViewControl() {
       className={`absolute ${viewOptionsMinimized ? "bottom-16" : "bottom-24"} left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md z-47`}
     >
       <span className="px-2 text-gray-300">Slack View</span>
-      {!slackEligible && (
-        <>
-          <div className="w-px h-4 bg-white/30" />
-          <span className="px-2 text-gray-400">
-            {airspaceDisplayMode !== "tv" ? "TV mode only" : "Select exactly 1 TV"}
-          </span>
-        </>
-      )}
       <div className="w-px h-4 bg-white/30"></div>
       <button
         type="button"
@@ -68,9 +62,8 @@ export default function SlackViewControl() {
       <button
         type="button"
         onClick={() => { setSlackSign("minus"); setSlackMode("minus"); }}
-        className={controlButtonClass(slackMode === "minus", !slackEligible)}
-        title={slackEligible ? "Shift backward in time (minus)" : "Slack view requires exactly one selected traffic volume"}
-        disabled={!slackEligible}
+        className={controlButtonClass(slackMode === "minus", false)}
+        title="Shift backward in time (minus)"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"></path></svg>
         <span>Minus</span>
@@ -78,9 +71,8 @@ export default function SlackViewControl() {
       <button
         type="button"
         onClick={() => { setSlackSign("plus"); setSlackMode("plus"); }}
-        className={controlButtonClass(slackMode === "plus", !slackEligible)}
-        title={slackEligible ? "Shift forward in time (plus)" : "Slack view requires exactly one selected traffic volume"}
-        disabled={!slackEligible}
+        className={controlButtonClass(slackMode === "plus", false)}
+        title="Shift forward in time (plus)"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
         <span>Plus</span>
@@ -90,9 +82,8 @@ export default function SlackViewControl() {
       <select
         value={deltaMin}
         onChange={(e) => setDeltaMin(Number(e.target.value))}
-        className={`bg-transparent text-xs focus:outline-none pl-3 pr-1 py-1 rounded-md ${slackEligible ? "text-white hover:bg-white/10" : "text-gray-500 cursor-not-allowed"}`}
-        title={slackEligible ? "Additional shift in minutes" : "Slack view requires exactly one selected traffic volume"}
-        disabled={!slackEligible}
+        className="bg-transparent text-xs focus:outline-none pl-3 pr-1 py-1 rounded-md text-white hover:bg-white/10"
+        title="Additional shift in minutes"
       >
         {(() => {
           const opts: number[] = [];
@@ -104,7 +95,7 @@ export default function SlackViewControl() {
           ));
         })()}
       </select>
-      {slackEligible && isFetchingSlack && (
+      {isFetchingSlack && (
         <div className="ml-2 h-2 w-2 rounded-full bg-white/70 animate-pulse" title="Loading slack..." />
       )}
     </div>

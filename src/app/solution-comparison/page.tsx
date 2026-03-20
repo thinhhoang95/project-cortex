@@ -7,6 +7,7 @@ import TimeScaleControl from "@/components/TimeScaleControl";
 import ModalDialog from "@/components/ModalDialog";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import PerAccDelayComparisonPanel from "@/components/PerAccDelayComparisonPanel";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import {
@@ -31,6 +32,7 @@ import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/ti
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
 import { computeNetDeltaByTv } from "@/lib/trafficVolumeRelief";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import type { RegulationPlanPerAccAttribMode } from "@/lib/models";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -286,7 +288,8 @@ export default function SolutionComparisonPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewFrom, setViewFrom] = useState("00:00");
   const [viewTo, setViewTo] = useState("23:59");
-  const [seriesView, setSeriesView] = useState<"flights" | "airports">("flights");
+  const [seriesView, setSeriesView] = useState<"flights" | "airports" | "acc">("flights");
+  const [accAttribMode, setAccAttribMode] = useState<RegulationPlanPerAccAttribMode>("dwelling_spread");
   const [airportChartMetric, setAirportChartMetric] = useState<'delay' | 'flights'>('delay');
   const [tvScope, setTvScope] = useState<OccupancyScope>("aggregate");
   const [tvSort, setTvSort] = useState<TvSortMode>("exceedance");
@@ -1382,20 +1385,32 @@ export default function SolutionComparisonPage() {
                     setExportText(exportSnapshots());
                     setExportOpen(true);
                   }}
-                  className="px-2.5 py-1 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
-                >Export</button>
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                  Export
+                </button>
                 <button
                   onClick={() => { setImportText(""); setImportError(null); setImportOpen(true); }}
-                  className="px-2.5 py-1 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
-                >Import</button>
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                  Import
+                </button>
                 <button
                   onClick={() => { clearSnapshots(); setSnapshots([]); setSelectedIds([]); }}
-                  className="px-2.5 py-1 rounded-md border border-white/20 bg-red-500/20 text-red-100 hover:bg-red-500/30"
-                >Clear all</button>
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/20 bg-red-500/20 text-red-100 hover:bg-red-500/30"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                  Clear all
+                </button>
                 <a
                   href="/flow-evaluation"
-                  className="px-2.5 py-1 rounded-md border border-emerald-400/60 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25"
-                >Collect new snapshot</a>
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-400/60 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                  Collect new snapshot
+                </a>
               </div>
             </div>
 
@@ -1730,9 +1745,21 @@ export default function SolutionComparisonPage() {
                       seriesView === 'airports'
                         ? 'bg-blue-500/20 border-blue-400/60 text-white'
                         : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
-                    } rounded-r-md`}
+                    }`}
                   >
                     By Airport
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={seriesView === 'acc'}
+                    onClick={() => setSeriesView('acc')}
+                    className={`h-[36px] px-3 text-[12px] font-medium border transition-colors -ml-px flex items-center justify-center whitespace-nowrap ${
+                      seriesView === 'acc'
+                        ? 'bg-blue-500/20 border-blue-400/60 text-white'
+                        : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/15'
+                    } rounded-r-md`}
+                  >
+                    By ACC
                   </button>
                 </div>
                 {seriesView === 'flights' && (
@@ -1852,7 +1879,7 @@ export default function SolutionComparisonPage() {
                   )}
                 </table>
               </div>
-            ) : (
+            ) : seriesView === 'airports' ? (
               <div className="mt-4 space-y-6">
                 {airportStatsBySnapshot.size === 0 ? (
                   <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-sm text-white/70">
@@ -2088,6 +2115,15 @@ export default function SolutionComparisonPage() {
                     </div>
                   </>
                 )}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <PerAccDelayComparisonPanel
+                  snapshots={selectedSnapshots}
+                  colorBySnapshotId={colorBySnapshotId}
+                  mode={accAttribMode}
+                  onModeChange={setAccAttribMode}
+                />
               </div>
             )}
           </section>

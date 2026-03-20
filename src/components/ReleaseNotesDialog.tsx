@@ -133,7 +133,7 @@ export default function ReleaseNotesDialog({ open: controlledOpen, onClose }: Re
             dangerouslySetInnerHTML={{ __html: RELEASE_NOTES_CONTENT }}
           />
         </div>
-        <div className="border-t border-white/10 bg-slate-900/80 px-6 py-4 flex justify-end">
+        <div className="px-6 py-4 flex justify-end" style={{ borderTop: "1px solid var(--panel-divider)", backgroundColor: "var(--modal-footer-bg)" }}>
           <button
             type="button"
             onClick={handleClose}

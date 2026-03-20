@@ -13,6 +13,7 @@ import { clearTvCapacityRangesCache } from '@/lib/tvCapacityRanges';
 import AgentModal from '@/components/AgentModal';
 import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
 import ReleaseNotesDialog from '@/components/ReleaseNotesDialog';
+import SystemCreditsDialog from '@/components/SystemCreditsDialog';
 import type { AgentRunRef } from '@/lib/agentRuns';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
@@ -38,6 +39,7 @@ export default function Header() {
   const [showFlightQuery, setShowFlightQuery] = useState(false);
   const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const [showSystemCredits, setShowSystemCredits] = useState(false);
 
   const router = useRouter();
   const {
@@ -452,6 +454,7 @@ export default function Header() {
                       clearTrafficVolumeCache();
                       clearTvCapacityRangesCache();
                       clearResourceDate();
+                      window.localStorage.removeItem("flow-kitchen-region-banner-dismissed");
                       resetAll();
                       setTrafficVolumes([]);
                       setCollapsedSectors([]);
@@ -481,6 +484,15 @@ export default function Header() {
                     className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
                   >
                     Show Release Notes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDropdown(false);
+                      setShowSystemCredits(true);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)]"
+                  >
+                    System Components
                   </button>
                   <button
                     onClick={() => {
@@ -546,6 +558,10 @@ export default function Header() {
       <ReleaseNotesDialog
         open={showReleaseNotes}
         onClose={() => setShowReleaseNotes(false)}
+      />
+      <SystemCreditsDialog
+        open={showSystemCredits}
+        onClose={() => setShowSystemCredits(false)}
       />
     </>
   );

@@ -54,6 +54,11 @@ import {
   SNAPSHOT_SIZE_WARN_THRESHOLD,
   SNAPSHOT_STORAGE_KEY,
 } from "@/lib/comparison";
+import {
+  PER_ACC_COMPARISON_MODES,
+  clonePerAccAttrib,
+  type StoredPerAccAttribByMode,
+} from "@/lib/perAccComparison";
 
 type FetchState = { loading: boolean; error: string | null; data: BaseEvaluationResponse | null };
 type OptFetchState = { loading: boolean; error: string | null; data: AutomaticRateAdjustmentResponse | null };
@@ -337,8 +342,9 @@ function FlowEvaluationPageContent() {
     throwOnError?: boolean;
   };
 
-  async function ensureAutorateResultForAggregation(): Promise<AutomaticRateAdjustmentResponse> {
-    if (optState.data) return optState.data;
+  async function requestAutomaticRateAdjustmentForMode(
+    perAccAttribMode: RegulationPlanPerAccAttribMode,
+  ): Promise<AutomaticRateAdjustmentResponse> {
     if (!input) {
       throw new Error("No input payload provided.");
     }
@@ -350,7 +356,7 @@ function FlowEvaluationPageContent() {
     if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
       body.sa_params = saParamsOverride;
     }
-    body.per_acc_attrib_mode = autoratePerAccAttribMode;
+    body.per_acc_attrib_mode = perAccAttribMode;
     delete body.colorsByFlow;
 
     const optRes = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
@@ -362,7 +368,12 @@ function FlowEvaluationPageContent() {
       const text = await optRes.text();
       throw new Error(text || `Optimization failed: ${optRes.status}`);
     }
-    const optJson = (await optRes.json()) as AutomaticRateAdjustmentResponse;
+    return (await optRes.json()) as AutomaticRateAdjustmentResponse;
+  }
+
+  async function ensureAutorateResultForAggregation(): Promise<AutomaticRateAdjustmentResponse> {
+    if (optState.data) return optState.data;
+    const optJson = await requestAutomaticRateAdjustmentForMode(autoratePerAccAttribMode);
     setOptState({ loading: false, error: null, data: optJson });
     return optJson;
   }
@@ -471,27 +482,7 @@ function FlowEvaluationPageContent() {
           throw new Error("No input payload provided.");
         }
         setOptState((prev) => ({ loading: true, error: null, data: prev.data }));
-
-        const body: any = { ...input };
-        if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
-          body.weights = weightsOverride;
-        }
-        if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
-          body.sa_params = saParamsOverride;
-        }
-        body.per_acc_attrib_mode = nextMode;
-        delete body.colorsByFlow;
-
-        const optRes = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!optRes.ok) {
-          const text = await optRes.text();
-          throw new Error(text || `Optimization failed: ${optRes.status}`);
-        }
-        const optJson = (await optRes.json()) as AutomaticRateAdjustmentResponse;
+        const optJson = await requestAutomaticRateAdjustmentForMode(nextMode);
         setOptState({ loading: false, error: null, data: optJson });
 
         setOccAllState((prev) => ({ loading: true, error: prev.error, data: prev.data }));
@@ -711,7 +702,37 @@ function FlowEvaluationPageContent() {
     setSnapshotSaving(true);
     setSnapshotSaveError(null);
     try {
-      const occupancyData = await handleSelectOccupancyAll(true);
+      const occupancyData = await handleSelectOccupancyAll(true, {
+        perAccAttribMode: autoratePerAccAttribMode,
+        preserveData: true,
+        suppressErrorState: true,
+        throwOnError: true,
+      });
+      const perAccAttribByMode: StoredPerAccAttribByMode = {};
+      const currentModeAttrib = clonePerAccAttrib(occupancyData?.per_acc_attrib);
+      if (currentModeAttrib) {
+        perAccAttribByMode[normalizePerAccAttribMode(currentModeAttrib.mode)] = currentModeAttrib;
+      }
+
+      const optPerAccMode = optState.data?.per_acc_attrib?.mode
+        ? normalizePerAccAttribMode(optState.data.per_acc_attrib.mode)
+        : null;
+      let controlVolumeOptResult: AutomaticRateAdjustmentResponse | null = null;
+
+      for (const mode of PER_ACC_COMPARISON_MODES) {
+        if (perAccAttribByMode[mode]) continue;
+        const autorateResult =
+          mode === "control_volume" && optPerAccMode !== "control_volume"
+            ? (controlVolumeOptResult ??= await requestAutomaticRateAdjustmentForMode("control_volume"))
+            : optState.data!;
+        const modeOccupancy = await requestAutorateOccupancyAggregation(autorateResult, mode);
+        const nextAttrib = clonePerAccAttrib(modeOccupancy.per_acc_attrib);
+        if (!nextAttrib) {
+          throw new Error(`ACC attribution is unavailable for ${mode.replace(/_/g, " ")} mode.`);
+        }
+        perAccAttribByMode[mode] = nextAttrib;
+      }
+
       const payloadForSnapshot: FlowInputPayload = {
         flows: { ...(input.flows || {}) },
         targets: { ...(input.targets || {}) },
@@ -741,6 +762,7 @@ function FlowEvaluationPageContent() {
         evaluation: evalState.data,
         optimization: optState.data,
         occupancy: occupancyData,
+        perAccAttribByMode,
         minutesPerBin,
         shareUrl: encodedShareUrl,
       });

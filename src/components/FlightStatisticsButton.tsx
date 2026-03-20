@@ -47,7 +47,7 @@ export default function FlightStatisticsButton({
   const portalTarget = typeof window === "undefined" ? null : document.body;
 
   const baseButtonClasses =
-    "h-6 w-6 p-0 rounded border border-white/10 text-white/90 flex items-center justify-center hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed";
+    "h-7 w-7 p-0 rounded border border-white/10 text-white/90 flex items-center justify-center hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
     <>
