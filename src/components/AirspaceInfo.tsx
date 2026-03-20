@@ -151,6 +151,7 @@ export default function AirspaceInfo() {
     selectedTrafficVolumeData,
     t,
     flights,
+    resourceStateEpoch,
     focusMode,
     setFocusMode,
     setFocusFlightIds,
@@ -193,6 +194,16 @@ export default function AirspaceInfo() {
   const [capacityRangeLabel, setCapacityRangeLabel] = useState<string | null>(null);
   const occupancyRequestSeq = useRef(0);
   const flightsRequestSeq = useRef(0);
+
+  useEffect(() => {
+    setOccupancyByTv({});
+    setFlightDataByTv({});
+    setLoading(false);
+    setFlightListLoading(false);
+    setError(null);
+    setFlightListError(null);
+    setExpanded(false);
+  }, [resourceStateEpoch]);
 
   const flightLevelRange = formatFlightLevelRange(
     selectedTrafficVolumeData?.properties?.min_fl,
@@ -246,7 +257,7 @@ export default function AirspaceInfo() {
         setOccupancyByTv({});
         setLoading(false);
       });
-  }, [selectedTvKey, t, selectedTvIds, occupancyByTv]);
+  }, [occupancyByTv, resourceStateEpoch, selectedTvIds, selectedTvKey, t]);
 
   useEffect(() => {
     const reqId = ++flightsRequestSeq.current;
@@ -291,7 +302,7 @@ export default function AirspaceInfo() {
         setFlightDataByTv({});
         setFlightListLoading(false);
       });
-  }, [selectedTvKey, currentTimeStr, selectedTvIds]);
+  }, [currentTimeStr, resourceStateEpoch, selectedTvIds, selectedTvKey]);
 
   useEffect(() => {
     let cancelled = false;

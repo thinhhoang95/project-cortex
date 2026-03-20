@@ -8,6 +8,7 @@ import LeftControl1 from "@/components/LeftControl1";
 import NetworkStatusPanel from "@/components/NetworkStatusPanel";
 import RightControl1 from "@/components/RightControl1";
 import Header from "@/components/Header";
+import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import SlackViewControl from "@/components/SlackViewControl";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
@@ -132,6 +133,7 @@ export default function Page() {
           <RightControl1 embedded />
         </div>
       </div>
+      <ResourceStateHistoryControl />
       <SlackViewControl />
       <ViewOptionsControl showAirspaceDisplayToggle />
       <ReleaseNotesDialog />

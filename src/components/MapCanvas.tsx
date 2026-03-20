@@ -6,6 +6,7 @@ import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
+import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import { SectorFeatureProps, Trajectory } from "@/lib/models";
@@ -55,13 +56,13 @@ export default function MapCanvas() {
     resourceDate,
     weatherOverlay,
     tick,
-    setRange,
+    flights,
     showFlightLineLabels,
     showCallsigns,
     showTrafficVolumes,
     airspaceDisplayMode,
     setAirspaceDisplayMode,
-    setFlights,
+    setBaselineFlights,
     setSelectedTrafficVolume,
     toggleSelectedTrafficVolume,
     setSelectedCollapsedSector,
@@ -143,11 +144,7 @@ export default function MapCanvas() {
         }),
       ]);
 
-      // Store flights in global store and compute global time range
-      setFlights(tracks);
-      const minT = Math.min(...tracks.map((track: any) => track.t0));
-      const maxT = Math.max(...tracks.map((track: any) => track.t1));
-      setRange([minT, maxT], minT);
+      const activeTracks = setBaselineFlights(tracks);
 
       // --- Airspace polygons + labels ---
       tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
@@ -191,39 +188,7 @@ export default function MapCanvas() {
       applyTrafficVolumeFilters(map, initialFilter, { includeSlack: true });
 
       // --- Flight lines (static geometry) ---
-      const lineFC: GeoJSON.FeatureCollection = {
-        type: "FeatureCollection",
-        features: tracks.map((tr: any) => {
-          // Determine dominant direction based on first and last coordinates
-          const firstCoord = tr.coords[0];
-          const lastCoord = tr.coords[tr.coords.length - 1];
-          const deltaLon = lastCoord[0] - firstCoord[0];
-          const deltaLat = lastCoord[1] - firstCoord[1];
-
-          // Determine which direction is dominant by comparing absolute changes
-          const absLonChange = Math.abs(deltaLon);
-          const absLatChange = Math.abs(deltaLat);
-
-          let color = "#10b981"; // default green
-          if (absLonChange > absLatChange) {
-            // Longitude change is dominant
-            color = deltaLon < 0 ? "#ec4899" : "#10b981"; // West: pink, East: green
-          } else {
-            // Latitude change is dominant
-            color = deltaLat > 0 ? "#ec4899" : "#10b981"; // North: pink, South: green
-          }
-
-          return {
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: tr.coords.map((c: any) => [c[0], c[1]]) },
-            properties: {
-              flightId: tr.flightId,
-              callSign: tr.callSign ?? tr.flightId,
-              lineColor: color
-            }
-          };
-        })
-      };
+      const lineFC = buildTrajectoryLineFeatureCollection(activeTracks);
       map.addSource("flight-lines", { type: "geojson", data: lineFC });
       map.addLayer({
         id: "flight-lines",
@@ -375,14 +340,15 @@ export default function MapCanvas() {
       } catch { }
 
       // Save trajectories on map for the animation step
-      (map as any).__trajectories = tracks;
+      (map as any).__trajectories = activeTracks;
 
       // Add click handlers for flight lines
       map.on('click', 'flight-lines', (e) => {
         if (e.features && e.features.length > 0) {
           const feature = e.features[0];
           const flightId = feature.properties?.flightId;
-          const clickedFlight = tracks.find((t: any) => t.flightId === flightId);
+          const activeTrajectories = ((map as any).__trajectories as Trajectory[] | undefined) ?? [];
+          const clickedFlight = activeTrajectories.find((trajectory) => trajectory.flightId === flightId);
 
           if (clickedFlight) {
             setSelectedFlight(clickedFlight);
@@ -399,7 +365,8 @@ export default function MapCanvas() {
         if (e.features && e.features.length > 0) {
           const feature = e.features[0];
           const flightId = feature.properties?.flightId;
-          const clickedFlight = tracks.find((t: any) => t.flightId === flightId);
+          const activeTrajectories = ((map as any).__trajectories as Trajectory[] | undefined) ?? [];
+          const clickedFlight = activeTrajectories.find((trajectory) => trajectory.flightId === flightId);
 
           if (clickedFlight) {
             setSelectedFlight(clickedFlight);
@@ -514,6 +481,21 @@ export default function MapCanvas() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourcePaths, theme]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource("flight-lines") as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    source.setData(buildTrajectoryLineFeatureCollection(flights));
+    (map as any).__trajectories = flights;
+    updatePlanePositions(map);
+    if (selectedFlight) {
+      const nextSelectedFlight = flights.find((flight) => flight.flightId === selectedFlight.flightId) ?? null;
+      setSelectedFlight(nextSelectedFlight);
+    }
+  }, [flights, selectedFlight]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
@@ -810,7 +792,7 @@ export default function MapCanvas() {
       deltaMin,
       setIsFetchingSlack,
       setSlackMetaByTv,
-      slackMode !== "off",
+      true,
     ).then((success) => {
       if (!success && lastSlackKeyRef.current === key) {
         lastSlackKeyRef.current = null;

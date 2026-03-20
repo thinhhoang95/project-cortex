@@ -58,6 +58,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
     selectedTrafficVolumes,
     airspaceDisplayMode,
     t,
+    resourceStateEpoch,
     setT,
     clearSelectedTrafficVolumes,
     setFocusMode,
@@ -93,6 +94,12 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reqRef = useRef(0);
+
+  useEffect(() => {
+    setOccupancyByTv({});
+    setLoading(false);
+    setError(null);
+  }, [resourceStateEpoch]);
 
   useEffect(() => {
     const reqId = ++reqRef.current;
@@ -134,7 +141,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
         setOccupancyByTv({});
         setError(err instanceof Error ? err.message : "Failed to load occupancy data");
       });
-  }, [airspaceDisplayMode, selectedTvKey, selectedTvIds]);
+  }, [airspaceDisplayMode, resourceStateEpoch, selectedTvIds, selectedTvKey]);
 
   const chartSeries = useMemo<ChartSeries[]>(() => {
     return selectedTvIds.map((tvId, idx) => ({

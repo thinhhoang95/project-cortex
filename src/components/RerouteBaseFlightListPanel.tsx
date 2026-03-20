@@ -54,6 +54,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     setRerouteBaseSelectedFlightIds,
     flights,
     t,
+    resourceStateEpoch,
     regulationTimeWindow,
     airspaceDisplayMode,
     selectedTrafficVolume,
@@ -70,6 +71,12 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
   const originalPreviewRef = useRef<FlowPreviewSnapshot | null>(null);
   const tvFlightsReqSeq = useRef(0);
   const [tvFlightDataByTv, setTvFlightDataByTv] = useState<Record<string, TvFlightsPayload>>({});
+
+  useEffect(() => {
+    setTvFlightDataByTv({});
+    setExpanded(false);
+    originalPreviewRef.current = null;
+  }, [resourceStateEpoch]);
 
   const selectedTvIds = useMemo(() => {
     const source =
@@ -132,7 +139,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
         console.error("Failed to load reroute TV flight details:", error);
         setTvFlightDataByTv({});
       });
-  }, [showTvColumns, selectedTvKey, selectedTvIds, t]);
+  }, [resourceStateEpoch, selectedTvIds, selectedTvKey, showTvColumns, t]);
 
   const tvCellsByFlightAndTv = useMemo(() => {
     const byTv: Record<string, Map<string, TvFlightCell>> = {};

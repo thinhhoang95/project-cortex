@@ -16,23 +16,23 @@ import { Slider } from "@/components/Slider";
 function parseHHMMSSToSeconds(value?: string): number | null {
   const trimmed = String(value ?? "").trim();
   if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const match = trimmed.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   const seconds = match[3] ? Number(match[3]) : 0;
   if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
-  if (hours > 23) return null;
   if (minutes > 59 || seconds > 59) return null;
   const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-  const SECONDS_PER_DAY = 24 * 3600 - 1;
-  return Math.max(0, Math.min(SECONDS_PER_DAY, totalSeconds));
+  return Math.max(0, totalSeconds);
 }
 
 type TimeScrubberPopoverProps = {
   anchor: HTMLElement | null;
   open: boolean;
   value: number;
+  min?: number;
+  max?: number;
   onChange: (value: number) => void;
   onCommit: (value: number) => void;
 };
@@ -44,7 +44,6 @@ type Position = {
 };
 
 const SLIDER_MIN = 0;
-const SLIDER_MAX = 24 * 3600 - 1;
 const SLIDER_STEP = 60;
 const POPOVER_GAP_PX = 12;
 
@@ -52,6 +51,8 @@ export default function TimeScrubberPopover({
   anchor,
   open,
   value,
+  min = SLIDER_MIN,
+  max = 24 * 3600 - 1,
   onChange,
   onCommit,
 }: TimeScrubberPopoverProps) {
@@ -187,8 +188,8 @@ export default function TimeScrubberPopover({
         <div className={`transform ${position.centerX ? "-translate-x-1/2" : ""} -translate-y-full px-3 py-2 rounded-xl border border-white/20 bg-white/[0.04] backdrop-blur-md shadow-lg`}>
           <div className="flex items-center gap-2">
             <Slider
-              min={SLIDER_MIN}
-              max={SLIDER_MAX}
+              min={Math.max(0, Math.floor(min))}
+              max={Math.max(Math.floor(min), Math.floor(max))}
               step={SLIDER_STEP}
               value={Math.floor(value)}
               onChange={handleChange}

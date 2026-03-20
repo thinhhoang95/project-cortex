@@ -84,6 +84,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     selectedTrafficVolumeData,
     t,
     flights,
+    resourceStateEpoch,
     focusMode,
     setFocusMode,
     setFocusFlightIds,
@@ -177,6 +178,19 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const suppressNextPresetApplyRef = useRef<boolean>(false);
 
   useEffect(() => {
+    setOccupancyData(null);
+    setSecondaryOccupancyByTv({});
+    setFlightIdentifiersData(null);
+    setOrderedFlightsData(null);
+    setFlightListLoading(false);
+    setCurrentCount(0);
+    setCurrentAnchorCapacity(null);
+    setShowOnlyTargeted(false);
+    setCommunityReviewContext(null);
+    setCommunityHeuristics({});
+  }, [resourceStateEpoch]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!primaryTvId) {
       setCapacityRangeLabel(null);
@@ -192,7 +206,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     return () => {
       cancelled = true;
     };
-  }, [primaryTvId]);
+  }, [primaryTvId, resourceStateEpoch]);
 
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
@@ -255,7 +269,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     loadSecondaryOccupancy();
     return () => { cancelled = true; };
-  }, [primaryTvId, secondaryTvIds]);
+  }, [primaryTvId, resourceStateEpoch, secondaryTvIds]);
 
   // Load flight identifiers for this TV (ordered when possible)
   useEffect(() => {
@@ -284,7 +298,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     loadFlights();
     return () => { cancelled = true; };
-  }, [primaryTvId, t]);
+  }, [primaryTvId, resourceStateEpoch, t]);
 
   const timeBinMinutes = useMemo(
     () => inferTimeBinMinutesFromData(occupancyData),

@@ -58,7 +58,7 @@ interface DemandFlightListResponse {
 }
 
 export default function StochasticAirspaceInfo() {
-    const { selectedTrafficVolume, selectedTrafficVolumeData, t, flights, focusMode, setFocusMode, setFocusFlightIds, setT, setFlowPreviewFlightId } = useSimStore();
+    const { selectedTrafficVolume, selectedTrafficVolumeData, t, flights, resourceStateEpoch, focusMode, setFocusMode, setFocusFlightIds, setT, setFlowPreviewFlightId } = useSimStore();
     const [demandData, setDemandData] = useState<DemandData | null>(null);
     const [demandFlightList, setDemandFlightList] = useState<DemandFlightListResponse | null>(null);
     const [loading, setLoading] = useState(false);
@@ -74,6 +74,16 @@ export default function StochasticAirspaceInfo() {
         selectedTrafficVolumeData?.properties?.max_fl
     );
 
+    useEffect(() => {
+        setDemandData(null);
+        setDemandFlightList(null);
+        setError(null);
+        setFlightListError(null);
+        setLoading(false);
+        setFlightListLoading(false);
+        setExpanded(false);
+    }, [resourceStateEpoch]);
+
     // Fetch data when traffic volume selection changes or time changes
     useEffect(() => {
         if (selectedTrafficVolume) {
@@ -85,7 +95,7 @@ export default function StochasticAirspaceInfo() {
             setError(null);
             setFlightListError(null);
         }
-    }, [selectedTrafficVolume, t, interestWindowLength]);
+    }, [interestWindowLength, resourceStateEpoch, selectedTrafficVolume, t]);
 
     useEffect(() => {
         let cancelled = false;
@@ -111,6 +121,7 @@ export default function StochasticAirspaceInfo() {
     }, [setFlowPreviewFlightId]);
 
     const fetchDemandData = async (trafficVolumeId: string) => {
+        const requestEpoch = useSimStore.getState().resourceStateEpoch;
         setLoading(true);
         setError(null);
 
@@ -123,16 +134,21 @@ export default function StochasticAirspaceInfo() {
             }
 
             const data: DemandData = await response.json();
+            if (useSimStore.getState().resourceStateEpoch !== requestEpoch) return;
             setDemandData(data);
         } catch (err) {
+            if (useSimStore.getState().resourceStateEpoch !== requestEpoch) return;
             setError(err instanceof Error ? err.message : 'Failed to fetch demand data');
             setDemandData(null);
         } finally {
-            setLoading(false);
+            if (useSimStore.getState().resourceStateEpoch === requestEpoch) {
+                setLoading(false);
+            }
         }
     };
 
     const fetchDemandFlightList = async (trafficVolumeId: string) => {
+        const requestEpoch = useSimStore.getState().resourceStateEpoch;
         setFlightListLoading(true);
         setFlightListError(null);
 
@@ -149,12 +165,16 @@ export default function StochasticAirspaceInfo() {
             }
 
             const data: DemandFlightListResponse = await response.json();
+            if (useSimStore.getState().resourceStateEpoch !== requestEpoch) return;
             setDemandFlightList(data);
         } catch (err) {
+            if (useSimStore.getState().resourceStateEpoch !== requestEpoch) return;
             setFlightListError(err instanceof Error ? err.message : 'Failed to fetch flight list');
             setDemandFlightList(null);
         } finally {
-            setFlightListLoading(false);
+            if (useSimStore.getState().resourceStateEpoch === requestEpoch) {
+                setFlightListLoading(false);
+            }
         }
     };
 

@@ -31,6 +31,7 @@ export default function RerouteTvBaseListSync() {
     selectedTrafficVolumes,
     airspaceDisplayMode,
     t,
+    resourceStateEpoch,
     regulationTimeWindow,
     setRerouteBaseFlightIds,
     setRerouteBaseSelectedFlightIds,
@@ -62,6 +63,12 @@ export default function RerouteTvBaseListSync() {
   const appliedTvFocusRef = useRef(false);
   const previousSelectionContextKeyRef = useRef<string | null>(null);
   const previousBaseFlightIdSetRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    appliedTvFocusRef.current = false;
+    previousSelectionContextKeyRef.current = null;
+    previousBaseFlightIdSetRef.current = new Set();
+  }, [resourceStateEpoch]);
 
   useEffect(() => {
     if (airspaceDisplayMode !== "tv") {
@@ -154,6 +161,7 @@ export default function RerouteTvBaseListSync() {
     airspaceDisplayMode,
     selectedTvKey,
     selectedTvIds,
+    resourceStateEpoch,
     t,
     regulationTimeWindow,
     setRerouteBaseFlightIds,

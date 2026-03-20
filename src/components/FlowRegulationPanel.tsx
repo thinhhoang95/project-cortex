@@ -59,6 +59,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setFlowBasketPeriod,
     addTargetCells,
     resourceDate,
+    resourceStateEpoch,
   } = useSimStore();
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -74,6 +75,15 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<FlowReviewContext | null>(null);
   const [selectedTvRanges, setSelectedTvRanges] = useState<Array<{ tvId: string; label: string }>>([]);
+
+  useEffect(() => {
+    setExtracting(false);
+    setExtractError(null);
+    setFlowResults(null);
+    setExpandedFlightLists({});
+    setOpenAddMenuFor(null);
+    setReviewContext(null);
+  }, [resourceStateEpoch]);
 
   useEffect(() => {
     if (!resourceDate) return;

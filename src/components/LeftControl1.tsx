@@ -10,7 +10,7 @@ import { addMinutesToHHMM } from "@/lib/time";
 type LeftControl1Props = { embedded?: boolean };
 
 export default function LeftControl1({ embedded = false }: LeftControl1Props) {
-  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, hotspotsMetadata, setT, setSelectedTrafficVolume } = useSimStore();
+  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, hotspotsMetadata, setT, setSelectedTrafficVolume, resourceStateEpoch } = useSimStore();
   
   // Sorting state for hotspot table
   type SortKey = 'tv' | 'time' | 'occ' | 'cap' | 'ex';
@@ -26,7 +26,7 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
     if (showHotspots) {
       fetchHotspots();
     }
-  }, [showHotspots, fetchHotspots]);
+  }, [fetchHotspots, resourceStateEpoch, showHotspots]);
 
   // Utility function to parse time string (HH:MM) to seconds
   const parseTimeToSeconds = (timeStr: string): number => {

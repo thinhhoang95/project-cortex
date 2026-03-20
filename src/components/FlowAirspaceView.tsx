@@ -85,6 +85,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     selectedTrafficVolumeData,
     t,
     flights,
+    resourceStateEpoch,
     focusMode,
     setFocusMode,
     setFocusFlightIds,
@@ -177,6 +178,22 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const previousListContextKeyRef = useRef<string | null>(null);
   const previousListedFlightIdSetRef = useRef<Set<string>>(new Set());
 
+  useEffect(() => {
+    setOccupancyData(null);
+    setFlightIdentifiersData(null);
+    setOrderedFlightsData(null);
+    setPrimaryFlightDataTvId(null);
+    setSecondaryFlightDataByTv({});
+    setSecondaryFlightListLoading(false);
+    setSecondaryFlightListError(null);
+    setFlightListLoading(false);
+    setFlightListError(null);
+    setExpanded(false);
+    setProposalTriggerError(null);
+    previousListContextKeyRef.current = null;
+    previousListedFlightIdSetRef.current = new Set();
+  }, [resourceStateEpoch]);
+
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
     let cancelled = false;
@@ -212,7 +229,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     load();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTrafficVolume]);
+  }, [resourceStateEpoch, selectedTrafficVolume]);
 
   // Load flight identifiers for this TV (ordered when possible)
   useEffect(() => {
@@ -258,7 +275,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     }
     loadFlights();
     return () => { cancelled = true; };
-  }, [selectedTrafficVolume, t]);
+  }, [resourceStateEpoch, selectedTrafficVolume, t]);
 
   // Load secondary TV memberships/details to support multi-TV intersection rows
   useEffect(() => {
@@ -301,7 +318,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     }
     loadSecondaryFlights();
     return () => { cancelled = true; };
-  }, [primaryTvId, selectedTvKey, secondaryTvIds, t]);
+  }, [primaryTvId, resourceStateEpoch, selectedTvKey, secondaryTvIds, t]);
 
   // Clear single-flight preview on unmount
   useEffect(() => {

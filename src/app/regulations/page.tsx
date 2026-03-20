@@ -9,6 +9,7 @@ import RegulationFlightListLeftPanel2 from "@/components/RegulationFlightListLef
 import RegulationPanel from "@/components/RegulationPanel";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import Header from "@/components/Header";
+import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import SlackViewControl from "@/components/SlackViewControl";
 import ViewOptionsControl from "@/components/ViewOptionsControl";
@@ -135,6 +136,7 @@ export default function RegulationsPage() {
           </div>
         )}
       </div>
+      <ResourceStateHistoryControl />
       <SlackViewControl />
       <ViewOptionsControl />
       {regComparisonToast && (
