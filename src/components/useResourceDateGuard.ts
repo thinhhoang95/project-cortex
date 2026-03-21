@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSimStore } from "@/components/useSimStore";
 import { fetchResourceContext, fetchResourceStateHistory } from "@/lib/resourceContextClient";
 import { isResourceDateReady } from "@/lib/resourceDates";
-import { buildResourceStateSyncPayload } from "@/lib/resourceStates";
+import { buildResourceStateSyncPayload, validateResourceStateBundleDate } from "@/lib/resourceStates";
 
 type UseResourceDateGuardOptions = {
   allowMissingResourceDate?: boolean;
@@ -80,6 +80,13 @@ export function useResourceDateGuard(options: UseResourceDateGuardOptions = {}) 
         try {
           const history = await fetchResourceStateHistory();
           if (cancelled) return;
+          const bundleDateValidation = validateResourceStateBundleDate(resourceDate, context, history);
+          if (!bundleDateValidation.matches) {
+            clearResourceState();
+            clearResourceDate();
+            router.replace("/select-date?reason=out_of_sync");
+            return;
+          }
           syncResourceState(buildResourceStateSyncPayload(context, history));
         } catch (resourceStateError) {
           console.error("Failed to sync resource state history:", resourceStateError);

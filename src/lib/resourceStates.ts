@@ -53,10 +53,20 @@ type ResourceContextLike = {
   states?: ResourceStateSummary[] | null;
 };
 
+export type ResourceStateBundleDateValidation = {
+  matches: boolean;
+  bundleDate: string | null;
+};
+
 function toFiniteInteger(value: unknown): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
   return Math.trunc(numeric);
+}
+
+function normalizeResourceDateValue(value: unknown): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || null;
 }
 
 export function cloneResourceStateSummary(summary: ResourceStateSummary): ResourceStateSummary {
@@ -139,6 +149,36 @@ export function buildResourceStateSyncPayload(
     ),
     states,
     selectedCumulativeDelaysMin: normalizeDelayMinutesMap(selectedState?.cumulative_delays_min),
+  };
+}
+
+export function validateResourceStateBundleDate(
+  expectedResourceDate: string | null | undefined,
+  context: ResourceContextLike | null | undefined,
+  history: ResourceStateHistoryResponse | null | undefined,
+): ResourceStateBundleDateValidation {
+  const expectedDate = normalizeResourceDateValue(expectedResourceDate);
+  const contextDate = normalizeResourceDateValue(context?.selected_date);
+  const historyDate = normalizeResourceDateValue(history?.resource_date);
+
+  if (contextDate && historyDate && contextDate !== historyDate) {
+    return {
+      matches: false,
+      bundleDate: contextDate,
+    };
+  }
+
+  const bundleDate = contextDate ?? historyDate;
+  if (!expectedDate || !bundleDate) {
+    return {
+      matches: false,
+      bundleDate,
+    };
+  }
+
+  return {
+    matches: bundleDate === expectedDate,
+    bundleDate,
   };
 }
 

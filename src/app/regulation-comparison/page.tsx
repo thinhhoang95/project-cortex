@@ -317,7 +317,7 @@ function formatFlights(value: number): string {
 
 export default function RegulationComparisonPage() {
   const resourceDate = useSimStore((state) => state.resourceDate);
-  const { flights, setFlights, setRange } = useSimStore();
+  const { flights, setBaselineFlights } = useSimStore();
   // Avoid returning a new object in the selector (which can break
   // useSyncExternalStore SSR semantics and cause infinite loops).
   // Select each slice separately so the snapshot is stable.
@@ -369,12 +369,7 @@ export default function RegulationComparisonPage() {
         if (!resourceDate) throw new Error("No resource date selected");
         const tracks = await loadTrajectories(getFlightsCsvPath(resourceDate));
         if (cancelled) return;
-        setFlights(tracks);
-        if (tracks && tracks.length > 0) {
-          const minT = Math.min(...tracks.map((tr: any) => tr.t0));
-          const maxT = Math.max(...tracks.map((tr: any) => tr.t1));
-          setRange([minT, maxT], minT);
-        }
+        setBaselineFlights(tracks);
       } catch (e) {
         console.warn("Failed to load flight trajectories for regulation comparison page", e);
       }
@@ -382,7 +377,7 @@ export default function RegulationComparisonPage() {
     return () => {
       cancelled = true;
     };
-  }, [flights.length, resourceDate, setFlights, setRange]);
+  }, [flights.length, resourceDate, setBaselineFlights]);
 
   useEffect(() => {
     setSelectedIds((prev) => {

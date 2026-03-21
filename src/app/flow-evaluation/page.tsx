@@ -121,7 +121,7 @@ function FlowEvaluationPageContent() {
   const payloadParam = sp?.get("payload") || null;
   const autostart = (sp?.get("autostart") || "0") === "1" || !!payloadParam;
   const viewParam = parseViewParam(sp?.get("view") || null);
-  const { flights, setFlights, setRange } = useSimStore();
+  const { flights, setBaselineFlights } = useSimStore();
 
   const [input, setInput] = useState<FlowInputPayload | null>(() => decodePayloadParam(payloadParam));
   const [evalState, setEvalState] = useState<FetchState>({ loading: false, error: null, data: null });
@@ -611,18 +611,13 @@ function FlowEvaluationPageContent() {
         if (!resourceDate) throw new Error("No resource date selected");
         const tracks = await loadTrajectories(getFlightsCsvPath(resourceDate));
         if (cancelled) return;
-        setFlights(tracks);
-        if (tracks && tracks.length > 0) {
-          const minT = Math.min(...tracks.map((tr: any) => tr.t0));
-          const maxT = Math.max(...tracks.map((tr: any) => tr.t1));
-          setRange([minT, maxT], minT);
-        }
+        setBaselineFlights(tracks);
       } catch (e) {
         console.warn("Failed to load flight trajectories for Flow Evaluation page", e);
       }
     })();
     return () => { cancelled = true; };
-  }, [flights.length, resourceDate, setFlights, setRange]);
+  }, [flights.length, resourceDate, setBaselineFlights]);
 
   const handleRun = async () => {
     if (!input) return;

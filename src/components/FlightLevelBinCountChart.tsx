@@ -28,6 +28,24 @@ const MODE_OPTIONS: Array<{ label: string; value: FlightLevelBinSizeFeet }> = [
   { label: "Separated by 5000ft", value: 5000 },
 ];
 
+export function buildFlightLevelPreviewCacheKey(args: {
+  resourceStateEpoch: number;
+  trafficVolumeId: string;
+  refTimeStr: string;
+  durationMin: number;
+  startFl: number;
+  endFl: number;
+}): string {
+  return [
+    args.resourceStateEpoch,
+    args.trafficVolumeId,
+    args.refTimeStr,
+    args.durationMin,
+    args.startFl,
+    args.endFl,
+  ].join("|");
+}
+
 function FlightLevelTooltip({
   active,
   payload,
@@ -61,6 +79,7 @@ export default function FlightLevelBinCountChart({
 }) {
   const [binSizeFeet, setBinSizeFeet] = useState<FlightLevelBinSizeFeet>(1000);
   const selectId = useId();
+  const resourceStateEpoch = useSimStore((state) => state.resourceStateEpoch);
   const setFlightLinePreviewFlightIds = useSimStore((state) => state.setFlightLinePreviewFlightIds);
   const previewCacheRef = useRef<Map<string, string[]>>(new Map());
   const hoverRequestSeq = useRef(0);
@@ -119,8 +138,16 @@ export default function FlightLevelBinCountChart({
 
   useEffect(() => clearPreview, [clearPreview]);
   useEffect(() => {
+    previewCacheRef.current.clear();
     clearPreview();
-  }, [binSizeFeet, previewWindow?.refTimeStr, previewWindow?.durationMin, trafficVolumeId, clearPreview]);
+  }, [
+    binSizeFeet,
+    previewWindow?.refTimeStr,
+    previewWindow?.durationMin,
+    resourceStateEpoch,
+    trafficVolumeId,
+    clearPreview,
+  ]);
 
   const previewBin = useCallback(async (row: AggregatedFlightLevelBin | null | undefined) => {
     if (!row || !trafficVolumeId || !previewWindow || row.count <= 0) {
@@ -128,13 +155,14 @@ export default function FlightLevelBinCountChart({
       return;
     }
 
-    const cacheKey = [
+    const cacheKey = buildFlightLevelPreviewCacheKey({
+      resourceStateEpoch,
       trafficVolumeId,
-      previewWindow.refTimeStr,
-      previewWindow.durationMin,
-      row.startFl,
-      row.endFl,
-    ].join("|");
+      refTimeStr: previewWindow.refTimeStr,
+      durationMin: previewWindow.durationMin,
+      startFl: row.startFl,
+      endFl: row.endFl,
+    });
 
     activePreviewKeyRef.current = cacheKey;
     setHoveredBinKey(row.key);
@@ -173,7 +201,13 @@ export default function FlightLevelBinCountChart({
       if (reqId !== hoverRequestSeq.current || activePreviewKeyRef.current !== cacheKey) return;
       setFlightLinePreviewFlightIds(new Set());
     }
-  }, [clearPreview, previewWindow, setFlightLinePreviewFlightIds, trafficVolumeId]);
+  }, [
+    clearPreview,
+    previewWindow,
+    resourceStateEpoch,
+    setFlightLinePreviewFlightIds,
+    trafficVolumeId,
+  ]);
 
   const handleBarEnter = useCallback((entry: { payload?: AggregatedFlightLevelBin } | null | undefined) => {
     void previewBin(entry?.payload);

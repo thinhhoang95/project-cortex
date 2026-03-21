@@ -281,7 +281,7 @@ function formatFlights(value: number): string {
 
 export default function SolutionComparisonPage() {
   const resourceDate = useSimStore((state) => state.resourceDate);
-  const { flights, setFlights, setRange } = useSimStore();
+  const { flights, setBaselineFlights } = useSimStore();
   const { hydrated, ready, user } = useResourceDateGuard();
 
   const [snapshots, setSnapshots] = useState<SolutionSnapshot[]>([]);
@@ -330,18 +330,13 @@ export default function SolutionComparisonPage() {
         if (!resourceDate) throw new Error("No resource date selected");
         const tracks = await loadTrajectories(getFlightsCsvPath(resourceDate));
         if (cancelled) return;
-        setFlights(tracks);
-        if (tracks && tracks.length > 0) {
-          const minT = Math.min(...tracks.map((tr: any) => tr.t0));
-          const maxT = Math.max(...tracks.map((tr: any) => tr.t1));
-          setRange([minT, maxT], minT);
-        }
+        setBaselineFlights(tracks);
       } catch (e) {
         console.warn("Failed to load flight trajectories for comparison page", e);
       }
     })();
     return () => { cancelled = true; };
-  }, [flights.length, resourceDate, setFlights, setRange]);
+  }, [flights.length, resourceDate, setBaselineFlights]);
 
   useEffect(() => {
     setSelectedIds((prev) => {

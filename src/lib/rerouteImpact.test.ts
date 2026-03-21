@@ -417,4 +417,44 @@ describe("rerouteImpact", () => {
       source: "reroute_impact",
     });
   });
+
+  it("filters invalid coordinates out of post-trajectory paths before building overlays", () => {
+    const features = extractRerouteImpactOverlayFeatures(
+      makeResponse({
+        detoured_segments: {
+          included: true,
+          flight_count: 1,
+          rerouted_flight_count: 1,
+          flights: {
+            F1: {
+              status: "rerouted",
+              interval_count: 0,
+              post_trajectory: {
+                path: [
+                  { longitude: 1.0, latitude: 44.0 },
+                  { longitude: Number.NaN, latitude: 44.1 },
+                  { longitude: 1.2, latitude: 44.2 },
+                ],
+              },
+              intervals: [],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(features).toHaveLength(1);
+    expect(features[0].geometry).toEqual({
+      type: "LineString",
+      coordinates: [
+        [1.0, 44.0],
+        [1.2, 44.2],
+      ],
+    });
+    expect(features[0].properties).toMatchObject({
+      kind: "rerouted-flight-path",
+      flightId: "F1",
+      source: "reroute_impact",
+    });
+  });
 });

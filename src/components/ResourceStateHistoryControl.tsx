@@ -1,10 +1,22 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { useSimStore } from "@/components/useSimStore";
 import { fetchResourceStateBundle, selectResourceState } from "@/lib/resourceContextClient";
-import { buildResourceStateSyncPayload } from "@/lib/resourceStates";
+import { buildResourceStateSyncPayload, validateResourceStateBundleDate } from "@/lib/resourceStates";
+
+class ResourceDateOutOfSyncError extends Error {
+  constructor(resourceDate: string | null) {
+    super(
+      resourceDate
+        ? `Active resource date changed to ${resourceDate}`
+        : "Active resource date is out of sync",
+    );
+    this.name = "ResourceDateOutOfSyncError";
+  }
+}
 
 function formatMinutes(value: number): string {
   if (!Number.isFinite(value)) return "0";
@@ -18,6 +30,7 @@ function getStateLabel(label: string | null | undefined, episodeIndex: number): 
 }
 
 export default function ResourceStateHistoryControl() {
+  const router = useRouter();
   const {
     resourceDate,
     resourceStateSelectedId,
@@ -32,6 +45,8 @@ export default function ResourceStateHistoryControl() {
     selectedTrafficVolume,
     selectedTrafficVolumes,
     syncResourceState,
+    clearResourceDate,
+    clearResourceState,
     setResourceStateLoading,
     setResourceStatePendingId,
     setResourceStateError,
@@ -59,10 +74,21 @@ export default function ResourceStateHistoryControl() {
     resourceStateStates[0] ??
     null;
 
+  const handleResourceDateOutOfSync = useCallback(() => {
+    clearResourceState();
+    clearResourceDate();
+    router.replace("/select-date?reason=out_of_sync");
+  }, [clearResourceDate, clearResourceState, router]);
+
   const refreshFromServer = useCallback(async () => {
     const { context, history } = await fetchResourceStateBundle();
+    const bundleDateValidation = validateResourceStateBundleDate(resourceDate, context, history);
+    if (!bundleDateValidation.matches) {
+      handleResourceDateOutOfSync();
+      throw new ResourceDateOutOfSyncError(bundleDateValidation.bundleDate);
+    }
     syncResourceState(buildResourceStateSyncPayload(context, history));
-  }, [syncResourceState]);
+  }, [handleResourceDateOutOfSync, resourceDate, syncResourceState]);
 
   const handleStateSelect = useCallback(async (stateId: string) => {
     if (!stateId || stateId === resourceStateSelectedId || stateId === resourceStatePendingId) {
@@ -77,11 +103,16 @@ export default function ResourceStateHistoryControl() {
       await selectResourceState(stateId);
       await refreshFromServer();
     } catch (error) {
+      if (error instanceof ResourceDateOutOfSyncError) {
+        return;
+      }
       console.error("Failed to select resource state:", error);
       try {
         await refreshFromServer();
       } catch (refreshError) {
-        console.error("Failed to refresh resource state after selection error:", refreshError);
+        if (!(refreshError instanceof ResourceDateOutOfSyncError)) {
+          console.error("Failed to refresh resource state after selection error:", refreshError);
+        }
       }
       setResourceStateError(
         error instanceof Error ? error.message : "Failed to switch resource state",
@@ -102,6 +133,7 @@ export default function ResourceStateHistoryControl() {
   useEffect(() => {
     if (!resourceDate || resourceStateStates.length > 0 || resourceStateLoading || resourceStateError) return;
     void refreshFromServer().catch((error) => {
+      if (error instanceof ResourceDateOutOfSyncError) return;
       console.error("Failed to refresh resource state bundle:", error);
       setResourceStateError(error instanceof Error ? error.message : "Failed to load resource state");
       setResourceStateLoading(false);

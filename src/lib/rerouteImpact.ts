@@ -565,16 +565,32 @@ export function extractRerouteImpactOverlayFeatures(
 ): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = [];
 
+  const toFiniteLineStringCoordinates = (
+    path: RerouteImpactPathPoint[] | null | undefined,
+  ): number[][] => {
+    const coordinates: number[][] = [];
+    for (const point of Array.isArray(path) ? path : []) {
+      const longitude = Number(point?.longitude);
+      const latitude = Number(point?.latitude);
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+        continue;
+      }
+      coordinates.push([longitude, latitude]);
+    }
+    return coordinates;
+  };
+
   for (const [flightId, flight] of Object.entries(result?.detoured_segments?.flights ?? {})) {
-    const path = flight?.post_trajectory?.path;
-    if (Array.isArray(path) && path.length >= 2) {
+    const pathCoordinates = toFiniteLineStringCoordinates(flight?.post_trajectory?.path);
+    if (pathCoordinates.length >= 2) {
       features.push({
         type: "Feature",
         geometry: {
           type: "LineString",
-          coordinates: path.map((p) => [p.longitude, p.latitude]),
+          coordinates: pathCoordinates,
         },
         properties: {
+          source: "reroute_impact",
           kind: "rerouted-flight-path",
           flightId,
           status: typeof flight.status === "string" ? flight.status : "unknown",
@@ -585,15 +601,16 @@ export function extractRerouteImpactOverlayFeatures(
 
     // Fallback for older servers that don't return post_trajectory
     for (const interval of flight?.intervals ?? []) {
-      const detour = interval?.detour_path ?? [];
-      if (detour.length >= 2) {
+      const detourCoordinates = toFiniteLineStringCoordinates(interval?.detour_path);
+      if (detourCoordinates.length >= 2) {
         features.push({
           type: "Feature",
           geometry: {
             type: "LineString",
-            coordinates: detour.map((p) => [p.longitude, p.latitude]),
+            coordinates: detourCoordinates,
           },
           properties: {
+            source: "reroute_impact",
             kind: "reroute-interval",
             flightId,
             status: typeof flight.status === "string" ? flight.status : "unknown",

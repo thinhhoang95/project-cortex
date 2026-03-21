@@ -5,6 +5,7 @@ import {
   applyCumulativeDelaysToTrajectories,
   buildResourceStateSyncPayload,
   computeTrajectoryRange,
+  validateResourceStateBundleDate,
 } from "@/lib/resourceStates";
 
 function buildTrajectory(flightId: string, times: number[]): Trajectory {
@@ -119,5 +120,51 @@ describe("resourceStates", () => {
       FLIGHT_002: 12,
     });
     expect(payload.states).toHaveLength(2);
+  });
+
+  it("rejects resource-state bundles for another date", () => {
+    expect(
+      validateResourceStateBundleDate(
+        "2023-07-18",
+        {
+          selected_date: "2023-07-19",
+        },
+        {
+          resource_date: "2023-07-19",
+          state_zero_id: "state-0000",
+          selected_state_id: "state-0000",
+          head_state_id: "state-0000",
+          num_states: 1,
+          state_history_generation: 1,
+          states: [],
+        },
+      ),
+    ).toEqual({
+      matches: false,
+      bundleDate: "2023-07-19",
+    });
+  });
+
+  it("rejects bundles whose context and history disagree on the active date", () => {
+    expect(
+      validateResourceStateBundleDate(
+        "2023-07-18",
+        {
+          selected_date: "2023-07-18",
+        },
+        {
+          resource_date: "2023-07-19",
+          state_zero_id: "state-0000",
+          selected_state_id: "state-0000",
+          head_state_id: "state-0000",
+          num_states: 1,
+          state_history_generation: 1,
+          states: [],
+        },
+      ),
+    ).toEqual({
+      matches: false,
+      bundleDate: "2023-07-18",
+    });
   });
 });
