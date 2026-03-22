@@ -509,11 +509,16 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     return map;
   }, [flights]);
 
-  const flightTableData = useMemo<FlightRow[]>(() => {
-    if (!primaryTvId) return [];
-    if (effectiveFlightListError) return [];
-    if (!primaryFlightPayload) return [];
-    if (secondaryTvIds.length > 0 && !secondaryFlightDataReady) return [];
+  const { flightTableData, flightTableCount } = useMemo<{
+    flightTableData: FlightRow[];
+    flightTableCount: number;
+  }>(() => {
+    if (!primaryTvId) return { flightTableData: [], flightTableCount: 0 };
+    if (effectiveFlightListError) return { flightTableData: [], flightTableCount: 0 };
+    if (!primaryFlightPayload) return { flightTableData: [], flightTableCount: 0 };
+    if (secondaryTvIds.length > 0 && !secondaryFlightDataReady) {
+      return { flightTableData: [], flightTableCount: 0 };
+    }
 
     const [from, to] = regulationTimeWindow;
 
@@ -610,8 +615,13 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     };
 
     const primaryRows = buildPrimaryRows();
-    if (primaryRows.length === 0) return [];
-    if (secondaryTvIds.length === 0) return primaryRows.slice(0, MAX_FLIGHT_ROWS);
+    if (primaryRows.length === 0) return { flightTableData: [], flightTableCount: 0 };
+    if (secondaryTvIds.length === 0) {
+      return {
+        flightTableData: primaryRows.slice(0, MAX_FLIGHT_ROWS),
+        flightTableCount: primaryRows.length,
+      };
+    }
 
     const secondaryMembershipSets: Array<Set<string>> = [];
     const orderedDetailMapByTv: Record<string, Map<string, OrderedFlightsData["details"][number]>> = {};
@@ -619,7 +629,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
     for (const tvId of secondaryTvIds) {
       const payload = secondaryFlightDataByTv[tvId];
-      if (!payload) return [];
+      if (!payload) return { flightTableData: [], flightTableCount: 0 };
 
       if (payload.kind === "ordered") {
         const membership = new Set<string>();
@@ -708,7 +718,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       });
 
     rows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
-    return rows.slice(0, MAX_FLIGHT_ROWS);
+    return {
+      flightTableData: rows.slice(0, MAX_FLIGHT_ROWS),
+      flightTableCount: rows.length,
+    };
   }, [
     primaryTvId,
     regulationTimeWindow,
@@ -719,6 +732,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     secondaryFlightDataByTv,
     flightsById,
   ]);
+  const summaryCurrentCount = isMultiTv ? flightTableCount : currentCount;
 
   const filteredFlightIds = useMemo(() => {
     return new Set(flightTableData.map((row) => String(row.flightId)));
@@ -1128,8 +1142,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         {/* Current count + capacity summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">Current Count</div>
-            <div className="text-lg font-semibold">{currentCount}</div>
+            <div className="text-xs opacity-70">{isMultiTv ? "Intersection Count" : "Current Count"}</div>
+            <div className="text-lg font-semibold">{summaryCurrentCount}</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-xs opacity-70">Capacity</div>
@@ -1169,7 +1183,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         <div className="bg-white/5 rounded-lg p-4">
           <div className="flex justify-between items-center mb-3">
             <div className="flex items-center gap-3">
-              <h4 className="font-medium text-sm opacity-90">List ({flightTableData.length} flights)</h4>
+              <h4 className="font-medium text-sm opacity-90">List ({flightTableCount} flights)</h4>
               <FlightStatisticsButton
                 flightIds={flightTableData.map((flight) => flight.flightId)}
                 sourceTrafficVolumeId={primaryTvId}
@@ -1399,7 +1413,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                   </tbody>
                 </table>
               </div>
-              {flightTableData.length === MAX_FLIGHT_ROWS && (
+              {flightTableCount > MAX_FLIGHT_ROWS && (
                 <p className="text-xs opacity-70 text-center mt-2">Showing first 500 flights</p>
               )}
               {hasPrimaryOrderedFlights && (

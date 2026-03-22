@@ -553,6 +553,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     () => new Set((regulationListedFlightIds || []).map((id) => String(id))),
     [regulationListedFlightIds],
   );
+  const summaryCurrentCount = selectedTvIds.length > 1
+    ? listedFlightIdSet.size
+    : currentCount;
 
   const listedFlights = useMemo(() => {
     if (listedFlightIdSet.size === 0) return [] as typeof flights;
@@ -1043,8 +1046,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         {/* Current count + capacity summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">Current Count</div>
-            <div className="text-lg font-semibold">{currentCount}</div>
+            <div className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Current Count"}</div>
+            <div className="text-lg font-semibold">{summaryCurrentCount}</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-xs opacity-70">Capacity</div>

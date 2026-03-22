@@ -341,7 +341,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
         >
           <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
             <div>
-              <div className="text-[10px] uppercase tracking-wider opacity-70">Active Network</div>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Measures</div>
               <div className="text-lg font-semibold">Regulation Plan</div>
               <div className="text-xs opacity-80">
                 {regulations.length} Regulation{regulations.length !== 1 ? 's' : ''}

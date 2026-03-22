@@ -540,10 +540,11 @@ export default function AirspaceInfo() {
     };
   }, [selectedTvIds, flightDataReadyForSelection, flightListError, flightDataByTv, flightsById, primaryTvId]);
 
-  const { displayFlightTableData, filteredFlightIds } = useMemo(() => {
+  const { displayFlightTableData, displayFlightTableCount, filteredFlightIds } = useMemo(() => {
     if (!selectedTvIds.length || !flightDataReadyForSelection || flightListError) {
       return {
         displayFlightTableData: [] as FlightTableRow[],
+        displayFlightTableCount: 0,
         filteredFlightIds: new Set<string>(),
       };
     }
@@ -569,6 +570,7 @@ export default function AirspaceInfo() {
     const capped = rows.slice(0, MAX_FLIGHT_ROWS);
     return {
       displayFlightTableData: capped,
+      displayFlightTableCount: rows.length,
       filteredFlightIds: new Set(capped.map((row) => String(row.flightId))),
     };
   }, [selectedTvIds, flightDataReadyForSelection, flightListError, intersectionFlightRows, focusMode, deferredT, windowSeconds]);
@@ -628,9 +630,13 @@ export default function AirspaceInfo() {
     ? (displayChartRows.find((d) => currentTimeHours <= d.hour) ?? displayChartRows[displayChartRows.length - 1]).time
     : undefined;
 
-  const currentCount = primaryDisplayChartData.length
+  const primaryCurrentCount = primaryDisplayChartData.length
     ? (primaryDisplayChartData.find((d) => currentTimeHours <= d.hour) ?? primaryDisplayChartData[primaryDisplayChartData.length - 1]).count
     : 0;
+
+  const summaryCurrentCount = selectedTvIds.length > 1
+    ? (flightDataReadyForSelection && !flightListError ? displayFlightTableCount : null)
+    : primaryCurrentCount;
 
   const currentAnchorCapacity = useMemo(() => {
     if (!primaryOccupancyData || !Number.isFinite(primaryTimeBinMinutes) || primaryTimeBinMinutes <= 0) {
@@ -828,8 +834,8 @@ export default function AirspaceInfo() {
                   <p className="text-lg font-semibold">{primaryOccupancyData.metadata.total_flights_in_tv}</p>
                 </div>
                 <div className="bg-white/10 rounded-lg p-3">
-                  <p className="text-xs opacity-70">Primary Current Count</p>
-                  <p className="text-lg font-semibold">{currentCount}</p>
+                  <p className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Primary Current Count"}</p>
+                  <p className="text-lg font-semibold">{summaryCurrentCount ?? "—"}</p>
                 </div>
                 {typeof currentAnchorCapacity === "number" && (
                   <div className="bg-white/10 rounded-lg p-3">
@@ -1045,7 +1051,7 @@ export default function AirspaceInfo() {
                     )}
                   </tbody>
                 </table>
-                {expanded && displayFlightTableData.length === MAX_FLIGHT_ROWS && (
+                {expanded && displayFlightTableCount > MAX_FLIGHT_ROWS && (
                   <p className="text-xs opacity-70 text-center mt-2">Showing first {MAX_FLIGHT_ROWS} flights</p>
                 )}
                 <p className="text-xs opacity-70 text-center mt-2">

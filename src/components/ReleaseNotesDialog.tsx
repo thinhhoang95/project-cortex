@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ModalDialog from "./ModalDialog";
-import { APP_VERSION } from "@/lib/version";
+import { APP_VERSION, VERSION_CODENAME } from "@/lib/version";
 
 const RELEASE_NOTES_VERSION = APP_VERSION;
 const LOCAL_STORAGE_KEY = "release-notes-version";
@@ -11,6 +11,19 @@ const RELEASE_NOTES_CONTENT = `
   <h2 class="text-2xl font-bold mb-4">Highlights</h2>
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
+
+  <h4 class="font-bold mb-4">Sun. 23/03/2026</h4>
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Resource Date Selection.</strong> The app now treats the selected resource date as a first-class primitive. A dedicated <code>/select-date</code> page guides first-time users, and all screens, caches, and derived views automatically invalidate when the server context changes underneath them.</li>
+    <li><strong>State History Navigation.</strong> A new <em>Resource State History</em> control lets you browse and switch between historical state nodes directly from the UI. Cumulative delays from each state are applied to 4D trajectories in real time.</li>
+    <li><strong>Regulation State Commit.</strong> Simulation and flow-optimisation output can now be committed back to the server as a regulation state. The commit helper canonicalises flight IDs, rejects conflicting delay assignments, and enforces integer-minute delays.</li>
+    <li><strong>Reroute Impact Simulation.</strong> A full reroute-impact simulation layer is now available. Select a reroute scenario to see rerouted-flight counts, changed traffic volumes, rolling-hour occupancy diffs, and per-flight diagnostics — all surfaced in the new <em>Reroute Impact Results</em> panel.</li>
+    <li><strong>TV DCB Glance.</strong> Short-horizon Demand-Capacity Balance summaries are now rendered as glance labels directly on the map, scoped to visible traffic volumes and invalidated automatically on state or date changes.</li>
+    <li><strong>Flight-Level Bin Distribution.</strong> A new <em>Flight-Level Bin Count Chart</em> aggregates occupancy into selectable 1 000 / 2 000 / 3 000 / 5 000 ft groupings, with on-hover flight-ID previews scoped to the current time window.</li>
+    <li><strong>SA Posthoc Analytics.</strong> A new <em>SA Result Summary</em> dashboard exposes objective-history trends, convergence metrics, per-ACC delay attribution, OD delay attribution, and per-flight solution tables for completed agent runs.</li>
+    <li><strong>Intersection Count Labels.</strong> Multi-TV summary cards now correctly label counts as <em>Intersection Count</em> to distinguish them from single-TV <em>Current Count</em> figures.</li>
+    <li><strong>Regulation Plan Panel "Measures".</strong> The header previously labelled <em>Active Network</em> has been renamed to <em>Measures</em> for clarity.</li>
+  </ul>
 
   <h4 class="font-bold mb-4">Fri. 20/03/2026</h4>
   <ul class="list-disc pl-6 space-y-2 mb-4">
@@ -123,7 +136,7 @@ export default function ReleaseNotesDialog({ open: controlledOpen, onClose }: Re
       open={open}
       onClose={handleClose}
       title="Release Notes"
-      description={`Version ${RELEASE_NOTES_VERSION}`}
+      description={`Version ${RELEASE_NOTES_VERSION} · ${VERSION_CODENAME}`}
       height="h-[min(720px,92vh)]"
     >
       <div className="flex h-full flex-col">

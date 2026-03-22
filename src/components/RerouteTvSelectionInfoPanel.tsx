@@ -59,6 +59,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
     airspaceDisplayMode,
     t,
     resourceStateEpoch,
+    rerouteBaseFlightIds,
     setT,
     clearSelectedTrafficVolumes,
     setFocusMode,
@@ -189,6 +190,9 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
       movements: Number(primaryOccupancy.metadata?.total_flights_in_tv || 0),
     };
   }, [primaryOccupancy, t]);
+  const summaryCurrentCount = selectedTvIds.length > 1
+    ? rerouteBaseFlightIds.length
+    : primarySummary.currentCount;
 
   const overloadSegments = useMemo(() => {
     if (!primaryOccupancy) {
@@ -314,9 +318,9 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
                 <p className="text-lg font-semibold">{primarySummary.movements.toLocaleString("en-US")}</p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
-                <p className="text-xs opacity-70">Current Count</p>
+                <p className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Current Count"}</p>
                 <p className="text-lg font-semibold">
-                  {primarySummary.currentCount != null ? primarySummary.currentCount.toFixed(0) : "—"}
+                  {summaryCurrentCount != null ? summaryCurrentCount.toFixed(0) : "—"}
                 </p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">

@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import Image from "next/image";
 import { useEffect, useState } from "react";
 
 type RegionSwitchBannerProps = {
@@ -73,23 +71,19 @@ export default function RegionSwitchBanner({
     <div className="relative z-[3000] border-b border-cyan-300/20 bg-[linear-gradient(90deg,rgba(8,47,73,0.94)_0%,rgba(15,23,42,0.98)_45%,rgba(30,41,59,0.96)_100%)] shadow-[0_16px_40px_-28px_rgba(34,211,238,0.45)]">
       <div className="mx-auto flex min-h-11 max-w-7xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 pr-12 text-center text-sm text-slate-100">
         <span className="inline-flex items-center gap-2">
-          <Image
-            src="/assets/eu.svg"
-            alt="European Union flag"
-            width={22}
-            height={15}
-            className="h-[15px] w-[22px] rounded-[2px] ring-1 ring-white/20"
-          />
+          <span className="text-xl leading-none">
+            <svg width="28" height="20" viewBox="0 0 28 20" xmlns="http://www.w3.org/2000/svg" aria-label="Vietnam Flag" className="inline-block mr-2 align-middle">
+              <rect width="28" height="20" fill="#da251d"/>
+              <polygon
+                points="14,4.5 15.755,10.14 21.82,10.14 16.84,13.54 18.595,19.18 14,15.6 9.405,19.18 11.16,13.54 6.18,10.14 12.245,10.14"
+                fill="#ff0"
+              />
+            </svg>
+          </span>
           <span className="text-slate-100/92">
-            You are using the European version of Flow&apos;s Kitchen.
+            Nhiệt liệt chào mừng Ngày bầu cử đại biểu Quốc hội khóa XVI và đại biểu Hội đồng nhân dân các cấp nhiệm kỳ 2026 - 2031
           </span>
         </span>
-        <Link
-          href="https://accounts.swim.faa.gov/realms/swim/protocol/openid-connect/auth?client_id=swim-ui&redirect_uri=https%3A%2F%2Fportal.swim.faa.gov%2F&state=49209e14-9cc5-4cd4-aabe-eb56aa7230df&response_mode=fragment&response_type=code&scope=openid&nonce=9b87569b-ac3b-425a-bed2-adeec43292cc&code_challenge=r4BXfnwoHFPwOucdC0NeQ12v6JbWN87CB9IlsDQDx1M&code_challenge_method=S256"
-          className="text-sm text-cyan-200 underline underline-offset-2 transition-colors hover:text-white"
-        >
-          To switch to the US version, click here.
-        </Link>
         <button
           type="button"
           onClick={handleDismiss}
