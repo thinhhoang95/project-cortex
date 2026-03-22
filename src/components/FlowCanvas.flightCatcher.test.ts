@@ -9,16 +9,16 @@ import {
 describe("FlowCanvas catcher behavior", () => {
   it("uses shared visible-line precedence with proposal preview and baseline clamp", () => {
     const visibleAtGateStart = deriveVisibleFlightLineIds({
-      insideRangeActiveFlightIds: ["A", "B", "C"],
+      activeInsideRangeFlightIds: ["A", "B", "C"],
+      listDrivenEligibleFlightIds: ["A", "B", "Z"],
       focusMode: true,
       focusFlightIds: ["A", "Z"],
       proposalPreviewActive: true,
       proposalPreviewFlightIds: ["B", "Z"],
-      clampToActiveSet: true,
     });
 
-    // Proposal preview wins over focus, then active-set clamp removes Z.
-    expect(visibleAtGateStart).toEqual(["B"]);
+    // Proposal preview wins over focus; inactive but eligible flights stay visible.
+    expect(visibleAtGateStart).toEqual(["B", "Z"]);
 
     const gateSnapshot = freezeGateSnapshot({
       createdAtSimTime: 15_000,

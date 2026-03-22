@@ -7,7 +7,7 @@ type PageLoadingIndicatorProps = {
   text?: string;
 };
 
-export default function PageLoadingIndicator({ visible = false, text = "Sweeping the skies..." }: PageLoadingIndicatorProps) {
+export default function PageLoadingIndicator({ visible = false, text = "Sweeping the sky..." }: PageLoadingIndicatorProps) {
   if (!visible) return null;
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center">

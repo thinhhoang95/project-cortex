@@ -21,6 +21,8 @@ import {
   getMinuteOfDay,
   normalizeCollapsedSectors,
 } from "@/lib/airspaceDisplay";
+import { deriveVisibleFlightLineIds } from "@/lib/flightCatcherPolicy";
+import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
@@ -1251,8 +1253,6 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   if (!tracks) return;
 
   const planesFC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-  const activeFlightIds: string[] = [];
-  const insideRangeActiveSet = new Set<string>();
 
   for (const tr of tracks) {
     if (sim.t < tr.t0 || sim.t > tr.t1) continue;
@@ -1291,29 +1291,26 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       }
     });
 
-    activeFlightIds.push(tr.flightId);
-    insideRangeActiveSet.add(String(tr.flightId));
   }
 
   const src = map.getSource("planes") as maplibregl.GeoJSONSource | undefined;
   if (src) src.setData(planesFC);
 
-  // Filter flight line + label layers
-  // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
-  let lineIdsToShow: string[];
-  const flightLinePreviewIds = Array.from(sim.flightLinePreviewFlightIds).map(String).filter(Boolean);
-  if (flightLinePreviewIds.length > 0) {
-    lineIdsToShow = flightLinePreviewIds;
-  } else if (sim.flowPreviewFlightId) {
-    const pid = String(sim.flowPreviewFlightId);
-    // Show preview only when the flight is currently active and within the selected FL range.
-    lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
-  } else if (sim.focusMode) {
-    // In focus mode, preserve full trajectories for qualifying flights but gate visibility by current activity + FL.
-    lineIdsToShow = Array.from(sim.focusFlightIds).map(String).filter((id) => insideRangeActiveSet.has(id));
-  } else {
-    lineIdsToShow = Array.from(insideRangeActiveSet);
-  }
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
+    tracks,
+    sim.t,
+    sim.flLowerBound,
+    sim.flUpperBound
+  );
+  const lineIdsToShow = deriveVisibleFlightLineIds({
+    activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+    listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
+    focusMode: sim.focusMode,
+    focusFlightIds: sim.focusFlightIds,
+    flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
+    flowPreviewFlightId: sim.flowPreviewFlightId,
+  });
+  const hasFlightLinePreview = sim.flightLinePreviewFlightIds.size > 0;
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {
@@ -1332,8 +1329,16 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     map.setFilter("flight-lines", filterExpr as any);
     if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
     if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.selectedCollapsedSector || !!sim.flowPreviewFlightId || flightLinePreviewIds.length > 0;
-    const lineOpacity = (sim.flowPreviewFlightId || flightLinePreviewIds.length > 0) ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
+    const inFocusContext =
+      sim.focusMode ||
+      !!sim.selectedTrafficVolume ||
+      !!sim.selectedCollapsedSector ||
+      !!sim.flowPreviewFlightId ||
+      hasFlightLinePreview;
+    const lineOpacity =
+      sim.flowPreviewFlightId || hasFlightLinePreview
+        ? 0.8
+        : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);

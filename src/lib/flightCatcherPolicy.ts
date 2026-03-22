@@ -138,7 +138,8 @@ export function applyCatcherToRerouteState(params: {
 }
 
 export function deriveVisibleFlightLineIds(params: {
-  insideRangeActiveFlightIds: IdIterable;
+  activeInsideRangeFlightIds: IdIterable;
+  listDrivenEligibleFlightIds?: IdIterable;
   focusMode: boolean;
   focusFlightIds: IdIterable;
   flightLinePreviewFlightIds?: IdIterable;
@@ -152,21 +153,27 @@ export function deriveVisibleFlightLineIds(params: {
   proposalPreviewFlightIds?: IdIterable;
   regulationPreviewActive?: boolean;
   regulationTargetFlightIds?: IdIterable;
-  clampToActiveSet?: boolean;
 }): string[] {
-  const inside = normalizeFlightIds(params.insideRangeActiveFlightIds);
-  const insideSet = new Set(inside);
+  const activeInside = normalizeFlightIds(params.activeInsideRangeFlightIds);
+  const listDrivenEligible = new Set(
+    normalizeFlightIds(params.listDrivenEligibleFlightIds ?? params.activeInsideRangeFlightIds)
+  );
   const flightLinePreviewIds = normalizeFlightIds(params.flightLinePreviewFlightIds);
   let visible: string[] = [];
+  let useListDrivenVisibility = false;
 
   if (flightLinePreviewIds.length > 0) {
     visible = flightLinePreviewIds;
+    useListDrivenVisibility = true;
   } else if (params.proposalPreviewActive) {
     visible = normalizeFlightIds(params.proposalPreviewFlightIds);
+    useListDrivenVisibility = true;
   } else if (params.regulationPreviewActive) {
     visible = normalizeFlightIds(params.regulationTargetFlightIds);
+    useListDrivenVisibility = true;
   } else if (params.flowPreviewFlightId) {
     visible = normalizeFlightIds([params.flowPreviewFlightId]);
+    useListDrivenVisibility = true;
   } else if (params.flowPreviewGroupId) {
     const groupId = String(params.flowPreviewGroupId);
     if (params.flowGroups && params.flowGroups[groupId]) {
@@ -178,6 +185,7 @@ export function deriveVisibleFlightLineIds(params: {
           .map(([fid]) => String(fid))
       );
     }
+    useListDrivenVisibility = true;
   } else if (
     params.showAllFlowCommunitiesWhenEnabled &&
     params.flowViewEnabled &&
@@ -185,14 +193,16 @@ export function deriveVisibleFlightLineIds(params: {
     Object.keys(params.flowCommunities).length > 0
   ) {
     visible = normalizeFlightIds(Object.keys(params.flowCommunities));
+    useListDrivenVisibility = true;
   } else if (params.focusMode) {
     visible = normalizeFlightIds(params.focusFlightIds);
+    useListDrivenVisibility = true;
   } else {
-    visible = inside;
+    visible = activeInside;
   }
 
-  if (!params.clampToActiveSet || flightLinePreviewIds.length > 0) {
+  if (!useListDrivenVisibility) {
     return visible;
   }
-  return visible.filter((id) => insideSet.has(id));
+  return visible.filter((id) => listDrivenEligible.has(id));
 }

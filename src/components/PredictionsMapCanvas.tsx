@@ -23,6 +23,8 @@ import {
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
 import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
+import { deriveVisibleFlightLineIds } from "@/lib/flightCatcherPolicy";
+import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import { formatSecondsToHHMMSS } from "@/lib/time";
 import { getSummaryTimeBinMinutes, type TvDcbGlanceResponse, type TvDcbGlanceSummary } from "@/lib/tvDcbGlance";
 import {
@@ -933,8 +935,6 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   if (!tracks) return;
 
   const planesFC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-  const activeFlightIds: string[] = [];
-  const insideRangeActiveSet = new Set<string>();
 
   for (const tr of tracks) {
     if (sim.t < tr.t0 || sim.t > tr.t1) continue;
@@ -973,26 +973,24 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       }
     });
 
-    activeFlightIds.push(tr.flightId);
-    insideRangeActiveSet.add(String(tr.flightId));
   }
 
   const src = map.getSource("planes") as maplibregl.GeoJSONSource | undefined;
   if (src) src.setData(planesFC);
 
-  // Filter flight line + label layers
-  // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
-  let lineIdsToShow: string[];
-  if (sim.flowPreviewFlightId) {
-    const pid = String(sim.flowPreviewFlightId);
-    // Only show if currently active and within FL range
-    lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
-  } else if (sim.focusMode) {
-    // In focus mode, preserve full trajectories for qualifying flights but gate visibility by current activity + FL.
-    lineIdsToShow = Array.from(sim.focusFlightIds).map(String).filter((id) => insideRangeActiveSet.has(id));
-  } else {
-    lineIdsToShow = Array.from(insideRangeActiveSet);
-  }
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
+    tracks,
+    sim.t,
+    sim.flLowerBound,
+    sim.flUpperBound
+  );
+  const lineIdsToShow = deriveVisibleFlightLineIds({
+    activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+    listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
+    focusMode: sim.focusMode,
+    focusFlightIds: sim.focusFlightIds,
+    flowPreviewFlightId: sim.flowPreviewFlightId,
+  });
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {

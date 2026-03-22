@@ -15,7 +15,7 @@ import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter } from "@/lib/airspaceDisplay";
-import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
+import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
   applyCatcherToRegulationTargets,
@@ -404,14 +404,15 @@ export default function RegulationCanvas() {
         const sim = useSimStore.getState();
         if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
         if (regulationDraftPointsRef.current.length === 0) {
-          const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+          const visibilitySnapshot = getFlightLineVisibilitySnapshot(
             tracks,
             sim.t,
             sim.flLowerBound,
             sim.flUpperBound
           );
           const visibleFlightIds = deriveVisibleFlightLineIds({
-            insideRangeActiveFlightIds: insideRangeActiveSet,
+            activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+            listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
             focusMode: sim.focusMode,
             focusFlightIds: sim.focusFlightIds,
             flowPreviewFlightId: sim.flowPreviewFlightId,
@@ -424,7 +425,6 @@ export default function RegulationCanvas() {
             proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
             regulationPreviewActive: sim.regulationPreviewActive,
             regulationTargetFlightIds: sim.regulationTargetFlightIds,
-            clampToActiveSet: true,
           });
           regulationGateSnapshotRef.current = freezeGateSnapshot({
             createdAtSimTime: sim.t,
@@ -459,27 +459,30 @@ export default function RegulationCanvas() {
           freezeGateSnapshot({
             createdAtSimTime: sim.t,
             contextMode: "tv_baseline",
-            visibleFlightIds: deriveVisibleFlightLineIds({
-              insideRangeActiveFlightIds: getCurrentActiveFlightIdsInFlRange(
+            visibleFlightIds: (() => {
+              const visibilitySnapshot = getFlightLineVisibilitySnapshot(
                 tracks,
                 sim.t,
                 sim.flLowerBound,
                 sim.flUpperBound
-              ),
-              focusMode: sim.focusMode,
-              focusFlightIds: sim.focusFlightIds,
-              flowPreviewFlightId: sim.flowPreviewFlightId,
-              flowPreviewGroupId: sim.flowPreviewGroupId,
-              flowCommunities: sim.flowCommunities,
-              flowGroups: sim.flowGroups,
-              flowViewEnabled: sim.flowViewEnabled,
-              showAllFlowCommunitiesWhenEnabled: true,
-              proposalPreviewActive: sim.proposalPreviewActive,
-              proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
-              regulationPreviewActive: sim.regulationPreviewActive,
-              regulationTargetFlightIds: sim.regulationTargetFlightIds,
-              clampToActiveSet: true,
-            }),
+              );
+              return deriveVisibleFlightLineIds({
+                activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+                listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
+                focusMode: sim.focusMode,
+                focusFlightIds: sim.focusFlightIds,
+                flowPreviewFlightId: sim.flowPreviewFlightId,
+                flowPreviewGroupId: sim.flowPreviewGroupId,
+                flowCommunities: sim.flowCommunities,
+                flowGroups: sim.flowGroups,
+                flowViewEnabled: sim.flowViewEnabled,
+                showAllFlowCommunitiesWhenEnabled: true,
+                proposalPreviewActive: sim.proposalPreviewActive,
+                proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
+                regulationPreviewActive: sim.regulationPreviewActive,
+                regulationTargetFlightIds: sim.regulationTargetFlightIds,
+              });
+            })(),
             baselineFlightIds: sim.regulationListedFlightIds,
           });
 
@@ -1039,7 +1042,7 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   const sim = useSimStore.getState();
   const tracks = (map as any).__trajectories as Trajectory[] | undefined;
   if (!tracks) return;
-  const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
     tracks,
     sim.t,
     sim.flLowerBound,
@@ -1047,7 +1050,8 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   );
 
   const lineIdsToShow = deriveVisibleFlightLineIds({
-    insideRangeActiveFlightIds: insideRangeActiveSet,
+    activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+    listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
     focusMode: sim.focusMode,
     focusFlightIds: sim.focusFlightIds,
     flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
@@ -1061,7 +1065,6 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
     regulationPreviewActive: sim.regulationPreviewActive,
     regulationTargetFlightIds: sim.regulationTargetFlightIds,
-    clampToActiveSet: true,
   });
 
   let filterExpr: any;
@@ -1108,7 +1111,7 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
   }
   const sim = useSimStore.getState();
   const tracks = (map as any).__trajectories as Trajectory[] | undefined;
-  const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
     tracks,
     sim.t,
     sim.flLowerBound,
@@ -1116,7 +1119,7 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
   );
   const ids = Array.from(sim.regulationTargetFlightIds)
     .map(String)
-    .filter((id) => insideRangeActiveSet.has(id));
+    .filter((id) => visibilitySnapshot.listDrivenEligibleIds.has(id));
   const filterExpr: any = ids.length > 0 ? ["in", ["to-string", ["get", "flightId"]], ["literal", ids]] : ["==", ["get", "flightId"], "__none__"];
   if (map.getLayer("reg-target-lines")) {
     const vis = sim.proposalPreviewActive

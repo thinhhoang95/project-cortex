@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "./ModalDialog";
@@ -43,6 +43,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
     setT,
     resourceDate,
     resourceStateSelectedId,
+    setFlightLinePreviewFlightIds,
   } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -55,10 +56,32 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
   const [saveTimestamp, setSaveTimestamp] = useState<number | null>(null);
   const [loadSearch, setLoadSearch] = useState("");
   const [savedPlans, setSavedPlans] = useState<SavedRegulationPlan[]>([]);
+  const hoverPreviewBaselineRef = useRef<Set<string> | null>(null);
+  const hoveredRegulationIdRef = useRef<string | null>(null);
+
+  const restoreHoveredFlightLinePreview = useCallback(() => {
+    setFlightLinePreviewFlightIds(new Set(hoverPreviewBaselineRef.current ?? []));
+    hoverPreviewBaselineRef.current = null;
+    hoveredRegulationIdRef.current = null;
+  }, [setFlightLinePreviewFlightIds]);
 
   useEffect(() => {
     setSavedPlans(loadSavedPlansFromStorage());
   }, []);
+
+  useEffect(() => restoreHoveredFlightLinePreview, [restoreHoveredFlightLinePreview]);
+
+  useEffect(() => {
+    if (!isMinimized) return;
+    restoreHoveredFlightLinePreview();
+  }, [isMinimized, restoreHoveredFlightLinePreview]);
+
+  useEffect(() => {
+    if (!hoveredRegulationIdRef.current) return;
+    const hoveredStillExists = regulations.some((reg) => reg.id === hoveredRegulationIdRef.current);
+    if (hoveredStillExists) return;
+    restoreHoveredFlightLinePreview();
+  }, [regulations, restoreHoveredFlightLinePreview]);
 
   useEffect(() => {
     if (saveModalOpen) {
@@ -355,6 +378,14 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                 {regulations.map((reg) => (
                   <div
                     key={reg.id}
+                    onMouseEnter={() => {
+                      if (hoveredRegulationIdRef.current !== reg.id) {
+                        hoverPreviewBaselineRef.current = new Set(useSimStore.getState().flightLinePreviewFlightIds);
+                      }
+                      hoveredRegulationIdRef.current = reg.id;
+                      setFlightLinePreviewFlightIds(new Set(normalizeFlightIdList(reg.flightIds)));
+                    }}
+                    onMouseLeave={restoreHoveredFlightLinePreview}
                     onClick={() => setSelectedRegulation(selectedRegulation === reg.id ? null : reg.id)}
                     className={`p-3 rounded-lg border cursor-pointer transition-all duration-200 ${
                       selectedRegulation === reg.id
@@ -376,18 +407,19 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => {
-                          e.stopPropagation();
-                          // Hand off to regulation panel for editing
-                          setRegulationEditPayload({
-                            trafficVolume: reg.trafficVolume,
-                            activeTimeWindowFrom: reg.activeTimeWindowFrom,
-                            activeTimeWindowTo: reg.activeTimeWindowTo,
-                            flightIds: Array.isArray(reg.flightIds) ? reg.flightIds.slice() : [],
-                            flightCallsigns: reg.flightCallsigns,
-                            resourceDate: reg.resourceDate ?? null,
-                            resourceStateId: reg.resourceStateId ?? null,
-                            rate: reg.rate,
-                          });
+                            e.stopPropagation();
+                            restoreHoveredFlightLinePreview();
+                            // Hand off to regulation panel for editing
+                            setRegulationEditPayload({
+                              trafficVolume: reg.trafficVolume,
+                              activeTimeWindowFrom: reg.activeTimeWindowFrom,
+                              activeTimeWindowTo: reg.activeTimeWindowTo,
+                              flightIds: Array.isArray(reg.flightIds) ? reg.flightIds.slice() : [],
+                              flightCallsigns: reg.flightCallsigns,
+                              resourceDate: reg.resourceDate ?? null,
+                              resourceStateId: reg.resourceStateId ?? null,
+                              rate: reg.rate,
+                            });
                             // Align sim time to the start of the active window
                             setT(reg.activeTimeWindowFrom);
                             // Open the panel and ask the map to select & highlight this traffic volume
@@ -405,6 +437,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            restoreHoveredFlightLinePreview();
                             removeRegulation(reg.id);
                           }}
                           className="text-red-300 hover:text-red-200 p-1"

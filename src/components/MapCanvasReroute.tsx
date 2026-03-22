@@ -29,7 +29,7 @@ import {
   type RerouteGeometryResult,
   type RerouteObstacle,
 } from "@/lib/rerouteGeometry";
-import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
+import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import {
   applyCatcherToRerouteState,
   deriveVisibleFlightLineIds,
@@ -907,14 +907,15 @@ export default function MapCanvasReroute() {
 
         if (!sim.rerouteCatcherActive || sim.rerouteCatcherMode === "off") return;
         if (rerouteDraftPointsRef.current.length === 0) {
-          const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+          const visibilitySnapshot = getFlightLineVisibilitySnapshot(
             tracks,
             sim.t,
             sim.flLowerBound,
             sim.flUpperBound
           );
           const visibleFlightIds = deriveVisibleFlightLineIds({
-            insideRangeActiveFlightIds: insideRangeActiveSet,
+            activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+            listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
             focusMode: sim.focusMode,
             focusFlightIds: sim.focusFlightIds,
             flowPreviewFlightId: sim.flowPreviewFlightId,
@@ -922,7 +923,6 @@ export default function MapCanvasReroute() {
             flowCommunities: sim.flowCommunities,
             flowGroups: sim.flowGroups,
             showAllFlowCommunitiesWhenEnabled: false,
-            clampToActiveSet: false,
           });
           const hasTvSelection =
             (Array.isArray(sim.selectedTrafficVolumes) && sim.selectedTrafficVolumes.length > 0) ||
@@ -1030,22 +1030,25 @@ export default function MapCanvasReroute() {
           freezeGateSnapshot({
             createdAtSimTime: sim.t,
             contextMode: hasTvSelection ? "tv_baseline" : "visible_only",
-            visibleFlightIds: deriveVisibleFlightLineIds({
-              insideRangeActiveFlightIds: getCurrentActiveFlightIdsInFlRange(
+            visibleFlightIds: (() => {
+              const visibilitySnapshot = getFlightLineVisibilitySnapshot(
                 tracks,
                 sim.t,
                 sim.flLowerBound,
                 sim.flUpperBound
-              ),
-              focusMode: sim.focusMode,
-              focusFlightIds: sim.focusFlightIds,
-              flowPreviewFlightId: sim.flowPreviewFlightId,
-              flowPreviewGroupId: sim.flowPreviewGroupId,
-              flowCommunities: sim.flowCommunities,
-              flowGroups: sim.flowGroups,
-              showAllFlowCommunitiesWhenEnabled: false,
-              clampToActiveSet: false,
-            }),
+              );
+              return deriveVisibleFlightLineIds({
+                activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+                listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
+                focusMode: sim.focusMode,
+                focusFlightIds: sim.focusFlightIds,
+                flowPreviewFlightId: sim.flowPreviewFlightId,
+                flowPreviewGroupId: sim.flowPreviewGroupId,
+                flowCommunities: sim.flowCommunities,
+                flowGroups: sim.flowGroups,
+                showAllFlowCommunitiesWhenEnabled: false,
+              });
+            })(),
             baselineFlightIds: sim.rerouteBaseFlightIds,
           });
 
@@ -2500,8 +2503,6 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   if (!tracks) return;
 
   const planesFC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-  const activeFlightIds: string[] = [];
-  const insideRangeActiveSet = new Set<string>();
 
   for (const tr of tracks) {
     if (sim.t < tr.t0 || sim.t > tr.t1) continue;
@@ -2539,18 +2540,21 @@ function updatePlanePositions(map: maplibregl.Map | null) {
         labelText: `${tr.callSign ?? tr.flightId} · ${altitudeLabel}`
       }
     });
-
-    activeFlightIds.push(tr.flightId);
-    insideRangeActiveSet.add(String(tr.flightId));
   }
 
   const src = map.getSource("planes") as maplibregl.GeoJSONSource | undefined;
   if (src) src.setData(planesFC);
 
   // Filter flight line + label layers
-  // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
+    tracks,
+    sim.t,
+    sim.flLowerBound,
+    sim.flUpperBound
+  );
   const lineIdsToShow = deriveVisibleFlightLineIds({
-    insideRangeActiveFlightIds: insideRangeActiveSet,
+    activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+    listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
     focusMode: sim.focusMode,
     focusFlightIds: sim.focusFlightIds,
     flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
@@ -2559,7 +2563,6 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     flowCommunities: sim.flowCommunities,
     flowGroups: sim.flowGroups,
     showAllFlowCommunitiesWhenEnabled: false,
-    clampToActiveSet: false,
   });
 
   let filterExpr: any;

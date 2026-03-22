@@ -10,10 +10,9 @@ import {
 describe("MapCanvasReroute catcher behavior", () => {
   it("visible-only mode adds/removes rows using first-click visible flights", () => {
     const visibleAtGateStart = deriveVisibleFlightLineIds({
-      insideRangeActiveFlightIds: ["R1", "R2"],
+      activeInsideRangeFlightIds: ["R1", "R2"],
       focusMode: false,
       focusFlightIds: [],
-      clampToActiveSet: false,
     });
     const gateSnapshot = freezeGateSnapshot({
       createdAtSimTime: 20_000,
