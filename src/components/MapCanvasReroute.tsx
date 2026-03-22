@@ -2,6 +2,7 @@
 import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { authFetch } from "@/lib/auth";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
@@ -58,12 +59,21 @@ import {
   type RerouteImpactResponse,
 } from "@/lib/rerouteImpact";
 import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
-import { formatSecondsToHHMM } from "@/lib/time";
-
-type AirspaceSources = {
-  sectors: GeoJSON.FeatureCollection;
-  centroids: GeoJSON.FeatureCollection;
-};
+import { formatSecondsToHHMM, formatSecondsToHHMMSS } from "@/lib/time";
+import { getSummaryTimeBinMinutes, type TvDcbGlanceResponse, type TvDcbGlanceSummary } from "@/lib/tvDcbGlance";
+import {
+  type AirspaceSources,
+  areStringArraysEqual,
+  buildTvDcbGlanceCacheKey,
+  buildTvDcbGlanceSourceData,
+  collectVisibleTrafficVolumeIdsForGlance,
+  emptyPointFC,
+  ensureTrafficVolumeDcbGlanceLayer,
+  setDcbGlanceSourceData,
+  TV_DCB_GLANCE_DEFAULT_BIN_MINUTES,
+  TV_DCB_GLANCE_LAYER_ID,
+  TV_DCB_GLANCE_MIN_ZOOM,
+} from "@/lib/trafficVolumeDcbGlanceMap";
 
 const REROUTE_CATCHER_SOURCE_ID = "reroute-catcher-source";
 const REROUTE_CATCHER_DRAFT_LAYER_ID = "reroute-catcher-draft";
@@ -156,6 +166,8 @@ export default function MapCanvasReroute() {
     setRerouteImpactResult,
     setIsRerouteImpactResultsOpen,
     setRerouteImpactScenarioSignature,
+    resourceStateEpoch,
+    glanceHorizonMinutes,
   } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
@@ -169,9 +181,20 @@ export default function MapCanvasReroute() {
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
   const [hoveredTrafficVolume, setHoveredTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
+  const [visibleGlanceTvIds, setVisibleGlanceTvIds] = useState<string[]>([]);
+  const [glanceCacheVersion, setGlanceCacheVersion] = useState(0);
+  const [glanceTimeBinMinutes, setGlanceTimeBinMinutes] = useState(TV_DCB_GLANCE_DEFAULT_BIN_MINUTES);
   const lastSlackKeyRef = useRef<string | null>(null);
+  const glanceCacheRef = useRef<Map<string, TvDcbGlanceSummary | null>>(new Map());
+  const glanceFetchSeqRef = useRef(0);
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
   const currentMinuteOfDay = useMemo(() => getMinuteOfDay(t), [t]);
+  const currentMinuteTick = useMemo(() => Math.floor(t / 60), [t]);
+  const glanceReferenceBinSeconds = useMemo(() => {
+    const safeBinMinutes = Math.max(1, Math.round(glanceTimeBinMinutes || TV_DCB_GLANCE_DEFAULT_BIN_MINUTES));
+    const binSeconds = safeBinMinutes * 60;
+    return Math.floor(Math.max(0, t) / binSeconds) * binSeconds;
+  }, [glanceTimeBinMinutes, t]);
   const isCatcherDrawing = rerouteCatcherActive && rerouteCatcherMode !== "off";
   const isShapeDrawing = rerouteShapeToolMode !== "off";
   const isAnyDrawingActive = isCatcherDrawing || isShapeDrawing;
@@ -251,6 +274,7 @@ export default function MapCanvasReroute() {
           csSourcesRef.current = null;
         }
         addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
+        ensureTrafficVolumeDcbGlanceLayer(map, theme);
         if (!map.getLayer(SLACK_LAYER_ID)) {
           map.addLayer({
             id: SLACK_LAYER_ID,
@@ -265,6 +289,15 @@ export default function MapCanvasReroute() {
         }
 
         applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
+        if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
+          map.setLayoutProperty(
+            TV_DCB_GLANCE_LAYER_ID,
+            "visibility",
+            useSimStore.getState().showTrafficVolumes && useSimStore.getState().airspaceDisplayMode === "tv"
+              ? "visible"
+              : "none",
+          );
+        }
         const sim = useSimStore.getState();
         if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
           console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
@@ -750,6 +783,7 @@ export default function MapCanvasReroute() {
 
       // Add click handlers for traffic volumes (labels + points)
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeClick);
+      map.on('click', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeClick);
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeClick);
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeClick);
 
@@ -773,9 +807,11 @@ export default function MapCanvasReroute() {
       };
 
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
+      map.on('mouseenter', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeHover);
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHover);
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
+      map.on('mouseleave', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
       const shapeSelectableLayerIds = [
@@ -1425,6 +1461,13 @@ export default function MapCanvasReroute() {
     const apply = () => {
       try {
         applyTrafficVolumeVisibility(map, showTrafficVolumes, { includeSlack: true });
+        if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
+          map.setLayoutProperty(
+            TV_DCB_GLANCE_LAYER_ID,
+            "visibility",
+            showTrafficVolumes && airspaceDisplayMode === "tv" ? "visible" : "none",
+          );
+        }
       } catch (err) {
         console.error("Failed to update traffic volume visibility", err);
       }
@@ -1447,7 +1490,145 @@ export default function MapCanvasReroute() {
       cancelled = true;
       try { map.off("render", waitForReady); } catch { }
     };
-  }, [showTrafficVolumes]);
+  }, [airspaceDisplayMode, showTrafficVolumes]);
+
+  useEffect(() => {
+    glanceCacheRef.current.clear();
+    glanceFetchSeqRef.current += 1;
+    setGlanceCacheVersion((version) => version + 1);
+    setGlanceTimeBinMinutes(TV_DCB_GLANCE_DEFAULT_BIN_MINUTES);
+    setVisibleGlanceTvIds([]);
+    setDcbGlanceSourceData(mapRef.current, emptyPointFC());
+  }, [resourceStateEpoch]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const refreshVisibleIds = () => {
+      const nextIds = collectVisibleTrafficVolumeIdsForGlance(map, {
+        enabled: showTrafficVolumes && airspaceDisplayMode === "tv",
+        minZoom: TV_DCB_GLANCE_MIN_ZOOM,
+      });
+      setVisibleGlanceTvIds((current) => (areStringArraysEqual(current, nextIds) ? current : nextIds));
+    };
+
+    if (map.isStyleLoaded()) {
+      refreshVisibleIds();
+    } else {
+      const waitForReady = () => {
+        if (!map.isStyleLoaded()) return;
+        try { map.off("render", waitForReady); } catch { }
+        refreshVisibleIds();
+      };
+      map.on("render", waitForReady);
+    }
+
+    map.on("moveend", refreshVisibleIds);
+    map.on("zoomend", refreshVisibleIds);
+    map.on("resize", refreshVisibleIds);
+
+    return () => {
+      try { map.off("moveend", refreshVisibleIds); } catch { }
+      try { map.off("zoomend", refreshVisibleIds); } catch { }
+      try { map.off("resize", refreshVisibleIds); } catch { }
+    };
+  }, [airspaceDisplayMode, currentMinuteOfDay, currentTrafficVolumeBin, flLowerBound, flUpperBound, resourceStateEpoch, showTrafficVolumes]);
+
+  useEffect(() => {
+    if (!showTrafficVolumes || airspaceDisplayMode !== "tv" || visibleGlanceTvIds.length === 0) {
+      return;
+    }
+
+    const requestRefTimeStr = formatSecondsToHHMMSS(glanceReferenceBinSeconds);
+    const missingIds = visibleGlanceTvIds.filter((tvId) => {
+      const cacheKey = buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes);
+      return !glanceCacheRef.current.has(cacheKey);
+    });
+    if (missingIds.length === 0) {
+      return;
+    }
+
+    const requestSeq = ++glanceFetchSeqRef.current;
+
+    void authFetch("/api/tv_dcb_glance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        traffic_volume_ids: missingIds,
+        ref_time_str: requestRefTimeStr,
+        glance_horizon_minutes: glanceHorizonMinutes,
+        max_extrema_per_tv: 2,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(text || `tv_dcb_glance failed: ${response.status}`);
+        }
+        return response.json() as Promise<TvDcbGlanceResponse>;
+      })
+      .then((payload) => {
+        if (requestSeq !== glanceFetchSeqRef.current) return;
+
+        const results = payload?.results || {};
+        let nextBinMinutes = glanceTimeBinMinutes;
+
+        for (const tvId of missingIds) {
+          const cacheKey = buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes);
+          const summary = results[tvId] ?? null;
+          glanceCacheRef.current.set(cacheKey, summary);
+          nextBinMinutes = getSummaryTimeBinMinutes(summary, nextBinMinutes);
+        }
+
+        if (nextBinMinutes !== glanceTimeBinMinutes) {
+          setGlanceTimeBinMinutes(nextBinMinutes);
+        }
+        setGlanceCacheVersion((version) => version + 1);
+      })
+      .catch((error) => {
+        if (requestSeq !== glanceFetchSeqRef.current) return;
+        console.error("Failed to fetch TV DCB glance summaries:", error);
+      });
+  }, [
+    airspaceDisplayMode,
+    glanceHorizonMinutes,
+    glanceReferenceBinSeconds,
+    glanceTimeBinMinutes,
+    resourceStateEpoch,
+    showTrafficVolumes,
+    visibleGlanceTvIds,
+  ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!showTrafficVolumes || airspaceDisplayMode !== "tv" || visibleGlanceTvIds.length === 0) {
+      setDcbGlanceSourceData(map, emptyPointFC());
+      return;
+    }
+
+    const nextSourceData = buildTvDcbGlanceSourceData({
+      centroids: tvSourcesRef.current?.centroids,
+      visibleTvIds: visibleGlanceTvIds,
+      getSummary: (tvId) =>
+        glanceCacheRef.current.get(
+          buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes),
+        ) ?? null,
+      referenceSeconds: currentMinuteTick * 60,
+    });
+
+    setDcbGlanceSourceData(map, nextSourceData);
+  }, [
+    airspaceDisplayMode,
+    currentMinuteTick,
+    glanceCacheVersion,
+    glanceHorizonMinutes,
+    glanceReferenceBinSeconds,
+    resourceStateEpoch,
+    showTrafficVolumes,
+    visibleGlanceTvIds,
+  ]);
 
   // When entering ES mode, clear TV-specific selection and focus state.
   useEffect(() => {
@@ -2415,12 +2596,4 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       (map as any).__prevLineOpacity = lineOpacity;
     }
   }
-}
-
-function areStringArraysEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
 }

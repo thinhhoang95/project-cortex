@@ -19,6 +19,7 @@ import {
   proposeRegulations,
 } from "@/lib/regulationProposals";
 import type { ProposalRegulationSource } from "@/lib/regulationProposalToPlan";
+import { TV_DCB_GLANCE_DEFAULT_HORIZON_MINUTES } from "@/lib/tvDcbGlance";
 
 interface User {
   email: string;
@@ -202,6 +203,7 @@ type State = {
   slackSign: "minus" | "plus";
   isFetchingSlack: boolean;
   deltaMin: number;
+  glanceHorizonMinutes: number;
   // Reroute state
   rerouteBaseFlightIds: string[];
   rerouteTvBaselineFlightIds: string[];
@@ -308,6 +310,7 @@ type State = {
   setSlackSign: (sign: "minus" | "plus") => void;
   setIsFetchingSlack: (fetching: boolean) => void;
   setDeltaMin: (delta: number) => void;
+  setGlanceHorizonMinutes: (minutes: number) => void;
   // Reroute actions
   setRerouteBaseFlightIds: (ids: string[], source?: RerouteBaseListSource) => void;
   setRerouteBaseSelectedFlightIds: (ids: Set<string>) => void;
@@ -471,6 +474,7 @@ const defaultState: Pick<State,
   | 'slackSign'
   | 'isFetchingSlack'
   | 'deltaMin'
+  | 'glanceHorizonMinutes'
   | 'rerouteBaseFlightIds'
   | 'rerouteTvBaselineFlightIds'
   | 'rerouteBaseSelectedFlightIds'
@@ -583,6 +587,7 @@ const defaultState: Pick<State,
   slackSign: "minus",
   isFetchingSlack: false,
   deltaMin: 0,
+  glanceHorizonMinutes: TV_DCB_GLANCE_DEFAULT_HORIZON_MINUTES,
   rerouteBaseFlightIds: [],
   rerouteTvBaselineFlightIds: [],
   rerouteBaseSelectedFlightIds: new Set<string>(),
@@ -1287,6 +1292,13 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setSlackSign: (sign) => set({ slackSign: sign }),
   setIsFetchingSlack: (fetching) => set({ isFetchingSlack: fetching }),
   setDeltaMin: (delta) => set({ deltaMin: delta }),
+  setGlanceHorizonMinutes: (minutes) =>
+    set({
+      glanceHorizonMinutes:
+        Number.isFinite(minutes) && minutes > 0
+          ? Math.round(minutes)
+          : TV_DCB_GLANCE_DEFAULT_HORIZON_MINUTES,
+    }),
   setRerouteBaseFlightIds: (ids, source = "tv") => {
     const next: string[] = [];
     const seen = new Set<string>();

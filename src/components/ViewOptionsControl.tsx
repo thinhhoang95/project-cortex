@@ -43,6 +43,8 @@ export default function ViewOptionsControl({
     flLowerBound,
     flUpperBound,
     setFlRange,
+    glanceHorizonMinutes,
+    setGlanceHorizonMinutes,
     setViewOptionsMinimized,
     viewOptionsMinimized,
   } = useSimStore();
@@ -262,6 +264,8 @@ export default function ViewOptionsControl({
         setLocalT(nextValue);
         setT(nextValue);
       }}
+      glanceHorizonMinutes={glanceHorizonMinutes}
+      onGlanceHorizonChange={setGlanceHorizonMinutes}
     />
   );
 
