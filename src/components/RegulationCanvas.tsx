@@ -35,6 +35,8 @@ import {
   getTrafficVolumeCenterFromMap,
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
+import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
+import { formatSecondsToHHMM } from "@/lib/time";
 
 const REGULATION_CATCHER_SOURCE_ID = "regulation-catcher-source";
 const REGULATION_CATCHER_DRAFT_LAYER_ID = "regulation-catcher-draft";
@@ -85,6 +87,8 @@ export default function RegulationCanvas() {
     flightLinePreviewFlightIds,
     focusMode,
     focusFlightIds,
+    proposalPreviewActive,
+    proposalPreviewFlightIds,
     slackMode,
     setSlackMode,
     slackSign,
@@ -142,16 +146,21 @@ export default function RegulationCanvas() {
       zoom: 4
     });
     mapRef.current = map;
+    const loadGuard = createAsyncLoadGuard(
+      () => mapRef.current === map && useSimStore.getState().resourceDate === resourceDate,
+    );
 
     map.on("load", async () => {
       setBaseDataLoading(true);
+      try {
         // Data
         const [sectors, tracks] = await Promise.all([
           loadSectors(resourcePaths.airspaceGeojson),
           loadTrajectories(resourcePaths.flightsCsv)
         ]);
+        if (!loadGuard.isActive()) return;
 
-      const activeTracks = setBaselineFlights(tracks);
+        const activeTracks = setBaselineFlights(tracks);
 
       // --- Airspace polygons + labels ---
       addTrafficVolumeSources(map, sectors);
@@ -377,6 +386,8 @@ export default function RegulationCanvas() {
             flowGroups: sim.flowGroups,
             flowViewEnabled: sim.flowViewEnabled,
             showAllFlowCommunitiesWhenEnabled: true,
+            proposalPreviewActive: sim.proposalPreviewActive,
+            proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
             regulationPreviewActive: sim.regulationPreviewActive,
             regulationTargetFlightIds: sim.regulationTargetFlightIds,
             clampToActiveSet: true,
@@ -429,6 +440,8 @@ export default function RegulationCanvas() {
               flowGroups: sim.flowGroups,
               flowViewEnabled: sim.flowViewEnabled,
               showAllFlowCommunitiesWhenEnabled: true,
+              proposalPreviewActive: sim.proposalPreviewActive,
+              proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
               regulationPreviewActive: sim.regulationPreviewActive,
               regulationTargetFlightIds: sim.regulationTargetFlightIds,
               clampToActiveSet: true,
@@ -467,21 +480,27 @@ export default function RegulationCanvas() {
       const b = new maplibregl.LngLatBounds();
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x, y]: [number, number]) => b.extend([x, y])));
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
-      setBaseDataLoading(false);
-      // Ensure first render after sources are fully ready
-      map.once("idle", () => {
-        try {
-          updateFlightLineFilters(mapRef.current);
-          updateFlowRendering(mapRef.current);
-          updateRegulationHighlight(mapRef.current);
-        } catch (e) {
-          console.error("Error during initial updates:", e);
+        setBaseDataLoading(false);
+        // Ensure first render after sources are fully ready
+        map.once("idle", () => {
+          try {
+            updateFlightLineFilters(mapRef.current);
+            updateFlowRendering(mapRef.current);
+            updateRegulationHighlight(mapRef.current);
+          } catch (e) {
+            console.error("Error during initial updates:", e);
+          }
+        });
+      } catch (error) {
+        console.error("Failed to load regulation canvas data", error);
+        if (loadGuard.isActive()) {
+          setBaseDataLoading(false);
         }
-      });
-
+      }
     });
 
     return () => {
+      loadGuard.cancel();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = undefined;
@@ -546,6 +565,11 @@ export default function RegulationCanvas() {
   // When a single-flight or group preview is toggled via hover, update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId]);
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flightLinePreviewFlightIds]);
+  useEffect(() => {
+    updateFlightLineFilters(mapRef.current);
+    updateFlowRendering(mapRef.current);
+    updateRegulationHighlight(mapRef.current);
+  }, [proposalPreviewActive, proposalPreviewFlightIds]);
 
   // When focus context changes (focus mode, ids, or TV selection / visibility toggles), update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
@@ -858,6 +882,8 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     flowGroups: sim.flowGroups,
     flowViewEnabled: sim.flowViewEnabled,
     showAllFlowCommunitiesWhenEnabled: true,
+    proposalPreviewActive: sim.proposalPreviewActive,
+    proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
     regulationPreviewActive: sim.regulationPreviewActive,
     regulationTargetFlightIds: sim.regulationTargetFlightIds,
     clampToActiveSet: true,
@@ -918,8 +944,11 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
     .filter((id) => insideRangeActiveSet.has(id));
   const filterExpr: any = ids.length > 0 ? ["in", ["to-string", ["get", "flightId"]], ["literal", ids]] : ["==", ["get", "flightId"], "__none__"];
   if (map.getLayer("reg-target-lines")) {
-    // Flow view normally hides the regulation overlay, but targeted preview should override that
-    const vis = sim.flowViewEnabled && !sim.regulationPreviewActive ? 'none' : 'visible';
+    const vis = sim.proposalPreviewActive
+      ? "none"
+      : sim.flowViewEnabled && !sim.regulationPreviewActive
+        ? "none"
+        : "visible";
     map.setLayoutProperty("reg-target-lines", "visibility", vis);
     map.setFilter("reg-target-lines", filterExpr as any);
   }
@@ -1008,7 +1037,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sim = useSimStore.getState();
   if (!map.getLayer('flight-lines')) return;
 
-  if (!sim.regulationPreviewActive && sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+  if (!sim.proposalPreviewActive && !sim.regulationPreviewActive && sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
     // When not previewing regulation targets, apply flow coloring with centralized mapping
     const colorByCommunity = new Map<string, string>(
       Object.entries(sim.flowColorByCommunity || {})
@@ -1049,11 +1078,15 @@ function updateFlowRendering(map: maplibregl.Map | null) {
 
   // Ensure regulation overlay visibility matches flow precedence
   if (map.getLayer('reg-target-lines')) {
-    const vis = sim.flowViewEnabled && !sim.regulationPreviewActive ? 'none' : 'visible';
+    const vis = sim.proposalPreviewActive
+      ? "none"
+      : sim.flowViewEnabled && !sim.regulationPreviewActive
+        ? "none"
+        : "visible";
     map.setLayoutProperty('reg-target-lines', 'visibility', vis);
   }
 
-  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes, { includeSlack: true });
+  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
   if (!sim.showTrafficVolumes) {
     if (map.getLayer('sector-slack')) {
       map.setLayoutProperty('sector-slack', 'visibility', 'none');
@@ -1069,7 +1102,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sectorPointId = TRAFFIC_VOLUME_LAYER_IDS.point;
   const sectorPointLabelsId = TRAFFIC_VOLUME_LAYER_IDS.pointLabel;
 
-  if (sim.flowViewEnabled && !sim.regulationPreviewActive) {
+  if (sim.flowViewEnabled && !sim.regulationPreviewActive && !sim.proposalPreviewActive) {
     // While flow coloring is active (and no regulation preview), hide base sector visuals
     if (map.getLayer(sectorFillId)) {
       map.setPaintProperty(sectorFillId, 'fill-opacity', 0);
@@ -1133,14 +1166,6 @@ function updateFlowRendering(map: maplibregl.Map | null) {
       map.setPaintProperty(sectorPointLabelsId, 'text-opacity', 1 as any);
     }
   }
-}
-
-// Format seconds since midnight to HH:MM
-function formatSecondsToHHMM(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(s / 3600) % 24;
-  const m = Math.floor((s % 3600) / 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 async function fetchAndApplySlack(

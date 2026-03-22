@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useResourceDateGuard } from '@/components/useResourceDateGuard';
 import { useSimStore } from '@/components/useSimStore';
 import RegulationCanvas from "@/components/RegulationCanvas";
@@ -8,6 +8,7 @@ import LeftControl1Regulation from "@/components/LeftControl1Regulation";
 import RegulationFlightListLeftPanel2 from "@/components/RegulationFlightListLeftPanel2";
 import RegulationPanel from "@/components/RegulationPanel";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
+import RegulationProposalPanel from "@/components/RegulationProposalPanel";
 import Header from "@/components/Header";
 import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
@@ -23,6 +24,8 @@ import {
 
 export default function RegulationsPage() {
   const isRegulationPanelOpen = useSimStore((state) => state.isRegulationPanelOpen);
+  const isRegulationProposalPanelOpen = useSimStore((state) => state.isRegulationProposalPanelOpen);
+  const proposalLoading = useSimStore((state) => state.proposalLoading);
   const selectedTrafficVolume = useSimStore((state) => state.selectedTrafficVolume);
   const selectedTrafficVolumes = useSimStore((state) => state.selectedTrafficVolumes);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
@@ -33,6 +36,13 @@ export default function RegulationsPage() {
     kind?: 'info' | 'warning';
   } | null>(null);
   const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
+  const regulationRightPaneRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isRegulationProposalPanelOpen || proposalLoading) {
+      regulationRightPaneRef.current?.scrollTo({ top: regulationRightPaneRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [isRegulationProposalPanelOpen, proposalLoading]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -129,10 +139,15 @@ export default function RegulationsPage() {
           </div>
         </div>
         {showRegulationPanel && (
-          <div className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
+          <div ref={regulationRightPaneRef} className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
             <div className="pointer-events-auto">
               <RegulationPanel embedded />
             </div>
+            {(isRegulationProposalPanelOpen || proposalLoading) && (
+              <div className="pointer-events-auto">
+                <RegulationProposalPanel embedded mode="regulations" />
+              </div>
+            )}
           </div>
         )}
       </div>

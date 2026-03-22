@@ -75,6 +75,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<FlowReviewContext | null>(null);
   const [selectedTvRanges, setSelectedTvRanges] = useState<Array<{ tvId: string; label: string }>>([]);
+  const [basketError, setBasketError] = useState<string | null>(null);
 
   useEffect(() => {
     setExtracting(false);
@@ -83,6 +84,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setExpandedFlightLists({});
     setOpenAddMenuFor(null);
     setReviewContext(null);
+    setBasketError(null);
   }, [resourceStateEpoch]);
 
   useEffect(() => {
@@ -378,25 +380,30 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
       setReviewContext(null);
       return;
     }
-    if (reviewContext.targetFlowId) {
-      addFlightsToBasketFlow(reviewContext.targetFlowId, selectedItems);
-      if (reviewContext.periodFrom && reviewContext.periodTo) {
-        setFlowBasketPeriod(reviewContext.targetFlowId, reviewContext.periodFrom, reviewContext.periodTo, { overwrite: false });
-        if (reviewContext.tvs.length > 0) {
-          addTargetCells(reviewContext.tvs, reviewContext.periodFrom, reviewContext.periodTo);
-        }
-      }
-    } else {
-      if (reviewContext.periodFrom && reviewContext.periodTo) {
-        addFlowBasketWithPeriod(reviewContext.targetLabel, selectedItems, reviewContext.periodFrom, reviewContext.periodTo);
-        if (reviewContext.tvs.length > 0) {
-          addTargetCells(reviewContext.tvs, reviewContext.periodFrom, reviewContext.periodTo);
+    try {
+      if (reviewContext.targetFlowId) {
+        addFlightsToBasketFlow(reviewContext.targetFlowId, selectedItems);
+        if (reviewContext.periodFrom && reviewContext.periodTo) {
+          setFlowBasketPeriod(reviewContext.targetFlowId, reviewContext.periodFrom, reviewContext.periodTo, { overwrite: false });
+          if (reviewContext.tvs.length > 0) {
+            addTargetCells(reviewContext.tvs, reviewContext.periodFrom, reviewContext.periodTo);
+          }
         }
       } else {
-        addFlowBasket(reviewContext.targetLabel, selectedItems);
+        if (reviewContext.periodFrom && reviewContext.periodTo) {
+          addFlowBasketWithPeriod(reviewContext.targetLabel, selectedItems, reviewContext.periodFrom, reviewContext.periodTo);
+          if (reviewContext.tvs.length > 0) {
+            addTargetCells(reviewContext.tvs, reviewContext.periodFrom, reviewContext.periodTo);
+          }
+        } else {
+          addFlowBasket(reviewContext.targetLabel, selectedItems);
+        }
       }
+      setBasketError(null);
+      setReviewContext(null);
+    } catch (err) {
+      setBasketError(err instanceof Error ? err.message : "Failed to add flights to the basket.");
     }
-    setReviewContext(null);
   }, [reviewContext, addFlightsToBasketFlow, setFlowBasketPeriod, addTargetCells, addFlowBasketWithPeriod, addFlowBasket]);
 
   const handleCloseReview = useCallback(() => {
@@ -466,6 +473,9 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
           />
           {error && (
             <div className="text-[11px] text-red-200 mt-2">{error}</div>
+          )}
+          {basketError && (
+            <div className="text-[11px] text-red-200 mt-2">{basketError}</div>
           )}
           {selectedTvRanges.length > 0 && (
             <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-2">
@@ -653,6 +663,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                           setFlowBasketPeriod={setFlowBasketPeriod}
                           addTargetCells={addTargetCells}
                           onReviewRequest={handleReviewRequest}
+                          onBasketError={setBasketError}
                         />
                       </div>
                     </div>
@@ -882,6 +893,7 @@ type AddToBasketMenuProps = {
   setFlowBasketPeriod: (id: string, periodFrom: string, periodTo: string, opts?: { overwrite?: boolean }) => void;
   addTargetCells: (tvs: string[], periodFrom: string, periodTo: string) => void;
   onReviewRequest: (context: FlowReviewContext) => void;
+  onBasketError: (message: string | null) => void;
 };
 
 function AddToBasketMenu({
@@ -900,6 +912,7 @@ function AddToBasketMenu({
   setFlowBasketPeriod,
   addTargetCells,
   onReviewRequest,
+  onBasketError,
 }: AddToBasketMenuProps) {
   const isOpen = openId === flowId;
   const normalizedItems: FlowBasketItem[] = items.map((item) => ({
@@ -910,26 +923,36 @@ function AddToBasketMenu({
   const tvList = (Array.isArray(tvs) ? tvs : []).map((tv) => String(tv)).filter((tv) => tv.length > 0);
 
   const handleAddAsNew = () => {
-    if (periodFrom && periodTo) {
-      addFlowBasketWithPeriod(flowLabel, normalizedItems, periodFrom, periodTo);
-      if (tvList.length > 0) {
-        addTargetCells(tvList, periodFrom, periodTo);
+    try {
+      if (periodFrom && periodTo) {
+        addFlowBasketWithPeriod(flowLabel, normalizedItems, periodFrom, periodTo);
+        if (tvList.length > 0) {
+          addTargetCells(tvList, periodFrom, periodTo);
+        }
+      } else {
+        addFlowBasket(flowLabel, normalizedItems);
       }
-    } else {
-      addFlowBasket(flowLabel, normalizedItems);
+      onBasketError(null);
+      setOpenId(null);
+    } catch (err) {
+      onBasketError(err instanceof Error ? err.message : "Failed to add flow to basket.");
     }
-    setOpenId(null);
   };
 
   const handleAddToExisting = (basketFlowId: string) => {
-    addFlightsToBasketFlow(basketFlowId, normalizedItems);
-    if (periodFrom && periodTo) {
-      setFlowBasketPeriod(basketFlowId, periodFrom, periodTo, { overwrite: false });
-      if (tvList.length > 0) {
-        addTargetCells(tvList, periodFrom, periodTo);
+    try {
+      addFlightsToBasketFlow(basketFlowId, normalizedItems);
+      if (periodFrom && periodTo) {
+        setFlowBasketPeriod(basketFlowId, periodFrom, periodTo, { overwrite: false });
+        if (tvList.length > 0) {
+          addTargetCells(tvList, periodFrom, periodTo);
+        }
       }
+      onBasketError(null);
+      setOpenId(null);
+    } catch (err) {
+      onBasketError(err instanceof Error ? err.message : "Failed to add flights to basket.");
     }
-    setOpenId(null);
   };
 
   const handleReviewNew = () => {
@@ -937,6 +960,7 @@ function AddToBasketMenu({
       setOpenId(null);
       return;
     }
+    onBasketError(null);
     setOpenId(null);
     onReviewRequest({
       targetLabel: flowLabel,
@@ -952,6 +976,7 @@ function AddToBasketMenu({
       setOpenId(null);
       return;
     }
+    onBasketError(null);
     setOpenId(null);
     onReviewRequest({
       targetFlowId: basketFlowId,

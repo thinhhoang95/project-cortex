@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 // charts are handled by OccupancyPrePostPanel
 import {
   RegulationPlanPerAccAttribMode,
@@ -14,6 +15,8 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { minutesToHHMM } from "@/lib/time";
 import ShimmeringText from "./ShimmeringText";
 import { simulateRegulationPlan } from "@/lib/regulationPlanSimulation";
+import { buildFlightIdIndex, buildUniqueCallsignIndex } from "@/lib/flightIdentity";
+import { normalizeRegulationContext } from "@/lib/regulationTargets";
 import PerAccDelayAttributionPanel from "@/components/PerAccDelayAttributionPanel";
 import { normalizePerAccAttribMode } from "@/lib/perAccAttribution";
 import {
@@ -37,11 +40,17 @@ import {
   RegSnapshotLimitError,
   REG_SNAPSHOT_STORAGE_KEY,
 } from "@/lib/reg-comparison";
+import { commitResourceStateHistory } from "@/lib/resourceContextClient";
 import {
   PER_ACC_COMPARISON_MODES,
   clonePerAccAttrib,
   type StoredPerAccAttribByMode,
 } from "@/lib/perAccComparison";
+import {
+  refreshResourceStateFromServer,
+  ResourceDateOutOfSyncError,
+} from "@/lib/resourceStateSync";
+import { buildResourceStateHistoryCommitFromSimulation } from "@/lib/regulationStateCommit";
 
 interface RegulationResultsProps {
   open: boolean;
@@ -219,9 +228,27 @@ const formatDelayMetricSub = (metric: DelayMetric): string | undefined => {
 };
 
 export default function RegulationResults({ open, result, onClose }: RegulationResultsProps) {
+  const router = useRouter();
   const flights = useSimStore(s => s.flights);
   const regulations = useSimStore(s => s.regulations);
+  const resourceDate = useSimStore(s => s.resourceDate);
+  const resourceStateSelectedId = useSimStore(s => s.resourceStateSelectedId);
+  const resourceStateHeadId = useSimStore(s => s.resourceStateHeadId);
+  const resourceStateLoading = useSimStore(s => s.resourceStateLoading);
+  const syncResourceState = useSimStore(s => s.syncResourceState);
+  const clearResourceDate = useSimStore(s => s.clearResourceDate);
+  const clearResourceState = useSimStore(s => s.clearResourceState);
+  const setResourceStateLoading = useSimStore(s => s.setResourceStateLoading);
+  const setResourceStatePendingId = useSimStore(s => s.setResourceStatePendingId);
+  const setResourceStateError = useSimStore(s => s.setResourceStateError);
   const setRegulationSimulationResult = useSimStore(s => s.setRegulationSimulationResult);
+  const setIsRegulationPanelOpen = useSimStore(s => s.setIsRegulationPanelOpen);
+  const clearRegulationTargetFlights = useSimStore(s => s.clearRegulationTargetFlights);
+  const setRegulationEditPayload = useSimStore(s => s.setRegulationEditPayload);
+  const currentRegulationContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
   const [viewFrom, setViewFrom] = useState<string>("00:00");
   const [viewTo, setViewTo] = useState<string>("23:59");
   const [sortMode, setSortMode] = useState<'total' | 'abs_change' | 'relative_change' | 'exceedance'>("abs_change");
@@ -239,6 +266,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     message: string;
     action?: { label: string; href: string };
   } | null>(null);
+  const [commitRegulationPending, setCommitRegulationPending] = useState(false);
+  const [commitRegulationError, setCommitRegulationError] = useState<string | null>(null);
   const [showLegacyComponents, setShowLegacyComponents] = useState(false);
   const [showObjectiveWeights, setShowObjectiveWeights] = useState(false);
 
@@ -274,7 +303,23 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     setPerAccAttribMode(normalizePerAccAttribMode(result?.per_acc_attrib?.mode));
     setPerAccAttribLoading(false);
     setPerAccAttribError(null);
+    setCommitRegulationPending(false);
+    setCommitRegulationError(null);
   }, [open, result]);
+
+  const handleResourceDateOutOfSync = useCallback(() => {
+    clearResourceState();
+    clearResourceDate();
+    router.replace("/select-date?reason=out_of_sync");
+  }, [clearResourceDate, clearResourceState, router]);
+
+  const refreshFromServer = useCallback(async () => {
+    await refreshResourceStateFromServer({
+      expectedResourceDate: resourceDate,
+      onOutOfSync: () => handleResourceDateOutOfSync(),
+      syncResourceState,
+    });
+  }, [handleResourceDateOutOfSync, resourceDate, syncResourceState]);
 
   // Initialize default view window when modal opens based on plan regulations
   useEffect(() => {
@@ -321,14 +366,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     const entries = Object.entries(delays);
     if (entries.length === 0) return null;
 
-    const flightsById = new Map<string, Trajectory>();
-    const flightsByCallsign = new Map<string, Trajectory>();
-    for (const flight of flights) {
-      flightsById.set(String(flight.flightId), flight);
-      if (flight.callSign) {
-        flightsByCallsign.set(String(flight.callSign), flight);
-      }
-    }
+    const flightsById = buildFlightIdIndex(flights);
+    const flightsByCallsign = buildUniqueCallsignIndex(flights);
 
     type Accumulator = { total: number; count: number; max: number; min: number };
     const depMap = new Map<string, Accumulator>();
@@ -358,8 +397,11 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
       totalFlights += 1;
 
       let flight: Trajectory | undefined = flightsById.get(String(flightKey));
-      if (!flight) {
-        flight = flightsByCallsign.get(String(flightKey));
+      if (!flight && flightsByCallsign.has(String(flightKey))) {
+        const resolvedId = flightsByCallsign.get(String(flightKey));
+        if (resolvedId) {
+          flight = flightsById.get(resolvedId);
+        }
       }
       const origin = normalizeAirportLabel(flight?.origin);
       const destination = normalizeAirportLabel(flight?.destination);
@@ -693,6 +735,33 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     return readFiniteNumber((delayStats as any).num_flights);
   }, [delayStats]);
 
+  const hasPositiveDelayAssignments = useMemo(
+    () =>
+      Object.values(result?.delays_by_flight ?? {}).some((value) => Number(value) > 0),
+    [result?.delays_by_flight],
+  );
+
+  const commitPreconditionError = useMemo(() => {
+    if (!resourceDate) {
+      return "Select a resource date before committing regulation state.";
+    }
+    if (!resourceStateSelectedId || !resourceStateHeadId) {
+      return "Resource state history is still loading.";
+    }
+    if (resourceStateSelectedId !== resourceStateHeadId) {
+      return `Select the current head ${resourceStateHeadId} before committing a new episode.`;
+    }
+    if (!hasPositiveDelayAssignments) {
+      return "No positive delay assignments are available to commit.";
+    }
+    return null;
+  }, [
+    hasPositiveDelayAssignments,
+    resourceDate,
+    resourceStateHeadId,
+    resourceStateSelectedId,
+  ]);
+
   const handlePerAccAttribModeChange = async (nextMode: RegulationPlanPerAccAttribMode) => {
     const currentResultMode = normalizePerAccAttribMode(result?.per_acc_attrib?.mode);
     if (perAccAttribLoading) return;
@@ -714,8 +783,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
     try {
       const nextResult = await simulateRegulationPlan({
         regulations,
-        flights,
         perAccAttribMode: nextMode,
+        currentContext: currentRegulationContext,
       });
       setRegulationSimulationResult(nextResult);
     } catch (err) {
@@ -762,8 +831,8 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
         if (perAccAttribByMode[mode]) continue;
         const refreshedResult = await simulateRegulationPlan({
           regulations,
-          flights,
           perAccAttribMode: mode,
+          currentContext: currentRegulationContext,
         });
         const nextAttrib = clonePerAccAttrib(refreshedResult.per_acc_attrib);
         if (!nextAttrib) {
@@ -806,6 +875,107 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
       });
   };
 
+  const cleanupAfterCommit = () => {
+    useSimStore.setState({ regulations: [] });
+    setRegulationEditPayload(null);
+    setIsRegulationPanelOpen(false);
+    clearRegulationTargetFlights();
+  };
+
+  const handleCommitRegulation = async () => {
+    if (!result) return;
+    if (commitRegulationPending || resourceStateLoading) return;
+
+    setCommitRegulationError(null);
+
+    if (commitPreconditionError) {
+      setCommitRegulationError(commitPreconditionError);
+      return;
+    }
+
+    const parentStateId = resourceStateHeadId ?? resourceStateSelectedId ?? "";
+    let commitPayload;
+    try {
+      commitPayload = buildResourceStateHistoryCommitFromSimulation({
+        parentStateId,
+        regulations,
+        result,
+        flights,
+      });
+    } catch (error) {
+      setCommitRegulationError(
+        error instanceof Error
+          ? error.message
+          : "Failed to prepare regulation commit payload.",
+      );
+      return;
+    }
+
+    setCommitRegulationPending(true);
+    setResourceStateError(null);
+    setResourceStatePendingId(parentStateId);
+    setResourceStateLoading(true);
+
+    let commitSucceeded = false;
+    let committedStateId: string | null = null;
+
+    try {
+      const commitResponse = await commitResourceStateHistory(commitPayload);
+      commitSucceeded = true;
+      committedStateId =
+        typeof (commitResponse as any)?.state?.state_id === "string"
+          ? String((commitResponse as any).state.state_id).trim()
+          : null;
+      await refreshFromServer();
+      cleanupAfterCommit();
+    } catch (error) {
+      if (error instanceof ResourceDateOutOfSyncError) {
+        return;
+      }
+
+      console.error("Failed to commit regulation:", error);
+
+      let recoveredByRefresh = false;
+      try {
+        await refreshFromServer();
+        recoveredByRefresh = true;
+      } catch (refreshError) {
+        if (!(refreshError instanceof ResourceDateOutOfSyncError)) {
+          console.error(
+            "Failed to refresh resource state after regulation commit error:",
+            refreshError,
+          );
+        }
+      }
+
+      if (commitSucceeded && recoveredByRefresh) {
+        cleanupAfterCommit();
+        return;
+      }
+
+      if (commitSucceeded) {
+        const baseMessage =
+          error instanceof Error
+            ? error.message
+            : "Failed to synchronize client state after commit.";
+        setCommitRegulationError(
+          committedStateId
+            ? `Regulation committed as ${committedStateId}, but client synchronization failed. ${baseMessage}`
+            : `Regulation committed, but client synchronization failed. ${baseMessage}`,
+        );
+        return;
+      }
+
+      setCommitRegulationError(
+        error instanceof Error ? error.message : "Failed to commit regulation.",
+      );
+    } finally {
+      setCommitRegulationPending(false);
+      setResourceStatePendingId(null);
+      setResourceStateLoading(false);
+    }
+  };
+
   if (!open || !result) return null;
 
   return (
@@ -816,18 +986,40 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
         <div className="bg-white/5 border border-white/10 rounded-xl p-4">
           <div className="flex flex-wrap items-center gap-3 mb-3">
             <div className="text-sm uppercase tracking-wider text-gray-300">Delay Stats</div>
-            <button
-              onClick={handleOpenRegSnapshotPrompt}
-              disabled={regSnapshotSaving}
-              className={`ml-auto px-3 py-1 rounded-lg border text-xs flex items-center gap-2 ${regSnapshotSaving ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100' : 'border-emerald-400/70 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25'}`}
-            >
-              {regSnapshotSaving ? <ShimmeringText text="Saving…" /> : "Add to Comparison"}
-              <span className={`px-2 py-0.5 rounded-full text-[11px] border ${regSnapshotSizeWarn ? 'border-amber-300/70 bg-amber-500/20 text-amber-100' : 'border-emerald-300/70 bg-emerald-400/10 text-emerald-100'}`}>
-                {regSnapshotCount}/{MAX_REG_SNAPSHOTS}
-              </span>
-            </button>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <button
+                onClick={handleOpenRegSnapshotPrompt}
+                disabled={regSnapshotSaving}
+                className={`h-7 px-3 rounded-lg border text-xs flex items-center gap-2 ${regSnapshotSaving ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100' : 'border-emerald-400/70 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25'}`}
+              >
+                {regSnapshotSaving ? <ShimmeringText text="Saving…" /> : "Add to Comparison"}
+                <span className={`px-2 py-0.5 rounded-full text-[11px] border ${regSnapshotSizeWarn ? 'border-amber-300/70 bg-amber-500/20 text-amber-100' : 'border-emerald-300/70 bg-emerald-400/10 text-emerald-100'}`}>
+                  {regSnapshotCount}/{MAX_REG_SNAPSHOTS}
+                </span>
+              </button>
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={() => void handleCommitRegulation()}
+                  disabled={commitRegulationPending || resourceStateLoading || !!commitPreconditionError}
+                  className={`h-7 px-3 rounded-lg border text-xs flex items-center gap-1.5 ${commitRegulationPending || resourceStateLoading || !!commitPreconditionError ? 'border-sky-300/30 bg-sky-500/10 text-sky-100/60 cursor-not-allowed' : 'border-sky-300/70 bg-sky-500/20 text-sky-50 hover:bg-sky-500/30'}`}
+                >
+                  <svg className="w-3 h-3 shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8V2M3.5 4.5 6 2l2.5 2.5"/><path d="M2 9.5v.5a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-.5"/></svg>
+                  {commitRegulationPending ? <ShimmeringText text="Committing…" /> : "Commit Regulation"}
+                </button>
+                <div className="pointer-events-none absolute bottom-full right-0 mb-1.5 hidden group-hover:flex flex-col gap-0.5 min-w-max rounded-lg border border-white/15 bg-gray-900/95 px-3 py-2 text-[11px] shadow-xl z-50">
+                  <div className="text-white/60">
+                    Selected state: <span className="font-mono text-white/85">{resourceStateSelectedId ?? "—"}</span>
+                  </div>
+                  <div className="text-white/60">
+                    Head: <span className="font-mono text-white/85">{resourceStateHeadId ?? "—"}</span>
+                  </div>
+                  <div className="text-white/45 mt-0.5">Commit appends this regulation episode on the server and re-synchronizes the selected state.</div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             {delayStatEntries.map(({ label, metric }) => (
               <Stat
                 key={label}
@@ -851,6 +1043,16 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
               }
             />
           </div>
+          {(commitRegulationError || commitPreconditionError) && (
+            <div className={`mt-3 mb-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] ${commitRegulationError ? 'border-rose-400/30 bg-rose-500/10 text-rose-300' : 'border-amber-400/30 bg-amber-500/10 text-amber-200'}`}>
+              {commitRegulationError ? (
+                <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="5.5"/><path d="M5 5l4 4m0-4-4 4"/></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 1.5 12.5 11.5H1.5L7 1.5Z"/><path d="M7 5.5v2.5"/><circle cx="7" cy="9.5" r=".5" fill="currentColor" stroke="none"/></svg>
+              )}
+              <span>{commitRegulationError ?? commitPreconditionError}</span>
+            </div>
+          )}
         </div>
 
         {hasObjectiveMetrics && (

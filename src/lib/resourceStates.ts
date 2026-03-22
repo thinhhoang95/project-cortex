@@ -43,6 +43,13 @@ export type ResourceStateSyncPayload = {
   selectedCumulativeDelaysMin: Record<string, number>;
 };
 
+export type ResourceStateHistoryCommitRequest = {
+  parent_state_id: string;
+  label?: string;
+  metadata?: Record<string, unknown> | null;
+  delays_min: Record<string, number>;
+};
+
 type ResourceContextLike = {
   selected_date?: string | null;
   selected_state_id?: string | null;

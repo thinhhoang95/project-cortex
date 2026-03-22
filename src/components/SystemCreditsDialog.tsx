@@ -53,6 +53,13 @@ const SYSTEM_COMPONENTS = [
     logoPadding: "px-8 py-5",
   },
   {
+    category: "Slot Allocation Algorithm",
+    active: "Tailwind Computer Assisted Slot Allocation with Sequential Action (CASA²)",
+    supported: ["CASA²", "EUROCONTROL CASA"],
+    logoFile: "tailwind.svg",
+    logoPadding: "px-6 py-5",
+  },
+  {
     category: "Posthoc Analysis",
     active: "Tailwind Posthoc",
     supported: ["Tailwind Posthoc", "FAA PDARS"],

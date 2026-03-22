@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useResourceDateGuard } from '@/components/useResourceDateGuard';
 import { useSimStore } from '@/components/useSimStore';
 import FlowCanvas from "@/components/FlowCanvas";
@@ -22,6 +22,13 @@ export default function FlowsPage() {
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
   const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
+  const flowRightPaneRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isRegulationProposalPanelOpen || proposalLoading) {
+      flowRightPaneRef.current?.scrollTo({ top: flowRightPaneRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [isRegulationProposalPanelOpen, proposalLoading]);
 
   if (!hydrated || !ready || !user) {
     return null;
@@ -63,7 +70,7 @@ export default function FlowsPage() {
             <FlowPlanPanel embedded />
           </div>
         </div>
-        <div className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
+        <div ref={flowRightPaneRef} className="w-[384px] h-full min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none">
           <div className="pointer-events-auto">
             <FlowRegulationPanel embedded />
           </div>

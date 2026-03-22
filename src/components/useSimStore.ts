@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse, AlternativeRouteResponse, AlternativeRouteSegment } from "@/lib/models";
+import { normalizeFlowBasketItemsStrict } from "@/lib/flightIdentity";
 import type { RerouteImpactResponse } from "@/lib/rerouteImpact";
 import type { RerouteFunnel, RerouteGeometryResult, RerouteObstacle } from "@/lib/rerouteGeometry";
 import type { ResourceStateSummary, ResourceStateSyncPayload } from "@/lib/resourceStates";
@@ -17,6 +18,7 @@ import {
   ProposeRegulationsResponse,
   proposeRegulations,
 } from "@/lib/regulationProposals";
+import type { ProposalRegulationSource } from "@/lib/regulationProposalToPlan";
 
 interface User {
   email: string;
@@ -70,13 +72,17 @@ function isTimeInBin(t: number, timeBin: string): boolean {
   return t >= startSeconds && t < endSeconds;
 }
 
-interface Regulation {
+export interface Regulation {
   id: string;
   trafficVolume: string;
   activeTimeWindowFrom: number;
   activeTimeWindowTo: number;
-  flightCallsigns: string[];
+  flightIds: string[];
+  flightCallsigns?: string[];
+  resourceDate: string | null;
+  resourceStateId: string | null;
   rate: number;
+  proposalSource?: ProposalRegulationSource | null;
   createdAt: number;
 }
 
@@ -718,6 +724,11 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       resourceStateError: null,
       resourceStateLoading: false,
       resourceStateEpoch: state.resourceStateEpoch + 1,
+      regulationTargetFlightIds: new Set<string>(),
+      regulationPreviewActive: false,
+      regulationVisibleFlightIds: [],
+      regulationListedFlightIds: [],
+      regulationEditPayload: null,
       flights,
       range: nextRange,
       t: clampTimeToRange(state.t, nextRange),
@@ -766,8 +777,11 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       proposalPinnedProposals: invalidateServerDerivedState ? new Set<string>() : state.proposalPinnedProposals,
       proposalPinnedFlows: invalidateServerDerivedState ? new Set<string>() : state.proposalPinnedFlows,
       proposalPinnedFlightIds: invalidateServerDerivedState ? new Set<string>() : state.proposalPinnedFlightIds,
+      regulationTargetFlightIds: invalidateServerDerivedState ? new Set<string>() : state.regulationTargetFlightIds,
+      regulationPreviewActive: invalidateServerDerivedState ? false : state.regulationPreviewActive,
       regulationVisibleFlightIds: invalidateServerDerivedState ? [] : state.regulationVisibleFlightIds,
       regulationListedFlightIds: invalidateServerDerivedState ? [] : state.regulationListedFlightIds,
+      regulationEditPayload: invalidateServerDerivedState ? null : state.regulationEditPayload,
       regulationSimulationResult: invalidateServerDerivedState ? null : state.regulationSimulationResult,
       isResultsOpen: invalidateServerDerivedState ? false : state.isResultsOpen,
       flowCommunities: invalidateServerDerivedState ? null : state.flowCommunities,
@@ -826,6 +840,13 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       flights: [],
       range: defaultState.range,
       t: defaultState.t,
+      regulations: [],
+      flowBasket: [],
+      targetCells: [],
+      rerouteBaseFlightIds: [],
+      rerouteTvBaselineFlightIds: [],
+      rerouteBaseSelectedFlightIds: new Set<string>(),
+      rerouteBaseListLastSource: null,
     })),
   clearResourceDate: () =>
     set((state) => ({
@@ -835,6 +856,13 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       flights: [],
       range: defaultState.range,
       t: defaultState.t,
+      regulations: [],
+      flowBasket: [],
+      targetCells: [],
+      rerouteBaseFlightIds: [],
+      rerouteTvBaselineFlightIds: [],
+      rerouteBaseSelectedFlightIds: new Set<string>(),
+      rerouteBaseListLastSource: null,
     })),
   setResourceStateLoading: (loading) => set({ resourceStateLoading: loading }),
   setResourceStatePendingId: (stateId) => set({ resourceStatePendingId: stateId }),
@@ -1120,7 +1148,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   addRegulation: (regulation) => {
     const newRegulation: Regulation = {
       ...regulation,
-      id: `REG${Date.now()}`,
+      id: `REG${Date.now()}${Math.floor(Math.random() * 1000)}`,
       createdAt: Date.now()
     };
     set(state => ({ regulations: [...state.regulations, newRegulation] }));
@@ -1614,7 +1642,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     const createdAt = Date.now();
     const colorIdx = get().flowBasket.length % palette.length;
     const color = palette[colorIdx];
-    const normalized: FlowBasketItem[] = normalizeBasketItems(items);
+    const normalized: FlowBasketItem[] = normalizeBasketItems(items, get().flights);
     set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, createdAt }] }));
     return id;
   },
@@ -1627,7 +1655,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     const createdAt = Date.now();
     const colorIdx = get().flowBasket.length % palette.length;
     const color = palette[colorIdx];
-    const normalized: FlowBasketItem[] = normalizeBasketItems(items);
+    const normalized: FlowBasketItem[] = normalizeBasketItems(items, get().flights);
     set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, periodFrom, periodTo, createdAt }] }));
     return id;
   },
@@ -1637,7 +1665,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   removeFlowBasket: (id: string) => set(state => ({ flowBasket: state.flowBasket.filter(f => f.id !== id) })),
   addFlightsToBasketFlow: (id: string, items: Array<string | FlowBasketItem>) => {
     if (!items || items.length === 0) return;
-    const normalized = normalizeBasketItems(items);
+    const normalized = normalizeBasketItems(items, get().flights);
     set(state => ({
       flowBasket: state.flowBasket.map(f => {
         if (f.id !== id) return f;
@@ -1684,19 +1712,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
 }
 ));
 
-function normalizeBasketItems(items: Array<string | FlowBasketItem> | undefined): FlowBasketItem[] {
-  const byKey = new Map<string, FlowBasketItem>();
-  for (const it of items || []) {
-    if (typeof it === 'string') {
-      const key = String(it);
-      byKey.set(key, { key });
-    } else if (it && typeof it === 'object' && 'key' in it) {
-      const key = String((it as any).key);
-      const prev = byKey.get(key) || { key };
-      byKey.set(key, { ...prev, ...it, key });
-    }
-  }
-  return Array.from(byKey.values());
+function normalizeBasketItems(items: Array<string | FlowBasketItem> | undefined, flights: Trajectory[]): FlowBasketItem[] {
+  return normalizeFlowBasketItemsStrict(items, flights);
 }
 
 // Compute a deterministic community -> color mapping so UI and map use identical colors

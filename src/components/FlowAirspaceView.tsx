@@ -19,6 +19,10 @@ import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import {
+  assertReplayableRegulationTargets,
+  normalizeRegulationContext,
+} from "@/lib/regulationTargets";
+import {
   compareIntersectionFlightRows,
   intersectStringSets,
   type FlightSortMetric,
@@ -85,6 +89,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     selectedTrafficVolumeData,
     t,
     flights,
+    resourceDate,
+    resourceStateSelectedId,
     resourceStateEpoch,
     focusMode,
     setFocusMode,
@@ -126,6 +132,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   } = useSimStore();
 
   const deferredT = useDeferredValue(t);
+  const currentContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
 
   const [inputValue, setInputValue] = useState("");
   const [queryDialogOpen, setQueryDialogOpen] = useState(false);
@@ -888,9 +898,14 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     const fromLabel = secondsToDayTimeString(fromSeconds);
     const toLabel = secondsToDayTimeString(toSeconds);
     const flowName = `TV ${primaryTvId} ${fromLabel}-${toLabel}`;
-    addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
-    addTargetCells([String(primaryTvId)], fromLabel, toLabel);
-  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, primaryTvId]);
+    try {
+      addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
+      addTargetCells([String(primaryTvId)], fromLabel, toLabel);
+      setFlowError(null);
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to add flights to the flow basket.");
+    }
+  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, primaryTvId, setFlowError]);
 
   const handleFlightsSelectedFromQuery = useCallback((ids: string[]) => {
     setQueryDialogOpen(false);
@@ -981,21 +996,18 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     suppressNextPresetApplyRef.current = true;
     setActivePreset(newPreset);
 
-    // Map provided callsigns/ids back to flight IDs present in store
-    const want = new Set(payload.flightCallsigns.map(String));
-    const idSet = new Set<string>();
-    for (const f of flights) {
-      const idStr = String(f.flightId);
-      const cs = f.callSign != null ? String(f.callSign) : undefined;
-      if (want.has(idStr) || (cs && want.has(cs))) {
-        idSet.add(idStr);
-      }
+    try {
+      const replayableIds = assertReplayableRegulationTargets(payload, currentContext);
+      setRegulationTargetFlightIds(new Set(replayableIds));
+      setFlowError(null);
+    } catch (err) {
+      setRegulationTargetFlightIds(new Set<string>());
+      setFlowError(err instanceof Error ? err.message : "Failed to load regulation targets for editing.");
     }
-    setRegulationTargetFlightIds(idSet);
 
     // Clear payload so it doesn't apply repeatedly
     setRegulationEditPayload(null);
-  }, [regulationEditPayload, primaryTvId, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
+  }, [regulationEditPayload, primaryTvId, currentContext, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload, setFlowError]);
 
   if (!primaryTvId || selectedTvIds.length === 0) return null;
 

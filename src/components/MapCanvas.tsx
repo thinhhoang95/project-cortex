@@ -35,6 +35,7 @@ import {
   TRAFFIC_VOLUME_LAYER_IDS,
   TRAFFIC_VOLUME_SOURCE_ID,
 } from "@/lib/trafficVolumeLayers";
+import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
 import { formatSecondsToHHMM } from "@/lib/time";
 
 type AirspaceSources = {
@@ -131,111 +132,117 @@ export default function MapCanvas() {
       zoom: 4
     });
     mapRef.current = map;
+    const loadGuard = createAsyncLoadGuard(
+      () => mapRef.current === map && useSimStore.getState().resourceDate === resourceDate,
+    );
 
     map.on("load", async () => {
       setBaseDataLoading(true);
-      // Data
-      const [sectors, tracks, collapsedSectorsRaw] = await Promise.all([
-        loadSectors(resourcePaths.airspaceGeojson),
-        loadTrajectories(resourcePaths.flightsCsv),
-        loadSectors(resourcePaths.collapsedSectorsGeojson).catch((error) => {
-          console.error("Failed to preload collapsed sectors:", error);
-          return null;
-        }),
-      ]);
-
-      const activeTracks = setBaselineFlights(tracks);
-
-      // --- Airspace polygons + labels ---
-      tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
-      if (collapsedSectorsRaw) {
-        const normalizedCs = normalizeCollapsedSectors(collapsedSectorsRaw);
-        csOpenRangeCountRef.current = normalizedCs.maxOpenRangeCount;
-        csSourcesRef.current = buildTrafficVolumeSources(normalizedCs.collection);
-      } else {
-        csOpenRangeCountRef.current = 0;
-        csSourcesRef.current = null;
-      }
-      addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
-      if (!map.getLayer(SLACK_LAYER_ID)) {
-        map.addLayer({
-          id: SLACK_LAYER_ID,
-          type: "fill",
-          source: TRAFFIC_VOLUME_SOURCE_ID,
-          layout: { visibility: "none" },
-          paint: {
-            "fill-color": "#22c55e",
-            "fill-opacity": 0,
-          },
-        }, TRAFFIC_VOLUME_LAYER_IDS.point);
-      }
-
-      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
-      const sim = useSimStore.getState();
-      if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
-        console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
-        setAirspaceDisplayMode("tv");
-      }
-      const activeMode = setActiveAirspaceSources(map, sim.airspaceDisplayMode, tvSourcesRef.current, csSourcesRef.current);
-      const initialFilter = getAirspaceDisplayFilter({
-        mode: activeMode,
-        flLowerBound: sim.flLowerBound,
-        flUpperBound: sim.flUpperBound,
-        currentTrafficVolumeBin: getHourBin(sim.t),
-        currentMinuteOfDay: getMinuteOfDay(sim.t),
-        csOpenRangeCount: csOpenRangeCountRef.current,
-      });
-      applyTrafficVolumeFilters(map, initialFilter, { includeSlack: true });
-
-      // --- Flight lines (static geometry) ---
-      const lineFC = buildTrajectoryLineFeatureCollection(activeTracks);
-      map.addSource("flight-lines", { type: "geojson", data: lineFC });
-      map.addLayer({
-        id: "flight-lines",
-        type: "line",
-        source: "flight-lines",
-        paint: {
-          "line-color": ["get", "lineColor"],
-          "line-width": 1.0,
-          "line-opacity": 0.1
-        }
-      });
-      // labels along the routes
-      map.addLayer({
-        id: "flight-line-labels",
-        type: "symbol",
-        source: "flight-lines",
-        layout: {
-          "symbol-placement": "line",
-          "text-field": ["get", "callSign"],
-          "text-size": 11,
-          "text-font": ["Noto Sans Regular"]
-        },
-        paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
-      });
-      // Apply initial visibility based on store defaults
       try {
-        const { showFlightLineLabels } = useSimStore.getState();
-        map.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
-        map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
-      } catch { }
+        // Data
+        const [sectors, tracks, collapsedSectorsRaw] = await Promise.all([
+          loadSectors(resourcePaths.airspaceGeojson),
+          loadTrajectories(resourcePaths.flightsCsv),
+          loadSectors(resourcePaths.collapsedSectorsGeojson).catch((error) => {
+            console.error("Failed to preload collapsed sectors:", error);
+            return null;
+          }),
+        ]);
+        if (!loadGuard.isActive()) return;
 
-      // --- Waypoints (zoom-based filtering for better UX) ---
-      // Load only waypoints within sector bbox with small margin
-      // Western Europe bounding box
-      const [minX, minY, maxX, maxY] = [-10, 35, 20, 60];
-      const margin = 2; // degrees
-      const filteredWaypoints = await loadWaypoints("/data/Waypoints.txt", [
-        minX - margin,
-        minY - margin,
-        maxX + margin,
-        maxY + margin
-      ]);
+        const activeTracks = setBaselineFlights(tracks);
 
-      map.addSource("waypoints", {
-        type: "geojson",
-        data: filteredWaypoints
-      });
+        // --- Airspace polygons + labels ---
+        tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
+        if (collapsedSectorsRaw) {
+          const normalizedCs = normalizeCollapsedSectors(collapsedSectorsRaw);
+          csOpenRangeCountRef.current = normalizedCs.maxOpenRangeCount;
+          csSourcesRef.current = buildTrafficVolumeSources(normalizedCs.collection);
+        } else {
+          csOpenRangeCountRef.current = 0;
+          csSourcesRef.current = null;
+        }
+        addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
+        if (!map.getLayer(SLACK_LAYER_ID)) {
+          map.addLayer({
+            id: SLACK_LAYER_ID,
+            type: "fill",
+            source: TRAFFIC_VOLUME_SOURCE_ID,
+            layout: { visibility: "none" },
+            paint: {
+              "fill-color": "#22c55e",
+              "fill-opacity": 0,
+            },
+          }, TRAFFIC_VOLUME_LAYER_IDS.point);
+        }
+
+        applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
+        const sim = useSimStore.getState();
+        if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
+          console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
+          setAirspaceDisplayMode("tv");
+        }
+        const activeMode = setActiveAirspaceSources(map, sim.airspaceDisplayMode, tvSourcesRef.current, csSourcesRef.current);
+        const initialFilter = getAirspaceDisplayFilter({
+          mode: activeMode,
+          flLowerBound: sim.flLowerBound,
+          flUpperBound: sim.flUpperBound,
+          currentTrafficVolumeBin: getHourBin(sim.t),
+          currentMinuteOfDay: getMinuteOfDay(sim.t),
+          csOpenRangeCount: csOpenRangeCountRef.current,
+        });
+        applyTrafficVolumeFilters(map, initialFilter, { includeSlack: true });
+
+        // --- Flight lines (static geometry) ---
+        const lineFC = buildTrajectoryLineFeatureCollection(activeTracks);
+        map.addSource("flight-lines", { type: "geojson", data: lineFC });
+        map.addLayer({
+          id: "flight-lines",
+          type: "line",
+          source: "flight-lines",
+          paint: {
+            "line-color": ["get", "lineColor"],
+            "line-width": 1.0,
+            "line-opacity": 0.1
+          }
+        });
+        // labels along the routes
+        map.addLayer({
+          id: "flight-line-labels",
+          type: "symbol",
+          source: "flight-lines",
+          layout: {
+            "symbol-placement": "line",
+            "text-field": ["get", "callSign"],
+            "text-size": 11,
+            "text-font": ["Noto Sans Regular"]
+          },
+          paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
+        });
+        // Apply initial visibility based on store defaults
+        try {
+          const { showFlightLineLabels } = useSimStore.getState();
+          map.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
+          map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
+        } catch { }
+
+        // --- Waypoints (zoom-based filtering for better UX) ---
+        // Load only waypoints within sector bbox with small margin
+        // Western Europe bounding box
+        const [minX, minY, maxX, maxY] = [-10, 35, 20, 60];
+        const margin = 2; // degrees
+        const filteredWaypoints = await loadWaypoints("/data/Waypoints.txt", [
+          minX - margin,
+          minY - margin,
+          maxX + margin,
+          maxY + margin
+        ]);
+        if (!loadGuard.isActive()) return;
+
+        map.addSource("waypoints", {
+          type: "geojson",
+          data: filteredWaypoints
+        });
 
       // Single importance threshold expression reused by points and labels
       const importanceThresholdExpr: any = [
@@ -302,45 +309,47 @@ export default function MapCanvas() {
 
 
 
-      // --- Dynamic plane positions (updated each frame) ---
-      map.addImage("plane", await loadImage(map, "/plane.svg"), { pixelRatio: 2 });
-      map.addSource("planes", { type: "geojson", data: emptyFC() });
-      map.addLayer({
-        id: "plane-icons",
-        type: "symbol",
-        source: "planes",
-        layout: {
-          "icon-image": "plane",
-          "icon-size": 0.6,
-          "icon-rotate": ["get", "bearing"],
-          "icon-rotation-alignment": "map",
-          "icon-allow-overlap": true,
-          "text-field": ["get", "labelText"],
-          "text-offset": [0, 1],
-          "text-size": 11
-        },
-        paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#0f172a",
-          "text-halo-width": 2
-        }
-      });
-      // Apply initial waypoint visibility based on store defaults
-      try {
-        const { showWaypoints } = useSimStore.getState();
-        map.setLayoutProperty("wp-points", "visibility", showWaypoints ? "visible" : "none");
-        map.setLayoutProperty("wp-labels", "visibility", showWaypoints ? "visible" : "none");
-      } catch { }
+        // --- Dynamic plane positions (updated each frame) ---
+        const planeImage = await loadImage(map, "/plane.svg");
+        if (!loadGuard.isActive()) return;
+        map.addImage("plane", planeImage, { pixelRatio: 2 });
+        map.addSource("planes", { type: "geojson", data: emptyFC() });
+        map.addLayer({
+          id: "plane-icons",
+          type: "symbol",
+          source: "planes",
+          layout: {
+            "icon-image": "plane",
+            "icon-size": 0.6,
+            "icon-rotate": ["get", "bearing"],
+            "icon-rotation-alignment": "map",
+            "icon-allow-overlap": true,
+            "text-field": ["get", "labelText"],
+            "text-offset": [0, 1],
+            "text-size": 11
+          },
+          paint: {
+            "text-color": "#ffffff",
+            "text-halo-color": "#0f172a",
+            "text-halo-width": 2
+          }
+        });
+        // Apply initial waypoint visibility based on store defaults
+        try {
+          const { showWaypoints } = useSimStore.getState();
+          map.setLayoutProperty("wp-points", "visibility", showWaypoints ? "visible" : "none");
+          map.setLayoutProperty("wp-labels", "visibility", showWaypoints ? "visible" : "none");
+        } catch { }
 
-      // Apply initial plane label visibility based on store defaults
-      try {
-        const { showCallsigns } = useSimStore.getState();
-        map.setPaintProperty("plane-icons", "text-opacity", showCallsigns ? 1 : 0);
-        map.setPaintProperty("plane-icons", "text-halo-width", showCallsigns ? 2 : 0);
-      } catch { }
+        // Apply initial plane label visibility based on store defaults
+        try {
+          const { showCallsigns } = useSimStore.getState();
+          map.setPaintProperty("plane-icons", "text-opacity", showCallsigns ? 1 : 0);
+          map.setPaintProperty("plane-icons", "text-halo-width", showCallsigns ? 2 : 0);
+        } catch { }
 
-      // Save trajectories on map for the animation step
-      (map as any).__trajectories = activeTracks;
+        // Save trajectories on map for the animation step
+        (map as any).__trajectories = activeTracks;
 
       // Add click handlers for flight lines
       map.on('click', 'flight-lines', (e) => {
@@ -451,27 +460,34 @@ export default function MapCanvas() {
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
-      map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
+        map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
 
-      // Base airspace and flight data are loaded; hide the page-loading indicator
-      setBaseDataLoading(false);
+        // Base airspace and flight data are loaded; hide the page-loading indicator
+        setBaseDataLoading(false);
 
-      // Fit to data (optional)
-      const b = new maplibregl.LngLatBounds();
-      lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x, y]: [number, number]) => b.extend([x, y])));
-      if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+        // Fit to data (optional)
+        const b = new maplibregl.LngLatBounds();
+        lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x, y]: [number, number]) => b.extend([x, y])));
+        if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
 
-      // Wait until the map is fully idle (all sources loaded) before the first render
-      map.once("idle", () => {
-        try {
-          updatePlanePositions(mapRef.current);
-        } catch (e) {
-          console.error("Error during initial updatePlanePositions call:", e);
+        // Wait until the map is fully idle (all sources loaded) before the first render
+        map.once("idle", () => {
+          try {
+            updatePlanePositions(mapRef.current);
+          } catch (e) {
+            console.error("Error during initial updatePlanePositions call:", e);
+          }
+        });
+      } catch (error) {
+        console.error("Failed to load base map data", error);
+        if (loadGuard.isActive()) {
+          setBaseDataLoading(false);
         }
-      });
+      }
     });
 
     return () => {
+      loadGuard.cancel();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = undefined;

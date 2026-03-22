@@ -57,6 +57,7 @@ import {
   extractRerouteImpactOverlayFeatures,
   type RerouteImpactResponse,
 } from "@/lib/rerouteImpact";
+import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
 import { formatSecondsToHHMM } from "@/lib/time";
 
 type AirspaceSources = {
@@ -219,61 +220,66 @@ export default function MapCanvasReroute() {
       zoom: 4
     });
     mapRef.current = map;
+    const loadGuard = createAsyncLoadGuard(
+      () => mapRef.current === map && useSimStore.getState().resourceDate === resourceDate,
+    );
 
     map.on("load", async () => {
       setBaseDataLoading(true);
-      // Data
-      const [sectors, tracks, collapsedSectorsRaw] = await Promise.all([
-        loadSectors(resourcePaths.airspaceGeojson),
-        loadTrajectories(resourcePaths.flightsCsv),
-        loadSectors(resourcePaths.collapsedSectorsGeojson).catch((error) => {
-          console.error("Failed to preload collapsed sectors:", error);
-          return null;
-        }),
-      ]);
+      try {
+        // Data
+        const [sectors, tracks, collapsedSectorsRaw] = await Promise.all([
+          loadSectors(resourcePaths.airspaceGeojson),
+          loadTrajectories(resourcePaths.flightsCsv),
+          loadSectors(resourcePaths.collapsedSectorsGeojson).catch((error) => {
+            console.error("Failed to preload collapsed sectors:", error);
+            return null;
+          }),
+        ]);
+        if (!loadGuard.isActive()) return;
 
-      const activeTracks = setBaselineFlights(tracks);
+        const activeTracks = setBaselineFlights(tracks);
 
-      // --- Airspace polygons + labels ---
-      tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
-      if (collapsedSectorsRaw) {
-        const normalizedCs = normalizeCollapsedSectors(collapsedSectorsRaw);
-        csOpenRangeCountRef.current = normalizedCs.maxOpenRangeCount;
-        csSourcesRef.current = buildTrafficVolumeSources(normalizedCs.collection);
-      } else {
-        csOpenRangeCountRef.current = 0;
-        csSourcesRef.current = null;
-      }
-      addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
-      if (!map.getLayer(SLACK_LAYER_ID)) {
-        map.addLayer({
-          id: SLACK_LAYER_ID,
-          type: "fill",
-          source: TRAFFIC_VOLUME_SOURCE_ID,
-          layout: { visibility: "none" },
-          paint: {
-            "fill-color": "#22c55e",
-            "fill-opacity": 0,
-          },
-        }, TRAFFIC_VOLUME_LAYER_IDS.point);
-      }
+        // --- Airspace polygons + labels ---
+        tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
+        if (collapsedSectorsRaw) {
+          const normalizedCs = normalizeCollapsedSectors(collapsedSectorsRaw);
+          csOpenRangeCountRef.current = normalizedCs.maxOpenRangeCount;
+          csSourcesRef.current = buildTrafficVolumeSources(normalizedCs.collection);
+        } else {
+          csOpenRangeCountRef.current = 0;
+          csSourcesRef.current = null;
+        }
+        addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
+        if (!map.getLayer(SLACK_LAYER_ID)) {
+          map.addLayer({
+            id: SLACK_LAYER_ID,
+            type: "fill",
+            source: TRAFFIC_VOLUME_SOURCE_ID,
+            layout: { visibility: "none" },
+            paint: {
+              "fill-color": "#22c55e",
+              "fill-opacity": 0,
+            },
+          }, TRAFFIC_VOLUME_LAYER_IDS.point);
+        }
 
-      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
-      const sim = useSimStore.getState();
-      if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
-        console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
-        setAirspaceDisplayMode("tv");
-      }
-      const activeMode = setActiveAirspaceSources(map, sim.airspaceDisplayMode, tvSourcesRef.current, csSourcesRef.current);
-      const initialFilter = getAirspaceDisplayFilter({
-        mode: activeMode,
-        flLowerBound: sim.flLowerBound,
-        flUpperBound: sim.flUpperBound,
-        currentTrafficVolumeBin: getHourBin(sim.t),
-        currentMinuteOfDay: getMinuteOfDay(sim.t),
-        csOpenRangeCount: csOpenRangeCountRef.current,
-      });
-      applyTrafficVolumeFilters(map, initialFilter, { includeSlack: true });
+        applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
+        const sim = useSimStore.getState();
+        if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
+          console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
+          setAirspaceDisplayMode("tv");
+        }
+        const activeMode = setActiveAirspaceSources(map, sim.airspaceDisplayMode, tvSourcesRef.current, csSourcesRef.current);
+        const initialFilter = getAirspaceDisplayFilter({
+          mode: activeMode,
+          flLowerBound: sim.flLowerBound,
+          flUpperBound: sim.flUpperBound,
+          currentTrafficVolumeBin: getHourBin(sim.t),
+          currentMinuteOfDay: getMinuteOfDay(sim.t),
+          csOpenRangeCount: csOpenRangeCountRef.current,
+        });
+        applyTrafficVolumeFilters(map, initialFilter, { includeSlack: true });
 
       // --- Flight lines (static geometry) ---
       const lineFC = buildTrajectoryLineFeatureCollection(activeTracks);
@@ -308,22 +314,23 @@ export default function MapCanvasReroute() {
         map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
       } catch { }
 
-      // --- Waypoints (zoom-based filtering for better UX) ---
-      // Load only waypoints within sector bbox with small margin
-      // Western Europe bounding box
-      const [minX, minY, maxX, maxY] = [-10, 35, 20, 60];
-      const margin = 2; // degrees
-      const filteredWaypoints = await loadWaypoints("/data/Waypoints.txt", [
-        minX - margin,
-        minY - margin,
-        maxX + margin,
-        maxY + margin
-      ]);
+        // --- Waypoints (zoom-based filtering for better UX) ---
+        // Load only waypoints within sector bbox with small margin
+        // Western Europe bounding box
+        const [minX, minY, maxX, maxY] = [-10, 35, 20, 60];
+        const margin = 2; // degrees
+        const filteredWaypoints = await loadWaypoints("/data/Waypoints.txt", [
+          minX - margin,
+          minY - margin,
+          maxX + margin,
+          maxY + margin
+        ]);
+        if (!loadGuard.isActive()) return;
 
-      map.addSource("waypoints", {
-        type: "geojson",
-        data: filteredWaypoints
-      });
+        map.addSource("waypoints", {
+          type: "geojson",
+          data: filteredWaypoints
+        });
 
       // Single importance threshold expression reused by points and labels
       const importanceThresholdExpr: any = [
@@ -390,29 +397,31 @@ export default function MapCanvasReroute() {
 
 
 
-      // --- Dynamic plane positions (updated each frame) ---
-      map.addImage("plane", await loadImage(map, "/plane.svg"), { pixelRatio: 2 });
-      map.addSource("planes", { type: "geojson", data: emptyFC() });
-      map.addLayer({
-        id: "plane-icons",
-        type: "symbol",
-        source: "planes",
-        layout: {
-          "icon-image": "plane",
-          "icon-size": 0.6,
-          "icon-rotate": ["get", "bearing"],
-          "icon-rotation-alignment": "map",
-          "icon-allow-overlap": true,
-          "text-field": ["get", "labelText"],
-          "text-offset": [0, 1],
-          "text-size": 11
-        },
-        paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#0f172a",
-          "text-halo-width": 2
-        }
-      });
+        // --- Dynamic plane positions (updated each frame) ---
+        const planeImage = await loadImage(map, "/plane.svg");
+        if (!loadGuard.isActive()) return;
+        map.addImage("plane", planeImage, { pixelRatio: 2 });
+        map.addSource("planes", { type: "geojson", data: emptyFC() });
+        map.addLayer({
+          id: "plane-icons",
+          type: "symbol",
+          source: "planes",
+          layout: {
+            "icon-image": "plane",
+            "icon-size": 0.6,
+            "icon-rotate": ["get", "bearing"],
+            "icon-rotation-alignment": "map",
+            "icon-allow-overlap": true,
+            "text-field": ["get", "labelText"],
+            "text-offset": [0, 1],
+            "text-size": 11
+          },
+          paint: {
+            "text-color": "#ffffff",
+            "text-halo-color": "#0f172a",
+            "text-halo-width": 2
+          }
+        });
       // Apply initial waypoint visibility based on store defaults
       try {
         const { showWaypoints } = useSimStore.getState();
@@ -1033,27 +1042,34 @@ export default function MapCanvasReroute() {
 
       map.on("click", handleRerouteMapClick);
       map.on("mousemove", handleRerouteMouseMove);
-      map.on("dblclick", handleRerouteDoubleClick);
+        map.on("dblclick", handleRerouteDoubleClick);
 
-      // Base airspace and flight data are loaded; hide the page-loading indicator
-      setBaseDataLoading(false);
+        // Base airspace and flight data are loaded; hide the page-loading indicator
+        setBaseDataLoading(false);
 
-      // Fit to data (optional)
-      const b = new maplibregl.LngLatBounds();
-      lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x, y]: [number, number]) => b.extend([x, y])));
-      if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
+        // Fit to data (optional)
+        const b = new maplibregl.LngLatBounds();
+        lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x, y]: [number, number]) => b.extend([x, y])));
+        if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
 
-      // Wait until the map is fully idle (all sources loaded) before the first render
-      map.once("idle", () => {
-        try {
-          updatePlanePositions(mapRef.current);
-        } catch (e) {
-          console.error("Error during initial updatePlanePositions call:", e);
+        // Wait until the map is fully idle (all sources loaded) before the first render
+        map.once("idle", () => {
+          try {
+            updatePlanePositions(mapRef.current);
+          } catch (e) {
+            console.error("Error during initial updatePlanePositions call:", e);
+          }
+        });
+      } catch (error) {
+        console.error("Failed to load reroute map data", error);
+        if (loadGuard.isActive()) {
+          setBaseDataLoading(false);
         }
-      });
+      }
     });
 
     return () => {
+      loadGuard.cancel();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = undefined;

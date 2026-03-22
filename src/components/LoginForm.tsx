@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ShimmeringText from '@/components/ShimmeringText';
 import { useSimStore } from '@/components/useSimStore';
+import { waitForPersistHydration } from '@/lib/persistHydration';
 
 export default function LoginForm() {
   const router = useRouter();
   const login = useSimStore((s) => s.login);
-  const resourceDate = useSimStore((s) => s.resourceDate);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -20,12 +20,14 @@ export default function LoginForm() {
     setLoading(true);
     try {
       const result = await login(email, password);
-      if ('error' in result) {
+      if (result.ok === false) {
         setError(result.error);
         setLoading(false);
         return;
       }
-      router.push(resourceDate ? '/' : '/select-date');
+      await waitForPersistHydration(useSimStore.persist);
+      const nextResourceDate = useSimStore.getState().resourceDate;
+      router.push(nextResourceDate ? '/' : '/select-date');
     } catch (err) {
       setError('Unable to sign in. Please try again.');
       setLoading(false);

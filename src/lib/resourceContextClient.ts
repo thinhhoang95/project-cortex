@@ -2,7 +2,10 @@
 
 import { authFetch } from "@/lib/auth";
 import type { ResourceContextResponse } from "@/lib/resourceDates";
-import type { ResourceStateHistoryResponse } from "@/lib/resourceStates";
+import type {
+  ResourceStateHistoryCommitRequest,
+  ResourceStateHistoryResponse,
+} from "@/lib/resourceStates";
 
 async function parseJsonResponse(response: Response) {
   const payload = await response.json().catch(() => ({}));
@@ -42,6 +45,17 @@ export async function selectResourceState(stateId: string): Promise<unknown> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ state_id: stateId }),
+  });
+  return parseJsonResponse(response);
+}
+
+export async function commitResourceStateHistory(
+  payload: ResourceStateHistoryCommitRequest,
+): Promise<unknown> {
+  const response = await authFetch("/api/resource_state_history_commit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
   return parseJsonResponse(response);
 }

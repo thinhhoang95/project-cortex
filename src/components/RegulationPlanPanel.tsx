@@ -4,6 +4,14 @@ import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "./ModalDialog";
 import { simulateRegulationPlan } from "@/lib/regulationPlanSimulation";
+import {
+  getRegulationContext,
+  getRegulationTargetCount,
+  normalizeFlightIdList,
+  normalizeRegulationContext,
+  resolveRegulationTargetLabels,
+  sameRegulationContext,
+} from "@/lib/regulationTargets";
 
 type RegulationsState = ReturnType<typeof useSimStore.getState>["regulations"];
 
@@ -24,7 +32,18 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = false }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen, flights, setT } = useSimStore();
+  const {
+    regulations,
+    removeRegulation,
+    setRegulationEditPayload,
+    setIsRegulationPanelOpen,
+    setRegulationSimulationResult,
+    setIsResultsOpen,
+    flights,
+    setT,
+    resourceDate,
+    resourceStateSelectedId,
+  } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -62,8 +81,13 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
   }, [loadModalOpen]);
 
   const totalFlights = useMemo(() => {
-    return regulations.reduce((sum, r) => sum + (r.flightCallsigns?.length || 0), 0);
+    return regulations.reduce((sum, r) => sum + getRegulationTargetCount(r), 0);
   }, [regulations]);
+
+  const currentContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
 
   const filteredSavedPlans = useMemo(() => {
     const query = loadSearch.trim().toLowerCase();
@@ -234,7 +258,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
             ) : (
               filteredSavedPlans.map((plan) => {
                 const regulationCount = plan.data.regulations?.length || 0;
-                const flightCount = (plan.data.regulations || []).reduce((sum, reg) => sum + (reg.flightCallsigns?.length || 0), 0);
+                const flightCount = (plan.data.regulations || []).reduce((sum, reg) => sum + getRegulationTargetCount(reg), 0);
                 return (
                   <div key={plan.id} className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
                     <div className="space-y-1">
@@ -342,6 +366,12 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                       <div>
                         <div className="font-mono text-sm font-semibold">{reg.id}</div>
                         <div className="text-xs opacity-80">{reg.trafficVolume}</div>
+                        {reg.proposalSource?.kind === "proposal" && (
+                          <div className="mt-1 text-[10px] text-cyan-200/90">
+                            {reg.proposalSource.proposalId}
+                            {reg.proposalSource.flowId ? ` · Flow ${reg.proposalSource.flowId}` : ""}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -352,7 +382,10 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                             trafficVolume: reg.trafficVolume,
                             activeTimeWindowFrom: reg.activeTimeWindowFrom,
                             activeTimeWindowTo: reg.activeTimeWindowTo,
+                            flightIds: Array.isArray(reg.flightIds) ? reg.flightIds.slice() : [],
                             flightCallsigns: reg.flightCallsigns,
+                            resourceDate: reg.resourceDate ?? null,
+                            resourceStateId: reg.resourceStateId ?? null,
                             rate: reg.rate,
                           });
                             // Align sim time to the start of the active window
@@ -389,7 +422,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                         <span className="opacity-70">Rate:</span> {reg.rate}/h
                       </div>
                       <div>
-                        <span className="opacity-70">Flights:</span> {reg.flightCallsigns.length}
+                        <span className="opacity-70">Flights:</span> {getRegulationTargetCount(reg)}
                       </div>
                       <div className="col-span-2">
                         <span className="opacity-70">Time:</span> {formatTime(reg.activeTimeWindowFrom)}-{formatTime(reg.activeTimeWindowTo)}
@@ -401,10 +434,26 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                         <div className="text-xs">
                           <div className="opacity-70 mb-2">Flight List:</div>
                           <div className="max-h-20 overflow-y-auto bg-white/5 rounded p-2">
-                            {reg.flightCallsigns.map((callsign, idx) => (
-                              <div key={idx} className="font-mono text-[10px]">{callsign}</div>
+                            {resolveRegulationTargetLabels(reg, flights).map((label, idx) => (
+                              <div key={idx} className="font-mono text-[10px]">{label}</div>
                             ))}
                           </div>
+                          {reg.proposalSource?.kind === "proposal" && (
+                            <div className="mt-2 text-[10px] text-cyan-200/90">
+                              Derived from {reg.proposalSource.proposalId}
+                              {reg.proposalSource.flowId ? ` / Flow ${reg.proposalSource.flowId}` : ""}
+                            </div>
+                          )}
+                          {!sameRegulationContext(getRegulationContext(reg), currentContext) && (
+                            <div className="mt-2 text-[10px] text-amber-200">
+                              Created under a different resource state. Switch back before editing or simulating.
+                            </div>
+                          )}
+                          {normalizeFlightIdList(reg.flightIds).length === 0 && (
+                            <div className="mt-2 text-[10px] text-red-200">
+                              Legacy target format detected. Recreate this regulation before simulating it.
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -460,8 +509,8 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                   try {
                     const result = await simulateRegulationPlan({
                       regulations,
-                      flights,
                       perAccAttribMode: "dwelling_spread",
+                      currentContext,
                     });
                     setRegulationSimulationResult(result);
                     setIsResultsOpen(true);
@@ -527,7 +576,12 @@ function loadSavedPlansFromStorage(): SavedRegulationPlan[] {
         const regulationsRaw = Array.isArray(data.regulations) ? data.regulations : [];
         const regulations = regulationsRaw.map((reg: any) => ({
           ...reg,
+          flightIds: normalizeFlightIdList(reg?.flightIds),
           flightCallsigns: Array.isArray(reg?.flightCallsigns) ? reg.flightCallsigns.slice() : [],
+          ...normalizeRegulationContext({
+            resourceDate: reg?.resourceDate,
+            resourceStateId: reg?.resourceStateId,
+          }),
         }));
         return {
           id,

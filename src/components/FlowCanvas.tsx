@@ -34,6 +34,7 @@ import {
   getTrafficVolumeCenterFromMap,
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
+import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
 import { formatSecondsToHHMM } from "@/lib/time";
 
 const FLOW_CATCHER_SOURCE_ID = "flow-catcher-source";
@@ -132,6 +133,9 @@ export default function FlowCanvas() {
       zoom: 4
     });
     mapRef.current = map;
+    const loadGuard = createAsyncLoadGuard(
+      () => mapRef.current === map && useSimStore.getState().resourceDate === resourceDate,
+    );
 
     map.on("load", async () => {
       setBaseDataLoading(true);
@@ -141,6 +145,7 @@ export default function FlowCanvas() {
           loadSectors(resourcePaths.airspaceGeojson),
           loadTrajectories(resourcePaths.flightsCsv)
         ]);
+        if (!loadGuard.isActive()) return;
 
         const activeTracks = setBaselineFlights(tracks);
 
@@ -454,11 +459,14 @@ export default function FlowCanvas() {
       } catch (err) {
         console.error('Failed to load base data', err);
       } finally {
-        setBaseDataLoading(false);
+        if (loadGuard.isActive()) {
+          setBaseDataLoading(false);
+        }
       }
     });
 
     return () => {
+      loadGuard.cancel();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = undefined;

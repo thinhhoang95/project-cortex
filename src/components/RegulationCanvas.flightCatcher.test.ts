@@ -36,4 +36,19 @@ describe("RegulationCanvas catcher behavior", () => {
     });
     expect(Array.from(nextTargets)).toEqual(["F3", "F2"]);
   });
+
+  it("gives proposal preview precedence over regulation preview before gate freeze", () => {
+    const visibleAtGateStart = deriveVisibleFlightLineIds({
+      insideRangeActiveFlightIds: ["F1", "F2", "F3"],
+      focusMode: true,
+      focusFlightIds: ["F1", "F2", "F3"],
+      proposalPreviewActive: true,
+      proposalPreviewFlightIds: ["F2", "Z9"],
+      regulationPreviewActive: true,
+      regulationTargetFlightIds: ["F1", "F3"],
+      clampToActiveSet: true,
+    });
+
+    expect(visibleAtGateStart).toEqual(["F2"]);
+  });
 });

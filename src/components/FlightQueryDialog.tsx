@@ -18,6 +18,7 @@ interface FlightQueryDialogProps {
   highlightLabel?: string;
   baselineLabel?: string;
   fullScreen?: boolean;
+  sourceTrafficVolumeId?: string | null;
 }
 
 interface FlightQueryResponse {
@@ -57,6 +58,7 @@ export default function FlightQueryDialog({
   highlightLabel = "Query result",
   baselineLabel = "Baseline",
   fullScreen = false,
+  sourceTrafficVolumeId,
 }: FlightQueryDialogProps) {
   const flights = useSimStore(state => state.flights);
   const [prompt, setPrompt] = useState(initialPrompt);
@@ -139,6 +141,14 @@ export default function FlightQueryDialog({
 
       const json = (await resp.json()) as FlightQueryResponse;
       const ids = normalizeFlightIds(json?.flight_ids ?? []);
+      if (baselineFlightIds.length > 0) {
+        const offBaselineIds = ids.filter((id) => !baselineFlightIdSet.has(id));
+        if (offBaselineIds.length > 0) {
+          throw new Error(
+            `Flight query returned ${offBaselineIds.length} flight${offBaselineIds.length === 1 ? "" : "s"} outside the current baseline list. Refusing inconsistent results.`,
+          );
+        }
+      }
       setResultFlightIds(ids);
       setResponse(json);
     } catch (err) {
@@ -337,8 +347,8 @@ export default function FlightQueryDialog({
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-white/10 text-left">
-                                <th className="text-center p-2 font-semibold w-8">
-                                  {allowFlightSelection ? (
+                                {allowFlightSelection && (
+                                  <th className="text-center p-2 font-semibold w-8">
                                     <button
                                       type="button"
                                       className="w-full h-full text-center hover:text-white transition-colors"
@@ -348,10 +358,8 @@ export default function FlightQueryDialog({
                                     >
                                       ✓
                                     </button>
-                                  ) : (
-                                    "✓"
-                                  )}
-                                </th>
+                                  </th>
+                                )}
                                 <th className="p-2 font-semibold">CS</th>
                                 <th className="p-2 font-semibold">Ori.</th>
                                 <th className="p-2 font-semibold">Des.</th>
@@ -392,8 +400,8 @@ export default function FlightQueryDialog({
                                     role={rowIsInteractive ? "button" : undefined}
                                     tabIndex={rowIsInteractive ? 0 : undefined}
                                   >
-                                    <td className="p-2 text-center w-8 text-xs">
-                                      {allowFlightSelection ? (
+                                    {allowFlightSelection && (
+                                      <td className="p-2 text-center w-8 text-xs">
                                         <span className="inline-flex h-4 w-4 items-center justify-center">
                                           <input
                                             type="checkbox"
@@ -408,12 +416,8 @@ export default function FlightQueryDialog({
                                             }
                                           />
                                         </span>
-                                      ) : row.isBaseline ? (
-                                        "✓"
-                                      ) : (
-                                        ""
-                                      )}
-                                    </td>
+                                      </td>
+                                    )}
                                     <td className="p-2 font-mono text-sm text-white">
                                       <div className="flex items-center gap-2">
                                         <span className={isAdmitted ? undefined : "text-white/60 line-through"}>
@@ -468,10 +472,10 @@ export default function FlightQueryDialog({
 
             <div
               className={`flex items-center gap-3 ${
-                onSelectFlights ? "justify-between" : "justify-end"
+                allowFlightSelection ? "justify-between" : "justify-end"
               }`}
             >
-              {onSelectFlights && (
+              {allowFlightSelection && (
                 <button
                   type="button"
                   onClick={handleSelectFlights}
@@ -500,6 +504,7 @@ export default function FlightQueryDialog({
               metadata={metadata}
               highlightLabel={highlightLabel}
               baselineLabel={baselineLabel}
+              sourceTrafficVolumeId={sourceTrafficVolumeId}
             />
           </div>
         </div>

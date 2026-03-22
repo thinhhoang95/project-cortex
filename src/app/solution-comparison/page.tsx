@@ -26,6 +26,7 @@ import {
 } from "@/lib/comparison";
 import { useSimStore } from "@/components/useSimStore";
 import { loadTrajectories } from "@/lib/flights";
+import { buildUniqueCallsignIndex } from "@/lib/flightIdentity";
 import { getFlightsCsvPath } from "@/lib/dataPaths";
 import { normalizeCapacity } from "@/lib/capacity";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
@@ -400,10 +401,9 @@ export default function SolutionComparisonPage() {
 
   const { flightsById, flightsByCallsign } = useMemo(() => {
     const byId = new Map<string, any>();
-    const byCallsign = new Map<string, any>();
+    const byCallsign = buildUniqueCallsignIndex(flights);
     for (const fl of flights) {
       if (fl?.flightId) byId.set(String(fl.flightId), fl);
-      if (fl?.callSign) byCallsign.set(String(fl.callSign), fl);
     }
     return { flightsById: byId, flightsByCallsign: byCallsign };
   }, [flights]);
@@ -646,8 +646,11 @@ export default function SolutionComparisonPage() {
         totalFlights += 1;
 
         let flight = flightsById.get(String(flightKey));
-        if (!flight) {
-          flight = flightsByCallsign.get(String(flightKey));
+        if (!flight && flightsByCallsign.has(String(flightKey))) {
+          const resolvedId = flightsByCallsign.get(String(flightKey));
+          if (resolvedId) {
+            flight = flightsById.get(String(resolvedId));
+          }
         }
         const origin = normalizeAirportLabel(flight?.origin);
         const destination = normalizeAirportLabel(flight?.destination);

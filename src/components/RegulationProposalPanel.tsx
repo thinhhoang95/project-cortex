@@ -15,6 +15,8 @@ import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { Trajectory } from "@/lib/models";
+import { normalizeRegulationContext } from "@/lib/regulationTargets";
+import { buildRegulationDraftFromProposalFlow } from "@/lib/regulationProposalToPlan";
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "–";
@@ -23,6 +25,7 @@ function formatNumber(value: number | null | undefined, digits = 2): string {
 
 type RegulationProposalPanelProps = {
   embedded?: boolean;
+  mode?: "flow" | "regulations";
 };
 
 type FeatureSummary = {
@@ -122,7 +125,10 @@ function resolveFlowPeriod(proposal: RegulationProposal, flow: ProposalFlow): Ti
   );
 }
 
-export default function RegulationProposalPanel({ embedded = false }: RegulationProposalPanelProps) {
+export default function RegulationProposalPanel({
+  embedded = false,
+  mode = "flow",
+}: RegulationProposalPanelProps) {
   const {
     isRegulationProposalPanelOpen,
     proposalLoading,
@@ -149,6 +155,9 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     addFlightsToBasketFlow,
     setFlowBasketPeriod,
     addTargetCells,
+    addRegulation,
+    resourceDate,
+    resourceStateSelectedId,
     flights,
   } = useSimStore();
 
@@ -160,6 +169,7 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
   const [statsDialog, setStatsDialog] = useState<{ flightIds: string[]; fullScreen?: boolean } | null>(null);
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<ProposalReviewContext | null>(null);
+  const [basketError, setBasketError] = useState<string | null>(null);
 
   useEffect(() => {
     const nextTopK = proposalQuery?.topK ?? proposalResults?.top_k;
@@ -168,6 +178,7 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     setExpandedProposals({});
     setExpandedFlightLists({});
     setShowAllFlightLists({});
+    setBasketError(null);
   }, [proposalQuery, proposalResults]);
 
   const showPanel = isRegulationProposalPanelOpen || proposalLoading;
@@ -198,13 +209,14 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
 
   const reviewLabels = useMemo(() => {
     if (!reviewContext) return { highlight: undefined as string | undefined, baseline: undefined as string | undefined };
+    const highlight = mode === "regulations" ? "Add selected flights to plan" : "Selected flights";
     if (reviewContext.type === "flow") {
       const label = `${reviewContext.proposal.id} · Flow ${reviewContext.flow.flow_id}`;
-      return { highlight: "Selected flights", baseline: label };
+      return { highlight, baseline: label };
     }
     const label = `${reviewContext.proposal.id} · Proposal`;
-    return { highlight: "Selected flights", baseline: label };
-  }, [reviewContext]);
+    return { highlight, baseline: label };
+  }, [mode, reviewContext]);
 
   const flightLookup = useMemo(() => {
     const map = new Map<string, Trajectory>();
@@ -213,6 +225,11 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     }
     return map;
   }, [flights]);
+
+  const currentContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
 
   if (!showPanel) {
     return null;
@@ -234,32 +251,74 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
 
     if (reviewContext.type === "flow") {
       const { proposal, flow } = reviewContext;
-      const items = buildBasketItemsFromFlow(flow).filter((item) => selectedSet.has(String(item.key)));
-      if (items.length === 0) {
+      const selectedFlightIds = (flow.flight_ids || []).map(String).filter((id) => selectedSet.has(id));
+      if (selectedFlightIds.length === 0) {
         setReviewContext(null);
         return;
       }
-      const period = resolveFlowPeriod(proposal, flow);
-      ensureFlowInBasket(`${proposal.id} · Flow ${flow.flow_id}`, items, period);
-      const volume = flow.control_volume_id;
-      if (volume && period) {
-        applyTargetCellCombos([{ volume: String(volume), period }]);
+      try {
+        if (mode === "regulations") {
+          addRegulationFromProposalFlow(proposal, flow, selectedFlightIds);
+        } else {
+          const items = buildBasketItemsFromFlow(flow).filter((item) => selectedSet.has(String(item.key)));
+          const period = resolveFlowPeriod(proposal, flow);
+          ensureFlowInBasket(`${proposal.id} · Flow ${flow.flow_id}`, items, period);
+          const volume = flow.control_volume_id;
+          if (volume && period) {
+            applyTargetCellCombos([{ volume: String(volume), period }]);
+          }
+        }
+        setBasketError(null);
+      } catch (err) {
+        setBasketError(
+          err instanceof Error
+            ? err.message
+            : mode === "regulations"
+              ? "Failed to add proposal flow to regulation plan."
+              : "Failed to add proposal flow to basket.",
+        );
+        return;
       }
     } else {
       const { proposal } = reviewContext;
-      const combos: TargetCellCombo[] = [];
-      for (const flow of proposal.flows || []) {
-        const items = buildBasketItemsFromFlow(flow).filter((item) => selectedSet.has(String(item.key)));
-        if (items.length === 0) continue;
-        const period = resolveFlowPeriod(proposal, flow);
-        ensureFlowInBasket(`${proposal.id} · Flow ${flow.flow_id}`, items, period);
-        const volume = flow.control_volume_id;
-        if (volume && period) {
-          combos.push({ volume: String(volume), period });
+      try {
+        if (mode === "regulations") {
+          const selectedByFlow = new Map<string, Set<string>>();
+          for (const flow of proposal.flows || []) {
+            const selectedForFlow = new Set(
+              (flow.flight_ids || []).map(String).filter((id) => selectedSet.has(id)),
+            );
+            if (selectedForFlow.size > 0) {
+              selectedByFlow.set(String(flow.flow_id), selectedForFlow);
+            }
+          }
+          addEntireProposalToPlan(proposal, selectedByFlow);
+        } else {
+          const combos: TargetCellCombo[] = [];
+          for (const flow of proposal.flows || []) {
+            const items = buildBasketItemsFromFlow(flow).filter((item) => selectedSet.has(String(item.key)));
+            if (items.length === 0) continue;
+            const period = resolveFlowPeriod(proposal, flow);
+            ensureFlowInBasket(`${proposal.id} · Flow ${flow.flow_id}`, items, period);
+            const volume = flow.control_volume_id;
+            if (volume && period) {
+              combos.push({ volume: String(volume), period });
+            }
+          }
+          if (combos.length > 0) {
+            applyTargetCellCombos(combos);
+          }
         }
-      }
-      if (combos.length > 0) {
-        applyTargetCellCombos(combos);
+        setBasketError(null);
+      } catch (err) {
+        setBasketError(
+          err instanceof Error
+            ? err.message
+            : mode === "regulations"
+              ? "Failed to add proposal to regulation plan."
+              : "Failed to add proposal to basket.",
+        );
+        return;
       }
     }
 
@@ -345,11 +404,56 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
     });
   };
 
+  const addRegulationFromProposalFlow = (
+    proposal: RegulationProposal,
+    flow: ProposalFlow,
+    selectedFlightIds?: Iterable<string> | null,
+  ) => {
+    const draft = buildRegulationDraftFromProposalFlow({
+      proposal,
+      flow,
+      currentContext,
+      fallbackQueryTimeWindow: proposalQuery?.timeWindow ?? null,
+      selectedFlightIds,
+    });
+    addRegulation(draft);
+  };
+
+  const addEntireProposalToPlan = (
+    proposal: RegulationProposal,
+    selectedByFlow?: Map<string, Set<string>>,
+  ) => {
+    const drafts = [];
+    for (const flow of proposal.flows || []) {
+      const selected = selectedByFlow?.get(String(flow.flow_id));
+      if (selectedByFlow && (!selected || selected.size === 0)) continue;
+      drafts.push(
+        buildRegulationDraftFromProposalFlow({
+          proposal,
+          flow,
+          currentContext,
+          fallbackQueryTimeWindow: proposalQuery?.timeWindow ?? null,
+          selectedFlightIds: selected ?? null,
+        }),
+      );
+    }
+    if (drafts.length === 0) {
+      throw new Error(`Proposal ${proposal.id} has no target flights to add.`);
+    }
+    for (const draft of drafts) {
+      addRegulation(draft);
+    }
+  };
+
   const addFlowFromProposal = (
     proposal: RegulationProposal,
     flow: ProposalFlow,
     combosAccumulator?: TargetCellCombo[]
   ) => {
+    if (mode === "regulations") {
+      addRegulationFromProposalFlow(proposal, flow);
+      return;
+    }
     const items = buildBasketItemsFromFlow(flow);
     if (items.length === 0) return;
     const period = resolveFlowPeriod(proposal, flow);
@@ -366,6 +470,10 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
   };
 
   const addEntireProposalToBasket = (proposal: RegulationProposal) => {
+    if (mode === "regulations") {
+      addEntireProposalToPlan(proposal);
+      return;
+    }
     const combos: TargetCellCombo[] = [];
     for (const flow of proposal.flows || []) {
       addFlowFromProposal(proposal, flow, combos);
@@ -563,6 +671,7 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
             </label>
           </div>
           {topKError && <span className="text-[11px] text-red-200">{topKError}</span>}
+          {basketError && <span className="text-[11px] text-red-200">{basketError}</span>}
         </div>
 
         {proposalLoading && (
@@ -830,8 +939,10 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                                       e.stopPropagation();
                                       setOpenAddMenuFor(flowMenuOpen ? null : flowMenuKey);
                                     }}
-                                    aria-label={`Add flow ${flow.flow_id} from ${proposal.id} to Flow Basket`}
-                                    title="Add flow to Flow Basket"
+                                    aria-label={mode === "regulations"
+                                      ? `Add flow ${flow.flow_id} from ${proposal.id} to Regulation Plan`
+                                      : `Add flow ${flow.flow_id} from ${proposal.id} to Flow Basket`}
+                                    title={mode === "regulations" ? "Add flow to Regulation Plan" : "Add flow to Flow Basket"}
                                   >
                                     + Add
                                   </button>
@@ -843,8 +954,19 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                                       <button
                                         className="w-full text-left px-3 py-2 hover:bg-white/10"
                                         onClick={() => {
-                                          addFlowFromProposal(proposal, flow);
-                                          setOpenAddMenuFor(null);
+                                          try {
+                                            addFlowFromProposal(proposal, flow);
+                                            setBasketError(null);
+                                            setOpenAddMenuFor(null);
+                                          } catch (err) {
+                                            setBasketError(
+                                              err instanceof Error
+                                                ? err.message
+                                                : mode === "regulations"
+                                                  ? "Failed to add proposal flow to regulation plan."
+                                                  : "Failed to add proposal flow to basket.",
+                                            );
+                                          }
                                         }}
                                       >
                                         Add
@@ -937,8 +1059,10 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                           e.stopPropagation();
                           setOpenAddMenuFor(proposalMenuOpen ? null : proposalMenuKey);
                         }}
-                        aria-label={`Add proposed regulation ${proposal.id} to Flow Basket`}
-                        title="Add all flows from this regulation to Flow Basket"
+                        aria-label={mode === "regulations"
+                          ? `Add proposed regulation ${proposal.id} to Regulation Plan`
+                          : `Add proposed regulation ${proposal.id} to Flow Basket`}
+                        title={mode === "regulations" ? "Add all flows from this regulation to Regulation Plan" : "Add all flows from this regulation to Flow Basket"}
                       >
                         + Add
                       </button>
@@ -950,8 +1074,19 @@ export default function RegulationProposalPanel({ embedded = false }: Regulation
                           <button
                             className="w-full text-left px-3 py-2 hover:bg-white/10"
                             onClick={() => {
-                              addEntireProposalToBasket(proposal);
-                              setOpenAddMenuFor(null);
+                              try {
+                                addEntireProposalToBasket(proposal);
+                                setBasketError(null);
+                                setOpenAddMenuFor(null);
+                              } catch (err) {
+                                setBasketError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : mode === "regulations"
+                                      ? "Failed to add proposal to regulation plan."
+                                      : "Failed to add proposal to basket.",
+                                );
+                              }
                             }}
                           >
                             Add

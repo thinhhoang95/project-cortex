@@ -1,6 +1,6 @@
 "use client";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -37,6 +37,7 @@ import {
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
+import { buildFlightIdIndex, buildUniqueCallsignIndex } from "@/lib/flightIdentity";
 import { FlowInputPayload } from "@/lib/flow-input";
 import { AutorateOccupancyResponse } from "@/lib/autorate";
 import { normalizePerAccAttribMode } from "@/lib/perAccAttribution";
@@ -59,6 +60,12 @@ import {
   clonePerAccAttrib,
   type StoredPerAccAttribByMode,
 } from "@/lib/perAccComparison";
+import { commitResourceStateHistory } from "@/lib/resourceContextClient";
+import {
+  refreshResourceStateFromServer,
+  ResourceDateOutOfSyncError,
+} from "@/lib/resourceStateSync";
+import { buildResourceStateHistoryCommitFromFlowOptimization } from "@/lib/regulationStateCommit";
 
 type FetchState = { loading: boolean; error: string | null; data: BaseEvaluationResponse | null };
 type OptFetchState = { loading: boolean; error: string | null; data: AutomaticRateAdjustmentResponse | null };
@@ -115,7 +122,26 @@ export default function FlowEvaluationPage() {
 }
 
 function FlowEvaluationPageContent() {
+  const router = useRouter();
   const resourceDate = useSimStore((state) => state.resourceDate);
+  const resourceStateSelectedId = useSimStore((state) => state.resourceStateSelectedId);
+  const resourceStateHeadId = useSimStore((state) => state.resourceStateHeadId);
+  const resourceStateLoading = useSimStore((state) => state.resourceStateLoading);
+  const syncResourceState = useSimStore((state) => state.syncResourceState);
+  const clearResourceDate = useSimStore((state) => state.clearResourceDate);
+  const clearResourceState = useSimStore((state) => state.clearResourceState);
+  const setResourceStateLoading = useSimStore((state) => state.setResourceStateLoading);
+  const setResourceStatePendingId = useSimStore((state) => state.setResourceStatePendingId);
+  const setResourceStateError = useSimStore((state) => state.setResourceStateError);
+  const setIsRegulationPanelOpen = useSimStore((state) => state.setIsRegulationPanelOpen);
+  const clearSelectedTrafficVolumesFromStore = useSimStore((state) => state.clearSelectedTrafficVolumes);
+  const clearRegulationTargetFlights = useSimStore((state) => state.clearRegulationTargetFlights);
+  const resetProposalState = useSimStore((state) => state.resetProposalState);
+  const setFlowViewEnabled = useSimStore((state) => state.setFlowViewEnabled);
+  const setFlowCommunities = useSimStore((state) => state.setFlowCommunities);
+  const setFlowPreviewGroupId = useSimStore((state) => state.setFlowPreviewGroupId);
+  const setFlowPreviewFlightId = useSimStore((state) => state.setFlowPreviewFlightId);
+  const setFlightLinePreviewFlightIds = useSimStore((state) => state.setFlightLinePreviewFlightIds);
   const { hydrated, ready, user } = useResourceDateGuard();
   const sp = useSearchParams();
   const payloadParam = sp?.get("payload") || null;
@@ -162,6 +188,8 @@ function FlowEvaluationPageContent() {
   const [autoratePerAccAttribMode, setAutoratePerAccAttribMode] = useState<RegulationPlanPerAccAttribMode>("dwelling_spread");
   const [autoratePerAccAttribLoading, setAutoratePerAccAttribLoading] = useState(false);
   const [autoratePerAccAttribError, setAutoratePerAccAttribError] = useState<string | null>(null);
+  const [commitRegulationPending, setCommitRegulationPending] = useState(false);
+  const [commitRegulationError, setCommitRegulationError] = useState<string | null>(null);
 
   // Initialize default histogram view range once based on earliest target "from" time
   const didInitViewDefault = useRef<boolean>(false);
@@ -195,6 +223,20 @@ function FlowEvaluationPageContent() {
   };
   const [origCountsState, setOrigCountsState] = useState<{ loading: boolean; error: string | null; data: CountsResponse | null }>({ loading: false, error: null, data: null });
 
+  const handleResourceDateOutOfSync = useCallback(() => {
+    clearResourceState();
+    clearResourceDate();
+    router.replace("/select-date?reason=out_of_sync");
+  }, [clearResourceDate, clearResourceState, router]);
+
+  const refreshFromServer = useCallback(async () => {
+    await refreshResourceStateFromServer({
+      expectedResourceDate: resourceDate,
+      onOutOfSync: () => handleResourceDateOutOfSync(),
+      syncResourceState,
+    });
+  }, [handleResourceDateOutOfSync, resourceDate, syncResourceState]);
+
   const minutesPerBin = useMemo(() => {
     // Prefer explicit minutes from Occupancy Pre-Post response if present
     if (occAllState.data?.time_bin_minutes && Number.isFinite(occAllState.data.time_bin_minutes)) {
@@ -209,6 +251,22 @@ function FlowEvaluationPageContent() {
   const snapshotSizeBytes = useMemo(() => estimateSnapshotsSize(snapshotList), [snapshotList]);
   const snapshotSizeWarn = snapshotSizeBytes > SNAPSHOT_SIZE_WARN_THRESHOLD;
   const snapshotSizeDisplayKb = Math.max(0, Math.round(snapshotSizeBytes / 1024));
+  const commitPreconditionError = useMemo(() => {
+    if (!input) return "No flow plan payload is available to commit.";
+    if (!optState.data) return "Run optimization before committing.";
+
+    try {
+      buildResourceStateHistoryCommitFromFlowOptimization({
+        parentStateId: resourceStateHeadId ?? resourceStateSelectedId ?? "",
+        input,
+        result: optState.data,
+        flights,
+      });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : "Optimization result cannot be committed.";
+    }
+  }, [flights, input, optState.data, resourceStateHeadId, resourceStateSelectedId]);
 
   const trafficVolumeOptions = useMemo<ChipOption[]>(() => {
     const ids = new Set<string>();
@@ -586,6 +644,11 @@ function FlowEvaluationPageContent() {
   }, [autostart, input]);
 
   useEffect(() => {
+    setCommitRegulationPending(false);
+    setCommitRegulationError(null);
+  }, [input, optState.data]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     setSnapshotList(loadSnapshots());
     const onStorage = (ev: StorageEvent) => {
@@ -680,6 +743,162 @@ function FlowEvaluationPageContent() {
       setOptState({ loading: false, error: e?.message || "Failed to run optimization", data: null });
     }
   };
+
+  const cleanupAfterCommit = useCallback(() => {
+    useSimStore.setState({
+      flowBasket: [],
+      targetCells: [],
+    });
+    clearSelectedTrafficVolumesFromStore();
+    clearRegulationTargetFlights();
+    resetProposalState();
+    setIsRegulationPanelOpen(false);
+    setFlowViewEnabled(false);
+    setFlowCommunities(null, null, null);
+    setFlowPreviewGroupId(null);
+    setFlowPreviewFlightId(null);
+    setFlightLinePreviewFlightIds(new Set<string>());
+
+    setInput(null);
+    setEvalState({ loading: false, error: null, data: null });
+    setOptState({ loading: false, error: null, data: null });
+    setOccAllState({ loading: false, error: null, data: null });
+    setOrigCountsState({ loading: false, error: null, data: null });
+    setSelectedTrafficVolumes([]);
+    setSeriesView("demand");
+    setRippleSummaryExpanded(false);
+    setExpandedTargetCharts({});
+    setExpandedRippleCharts({});
+    setExpandedOccAll(false);
+    setExpandedOccOriginal(false);
+    setShowResponse(false);
+    setShowOptResponse(false);
+    setSnapshotPromptOpen(false);
+    setSnapshotDescription("");
+    setSnapshotSaveError(null);
+    setSnapshotReplaceId(null);
+    setAutoratePerAccAttribError(null);
+    router.replace("/flow-evaluation");
+  }, [
+    clearRegulationTargetFlights,
+    clearSelectedTrafficVolumesFromStore,
+    resetProposalState,
+    router,
+    setFlowCommunities,
+    setFlightLinePreviewFlightIds,
+    setFlowPreviewFlightId,
+    setFlowPreviewGroupId,
+    setFlowViewEnabled,
+    setIsRegulationPanelOpen,
+  ]);
+
+  const handleCommitRegulation = useCallback(async () => {
+    if (!input || !optState.data) return;
+    if (commitRegulationPending || resourceStateLoading) return;
+
+    setCommitRegulationError(null);
+
+    if (commitPreconditionError) {
+      setCommitRegulationError(commitPreconditionError);
+      return;
+    }
+
+    const parentStateId = resourceStateHeadId ?? resourceStateSelectedId ?? "";
+    let commitPayload;
+    try {
+      commitPayload = buildResourceStateHistoryCommitFromFlowOptimization({
+        parentStateId,
+        input,
+        result: optState.data,
+        flights,
+      });
+    } catch (error) {
+      setCommitRegulationError(
+        error instanceof Error
+          ? error.message
+          : "Failed to prepare optimization commit payload.",
+      );
+      return;
+    }
+
+    setCommitRegulationPending(true);
+    setResourceStateError(null);
+    setResourceStatePendingId(parentStateId);
+    setResourceStateLoading(true);
+
+    let commitSucceeded = false;
+    let committedStateId: string | null = null;
+
+    try {
+      const commitResponse = await commitResourceStateHistory(commitPayload);
+      commitSucceeded = true;
+      committedStateId =
+        typeof (commitResponse as any)?.state?.state_id === "string"
+          ? String((commitResponse as any).state.state_id).trim()
+          : null;
+      await refreshFromServer();
+      cleanupAfterCommit();
+    } catch (error) {
+      if (error instanceof ResourceDateOutOfSyncError) {
+        return;
+      }
+
+      console.error("Failed to commit flow optimization:", error);
+
+      let recoveredByRefresh = false;
+      try {
+        await refreshFromServer();
+        recoveredByRefresh = true;
+      } catch (refreshError) {
+        if (!(refreshError instanceof ResourceDateOutOfSyncError)) {
+          console.error(
+            "Failed to refresh resource state after flow optimization commit error:",
+            refreshError,
+          );
+        }
+      }
+
+      if (commitSucceeded && recoveredByRefresh) {
+        cleanupAfterCommit();
+        return;
+      }
+
+      if (commitSucceeded) {
+        const baseMessage =
+          error instanceof Error
+            ? error.message
+            : "Failed to synchronize client state after commit.";
+        setCommitRegulationError(
+          committedStateId
+            ? `Regulation committed as ${committedStateId}, but client synchronization failed. ${baseMessage}`
+            : `Regulation committed, but client synchronization failed. ${baseMessage}`,
+        );
+        return;
+      }
+
+      setCommitRegulationError(
+        error instanceof Error ? error.message : "Failed to commit regulation.",
+      );
+    } finally {
+      setCommitRegulationPending(false);
+      setResourceStatePendingId(null);
+      setResourceStateLoading(false);
+    }
+  }, [
+    cleanupAfterCommit,
+    commitPreconditionError,
+    commitRegulationPending,
+    flights,
+    input,
+    optState.data,
+    refreshFromServer,
+    resourceStateHeadId,
+    resourceStateLoading,
+    resourceStateSelectedId,
+    setResourceStateError,
+    setResourceStateLoading,
+    setResourceStatePendingId,
+  ]);
 
   const handleOpenSnapshotPrompt = () => {
     if (!optState.data || !input) return;
@@ -1047,17 +1266,28 @@ function FlowEvaluationPageContent() {
               <button
                 onClick={handleRun}
                 disabled={!input || evalState.loading}
-                className={`px-3 py-1 rounded-lg border text-xs ${evalState.loading ? 'border-blue-400/50 bg-blue-500/20 text-blue-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+                className={`px-3 py-1 rounded-lg border text-xs flex items-center gap-1.5 ${evalState.loading ? 'border-blue-400/50 bg-blue-500/20 text-blue-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
               >
+                <svg className="w-3 h-3 shrink-0" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M3 2.083C3 1.349 3.8.915 4.408 1.321l5.545 3.75a.667.667 0 0 1 0 1.059L4.408 9.88C3.8 10.285 3 9.851 3 9.117V2.083Z"/></svg>
                 {evalState.loading ? <ShimmeringText text="Evaluating..." /> : 'Run Evaluation'}
               </button>
-              
+
               <button
                 onClick={handleOptimize}
                 disabled={!input || evalState.loading || optState.loading}
-                className={`px-3 py-1 rounded-lg border text-xs ${optState.loading ? 'border-purple-400/50 bg-purple-500/20 text-purple-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+                className={`px-3 py-1 rounded-lg border text-xs flex items-center gap-1.5 ${optState.loading ? 'border-purple-400/50 bg-purple-500/20 text-purple-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
               >
+                <svg className="w-3 h-3 shrink-0" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M5 1.5 5.8 3.5 7.5 4l-1.7.5L5 6.5 4.2 4.5 2.5 4l1.7-.5L5 1.5Zm4.5 5 .6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4Z"/></svg>
                 {optState.loading ? <ShimmeringText text="Playing in Boltzmann Realms..." /> : "Optimize Release Rates with Simulated Annealing"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCommitRegulation()}
+                disabled={!optState.data || commitRegulationPending || resourceStateLoading || !!commitPreconditionError}
+                className={`px-3 py-1 rounded-lg border text-xs flex items-center gap-1.5 ${commitRegulationPending || resourceStateLoading || !optState.data || !!commitPreconditionError ? 'border-sky-300/30 bg-sky-500/10 text-sky-100/60 cursor-not-allowed' : 'border-sky-300/70 bg-sky-500/20 text-sky-50 hover:bg-sky-500/30'}`}
+              >
+                <svg className="w-3 h-3 shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8V2M3.5 4.5 6 2l2.5 2.5"/><path d="M2 9.5v.5a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-.5"/></svg>
+                {commitRegulationPending ? <ShimmeringText text="Committing…" /> : "Commit Regulation"}
               </button>
               {optState.data && (
                 <button
@@ -1071,10 +1301,34 @@ function FlowEvaluationPageContent() {
                   </span>
                 </button>
               )}
-              {optState.error && <div className="text-[11px] text-red-200">{optState.error}</div>}
-              
-              {evalState.error && <div className="text-[11px] text-red-200">{evalState.error}</div>}
+              {optState.error && (
+                <div className="flex items-start gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+                  <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="5.5"/><path d="M5 5l4 4m0-4-4 4"/></svg>
+                  <span>{optState.error}</span>
+                </div>
+              )}
+              {evalState.error && (
+                <div className="flex items-start gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+                  <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="5.5"/><path d="M5 5l4 4m0-4-4 4"/></svg>
+                  <span>{evalState.error}</span>
+                </div>
+              )}
             </div>
+            {(commitRegulationError || (optState.data && commitPreconditionError)) && (
+              <div className={`mt-1 mb-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] ${commitRegulationError ? 'border-rose-400/30 bg-rose-500/10 text-rose-300' : 'border-amber-400/30 bg-amber-500/10 text-amber-200'}`}>
+                {commitRegulationError ? (
+                  <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="5.5"/><path d="M5 5l4 4m0-4-4 4"/></svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 1.5 12.5 11.5H1.5L7 1.5Z"/><path d="M7 5.5v2.5"/><circle cx="7" cy="9.5" r=".5" fill="currentColor" stroke="none"/></svg>
+                )}
+                <span>{commitRegulationError ?? commitPreconditionError}</span>
+              </div>
+            )}
+            {!commitRegulationError && optState.data && !commitPreconditionError && (
+              <div className="mt-1 text-[11px] text-emerald-200/70">
+                Commit appends this optimized regulation episode on the server, clears the flow plan panels, and re-synchronizes resource state.
+              </div>
+            )}
 
             {/* Inputs summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2427,14 +2681,8 @@ function AirportDelayAttributionView({
     const entries = Object.entries(delays);
     if (entries.length === 0) return null;
 
-    const flightsById = new Map<string, Trajectory>();
-    const flightsByCallsign = new Map<string, Trajectory>();
-    for (const flight of flights) {
-      flightsById.set(String(flight.flightId), flight);
-      if (flight.callSign) {
-        flightsByCallsign.set(String(flight.callSign), flight);
-      }
-    }
+    const flightsById = buildFlightIdIndex(flights);
+    const flightsByCallsign = buildUniqueCallsignIndex(flights);
 
     type Accumulator = { total: number; count: number; max: number; min: number };
     const depMap = new Map<string, Accumulator>();
@@ -2464,8 +2712,11 @@ function AirportDelayAttributionView({
       totalFlights += 1;
 
       let flight = flightsById.get(String(flightKey));
-      if (!flight) {
-        flight = flightsByCallsign.get(String(flightKey));
+      if (!flight && flightsByCallsign.has(String(flightKey))) {
+        const resolvedId = flightsByCallsign.get(String(flightKey));
+        if (resolvedId) {
+          flight = flightsById.get(resolvedId);
+        }
       }
       const origin = normalizeAirportLabel(flight?.origin);
       const destination = normalizeAirportLabel(flight?.destination);
@@ -2810,6 +3061,8 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
   const toggle = (k: string) => setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
   const entries = Object.entries(flows || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
   const { flights } = useSimStore();
+  const flightsById = useMemo(() => buildFlightIdIndex(flights), [flights]);
+  const flightsByCallsign = useMemo(() => buildUniqueCallsignIndex(flights), [flights]);
 
   function formatTime(seconds?: number): string {
     if (!Number.isFinite(seconds)) return 'N/A';
@@ -2820,10 +3073,16 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
   }
 
   function resolveFlight(token: string) {
-    // Prefer flightId match, fallback to callsign
-    let f = flights.find(ff => String(ff.flightId) === String(token));
-    if (!f) f = flights.find(ff => ff.callSign && String(ff.callSign) === String(token));
-    return f;
+    const normalized = String(token);
+    const byId = flightsById.get(normalized);
+    if (byId) return byId;
+    if (flightsByCallsign.has(normalized)) {
+      const resolvedId = flightsByCallsign.get(normalized);
+      if (resolvedId) {
+        return flightsById.get(resolvedId);
+      }
+    }
+    return undefined;
   }
 
   const extraDelayFlightsWarning = useMemo(() => {
@@ -2841,7 +3100,7 @@ function FlowsSummary({ flows, colors, optDelays }: { flows: Record<string, stri
     const preview = extra.slice(0, 5).join(', ');
     const more = extra.length > 5 ? ` and ${extra.length - 5} more` : '';
     return `Warning: optimization returned delays for flights not in your input: ${preview}${more}.`;
-  }, [flows, optDelays, flights]);
+  }, [flows, optDelays, flightsByCallsign, flightsById]);
 
   return (
     <div className="space-y-3">
