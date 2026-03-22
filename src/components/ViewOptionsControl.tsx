@@ -2,10 +2,12 @@
 
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import FlightLevelRangeControl from "@/components/FlightLevelRangeControl";
+import FlightLineLabelPopover from "@/components/FlightLineLabelPopover";
 import ResourceDateSelectorPanel from "@/components/ResourceDateSelectorPanel";
 import ShimmeringText from "@/components/ShimmeringText";
 import TimeScrubberPopover from "@/components/TimeScrubberPopover";
 import { useSimStore } from "@/components/useSimStore";
+import { resolveFlightLineLabelSelection } from "@/lib/flightLineLabels";
 import { getDateDisplayParts } from "@/lib/resourceDates";
 import { formatSecondsToHHMMSS } from "@/lib/time";
 import { Slider } from "@/components/Slider";
@@ -30,6 +32,8 @@ export default function ViewOptionsControl({
     setWeatherOverlay,
     showFlightLineLabels,
     setShowFlightLineLabels,
+    flightLineLabelMode,
+    setFlightLineLabelMode,
     showCallsigns,
     setShowCallsigns,
     showFlightLines,
@@ -53,7 +57,9 @@ export default function ViewOptionsControl({
 
   const [showTimeSeeker, setShowTimeSeeker] = useState(false);
   const [showDateSelector, setShowDateSelector] = useState(false);
+  const [showFlightLineLabelPopover, setShowFlightLineLabelPopover] = useState(false);
   const timeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const flightLineLabelButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [localT, setLocalT] = useState(t);
   // Sync local state if global state changes (e.g., from playback)
@@ -67,8 +73,20 @@ export default function ViewOptionsControl({
     if (minimized) {
       setShowTimeSeeker(false);
       setShowDateSelector(false);
+      setShowFlightLineLabelPopover(false);
     }
   }, [minimized]);
+
+  const handleFlightLineLabelModeSelect = (selectedMode: "callsign" | "flightLevel") => {
+    const { nextMode, nextShowFlightLineLabels } = resolveFlightLineLabelSelection(
+      flightLineLabelMode,
+      showFlightLineLabels,
+      selectedMode,
+    );
+    setFlightLineLabelMode(nextMode);
+    setShowFlightLineLabels(nextShowFlightLineLabels);
+    setShowFlightLineLabelPopover(false);
+  };
 
   const panelCard = (
     <div
@@ -99,6 +117,7 @@ export default function ViewOptionsControl({
               className="leading-tight text-left"
               onClick={() => {
                 setShowTimeSeeker(false);
+                setShowFlightLineLabelPopover(false);
                 setShowDateSelector(true);
               }}
               aria-haspopup="dialog"
@@ -116,7 +135,10 @@ export default function ViewOptionsControl({
               ref={timeButtonRef}
               type="button"
               className="leading-tight text-left"
-              onClick={() => setShowTimeSeeker((v) => !v)}
+              onClick={() => {
+                setShowFlightLineLabelPopover(false);
+                setShowTimeSeeker((v) => !v);
+              }}
               aria-expanded={showTimeSeeker}
               aria-haspopup="dialog"
               title="Click to toggle time seeker"
@@ -200,15 +222,28 @@ export default function ViewOptionsControl({
             </svg>
           </IconToggle>
 
-          <IconToggle
+          <button
+            ref={flightLineLabelButtonRef}
+            type="button"
+            aria-pressed={showFlightLineLabels}
+            aria-expanded={showFlightLineLabelPopover}
+            aria-haspopup="dialog"
             title="Flight Line Labels"
-            active={showFlightLineLabels}
-            onClick={() => setShowFlightLineLabels(!showFlightLineLabels)}
+            onClick={() => {
+              setShowTimeSeeker(false);
+              setShowDateSelector(false);
+              setShowFlightLineLabelPopover((value) => !value);
+            }}
+            className={
+              `w-10 h-10 rounded-full flex items-center justify-center transition-colors ` +
+              (showFlightLineLabels ? "text-blue-400" : "text-white/80 hover:text-white")
+            }
           >
+            <span className="sr-only">Flight Line Labels</span>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
             </svg>
-          </IconToggle>
+          </button>
 
           <IconToggle
             title="Callsign"
@@ -269,11 +304,22 @@ export default function ViewOptionsControl({
     />
   );
 
+  const flightLineLabelPopover = (
+    <FlightLineLabelPopover
+      anchor={flightLineLabelButtonRef.current}
+      open={showFlightLineLabelPopover}
+      mode={flightLineLabelMode}
+      onSelect={handleFlightLineLabelModeSelect}
+      onClose={() => setShowFlightLineLabelPopover(false)}
+    />
+  );
+
   if (embedded) {
     return (
       <>
         {panelCard}
         {timeScrubberPopover}
+        {flightLineLabelPopover}
         <ResourceDateSelectorPanel
           open={showDateSelector}
           onClose={() => setShowDateSelector(false)}
@@ -286,6 +332,7 @@ export default function ViewOptionsControl({
   return (
     <>
       {timeScrubberPopover}
+      {flightLineLabelPopover}
       <ResourceDateSelectorPanel
         open={showDateSelector}
         onClose={() => setShowDateSelector(false)}

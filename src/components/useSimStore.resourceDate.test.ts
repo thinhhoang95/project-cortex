@@ -60,12 +60,14 @@ describe("useSimStore resourceDate", () => {
     useSimStore.getState().setResourceDate("2023-07-17");
     useSimStore.getState().syncResourceState(RESOURCE_STATE_PAYLOAD);
     useSimStore.getState().setShowFlightLines(false);
+    useSimStore.getState().setFlightLineLabelMode("flightLevel");
 
     useSimStore.getState().resetAll();
 
     expect(useSimStore.getState().resourceDate).toBe("2023-07-17");
     expect(useSimStore.getState().resourceStateSelectedId).toBe("state-0001");
     expect(useSimStore.getState().showFlightLines).toBe(true);
+    expect(useSimStore.getState().flightLineLabelMode).toBe("callsign");
   });
 
   it("can clear an invalid persisted resource date", () => {

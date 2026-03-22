@@ -1,4 +1,5 @@
 import type { Trajectory } from "@/lib/models";
+import { getFlightLevelLabelFromAltitudeFeet } from "@/lib/flightLineLabels";
 
 function getTrajectoryLineColor(trajectory: Trajectory): string {
   const firstCoord = trajectory.coords[0];
@@ -33,5 +34,41 @@ export function buildTrajectoryLineFeatureCollection(
         lineColor: getTrajectoryLineColor(trajectory),
       },
     })),
+  };
+}
+
+export function buildTrajectoryFlightLevelLabelFeatureCollection(
+  trajectories: Trajectory[],
+): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+
+  for (const trajectory of trajectories) {
+    if (!Array.isArray(trajectory.coords) || trajectory.coords.length < 2) {
+      continue;
+    }
+
+    for (let index = 0; index < trajectory.coords.length - 1; index += 1) {
+      const coord = trajectory.coords[index];
+      const nextCoord = trajectory.coords[index + 1];
+      features.push({
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [coord[0], coord[1]],
+            [nextCoord[0], nextCoord[1]],
+          ],
+        },
+        properties: {
+          flightId: trajectory.flightId,
+          flightLevelLabel: getFlightLevelLabelFromAltitudeFeet(coord[2], nextCoord[2]),
+        },
+      });
+    }
+  }
+
+  return {
+    type: "FeatureCollection",
+    features,
   };
 }

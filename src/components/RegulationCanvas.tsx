@@ -6,6 +6,10 @@ import { authFetch } from "@/lib/auth";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
+import {
+  setFlightLineLabelFilters,
+} from "@/lib/flightLineLabels";
+import { syncFlightLevelLabelLayer } from "@/lib/flightLineLabelLayer";
 import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
@@ -75,6 +79,7 @@ export default function RegulationCanvas() {
     tick,
     flights,
     showFlightLineLabels,
+    flightLineLabelMode,
     showFlightLines,
     setBaselineFlights,
     setSelectedTrafficVolume,
@@ -222,13 +227,6 @@ export default function RegulationCanvas() {
         layout: { "symbol-placement": "line", "text-field": ["get", "callSign"], "text-size": 11, "text-font": ["Noto Sans Regular"] },
         paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
       });
-
-      // Apply initial visibility based on store defaults
-      try {
-        const { showFlightLineLabels } = useSimStore.getState();
-        map.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
-        map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
-      } catch { }
 
       // Highlight layer for regulation target flights (bright red)
       map.addLayer({
@@ -704,11 +702,9 @@ export default function RegulationCanvas() {
 
   // on showFlightLineLabels change, toggle visibility
   useEffect(() => {
-    if (mapRef.current && mapRef.current.getLayer("flight-line-labels")) {
-      mapRef.current.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
-      mapRef.current.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
-    }
-  }, [showFlightLineLabels]);
+    if (!mapRef.current) return;
+    updateFlightLineFilters(mapRef.current);
+  }, [flightLineLabelMode, showFlightLineLabels]);
 
   // on FL range change or time change, filter traffic volumes based on vertical intersection AND capacity
   useEffect(() => {
@@ -1080,6 +1076,13 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
+    syncFlightLevelLabelLayer({
+      map,
+      tracks,
+      visibleFlightIds: lineIdsToShow,
+      showFlightLineLabels: sim.showFlightLineLabels,
+      flightLineLabelMode: sim.flightLineLabelMode,
+    });
     const hasFlightLinePreview = sim.flightLinePreviewFlightIds.size > 0;
     const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId || hasFlightLinePreview;
     const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
@@ -1090,9 +1093,7 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
       (map as any).__prevLineOpacity = lineOpacity;
     }
   }
-  if (map.getLayer("flight-line-labels")) {
-    map.setFilter("flight-line-labels", filterExpr as any);
-  }
+  setFlightLineLabelFilters(map, filterExpr);
 }
 
 function updateRegulationHighlight(map: maplibregl.Map | null) {
