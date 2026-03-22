@@ -23,6 +23,7 @@ export default function ViewOptionsControl({
 }: ViewOptionsControlProps) {
   const {
     t,
+    range,
     setT,
     resourceDate,
     weatherOverlay,
@@ -42,6 +43,8 @@ export default function ViewOptionsControl({
     flLowerBound,
     flUpperBound,
     setFlRange,
+    glanceHorizonMinutes,
+    setGlanceHorizonMinutes,
     setViewOptionsMinimized,
     viewOptionsMinimized,
   } = useSimStore();
@@ -254,11 +257,15 @@ export default function ViewOptionsControl({
       anchor={timeButtonRef.current}
       open={showTimeSeeker}
       value={localT}
+      min={range[0]}
+      max={range[1]}
       onChange={setLocalT}
       onCommit={(nextValue) => {
         setLocalT(nextValue);
         setT(nextValue);
       }}
+      glanceHorizonMinutes={glanceHorizonMinutes}
+      onGlanceHorizonChange={setGlanceHorizonMinutes}
     />
   );
 

@@ -1,7 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
+import ShimmeringText from "@/components/ShimmeringText";
+import {
+  buildRerouteImpactScenarioSignature,
+  simulateRerouteImpactScenario,
+  validateRerouteImpactScenario,
+} from "@/lib/rerouteImpact";
 
 type RerouteProposalsPanelProps = {
   embedded?: boolean;
@@ -14,8 +20,13 @@ export default function RerouteProposalsPanel({ embedded = false }: ReroutePropo
     rerouteGeometryComputing,
     rerouteGeometryError,
     deleteRerouteMove,
+    setRerouteImpactResult,
+    setIsRerouteImpactResultsOpen,
+    setRerouteImpactScenarioSignature,
   } = useSimStore();
   const [expandedByMoveId, setExpandedByMoveId] = useState<Record<string, boolean>>({});
+  const [simulateError, setSimulateError] = useState<string | null>(null);
+  const [simulateLoading, setSimulateLoading] = useState(false);
 
   const panelClassName = embedded
     ? "w-full max-w-[384px] mx-auto rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
@@ -34,6 +45,42 @@ export default function RerouteProposalsPanel({ embedded = false }: ReroutePropo
       }),
     [rerouteCommittedMoves, rerouteMoveResultsById],
   );
+  const scenarioValidation = useMemo(
+    () => validateRerouteImpactScenario(rerouteCommittedMoves),
+    [rerouteCommittedMoves],
+  );
+  const scenarioSignature = useMemo(
+    () => buildRerouteImpactScenarioSignature(rerouteCommittedMoves),
+    [rerouteCommittedMoves],
+  );
+  const simulateDisabledReason = !scenarioValidation.canSimulate ? scenarioValidation.reason : null;
+
+  useEffect(() => {
+    setSimulateError(null);
+  }, [scenarioSignature]);
+
+  const handleSimulate = async () => {
+    if (!scenarioValidation.canSimulate || simulateLoading) return;
+    const requestSignature = scenarioSignature;
+    setSimulateError(null);
+    setSimulateLoading(true);
+
+    try {
+      const result = await simulateRerouteImpactScenario(rerouteCommittedMoves);
+      const latestSignature = buildRerouteImpactScenarioSignature(useSimStore.getState().rerouteCommittedMoves);
+      if (latestSignature !== requestSignature) {
+        return;
+      }
+      setRerouteImpactResult(result);
+      setRerouteImpactScenarioSignature(requestSignature);
+      setIsRerouteImpactResultsOpen(true);
+    } catch (error) {
+      console.error("Failed to simulate reroute impact:", error);
+      setSimulateError(error instanceof Error ? error.message : "Failed to simulate reroute impact.");
+    } finally {
+      setSimulateLoading(false);
+    }
+  };
 
   return (
     <div className={panelClassName}>
@@ -42,11 +89,38 @@ export default function RerouteProposalsPanel({ embedded = false }: ReroutePropo
           <div>
             <h2 className="font-semibold">Reroute Proposals</h2>
           </div>
-          <div className="text-xs opacity-70">{rerouteCommittedMoves.length} stored</div>
+          <div className="flex items-center gap-2">
+            <div className="text-xs opacity-70">{rerouteCommittedMoves.length} stored</div>
+            <button
+              type="button"
+              onClick={handleSimulate}
+              disabled={!scenarioValidation.canSimulate || simulateLoading}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                scenarioValidation.canSimulate && !simulateLoading
+                  ? "border-cyan-300/50 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30"
+                  : "cursor-not-allowed border-white/10 bg-white/5 text-white/45"
+              }`}
+              title={simulateDisabledReason || "Simulate reroute impact"}
+            >
+              {simulateLoading ? <ShimmeringText text="Simulating..." /> : "Simulate"}
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="p-4 space-y-3">
+        {simulateDisabledReason ? (
+          <div className="rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            {simulateDisabledReason}
+          </div>
+        ) : null}
+
+        {simulateError ? (
+          <div className="rounded-lg border border-rose-300/30 bg-rose-500/15 px-3 py-2 text-xs text-rose-100">
+            {simulateError}
+          </div>
+        ) : null}
+
         {rerouteGeometryError ? (
           <div className="rounded-lg border border-rose-300/30 bg-rose-500/15 px-3 py-2 text-xs text-rose-100">
             {rerouteGeometryError}

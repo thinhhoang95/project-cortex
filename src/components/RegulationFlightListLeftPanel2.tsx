@@ -82,6 +82,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
     selectedTrafficVolumes,
     t,
     flights,
+    resourceStateEpoch,
     regulationTimeWindow,
     regulationTargetFlightIds,
     addRegulationTargetFlight,
@@ -120,6 +121,16 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
   const [expanded, setExpanded] = useState(false);
   const MAX_VISIBLE = 20;
   const [statsOpen, setStatsOpen] = useState(false);
+
+  useEffect(() => {
+    setRankingData(null);
+    setSecondaryFlightDataByTv({});
+    setLoading(false);
+    setSecondaryLoading(false);
+    setError(null);
+    setSecondaryError(null);
+    setExpanded(false);
+  }, [resourceStateEpoch]);
 
   const flightsById = useMemo(() => {
     const map = new Map<string, any>();
@@ -176,7 +187,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
     }
     load();
     return () => { cancelled = true; };
-  }, [primaryTvId, t, seedFlightIds, regulationTimeWindow]);
+  }, [primaryTvId, resourceStateEpoch, regulationTimeWindow, seedFlightIds, t]);
 
   // Fetch membership/details for secondary TVs to support intersection + per-TV columns
   useEffect(() => {
@@ -218,7 +229,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
     }
     loadSecondaryFlights();
     return () => { cancelled = true; };
-  }, [primaryTvId, selectedTvKey, t, secondaryTvIds]);
+  }, [primaryTvId, resourceStateEpoch, secondaryTvIds, selectedTvKey, t]);
 
   const filteredRankedFlights = useMemo(() => {
     if (!rankingData?.ranked_flights) return [] as RankedFlight[];

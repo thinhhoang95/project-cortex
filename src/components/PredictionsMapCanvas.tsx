@@ -2,10 +2,12 @@
 import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { authFetch } from "@/lib/auth";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
+import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
@@ -20,12 +22,31 @@ import {
   getTrafficVolumeCenterFromMap,
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
+import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
+import { deriveVisibleFlightLineIds } from "@/lib/flightCatcherPolicy";
+import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
+import { formatSecondsToHHMMSS } from "@/lib/time";
+import { getSummaryTimeBinMinutes, type TvDcbGlanceResponse, type TvDcbGlanceSummary } from "@/lib/tvDcbGlance";
+import {
+  type AirspaceSources,
+  areStringArraysEqual,
+  buildTvDcbGlanceCacheKey,
+  buildTvDcbGlanceSourceData,
+  collectVisibleTrafficVolumeIdsForGlance,
+  emptyPointFC,
+  ensureTrafficVolumeDcbGlanceLayer,
+  setDcbGlanceSourceData,
+  TV_DCB_GLANCE_DEFAULT_BIN_MINUTES,
+  TV_DCB_GLANCE_LAYER_ID,
+  TV_DCB_GLANCE_MIN_ZOOM,
+} from "@/lib/trafficVolumeDcbGlanceMap";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
+  const tvSourcesRef = useRef<AirspaceSources | null>(null);
   const lastTs = useRef<number>(performance.now());
-  const { t, resourceDate, weatherOverlay, tick, setRange, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, setSelectedTrafficVolume, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute } = useSimStore();
+  const { t, resourceDate, weatherOverlay, tick, flights, showFlightLineLabels, showCallsigns, showWaypoints, showTrafficVolumes, setBaselineFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, setSelectedTrafficVolume, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute, resourceStateEpoch, glanceHorizonMinutes } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
@@ -36,6 +57,17 @@ export default function MapCanvas() {
 
   const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
+  const [visibleGlanceTvIds, setVisibleGlanceTvIds] = useState<string[]>([]);
+  const [glanceCacheVersion, setGlanceCacheVersion] = useState(0);
+  const [glanceTimeBinMinutes, setGlanceTimeBinMinutes] = useState(TV_DCB_GLANCE_DEFAULT_BIN_MINUTES);
+  const glanceCacheRef = useRef<Map<string, TvDcbGlanceSummary | null>>(new Map());
+  const glanceFetchSeqRef = useRef(0);
+  const currentMinuteTick = useMemo(() => Math.floor(t / 60), [t]);
+  const glanceReferenceBinSeconds = useMemo(() => {
+    const safeBinMinutes = Math.max(1, Math.round(glanceTimeBinMinutes || TV_DCB_GLANCE_DEFAULT_BIN_MINUTES));
+    const binSeconds = safeBinMinutes * 60;
+    return Math.floor(Math.max(0, t) / binSeconds) * binSeconds;
+  }, [glanceTimeBinMinutes, t]);
 
   // init map
   useEffect(() => {
@@ -48,61 +80,31 @@ export default function MapCanvas() {
       zoom: 4
     });
     mapRef.current = map;
+    const loadGuard = createAsyncLoadGuard(
+      () => mapRef.current === map && useSimStore.getState().resourceDate === resourceDate,
+    );
 
     map.on("load", async () => {
       setBaseDataLoading(true);
-      // Data
-      const [sectors, tracks] = await Promise.all([
-        loadSectors(resourcePaths.airspaceGeojson),
-        loadTrajectories(resourcePaths.flightsCsv)
-      ]);
+      try {
+        // Data
+        const [sectors, tracks] = await Promise.all([
+          loadSectors(resourcePaths.airspaceGeojson),
+          loadTrajectories(resourcePaths.flightsCsv)
+        ]);
+        if (!loadGuard.isActive()) return;
 
-      // Store flights in global store and compute global time range
-      setFlights(tracks);
-      const minT = Math.min(...tracks.map((track: any) => track.t0));
-      const maxT = Math.max(...tracks.map((track: any) => track.t1));
-      setRange([minT, maxT], minT);
+        const activeTracks = setBaselineFlights(tracks);
 
       // --- Airspace polygons + labels ---
-      addTrafficVolumeSources(map, sectors);
+      tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
       addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
+      ensureTrafficVolumeDcbGlanceLayer(map, theme);
 
       applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes);
 
       // --- Flight lines (static geometry) ---
-      const lineFC: GeoJSON.FeatureCollection = {
-        type: "FeatureCollection",
-        features: tracks.map((tr: any) => {
-          // Determine dominant direction based on first and last coordinates
-          const firstCoord = tr.coords[0];
-          const lastCoord = tr.coords[tr.coords.length - 1];
-          const deltaLon = lastCoord[0] - firstCoord[0];
-          const deltaLat = lastCoord[1] - firstCoord[1];
-
-          // Determine which direction is dominant by comparing absolute changes
-          const absLonChange = Math.abs(deltaLon);
-          const absLatChange = Math.abs(deltaLat);
-
-          let color = "#10b981"; // default green
-          if (absLonChange > absLatChange) {
-            // Longitude change is dominant
-            color = deltaLon < 0 ? "#ec4899" : "#10b981"; // West: pink, East: green
-          } else {
-            // Latitude change is dominant
-            color = deltaLat > 0 ? "#ec4899" : "#10b981"; // North: pink, South: green
-          }
-
-          return {
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: tr.coords.map((c: any) => [c[0], c[1]]) },
-            properties: {
-              flightId: tr.flightId,
-              callSign: tr.callSign ?? tr.flightId,
-              lineColor: color
-            }
-          };
-        })
-      };
+      const lineFC = buildTrajectoryLineFeatureCollection(activeTracks);
       map.addSource("flight-lines", { type: "geojson", data: lineFC });
       map.addLayer({
         id: "flight-lines",
@@ -134,22 +136,23 @@ export default function MapCanvas() {
         map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
       } catch { }
 
-      // --- Waypoints (zoom-based filtering for better UX) ---
-      // Load only waypoints within sector bbox with small margin
-      // Western Europe bounding box
-      const [minX, minY, maxX, maxY] = [-10, 35, 20, 60];
-      const margin = 2; // degrees
-      const filteredWaypoints = await loadWaypoints("/data/Waypoints.txt", [
-        minX - margin,
-        minY - margin,
-        maxX + margin,
-        maxY + margin
-      ]);
+        // --- Waypoints (zoom-based filtering for better UX) ---
+        // Load only waypoints within sector bbox with small margin
+        // Western Europe bounding box
+        const [minX, minY, maxX, maxY] = [-10, 35, 20, 60];
+        const margin = 2; // degrees
+        const filteredWaypoints = await loadWaypoints("/data/Waypoints.txt", [
+          minX - margin,
+          minY - margin,
+          maxX + margin,
+          maxY + margin
+        ]);
+        if (!loadGuard.isActive()) return;
 
-      map.addSource("waypoints", {
-        type: "geojson",
-        data: filteredWaypoints
-      });
+        map.addSource("waypoints", {
+          type: "geojson",
+          data: filteredWaypoints
+        });
 
       // Single importance threshold expression reused by points and labels
       const importanceThresholdExpr: any = [
@@ -216,29 +219,31 @@ export default function MapCanvas() {
 
 
 
-      // --- Dynamic plane positions (updated each frame) ---
-      map.addImage("plane", await loadImage(map, "/plane.svg"), { pixelRatio: 2 });
-      map.addSource("planes", { type: "geojson", data: emptyFC() });
-      map.addLayer({
-        id: "plane-icons",
-        type: "symbol",
-        source: "planes",
-        layout: {
-          "icon-image": "plane",
-          "icon-size": 0.6,
-          "icon-rotate": ["get", "bearing"],
-          "icon-rotation-alignment": "map",
-          "icon-allow-overlap": true,
-          "text-field": ["get", "labelText"],
-          "text-offset": [0, 1],
-          "text-size": 11
-        },
-        paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#0f172a",
-          "text-halo-width": 2
-        }
-      });
+        // --- Dynamic plane positions (updated each frame) ---
+        const planeImage = await loadImage(map, "/plane.svg");
+        if (!loadGuard.isActive()) return;
+        map.addImage("plane", planeImage, { pixelRatio: 2 });
+        map.addSource("planes", { type: "geojson", data: emptyFC() });
+        map.addLayer({
+          id: "plane-icons",
+          type: "symbol",
+          source: "planes",
+          layout: {
+            "icon-image": "plane",
+            "icon-size": 0.6,
+            "icon-rotate": ["get", "bearing"],
+            "icon-rotation-alignment": "map",
+            "icon-allow-overlap": true,
+            "text-field": ["get", "labelText"],
+            "text-offset": [0, 1],
+            "text-size": 11
+          },
+          paint: {
+            "text-color": "#ffffff",
+            "text-halo-color": "#0f172a",
+            "text-halo-width": 2
+          }
+        });
       // Apply initial plane label visibility based on store defaults
       try {
         const { showCallsigns } = useSimStore.getState();
@@ -247,7 +252,7 @@ export default function MapCanvas() {
       } catch { }
 
       // Save trajectories on map for the animation step
-      (map as any).__trajectories = tracks;
+      (map as any).__trajectories = activeTracks;
 
       const selectTrafficVolume = (trafficVolumeId: string) => {
         const sectorFeatures = map.querySourceFeatures('sectors', {
@@ -271,6 +276,7 @@ export default function MapCanvas() {
       };
 
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeClick);
+      map.on('click', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeClick);
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeClick);
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeClick);
 
@@ -293,9 +299,11 @@ export default function MapCanvas() {
       };
 
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
+      map.on('mouseenter', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeHover);
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHover);
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
+      map.on('mouseleave', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
 
@@ -315,16 +323,23 @@ export default function MapCanvas() {
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
 
       // Wait until the map is fully idle (all sources loaded) before the first render
-      map.once("idle", () => {
-        try {
-          updatePlanePositions(mapRef.current);
-        } catch (e) {
-          console.error("Error during initial updatePlanePositions call:", e);
+        map.once("idle", () => {
+          try {
+            updatePlanePositions(mapRef.current);
+          } catch (e) {
+            console.error("Error during initial updatePlanePositions call:", e);
+          }
+        });
+      } catch (error) {
+        console.error("Failed to load predictions map data", error);
+        if (loadGuard.isActive()) {
+          setBaseDataLoading(false);
         }
-      });
+      }
     });
 
     return () => {
+      loadGuard.cancel();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = undefined;
@@ -334,6 +349,17 @@ export default function MapCanvas() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourcePaths, theme]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource("flight-lines") as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    source.setData(buildTrajectoryLineFeatureCollection(flights));
+    (map as any).__trajectories = flights;
+    updatePlanePositions(map);
+  }, [flights]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
@@ -442,6 +468,13 @@ export default function MapCanvas() {
     const apply = () => {
       try {
         applyTrafficVolumeVisibility(map, showTrafficVolumes);
+        if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
+          map.setLayoutProperty(
+            TV_DCB_GLANCE_LAYER_ID,
+            "visibility",
+            showTrafficVolumes ? "visible" : "none",
+          );
+        }
       } catch (err) {
         console.error("Failed to update traffic volume visibility", err);
       }
@@ -465,6 +498,141 @@ export default function MapCanvas() {
       try { map.off("render", waitForReady); } catch { }
     };
   }, [showTrafficVolumes]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    glanceCacheRef.current.clear();
+    glanceFetchSeqRef.current += 1;
+    setGlanceCacheVersion((version) => version + 1);
+    setGlanceTimeBinMinutes(TV_DCB_GLANCE_DEFAULT_BIN_MINUTES);
+    setVisibleGlanceTvIds([]);
+    setDcbGlanceSourceData(map, emptyPointFC());
+  }, [resourceStateEpoch]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const refreshVisibleIds = () => {
+      const nextIds = collectVisibleTrafficVolumeIdsForGlance(map, {
+        enabled: showTrafficVolumes,
+        minZoom: TV_DCB_GLANCE_MIN_ZOOM,
+      });
+      setVisibleGlanceTvIds((current) => (areStringArraysEqual(current, nextIds) ? current : nextIds));
+    };
+
+    if (map.isStyleLoaded()) {
+      refreshVisibleIds();
+    } else {
+      const waitForReady = () => {
+        if (!map.isStyleLoaded()) return;
+        try { map.off("render", waitForReady); } catch { }
+        refreshVisibleIds();
+      };
+      map.on("render", waitForReady);
+    }
+
+    map.on("moveend", refreshVisibleIds);
+    map.on("zoomend", refreshVisibleIds);
+    map.on("resize", refreshVisibleIds);
+
+    return () => {
+      try { map.off("moveend", refreshVisibleIds); } catch { }
+      try { map.off("zoomend", refreshVisibleIds); } catch { }
+      try { map.off("resize", refreshVisibleIds); } catch { }
+    };
+  }, [resourceStateEpoch, showTrafficVolumes]);
+
+  useEffect(() => {
+    if (!showTrafficVolumes || visibleGlanceTvIds.length === 0) {
+      return;
+    }
+
+    const requestRefTimeStr = formatSecondsToHHMMSS(glanceReferenceBinSeconds);
+    const missingIds = visibleGlanceTvIds.filter((tvId) => {
+      const cacheKey = buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes);
+      return !glanceCacheRef.current.has(cacheKey);
+    });
+    if (missingIds.length === 0) {
+      return;
+    }
+
+    const requestSeq = ++glanceFetchSeqRef.current;
+    void authFetch("/api/tv_dcb_glance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        traffic_volume_ids: missingIds,
+        ref_time_str: requestRefTimeStr,
+        glance_horizon_minutes: glanceHorizonMinutes,
+        max_extrema_per_tv: 2,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(text || `tv_dcb_glance failed: ${response.status}`);
+        }
+        return response.json() as Promise<TvDcbGlanceResponse>;
+      })
+      .then((payload) => {
+        if (requestSeq !== glanceFetchSeqRef.current) return;
+        const results = payload?.results || {};
+        let nextBinMinutes = glanceTimeBinMinutes;
+        for (const tvId of missingIds) {
+          const cacheKey = buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes);
+          const summary = results[tvId] ?? null;
+          glanceCacheRef.current.set(cacheKey, summary);
+          nextBinMinutes = getSummaryTimeBinMinutes(summary, nextBinMinutes);
+        }
+        if (nextBinMinutes !== glanceTimeBinMinutes) {
+          setGlanceTimeBinMinutes(nextBinMinutes);
+        }
+        setGlanceCacheVersion((version) => version + 1);
+      })
+      .catch((error) => {
+        if (requestSeq !== glanceFetchSeqRef.current) return;
+        console.error("Failed to fetch TV DCB glance summaries:", error);
+      });
+  }, [
+    glanceHorizonMinutes,
+    glanceReferenceBinSeconds,
+    glanceTimeBinMinutes,
+    resourceStateEpoch,
+    showTrafficVolumes,
+    visibleGlanceTvIds,
+  ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!showTrafficVolumes || visibleGlanceTvIds.length === 0) {
+      setDcbGlanceSourceData(map, emptyPointFC());
+      return;
+    }
+
+    setDcbGlanceSourceData(
+      map,
+      buildTvDcbGlanceSourceData({
+        centroids: tvSourcesRef.current?.centroids,
+        visibleTvIds: visibleGlanceTvIds,
+        getSummary: (tvId) =>
+          glanceCacheRef.current.get(
+            buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes),
+          ) ?? null,
+        referenceSeconds: currentMinuteTick * 60,
+      }),
+    );
+  }, [
+    currentMinuteTick,
+    glanceCacheVersion,
+    glanceHorizonMinutes,
+    glanceReferenceBinSeconds,
+    resourceStateEpoch,
+    showTrafficVolumes,
+    visibleGlanceTvIds,
+  ]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -767,8 +935,6 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   if (!tracks) return;
 
   const planesFC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-  const activeFlightIds: string[] = [];
-  const insideRangeActiveSet = new Set<string>();
 
   for (const tr of tracks) {
     if (sim.t < tr.t0 || sim.t > tr.t1) continue;
@@ -807,26 +973,24 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       }
     });
 
-    activeFlightIds.push(tr.flightId);
-    insideRangeActiveSet.add(String(tr.flightId));
   }
 
   const src = map.getSource("planes") as maplibregl.GeoJSONSource | undefined;
   if (src) src.setData(planesFC);
 
-  // Filter flight line + label layers
-  // If focus mode is enabled, show only focus-filtered flights; otherwise show active flights at current time
-  let lineIdsToShow: string[];
-  if (sim.flowPreviewFlightId) {
-    const pid = String(sim.flowPreviewFlightId);
-    // Only show if currently active and within FL range
-    lineIdsToShow = insideRangeActiveSet.has(pid) ? [pid] : [];
-  } else if (sim.focusMode) {
-    // In focus mode, preserve full trajectories for qualifying flights but gate visibility by current activity + FL.
-    lineIdsToShow = Array.from(sim.focusFlightIds).map(String).filter((id) => insideRangeActiveSet.has(id));
-  } else {
-    lineIdsToShow = Array.from(insideRangeActiveSet);
-  }
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
+    tracks,
+    sim.t,
+    sim.flLowerBound,
+    sim.flUpperBound
+  );
+  const lineIdsToShow = deriveVisibleFlightLineIds({
+    activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+    listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
+    focusMode: sim.focusMode,
+    focusFlightIds: sim.focusFlightIds,
+    flowPreviewFlightId: sim.flowPreviewFlightId,
+  });
 
   let filterExpr: any;
   if (lineIdsToShow.length === 0) {

@@ -8,6 +8,7 @@ import {
 } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
@@ -17,6 +18,10 @@ import { toTimeWindow } from "@/lib/regulationProposals";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import {
+  assertReplayableRegulationTargets,
+  normalizeRegulationContext,
+} from "@/lib/regulationTargets";
 import {
   compareIntersectionFlightRows,
   intersectStringSets,
@@ -84,6 +89,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     selectedTrafficVolumeData,
     t,
     flights,
+    resourceDate,
+    resourceStateSelectedId,
+    resourceStateEpoch,
     focusMode,
     setFocusMode,
     setFocusFlightIds,
@@ -124,6 +132,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   } = useSimStore();
 
   const deferredT = useDeferredValue(t);
+  const currentContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
 
   const [inputValue, setInputValue] = useState("");
   const [queryDialogOpen, setQueryDialogOpen] = useState(false);
@@ -176,6 +188,22 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const previousListContextKeyRef = useRef<string | null>(null);
   const previousListedFlightIdSetRef = useRef<Set<string>>(new Set());
 
+  useEffect(() => {
+    setOccupancyData(null);
+    setFlightIdentifiersData(null);
+    setOrderedFlightsData(null);
+    setPrimaryFlightDataTvId(null);
+    setSecondaryFlightDataByTv({});
+    setSecondaryFlightListLoading(false);
+    setSecondaryFlightListError(null);
+    setFlightListLoading(false);
+    setFlightListError(null);
+    setExpanded(false);
+    setProposalTriggerError(null);
+    previousListContextKeyRef.current = null;
+    previousListedFlightIdSetRef.current = new Set();
+  }, [resourceStateEpoch]);
+
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
     let cancelled = false;
@@ -211,7 +239,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     load();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTrafficVolume]);
+  }, [resourceStateEpoch, selectedTrafficVolume]);
 
   // Load flight identifiers for this TV (ordered when possible)
   useEffect(() => {
@@ -257,7 +285,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     }
     loadFlights();
     return () => { cancelled = true; };
-  }, [selectedTrafficVolume, t]);
+  }, [resourceStateEpoch, selectedTrafficVolume, t]);
 
   // Load secondary TV memberships/details to support multi-TV intersection rows
   useEffect(() => {
@@ -300,7 +328,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     }
     loadSecondaryFlights();
     return () => { cancelled = true; };
-  }, [primaryTvId, selectedTvKey, secondaryTvIds, t]);
+  }, [primaryTvId, resourceStateEpoch, selectedTvKey, secondaryTvIds, t]);
 
   // Clear single-flight preview on unmount
   useEffect(() => {
@@ -481,11 +509,16 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     return map;
   }, [flights]);
 
-  const flightTableData = useMemo<FlightRow[]>(() => {
-    if (!primaryTvId) return [];
-    if (effectiveFlightListError) return [];
-    if (!primaryFlightPayload) return [];
-    if (secondaryTvIds.length > 0 && !secondaryFlightDataReady) return [];
+  const { flightTableData, flightTableCount } = useMemo<{
+    flightTableData: FlightRow[];
+    flightTableCount: number;
+  }>(() => {
+    if (!primaryTvId) return { flightTableData: [], flightTableCount: 0 };
+    if (effectiveFlightListError) return { flightTableData: [], flightTableCount: 0 };
+    if (!primaryFlightPayload) return { flightTableData: [], flightTableCount: 0 };
+    if (secondaryTvIds.length > 0 && !secondaryFlightDataReady) {
+      return { flightTableData: [], flightTableCount: 0 };
+    }
 
     const [from, to] = regulationTimeWindow;
 
@@ -582,8 +615,13 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     };
 
     const primaryRows = buildPrimaryRows();
-    if (primaryRows.length === 0) return [];
-    if (secondaryTvIds.length === 0) return primaryRows.slice(0, MAX_FLIGHT_ROWS);
+    if (primaryRows.length === 0) return { flightTableData: [], flightTableCount: 0 };
+    if (secondaryTvIds.length === 0) {
+      return {
+        flightTableData: primaryRows.slice(0, MAX_FLIGHT_ROWS),
+        flightTableCount: primaryRows.length,
+      };
+    }
 
     const secondaryMembershipSets: Array<Set<string>> = [];
     const orderedDetailMapByTv: Record<string, Map<string, OrderedFlightsData["details"][number]>> = {};
@@ -591,7 +629,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
     for (const tvId of secondaryTvIds) {
       const payload = secondaryFlightDataByTv[tvId];
-      if (!payload) return [];
+      if (!payload) return { flightTableData: [], flightTableCount: 0 };
 
       if (payload.kind === "ordered") {
         const membership = new Set<string>();
@@ -680,7 +718,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       });
 
     rows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
-    return rows.slice(0, MAX_FLIGHT_ROWS);
+    return {
+      flightTableData: rows.slice(0, MAX_FLIGHT_ROWS),
+      flightTableCount: rows.length,
+    };
   }, [
     primaryTvId,
     regulationTimeWindow,
@@ -691,6 +732,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     secondaryFlightDataByTv,
     flightsById,
   ]);
+  const summaryCurrentCount = isMultiTv ? flightTableCount : currentCount;
 
   const filteredFlightIds = useMemo(() => {
     return new Set(flightTableData.map((row) => String(row.flightId)));
@@ -870,9 +912,14 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     const fromLabel = secondsToDayTimeString(fromSeconds);
     const toLabel = secondsToDayTimeString(toSeconds);
     const flowName = `TV ${primaryTvId} ${fromLabel}-${toLabel}`;
-    addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
-    addTargetCells([String(primaryTvId)], fromLabel, toLabel);
-  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, primaryTvId]);
+    try {
+      addFlowBasketWithPeriod(flowName, unique, fromLabel, toLabel);
+      addTargetCells([String(primaryTvId)], fromLabel, toLabel);
+      setFlowError(null);
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to add flights to the flow basket.");
+    }
+  }, [addFlowBasketWithPeriod, addTargetCells, regulationTimeWindow, primaryTvId, setFlowError]);
 
   const handleFlightsSelectedFromQuery = useCallback((ids: string[]) => {
     setQueryDialogOpen(false);
@@ -963,21 +1010,18 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     suppressNextPresetApplyRef.current = true;
     setActivePreset(newPreset);
 
-    // Map provided callsigns/ids back to flight IDs present in store
-    const want = new Set(payload.flightCallsigns.map(String));
-    const idSet = new Set<string>();
-    for (const f of flights) {
-      const idStr = String(f.flightId);
-      const cs = f.callSign != null ? String(f.callSign) : undefined;
-      if (want.has(idStr) || (cs && want.has(cs))) {
-        idSet.add(idStr);
-      }
+    try {
+      const replayableIds = assertReplayableRegulationTargets(payload, currentContext);
+      setRegulationTargetFlightIds(new Set(replayableIds));
+      setFlowError(null);
+    } catch (err) {
+      setRegulationTargetFlightIds(new Set<string>());
+      setFlowError(err instanceof Error ? err.message : "Failed to load regulation targets for editing.");
     }
-    setRegulationTargetFlightIds(idSet);
 
     // Clear payload so it doesn't apply repeatedly
     setRegulationEditPayload(null);
-  }, [regulationEditPayload, primaryTvId, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
+  }, [regulationEditPayload, primaryTvId, currentContext, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload, setFlowError]);
 
   if (!primaryTvId || selectedTvIds.length === 0) return null;
 
@@ -1098,8 +1142,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         {/* Current count + capacity summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">Current Count</div>
-            <div className="text-lg font-semibold">{currentCount}</div>
+            <div className="text-xs opacity-70">{isMultiTv ? "Intersection Count" : "Current Count"}</div>
+            <div className="text-lg font-semibold">{summaryCurrentCount}</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-xs opacity-70">Capacity</div>
@@ -1139,7 +1183,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         <div className="bg-white/5 rounded-lg p-4">
           <div className="flex justify-between items-center mb-3">
             <div className="flex items-center gap-3">
-              <h4 className="font-medium text-sm opacity-90">List ({flightTableData.length} flights)</h4>
+              <h4 className="font-medium text-sm opacity-90">List ({flightTableCount} flights)</h4>
               <FlightStatisticsButton
                 flightIds={flightTableData.map((flight) => flight.flightId)}
                 sourceTrafficVolumeId={primaryTvId}
@@ -1369,7 +1413,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                   </tbody>
                 </table>
               </div>
-              {flightTableData.length === MAX_FLIGHT_ROWS && (
+              {flightTableCount > MAX_FLIGHT_ROWS && (
                 <p className="text-xs opacity-70 text-center mt-2">Showing first 500 flights</p>
               )}
               {hasPrimaryOrderedFlights && (
@@ -1413,6 +1457,16 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               <div className="flex items-center"><div className="w-3 h-0.5 bg-yellow-400 mr-1"></div><span>Capacity</span></div>
             </div>
           </div>
+        )}
+
+        {occupancyData?.flight_level_counts?.bins?.length > 0 && (
+          <FlightLevelBinCountChart
+            data={occupancyData?.flight_level_counts}
+            trafficVolumeId={primaryTvId}
+            filterToWindow
+            windowStartSeconds={regulationTimeWindow[0]}
+            windowSeconds={Math.max(0, regulationTimeWindow[1] - regulationTimeWindow[0])}
+          />
         )}
 
         {trafficOverloadSegments.length > 0 && (

@@ -1,9 +1,17 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "./ModalDialog";
 import { simulateRegulationPlan } from "@/lib/regulationPlanSimulation";
+import {
+  getRegulationContext,
+  getRegulationTargetCount,
+  normalizeFlightIdList,
+  normalizeRegulationContext,
+  resolveRegulationTargetLabels,
+  sameRegulationContext,
+} from "@/lib/regulationTargets";
 
 type RegulationsState = ReturnType<typeof useSimStore.getState>["regulations"];
 
@@ -24,7 +32,19 @@ interface RegulationPlanPanelProps {
 }
 
 export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = false }: RegulationPlanPanelProps) {
-  const { regulations, removeRegulation, setRegulationEditPayload, setIsRegulationPanelOpen, setRegulationSimulationResult, setIsResultsOpen, flights, setT } = useSimStore();
+  const {
+    regulations,
+    removeRegulation,
+    setRegulationEditPayload,
+    setIsRegulationPanelOpen,
+    setRegulationSimulationResult,
+    setIsResultsOpen,
+    flights,
+    setT,
+    resourceDate,
+    resourceStateSelectedId,
+    setFlightLinePreviewFlightIds,
+  } = useSimStore();
   const [selectedRegulation, setSelectedRegulation] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -36,10 +56,32 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
   const [saveTimestamp, setSaveTimestamp] = useState<number | null>(null);
   const [loadSearch, setLoadSearch] = useState("");
   const [savedPlans, setSavedPlans] = useState<SavedRegulationPlan[]>([]);
+  const hoverPreviewBaselineRef = useRef<Set<string> | null>(null);
+  const hoveredRegulationIdRef = useRef<string | null>(null);
+
+  const restoreHoveredFlightLinePreview = useCallback(() => {
+    setFlightLinePreviewFlightIds(new Set(hoverPreviewBaselineRef.current ?? []));
+    hoverPreviewBaselineRef.current = null;
+    hoveredRegulationIdRef.current = null;
+  }, [setFlightLinePreviewFlightIds]);
 
   useEffect(() => {
     setSavedPlans(loadSavedPlansFromStorage());
   }, []);
+
+  useEffect(() => restoreHoveredFlightLinePreview, [restoreHoveredFlightLinePreview]);
+
+  useEffect(() => {
+    if (!isMinimized) return;
+    restoreHoveredFlightLinePreview();
+  }, [isMinimized, restoreHoveredFlightLinePreview]);
+
+  useEffect(() => {
+    if (!hoveredRegulationIdRef.current) return;
+    const hoveredStillExists = regulations.some((reg) => reg.id === hoveredRegulationIdRef.current);
+    if (hoveredStillExists) return;
+    restoreHoveredFlightLinePreview();
+  }, [regulations, restoreHoveredFlightLinePreview]);
 
   useEffect(() => {
     if (saveModalOpen) {
@@ -62,8 +104,13 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
   }, [loadModalOpen]);
 
   const totalFlights = useMemo(() => {
-    return regulations.reduce((sum, r) => sum + (r.flightCallsigns?.length || 0), 0);
+    return regulations.reduce((sum, r) => sum + getRegulationTargetCount(r), 0);
   }, [regulations]);
+
+  const currentContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
 
   const filteredSavedPlans = useMemo(() => {
     const query = loadSearch.trim().toLowerCase();
@@ -191,8 +238,9 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
             </button>
             <button
               onClick={handleSavePlan}
-              className="rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
               Save plan
             </button>
           </div>
@@ -233,7 +281,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
             ) : (
               filteredSavedPlans.map((plan) => {
                 const regulationCount = plan.data.regulations?.length || 0;
-                const flightCount = (plan.data.regulations || []).reduce((sum, reg) => sum + (reg.flightCallsigns?.length || 0), 0);
+                const flightCount = (plan.data.regulations || []).reduce((sum, reg) => sum + getRegulationTargetCount(reg), 0);
                 return (
                   <div key={plan.id} className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
                     <div className="space-y-1">
@@ -293,7 +341,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
         >
           <div className="flex items-center justify-between p-4 border-b border-white/20 flex-shrink-0">
             <div>
-              <div className="text-[10px] uppercase tracking-wider opacity-70">Active Network</div>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Measures</div>
               <div className="text-lg font-semibold">Regulation Plan</div>
               <div className="text-xs opacity-80">
                 {regulations.length} Regulation{regulations.length !== 1 ? 's' : ''}
@@ -330,6 +378,14 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                 {regulations.map((reg) => (
                   <div
                     key={reg.id}
+                    onMouseEnter={() => {
+                      if (hoveredRegulationIdRef.current !== reg.id) {
+                        hoverPreviewBaselineRef.current = new Set(useSimStore.getState().flightLinePreviewFlightIds);
+                      }
+                      hoveredRegulationIdRef.current = reg.id;
+                      setFlightLinePreviewFlightIds(new Set(normalizeFlightIdList(reg.flightIds)));
+                    }}
+                    onMouseLeave={restoreHoveredFlightLinePreview}
                     onClick={() => setSelectedRegulation(selectedRegulation === reg.id ? null : reg.id)}
                     className={`p-3 rounded-lg border cursor-pointer transition-all duration-200 ${
                       selectedRegulation === reg.id
@@ -341,19 +397,29 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                       <div>
                         <div className="font-mono text-sm font-semibold">{reg.id}</div>
                         <div className="text-xs opacity-80">{reg.trafficVolume}</div>
+                        {reg.proposalSource?.kind === "proposal" && (
+                          <div className="mt-1 text-[10px] text-cyan-200/90">
+                            {reg.proposalSource.proposalId}
+                            {reg.proposalSource.flowId ? ` · Flow ${reg.proposalSource.flowId}` : ""}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => {
-                          e.stopPropagation();
-                          // Hand off to regulation panel for editing
-                          setRegulationEditPayload({
-                            trafficVolume: reg.trafficVolume,
-                            activeTimeWindowFrom: reg.activeTimeWindowFrom,
-                            activeTimeWindowTo: reg.activeTimeWindowTo,
-                            flightCallsigns: reg.flightCallsigns,
-                            rate: reg.rate,
-                          });
+                            e.stopPropagation();
+                            restoreHoveredFlightLinePreview();
+                            // Hand off to regulation panel for editing
+                            setRegulationEditPayload({
+                              trafficVolume: reg.trafficVolume,
+                              activeTimeWindowFrom: reg.activeTimeWindowFrom,
+                              activeTimeWindowTo: reg.activeTimeWindowTo,
+                              flightIds: Array.isArray(reg.flightIds) ? reg.flightIds.slice() : [],
+                              flightCallsigns: reg.flightCallsigns,
+                              resourceDate: reg.resourceDate ?? null,
+                              resourceStateId: reg.resourceStateId ?? null,
+                              rate: reg.rate,
+                            });
                             // Align sim time to the start of the active window
                             setT(reg.activeTimeWindowFrom);
                             // Open the panel and ask the map to select & highlight this traffic volume
@@ -371,6 +437,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            restoreHoveredFlightLinePreview();
                             removeRegulation(reg.id);
                           }}
                           className="text-red-300 hover:text-red-200 p-1"
@@ -388,7 +455,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                         <span className="opacity-70">Rate:</span> {reg.rate}/h
                       </div>
                       <div>
-                        <span className="opacity-70">Flights:</span> {reg.flightCallsigns.length}
+                        <span className="opacity-70">Flights:</span> {getRegulationTargetCount(reg)}
                       </div>
                       <div className="col-span-2">
                         <span className="opacity-70">Time:</span> {formatTime(reg.activeTimeWindowFrom)}-{formatTime(reg.activeTimeWindowTo)}
@@ -400,10 +467,26 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                         <div className="text-xs">
                           <div className="opacity-70 mb-2">Flight List:</div>
                           <div className="max-h-20 overflow-y-auto bg-white/5 rounded p-2">
-                            {reg.flightCallsigns.map((callsign, idx) => (
-                              <div key={idx} className="font-mono text-[10px]">{callsign}</div>
+                            {resolveRegulationTargetLabels(reg, flights).map((label, idx) => (
+                              <div key={idx} className="font-mono text-[10px]">{label}</div>
                             ))}
                           </div>
+                          {reg.proposalSource?.kind === "proposal" && (
+                            <div className="mt-2 text-[10px] text-cyan-200/90">
+                              Derived from {reg.proposalSource.proposalId}
+                              {reg.proposalSource.flowId ? ` / Flow ${reg.proposalSource.flowId}` : ""}
+                            </div>
+                          )}
+                          {!sameRegulationContext(getRegulationContext(reg), currentContext) && (
+                            <div className="mt-2 text-[10px] text-amber-200">
+                              Created under a different resource state. Switch back before editing or simulating.
+                            </div>
+                          )}
+                          {normalizeFlightIdList(reg.flightIds).length === 0 && (
+                            <div className="mt-2 text-[10px] text-red-200">
+                              Legacy target format detected. Recreate this regulation before simulating it.
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -423,16 +506,18 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
           <div className="flex items-center gap-2">
             <button
               onClick={() => setLoadModalOpen(true)}
-              className="px-2 py-1 rounded-lg border border-white/20 bg-white/10 text-white text-xs shadow hover:bg-white/15"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-white/20 bg-white/10 text-white text-xs shadow hover:bg-white/15"
               title="Load a saved regulation plan"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
               Load plan
             </button>
             <button
               onClick={() => setSaveModalOpen(true)}
-              className="px-2 py-1 rounded-lg border border-indigo-300/40 bg-indigo-500/30 text-white text-xs shadow hover:bg-indigo-500/40"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-indigo-300/40 bg-indigo-500/30 text-white text-xs shadow hover:bg-indigo-500/40"
               title="Save the current regulation plan"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
               Save plan
             </button>
           </div>
@@ -457,8 +542,8 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                   try {
                     const result = await simulateRegulationPlan({
                       regulations,
-                      flights,
                       perAccAttribMode: "dwelling_spread",
+                      currentContext,
                     });
                     setRegulationSimulationResult(result);
                     setIsResultsOpen(true);
@@ -524,7 +609,12 @@ function loadSavedPlansFromStorage(): SavedRegulationPlan[] {
         const regulationsRaw = Array.isArray(data.regulations) ? data.regulations : [];
         const regulations = regulationsRaw.map((reg: any) => ({
           ...reg,
+          flightIds: normalizeFlightIdList(reg?.flightIds),
           flightCallsigns: Array.isArray(reg?.flightCallsigns) ? reg.flightCallsigns.slice() : [],
+          ...normalizeRegulationContext({
+            resourceDate: reg?.resourceDate,
+            resourceStateId: reg?.resourceStateId,
+          }),
         }));
         return {
           id,

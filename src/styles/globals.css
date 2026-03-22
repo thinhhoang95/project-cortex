@@ -22,6 +22,9 @@
   --input-border: rgba(255, 255, 255, 0.25);
   --input-placeholder: rgba(248, 250, 252, 0.65);
   --analytics-background: linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.65) 100%);
+  --modal-overlay: rgba(15, 23, 42, 0.65);
+  --modal-surface: rgba(28, 41, 64, 0.97);
+  --modal-footer-bg: rgba(22, 34, 54, 0.90);
 }
 
 body {
@@ -136,7 +139,7 @@ a {
   display: none;
 }
 
-/* Adaptive time input icon */
-[data-theme='dark'] input[type="time"] {
+/* Time input icon always uses dark color-scheme since all themes have dark backgrounds */
+input[type="time"] {
   color-scheme: dark;
 }

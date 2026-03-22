@@ -18,6 +18,7 @@ interface FlightQueryDialogProps {
   highlightLabel?: string;
   baselineLabel?: string;
   fullScreen?: boolean;
+  sourceTrafficVolumeId?: string | null;
 }
 
 interface FlightQueryResponse {
@@ -57,6 +58,7 @@ export default function FlightQueryDialog({
   highlightLabel = "Query result",
   baselineLabel = "Baseline",
   fullScreen = false,
+  sourceTrafficVolumeId,
 }: FlightQueryDialogProps) {
   const flights = useSimStore(state => state.flights);
   const [prompt, setPrompt] = useState(initialPrompt);
@@ -139,6 +141,14 @@ export default function FlightQueryDialog({
 
       const json = (await resp.json()) as FlightQueryResponse;
       const ids = normalizeFlightIds(json?.flight_ids ?? []);
+      if (baselineFlightIds.length > 0) {
+        const offBaselineIds = ids.filter((id) => !baselineFlightIdSet.has(id));
+        if (offBaselineIds.length > 0) {
+          throw new Error(
+            `Flight query returned ${offBaselineIds.length} flight${offBaselineIds.length === 1 ? "" : "s"} outside the current baseline list. Refusing inconsistent results.`,
+          );
+        }
+      }
       setResultFlightIds(ids);
       setResponse(json);
     } catch (err) {
@@ -294,20 +304,20 @@ export default function FlightQueryDialog({
               <div className="space-y-4 flex h-full flex-col">
                 <div className="text-sm font-medium text-white/70">Prompt</div>
                 <div className="relative">
-                  <div className="absolute -inset-4 rounded-[32px] bg-gradient-to-br from-blue-500/20 via-purple-500/15 to-pink-500/20 opacity-60 blur-3xl" aria-hidden />
+                  <div className="absolute -inset-4 rounded-[32px] bg-gradient-to-br from-cyan-400/20 via-purple-500/20 to-pink-500/20 opacity-80 blur-3xl pointer-events-none" aria-hidden />
                   <div
                     ref={promptCardRef}
-                    className="relative rounded-[28px] bg-gradient-to-br from-blue-500/60 via-purple-500/60 to-fuchsia-500/60 p-[1.5px] shadow-[0_25px_65px_-30px_rgba(76,29,149,0.9)]"
+                    className="relative rounded-[28px] bg-gradient-to-br from-cyan-400 via-purple-500 to-pink-500 p-[2px] shadow-[0_0_80px_-20px_rgba(168,85,247,0.5)]"
                   >
-                    <div className="rounded-[28px] border border-white/15 bg-slate-950/70 px-6 py-6 backdrop-blur-[22px] shadow-inner">
+                    <div className="rounded-[26px] bg-slate-950/80 px-5 py-5 backdrop-blur-3xl shadow-inner shadow-black/40">
                       <textarea
                         value={prompt}
                         onChange={(e) => setPrompt(e.currentTarget.value)}
                         placeholder="Describe the flights you want to retrieve"
                         rows={6}
-                        className="h-44 w-full resize-none rounded-2xl border border-white/10 bg-white/[0.02] px-5 py-4 text-base leading-relaxed text-white placeholder:text-white/50 focus:border-white/25 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+                        className="h-44 w-full resize-none bg-transparent px-2 py-2 text-base leading-relaxed text-white placeholder:text-white/40 focus:outline-none"
                       />
-                      <div className="mt-3 text-xs text-white/60">
+                      <div className="mt-3 text-xs text-white/50 px-2">
                         Include filters like traffic volumes, times, or sorting preferences.
                       </div>
                     </div>
@@ -337,8 +347,8 @@ export default function FlightQueryDialog({
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-white/10 text-left">
-                                <th className="text-center p-2 font-semibold w-8">
-                                  {allowFlightSelection ? (
+                                {allowFlightSelection && (
+                                  <th className="text-center p-2 font-semibold w-8">
                                     <button
                                       type="button"
                                       className="w-full h-full text-center hover:text-white transition-colors"
@@ -348,10 +358,8 @@ export default function FlightQueryDialog({
                                     >
                                       ✓
                                     </button>
-                                  ) : (
-                                    "✓"
-                                  )}
-                                </th>
+                                  </th>
+                                )}
                                 <th className="p-2 font-semibold">CS</th>
                                 <th className="p-2 font-semibold">Ori.</th>
                                 <th className="p-2 font-semibold">Des.</th>
@@ -392,8 +400,8 @@ export default function FlightQueryDialog({
                                     role={rowIsInteractive ? "button" : undefined}
                                     tabIndex={rowIsInteractive ? 0 : undefined}
                                   >
-                                    <td className="p-2 text-center w-8 text-xs">
-                                      {allowFlightSelection ? (
+                                    {allowFlightSelection && (
+                                      <td className="p-2 text-center w-8 text-xs">
                                         <span className="inline-flex h-4 w-4 items-center justify-center">
                                           <input
                                             type="checkbox"
@@ -408,12 +416,8 @@ export default function FlightQueryDialog({
                                             }
                                           />
                                         </span>
-                                      ) : row.isBaseline ? (
-                                        "✓"
-                                      ) : (
-                                        ""
-                                      )}
-                                    </td>
+                                      </td>
+                                    )}
                                     <td className="p-2 font-mono text-sm text-white">
                                       <div className="flex items-center gap-2">
                                         <span className={isAdmitted ? undefined : "text-white/60 line-through"}>
@@ -468,10 +472,10 @@ export default function FlightQueryDialog({
 
             <div
               className={`flex items-center gap-3 ${
-                onSelectFlights ? "justify-between" : "justify-end"
+                allowFlightSelection ? "justify-between" : "justify-end"
               }`}
             >
-              {onSelectFlights && (
+              {allowFlightSelection && (
                 <button
                   type="button"
                   onClick={handleSelectFlights}
@@ -500,6 +504,7 @@ export default function FlightQueryDialog({
               metadata={metadata}
               highlightLabel={highlightLabel}
               baselineLabel={baselineLabel}
+              sourceTrafficVolumeId={sourceTrafficVolumeId}
             />
           </div>
         </div>

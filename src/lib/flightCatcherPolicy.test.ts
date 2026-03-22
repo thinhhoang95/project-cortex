@@ -113,22 +113,33 @@ describe("applyCatcherToRerouteState", () => {
 });
 
 describe("deriveVisibleFlightLineIds", () => {
-  it("respects preview and flow precedence, then clamps when requested", () => {
+  it("respects preview and flow precedence, then filters list-driven modes through shared eligibility", () => {
+    const visibleFromFlightLinePreview = deriveVisibleFlightLineIds({
+      activeInsideRangeFlightIds: ["A", "B", "C"],
+      listDrivenEligibleFlightIds: ["A", "B", "D"],
+      focusMode: true,
+      focusFlightIds: ["A", "B", "D"],
+      flightLinePreviewFlightIds: ["D", "E"],
+      flowPreviewGroupId: "group-1",
+      flowGroups: { "group-1": ["B", "D"] },
+    });
+    expect(visibleFromFlightLinePreview).toEqual(["D"]);
+
     const visibleFromFlowPreview = deriveVisibleFlightLineIds({
-      insideRangeActiveFlightIds: ["A", "B", "C"],
+      activeInsideRangeFlightIds: ["A", "B", "C"],
+      listDrivenEligibleFlightIds: ["A", "B", "D"],
       focusMode: true,
       focusFlightIds: ["A", "B", "D"],
       flowPreviewGroupId: "group-1",
       flowGroups: { "group-1": ["B", "D"] },
-      clampToActiveSet: true,
     });
-    expect(visibleFromFlowPreview).toEqual(["B"]);
+    expect(visibleFromFlowPreview).toEqual(["B", "D"]);
 
     const visibleFromFocus = deriveVisibleFlightLineIds({
-      insideRangeActiveFlightIds: ["A", "B", "C"],
+      activeInsideRangeFlightIds: ["A", "B", "C"],
+      listDrivenEligibleFlightIds: ["A", "D"],
       focusMode: true,
       focusFlightIds: ["A", "D"],
-      clampToActiveSet: false,
     });
     expect(visibleFromFocus).toEqual(["A", "D"]);
   });

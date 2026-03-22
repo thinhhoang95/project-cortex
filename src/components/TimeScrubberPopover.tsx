@@ -11,30 +11,33 @@ import {
 import { createPortal } from "react-dom";
 import { formatSecondsToHHMMSS } from "@/lib/time";
 import { Slider } from "@/components/Slider";
+import { TV_DCB_GLANCE_HORIZON_OPTIONS } from "@/lib/tvDcbGlance";
 
 // Parse HH:MM:SS format to seconds with validation
 function parseHHMMSSToSeconds(value?: string): number | null {
   const trimmed = String(value ?? "").trim();
   if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const match = trimmed.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   const seconds = match[3] ? Number(match[3]) : 0;
   if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
-  if (hours > 23) return null;
   if (minutes > 59 || seconds > 59) return null;
   const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-  const SECONDS_PER_DAY = 24 * 3600 - 1;
-  return Math.max(0, Math.min(SECONDS_PER_DAY, totalSeconds));
+  return Math.max(0, totalSeconds);
 }
 
 type TimeScrubberPopoverProps = {
   anchor: HTMLElement | null;
   open: boolean;
   value: number;
+  min?: number;
+  max?: number;
   onChange: (value: number) => void;
   onCommit: (value: number) => void;
+  glanceHorizonMinutes?: number;
+  onGlanceHorizonChange?: (minutes: number) => void;
 };
 
 type Position = {
@@ -44,7 +47,6 @@ type Position = {
 };
 
 const SLIDER_MIN = 0;
-const SLIDER_MAX = 24 * 3600 - 1;
 const SLIDER_STEP = 60;
 const POPOVER_GAP_PX = 12;
 
@@ -52,8 +54,12 @@ export default function TimeScrubberPopover({
   anchor,
   open,
   value,
+  min = SLIDER_MIN,
+  max = 24 * 3600 - 1,
   onChange,
   onCommit,
+  glanceHorizonMinutes,
+  onGlanceHorizonChange,
 }: TimeScrubberPopoverProps) {
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
@@ -181,14 +187,14 @@ export default function TimeScrubberPopover({
   return createPortal(
     <div className="fixed inset-0 z-50 pointer-events-none">
       <div
-        className="absolute pointer-events-auto"
+        className="absolute"
         style={{ top: position.top, left: position.left }}
       >
-        <div className={`transform ${position.centerX ? "-translate-x-1/2" : ""} -translate-y-full px-3 py-2 rounded-xl border border-white/20 bg-white/[0.04] backdrop-blur-md shadow-lg`}>
+        <div className={`pointer-events-auto transform ${position.centerX ? "-translate-x-1/2" : ""} -translate-y-full px-3 py-2 rounded-xl border border-white/20 bg-white/[0.04] backdrop-blur-md shadow-lg`}>
           <div className="flex items-center gap-2">
             <Slider
-              min={SLIDER_MIN}
-              max={SLIDER_MAX}
+              min={Math.max(0, Math.floor(min))}
+              max={Math.max(Math.floor(min), Math.floor(max))}
               step={SLIDER_STEP}
               value={Math.floor(value)}
               onChange={handleChange}
@@ -208,6 +214,30 @@ export default function TimeScrubberPopover({
                 } focus:outline-none focus:border-white/40 w-20 text-center`}
             />
           </div>
+          {typeof glanceHorizonMinutes === "number" && onGlanceHorizonChange && (
+            <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-white/80">
+              <span className="uppercase tracking-wide text-white/60">Glance horizon</span>
+              <div className="flex gap-1">
+                {TV_DCB_GLANCE_HORIZON_OPTIONS.map((minutes) => {
+                  const active = Math.round(glanceHorizonMinutes) === minutes;
+                  return (
+                    <button
+                      key={minutes}
+                      type="button"
+                      onClick={() => onGlanceHorizonChange(minutes)}
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
+                        active
+                          ? "bg-white/20 border-white/40 text-white"
+                          : "bg-transparent border-white/20 text-white/60 hover:text-white/90 hover:border-white/30"
+                      }`}
+                    >
+                      {Math.round(minutes / 60)}h
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>,

@@ -20,14 +20,17 @@ import {
   buildRollingChartDataFromOccupancy,
   type RollingChartDataPoint,
 } from "@/lib/airspaceInfoMultiTv";
+import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import PanelCloseButton from "@/components/PanelCloseButton";
+import { type FlightLevelCountsPayload } from "@/lib/flightLevelBinCounts";
 
 type OccupancyData = {
   traffic_volume_id: string;
   occupancy_counts: Record<string, number>;
   hourly_capacity: Record<string, number>;
   anchor_capacity?: Record<string, number>;
+  flight_level_counts?: FlightLevelCountsPayload;
   metadata: {
     time_bin_minutes: number;
     total_time_windows: number;
@@ -55,6 +58,8 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
     selectedTrafficVolumes,
     airspaceDisplayMode,
     t,
+    resourceStateEpoch,
+    rerouteBaseFlightIds,
     setT,
     clearSelectedTrafficVolumes,
     setFocusMode,
@@ -90,6 +95,12 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reqRef = useRef(0);
+
+  useEffect(() => {
+    setOccupancyByTv({});
+    setLoading(false);
+    setError(null);
+  }, [resourceStateEpoch]);
 
   useEffect(() => {
     const reqId = ++reqRef.current;
@@ -131,7 +142,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
         setOccupancyByTv({});
         setError(err instanceof Error ? err.message : "Failed to load occupancy data");
       });
-  }, [airspaceDisplayMode, selectedTvKey, selectedTvIds]);
+  }, [airspaceDisplayMode, resourceStateEpoch, selectedTvIds, selectedTvKey]);
 
   const chartSeries = useMemo<ChartSeries[]>(() => {
     return selectedTvIds.map((tvId, idx) => ({
@@ -179,6 +190,9 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
       movements: Number(primaryOccupancy.metadata?.total_flights_in_tv || 0),
     };
   }, [primaryOccupancy, t]);
+  const summaryCurrentCount = selectedTvIds.length > 1
+    ? rerouteBaseFlightIds.length
+    : primarySummary.currentCount;
 
   const overloadSegments = useMemo(() => {
     if (!primaryOccupancy) {
@@ -304,9 +318,9 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
                 <p className="text-lg font-semibold">{primarySummary.movements.toLocaleString("en-US")}</p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
-                <p className="text-xs opacity-70">Current Count</p>
+                <p className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Current Count"}</p>
                 <p className="text-lg font-semibold">
-                  {primarySummary.currentCount != null ? primarySummary.currentCount.toFixed(0) : "—"}
+                  {summaryCurrentCount != null ? summaryCurrentCount.toFixed(0) : "—"}
                 </p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
@@ -385,6 +399,13 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
                 </div>
               </div>
             )}
+
+            {primaryOccupancy?.flight_level_counts?.bins?.length ? (
+              <FlightLevelBinCountChart
+                data={primaryOccupancy?.flight_level_counts}
+                trafficVolumeId={primaryTvId}
+              />
+            ) : null}
 
             {overloadSegments.data.length > 0 && (
               <div className="bg-white/5 rounded-lg p-4">

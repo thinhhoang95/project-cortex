@@ -1,8 +1,12 @@
 import { AutomaticRateAdjustmentResponse, BaseEvaluationResponse } from "@/lib/models";
 import { AutorateOccupancyResponse, cloneAutorateOccupancyResponse } from "@/lib/autorate";
 import { FlowInputPayload, sanitizeFlowInputPayload } from "@/lib/flow-input";
+import {
+  sanitizeStoredPerAccAttribs,
+  type StoredPerAccAttribByMode,
+} from "@/lib/perAccComparison";
 
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2;
 export const SNAPSHOT_STORAGE_KEY = "cortex.solutionSnapshots";
 export const MAX_SNAPSHOTS = 4;
 // Warn once estimated snapshot payload size exceeds 4.5 MiB (~90% of typical 5 MiB quota)
@@ -56,6 +60,7 @@ export interface SolutionSnapshot {
   timeLabels?: string[];
   objective: SnapshotObjectiveSummary;
   delaysMin?: Record<string, number> | null;
+  perAccAttribByMode?: StoredPerAccAttribByMode | null;
   flows: SnapshotFlowOutcome[];
   aggregatedOccupancy?: SnapshotAggregatedOccupancy | null;
 }
@@ -70,6 +75,7 @@ export interface CreateSnapshotParams {
   evaluation?: BaseEvaluationResponse | null;
   optimization: AutomaticRateAdjustmentResponse;
   occupancy?: AutorateOccupancyResponse | null;
+  perAccAttribByMode?: StoredPerAccAttribByMode | null;
   minutesPerBin: number;
   shareUrl?: string | null;
   sourceRoute?: string;
@@ -95,6 +101,7 @@ export function createSolutionSnapshot(params: CreateSnapshotParams): SolutionSn
     evaluation,
     optimization,
     occupancy,
+    perAccAttribByMode,
     minutesPerBin,
     shareUrl,
     sourceRoute = "flow-evaluation",
@@ -204,6 +211,10 @@ export function createSolutionSnapshot(params: CreateSnapshotParams): SolutionSn
       evaluation: evaluation?.objective ?? null,
     },
     delaysMin: optimization.delays_min ? { ...optimization.delays_min } : null,
+    perAccAttribByMode: sanitizeStoredPerAccAttribs(
+      perAccAttribByMode,
+      occupancy?.per_acc_attrib ?? optimization.per_acc_attrib,
+    ),
     flows,
     aggregatedOccupancy: aggregated,
   };
@@ -222,6 +233,10 @@ function readSnapshotsFromStorage(): SolutionSnapshot[] {
       .map((item) => ({
         ...item,
         version: typeof item?.version === "number" ? item.version : SNAPSHOT_VERSION,
+        perAccAttribByMode: sanitizeStoredPerAccAttribs(
+          item?.perAccAttribByMode,
+          item?.aggregatedOccupancy?.per_acc_attrib ?? item?.per_acc_attrib,
+        ),
       }))
       .filter((item) => item && item.id);
   } catch (err) {

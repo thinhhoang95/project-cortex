@@ -2,9 +2,11 @@
 import maplibregl, { LngLatBoundsLike } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { authFetch } from "@/lib/auth";
 import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
+import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
 import { Trajectory } from "@/lib/models";
@@ -13,7 +15,7 @@ import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
 import { getHourBin, getTrafficVolumeFilter } from "@/lib/airspaceDisplay";
-import { getCurrentActiveFlightIdsInFlRange } from "@/lib/flightVisibility";
+import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
   applyCatcherToRegulationTargets,
@@ -34,15 +36,33 @@ import {
   getTrafficVolumeCenterFromMap,
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
+import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
+import { formatSecondsToHHMM, formatSecondsToHHMMSS } from "@/lib/time";
+import { getSummaryTimeBinMinutes, type TvDcbGlanceResponse, type TvDcbGlanceSummary } from "@/lib/tvDcbGlance";
+import {
+  type AirspaceSources,
+  areStringArraysEqual,
+  buildTvDcbGlanceCacheKey,
+  buildTvDcbGlanceSourceData,
+  collectVisibleTrafficVolumeIdsForGlance,
+  emptyPointFC,
+  ensureTrafficVolumeDcbGlanceLayer,
+  setDcbGlanceSourceData,
+  TV_DCB_GLANCE_DEFAULT_BIN_MINUTES,
+  TV_DCB_GLANCE_LAYER_ID,
+  TV_DCB_GLANCE_MIN_ZOOM,
+} from "@/lib/trafficVolumeDcbGlanceMap";
 
 const REGULATION_CATCHER_SOURCE_ID = "regulation-catcher-source";
 const REGULATION_CATCHER_DRAFT_LAYER_ID = "regulation-catcher-draft";
 const REGULATION_CATCHER_PREVIEW_LAYER_ID = "regulation-catcher-preview";
 const REGULATION_CATCHER_POINTS_LAYER_ID = "regulation-catcher-points";
+const SLACK_LAYER_ID = "sector-slack";
 
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
+  const tvSourcesRef = useRef<AirspaceSources | null>(null);
   const regulationDraftPointsRef = useRef<Array<[number, number]>>([]);
   const regulationPreviewPointRef = useRef<[number, number] | null>(null);
   const regulationGateSnapshotRef = useRef<FlightCatcherGateSnapshot | null>(null);
@@ -53,10 +73,10 @@ export default function RegulationCanvas() {
     resourceDate,
     weatherOverlay,
     tick,
-    setRange,
+    flights,
     showFlightLineLabels,
     showFlightLines,
-    setFlights,
+    setBaselineFlights,
     setSelectedTrafficVolume,
     toggleSelectedTrafficVolume,
     flLowerBound,
@@ -80,13 +100,18 @@ export default function RegulationCanvas() {
     flowGroups,
     flowPreviewFlightId,
     flowPreviewGroupId,
+    flightLinePreviewFlightIds,
     focusMode,
     focusFlightIds,
+    proposalPreviewActive,
+    proposalPreviewFlightIds,
     slackMode,
     setSlackMode,
     slackSign,
     deltaMin,
     setIsFetchingSlack,
+    resourceStateEpoch,
+    glanceHorizonMinutes,
     playing,
     regulationCatcherActive,
     regulationCatcherMode,
@@ -97,7 +122,12 @@ export default function RegulationCanvas() {
   const [baseDataLoading, setBaseDataLoading] = useState(true);
   const [slackMetaByTv, setSlackMetaByTv] = useState<Record<string, { time_window: string; slack: number; occupancy: number }>>({});
   const [hoverLabelPoint, setHoverLabelPoint] = useState<{ x: number; y: number } | null>(null);
+  const [visibleGlanceTvIds, setVisibleGlanceTvIds] = useState<string[]>([]);
+  const [glanceCacheVersion, setGlanceCacheVersion] = useState(0);
+  const [glanceTimeBinMinutes, setGlanceTimeBinMinutes] = useState(TV_DCB_GLANCE_DEFAULT_BIN_MINUTES);
   const lastSlackKeyRef = useRef<string | null>(null);
+  const glanceCacheRef = useRef<Map<string, TvDcbGlanceSummary | null>>(new Map());
+  const glanceFetchSeqRef = useRef(0);
 
   const theme = useThemeStore((state) => state.theme);
   const resourcePaths = useMemo(
@@ -105,6 +135,12 @@ export default function RegulationCanvas() {
     [resourceDate],
   );
   const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
+  const currentMinuteTick = useMemo(() => Math.floor(t / 60), [t]);
+  const glanceReferenceBinSeconds = useMemo(() => {
+    const safeBinMinutes = Math.max(1, Math.round(glanceTimeBinMinutes || TV_DCB_GLANCE_DEFAULT_BIN_MINUTES));
+    const binSeconds = safeBinMinutes * 60;
+    return Math.floor(Math.max(0, t) / binSeconds) * binSeconds;
+  }, [glanceTimeBinMinutes, t]);
   const isCatcherDrawing = regulationCatcherActive && regulationCatcherMode !== "off";
   const selectedTvHighlightIds = useMemo(
     () =>
@@ -115,6 +151,8 @@ export default function RegulationCanvas() {
           : [],
     [selectedTrafficVolumes, selectedTrafficVolume],
   );
+  const slackSourceTrafficVolumeId = selectedTvHighlightIds.length === 1 ? selectedTvHighlightIds[0] ?? null : null;
+  const slackEligible = !!slackSourceTrafficVolumeId;
 
   const syncRegulationCatcherOverlay = () => {
     const map = mapRef.current;
@@ -137,33 +175,35 @@ export default function RegulationCanvas() {
       zoom: 4
     });
     mapRef.current = map;
+    const loadGuard = createAsyncLoadGuard(
+      () => mapRef.current === map && useSimStore.getState().resourceDate === resourceDate,
+    );
 
     map.on("load", async () => {
       setBaseDataLoading(true);
+      try {
         // Data
         const [sectors, tracks] = await Promise.all([
           loadSectors(resourcePaths.airspaceGeojson),
           loadTrajectories(resourcePaths.flightsCsv)
         ]);
+        if (!loadGuard.isActive()) return;
 
-      // Store flights in global store and compute global time range
-      setFlights(tracks);
-      const minT = Math.min(...tracks.map((track: any) => track.t0));
-      const maxT = Math.max(...tracks.map((track: any) => track.t1));
-      setRange([minT, maxT], minT);
+        const activeTracks = setBaselineFlights(tracks);
 
       // --- Airspace polygons + labels ---
-      addTrafficVolumeSources(map, sectors);
+      tvSourcesRef.current = addTrafficVolumeSources(map, sectors);
       addTrafficVolumeLayers(map, theme, { pointLabelMinZoom: 24 });
+      ensureTrafficVolumeDcbGlanceLayer(map, theme);
 
       // Slack overlay layer (initially hidden). Place below points + labels so clicks work.
-      if (!map.getLayer("sector-slack")) {
+      if (!map.getLayer(SLACK_LAYER_ID)) {
         map.addLayer({
-          id: "sector-slack",
+          id: SLACK_LAYER_ID,
           type: "fill",
           source: "sectors",
           layout: { visibility: "none" },
-          paint: { "fill-color": "#facc15", "fill-opacity": 0.03 }
+          paint: { "fill-color": "#22c55e", "fill-opacity": 0 }
         }, TRAFFIC_VOLUME_LAYER_IDS.point);
       }
 
@@ -172,39 +212,7 @@ export default function RegulationCanvas() {
       applyTrafficVolumeFilters(map, getTrafficVolumeFilter(sim.flLowerBound, sim.flUpperBound, sim.t), { includeSlack: true });
 
       // --- Flight lines (static geometry) ---
-      const lineFC: GeoJSON.FeatureCollection = {
-        type: "FeatureCollection",
-        features: tracks.map((tr: any) => {
-          // Determine dominant direction based on first and last coordinates
-          const firstCoord = tr.coords[0];
-          const lastCoord = tr.coords[tr.coords.length - 1];
-          const deltaLon = lastCoord[0] - firstCoord[0];
-          const deltaLat = lastCoord[1] - firstCoord[1];
-
-          // Determine which direction is dominant by comparing absolute changes
-          const absLonChange = Math.abs(deltaLon);
-          const absLatChange = Math.abs(deltaLat);
-
-          let color = "#10b981"; // default green
-          if (absLonChange > absLatChange) {
-            // Longitude change is dominant
-            color = deltaLon < 0 ? "#ec4899" : "#10b981"; // West: pink, East: green
-          } else {
-            // Latitude change is dominant
-            color = deltaLat > 0 ? "#ec4899" : "#10b981"; // North: pink, South: green
-          }
-
-          return {
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: tr.coords.map((c: any) => [c[0], c[1]]) },
-            properties: {
-              flightId: tr.flightId,
-              callSign: tr.callSign ?? tr.flightId,
-              lineColor: color
-            }
-          };
-        })
-      };
+      const lineFC = buildTrajectoryLineFeatureCollection(activeTracks);
       map.addSource("flight-lines", { type: "geojson", data: lineFC });
       map.addLayer({ id: "flight-lines", type: "line", source: "flight-lines", paint: { "line-color": ["get", "lineColor"], "line-width": 1.0, "line-opacity": 0.15 } });
       map.addLayer({
@@ -232,7 +240,7 @@ export default function RegulationCanvas() {
       });
 
       // Save trajectories on map for the animation step
-      (map as any).__trajectories = tracks;
+      (map as any).__trajectories = activeTracks;
       if (!map.getSource(REGULATION_CATCHER_SOURCE_ID)) {
         map.addSource(REGULATION_CATCHER_SOURCE_ID, {
           type: "geojson",
@@ -352,6 +360,7 @@ export default function RegulationCanvas() {
       };
 
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeClick);
+      map.on('click', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeClick);
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeClick);
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeClick);
 
@@ -369,7 +378,9 @@ export default function RegulationCanvas() {
       };
 
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
+      map.on('mouseenter', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeHover);
       map.on('mousemove', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHover);
+      map.on('mousemove', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeHover);
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHover);
       map.on('mousemove', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHover);
       map.on('mouseenter', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHover);
@@ -386,20 +397,22 @@ export default function RegulationCanvas() {
       };
 
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeHoverExit);
+      map.on('mouseleave', TV_DCB_GLANCE_LAYER_ID, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.pointLabel, handleTrafficVolumeHoverExit);
       map.on('mouseleave', TRAFFIC_VOLUME_LAYER_IDS.point, handleTrafficVolumeHoverExit);
       const handleRegulationMapClick = (event: maplibregl.MapMouseEvent) => {
         const sim = useSimStore.getState();
         if (!sim.regulationCatcherActive || sim.regulationCatcherMode === "off") return;
         if (regulationDraftPointsRef.current.length === 0) {
-          const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+          const visibilitySnapshot = getFlightLineVisibilitySnapshot(
             tracks,
             sim.t,
             sim.flLowerBound,
             sim.flUpperBound
           );
           const visibleFlightIds = deriveVisibleFlightLineIds({
-            insideRangeActiveFlightIds: insideRangeActiveSet,
+            activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+            listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
             focusMode: sim.focusMode,
             focusFlightIds: sim.focusFlightIds,
             flowPreviewFlightId: sim.flowPreviewFlightId,
@@ -408,9 +421,10 @@ export default function RegulationCanvas() {
             flowGroups: sim.flowGroups,
             flowViewEnabled: sim.flowViewEnabled,
             showAllFlowCommunitiesWhenEnabled: true,
+            proposalPreviewActive: sim.proposalPreviewActive,
+            proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
             regulationPreviewActive: sim.regulationPreviewActive,
             regulationTargetFlightIds: sim.regulationTargetFlightIds,
-            clampToActiveSet: true,
           });
           regulationGateSnapshotRef.current = freezeGateSnapshot({
             createdAtSimTime: sim.t,
@@ -445,25 +459,30 @@ export default function RegulationCanvas() {
           freezeGateSnapshot({
             createdAtSimTime: sim.t,
             contextMode: "tv_baseline",
-            visibleFlightIds: deriveVisibleFlightLineIds({
-              insideRangeActiveFlightIds: getCurrentActiveFlightIdsInFlRange(
+            visibleFlightIds: (() => {
+              const visibilitySnapshot = getFlightLineVisibilitySnapshot(
                 tracks,
                 sim.t,
                 sim.flLowerBound,
                 sim.flUpperBound
-              ),
-              focusMode: sim.focusMode,
-              focusFlightIds: sim.focusFlightIds,
-              flowPreviewFlightId: sim.flowPreviewFlightId,
-              flowPreviewGroupId: sim.flowPreviewGroupId,
-              flowCommunities: sim.flowCommunities,
-              flowGroups: sim.flowGroups,
-              flowViewEnabled: sim.flowViewEnabled,
-              showAllFlowCommunitiesWhenEnabled: true,
-              regulationPreviewActive: sim.regulationPreviewActive,
-              regulationTargetFlightIds: sim.regulationTargetFlightIds,
-              clampToActiveSet: true,
-            }),
+              );
+              return deriveVisibleFlightLineIds({
+                activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+                listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
+                focusMode: sim.focusMode,
+                focusFlightIds: sim.focusFlightIds,
+                flowPreviewFlightId: sim.flowPreviewFlightId,
+                flowPreviewGroupId: sim.flowPreviewGroupId,
+                flowCommunities: sim.flowCommunities,
+                flowGroups: sim.flowGroups,
+                flowViewEnabled: sim.flowViewEnabled,
+                showAllFlowCommunitiesWhenEnabled: true,
+                proposalPreviewActive: sim.proposalPreviewActive,
+                proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
+                regulationPreviewActive: sim.regulationPreviewActive,
+                regulationTargetFlightIds: sim.regulationTargetFlightIds,
+              });
+            })(),
             baselineFlightIds: sim.regulationListedFlightIds,
           });
 
@@ -498,21 +517,27 @@ export default function RegulationCanvas() {
       const b = new maplibregl.LngLatBounds();
       lineFC.features.forEach(f => (f.geometry as any).coordinates.forEach(([x, y]: [number, number]) => b.extend([x, y])));
       if (b) map.fitBounds(b as LngLatBoundsLike, { padding: 60, duration: 0 });
-      setBaseDataLoading(false);
-      // Ensure first render after sources are fully ready
-      map.once("idle", () => {
-        try {
-          updateFlightLineFilters(mapRef.current);
-          updateFlowRendering(mapRef.current);
-          updateRegulationHighlight(mapRef.current);
-        } catch (e) {
-          console.error("Error during initial updates:", e);
+        setBaseDataLoading(false);
+        // Ensure first render after sources are fully ready
+        map.once("idle", () => {
+          try {
+            updateFlightLineFilters(mapRef.current);
+            updateFlowRendering(mapRef.current);
+            updateRegulationHighlight(mapRef.current);
+          } catch (e) {
+            console.error("Error during initial updates:", e);
+          }
+        });
+      } catch (error) {
+        console.error("Failed to load regulation canvas data", error);
+        if (loadGuard.isActive()) {
+          setBaseDataLoading(false);
         }
-      });
-
+      }
     });
 
     return () => {
+      loadGuard.cancel();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = undefined;
@@ -522,6 +547,19 @@ export default function RegulationCanvas() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourcePaths, theme]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource("flight-lines") as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    source.setData(buildTrajectoryLineFeatureCollection(flights));
+    (map as any).__trajectories = flights;
+    updateFlightLineFilters(map);
+    updateRegulationHighlight(map);
+    updateFlowRendering(map);
+  }, [flights]);
 
   // Control RAF loop based on playing; throttle to ~30 FPS
   useEffect(() => {
@@ -563,6 +601,12 @@ export default function RegulationCanvas() {
 
   // When a single-flight or group preview is toggled via hover, update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId, flowPreviewGroupId]);
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flightLinePreviewFlightIds]);
+  useEffect(() => {
+    updateFlightLineFilters(mapRef.current);
+    updateFlowRendering(mapRef.current);
+    updateRegulationHighlight(mapRef.current);
+  }, [proposalPreviewActive, proposalPreviewFlightIds]);
 
   // When focus context changes (focus mode, ids, or TV selection / visibility toggles), update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [focusMode, focusFlightIds, selectedTrafficVolume, showFlightLines]);
@@ -696,6 +740,17 @@ export default function RegulationCanvas() {
     };
   }, [flLowerBound, flUpperBound, currentTrafficVolumeBin]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    glanceCacheRef.current.clear();
+    glanceFetchSeqRef.current += 1;
+    setGlanceCacheVersion((version) => version + 1);
+    setGlanceTimeBinMinutes(TV_DCB_GLANCE_DEFAULT_BIN_MINUTES);
+    setVisibleGlanceTvIds([]);
+    setDcbGlanceSourceData(map, emptyPointFC());
+  }, [resourceStateEpoch]);
+
   // Update highlight/hover layers when state changes
   useEffect(() => {
     const map = mapRef.current;
@@ -717,6 +772,130 @@ export default function RegulationCanvas() {
     const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
     applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
   }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const refreshVisibleIds = () => {
+      const nextIds = collectVisibleTrafficVolumeIdsForGlance(map, {
+        enabled: showTrafficVolumes,
+        minZoom: TV_DCB_GLANCE_MIN_ZOOM,
+      });
+      setVisibleGlanceTvIds((current) => (areStringArraysEqual(current, nextIds) ? current : nextIds));
+    };
+
+    if (map.isStyleLoaded()) {
+      refreshVisibleIds();
+    } else {
+      const waitForReady = () => {
+        if (!map.isStyleLoaded()) return;
+        try { map.off("render", waitForReady); } catch { }
+        refreshVisibleIds();
+      };
+      map.on("render", waitForReady);
+    }
+
+    map.on("moveend", refreshVisibleIds);
+    map.on("zoomend", refreshVisibleIds);
+    map.on("resize", refreshVisibleIds);
+
+    return () => {
+      try { map.off("moveend", refreshVisibleIds); } catch { }
+      try { map.off("zoomend", refreshVisibleIds); } catch { }
+      try { map.off("resize", refreshVisibleIds); } catch { }
+    };
+  }, [currentTrafficVolumeBin, flLowerBound, flUpperBound, resourceStateEpoch, showTrafficVolumes]);
+
+  useEffect(() => {
+    if (!showTrafficVolumes || visibleGlanceTvIds.length === 0) {
+      return;
+    }
+
+    const requestRefTimeStr = formatSecondsToHHMMSS(glanceReferenceBinSeconds);
+    const missingIds = visibleGlanceTvIds.filter((tvId) => {
+      const cacheKey = buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes);
+      return !glanceCacheRef.current.has(cacheKey);
+    });
+    if (missingIds.length === 0) {
+      return;
+    }
+
+    const requestSeq = ++glanceFetchSeqRef.current;
+    void authFetch("/api/tv_dcb_glance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        traffic_volume_ids: missingIds,
+        ref_time_str: requestRefTimeStr,
+        glance_horizon_minutes: glanceHorizonMinutes,
+        max_extrema_per_tv: 2,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(text || `tv_dcb_glance failed: ${response.status}`);
+        }
+        return response.json() as Promise<TvDcbGlanceResponse>;
+      })
+      .then((payload) => {
+        if (requestSeq !== glanceFetchSeqRef.current) return;
+        const results = payload?.results || {};
+        let nextBinMinutes = glanceTimeBinMinutes;
+        for (const tvId of missingIds) {
+          const cacheKey = buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes);
+          const summary = results[tvId] ?? null;
+          glanceCacheRef.current.set(cacheKey, summary);
+          nextBinMinutes = getSummaryTimeBinMinutes(summary, nextBinMinutes);
+        }
+        if (nextBinMinutes !== glanceTimeBinMinutes) {
+          setGlanceTimeBinMinutes(nextBinMinutes);
+        }
+        setGlanceCacheVersion((version) => version + 1);
+      })
+      .catch((error) => {
+        if (requestSeq !== glanceFetchSeqRef.current) return;
+        console.error("Failed to fetch TV DCB glance summaries:", error);
+      });
+  }, [
+    glanceHorizonMinutes,
+    glanceReferenceBinSeconds,
+    glanceTimeBinMinutes,
+    resourceStateEpoch,
+    showTrafficVolumes,
+    visibleGlanceTvIds,
+  ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!showTrafficVolumes || visibleGlanceTvIds.length === 0) {
+      setDcbGlanceSourceData(map, emptyPointFC());
+      return;
+    }
+
+    setDcbGlanceSourceData(
+      map,
+      buildTvDcbGlanceSourceData({
+        centroids: tvSourcesRef.current?.centroids,
+        visibleTvIds: visibleGlanceTvIds,
+        getSummary: (tvId) =>
+          glanceCacheRef.current.get(
+            buildTvDcbGlanceCacheKey(tvId, resourceStateEpoch, glanceReferenceBinSeconds, glanceHorizonMinutes),
+          ) ?? null,
+        referenceSeconds: currentMinuteTick * 60,
+      }),
+    );
+  }, [
+    currentMinuteTick,
+    glanceCacheVersion,
+    glanceHorizonMinutes,
+    glanceReferenceBinSeconds,
+    resourceStateEpoch,
+    showTrafficVolumes,
+    visibleGlanceTvIds,
+  ]);
 
   // Listen for dialog close events to clear highlighting and hide slack overlay
   useEffect(() => {
@@ -767,26 +946,44 @@ export default function RegulationCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!showTrafficVolumes) { hideSlackOverlay(map); return; }
-    if (!selectedTrafficVolume) { hideSlackOverlay(map); setSlackMode('off'); return; }
+    if (!showTrafficVolumes) {
+      hideSlackOverlay(map);
+      return;
+    }
+    if (!slackEligible || !slackSourceTrafficVolumeId) {
+      hideSlackOverlay(map);
+      lastSlackKeyRef.current = null;
+      if (slackMode !== 'off') setSlackMode('off');
+      return;
+    }
     const refStr = formatSecondsToHHMM(t);
-    const key = `${selectedTrafficVolume}|${refStr}|${slackSign}|${deltaMin}`;
+    const key = `${slackSourceTrafficVolumeId}|${refStr}|${slackSign}|${deltaMin}`;
     if (lastSlackKeyRef.current === key) return;
     lastSlackKeyRef.current = key;
     const showNow = slackMode !== 'off';
-    fetchAndApplySlack(map, selectedTrafficVolume, refStr, slackSign, deltaMin, setIsFetchingSlack, setSlackMetaByTv, showNow);
-  }, [selectedTrafficVolume, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack, showTrafficVolumes]);
+    void fetchAndApplySlack(map, slackSourceTrafficVolumeId, refStr, slackSign, deltaMin, setIsFetchingSlack, setSlackMetaByTv, showNow).then((success) => {
+      if (!success && lastSlackKeyRef.current === key) {
+        lastSlackKeyRef.current = null;
+      }
+    });
+  }, [slackSourceTrafficVolumeId, slackEligible, slackSign, deltaMin, t, slackMode, setSlackMode, setIsFetchingSlack, showTrafficVolumes]);
 
   // Show/hide slack overlay based on mode (Off/Minus/Plus)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!showTrafficVolumes || slackMode === 'off') {
+    if (!showTrafficVolumes || !slackEligible || slackMode === 'off') {
       hideSlackOverlay(map);
-    } else if (map.getLayer('sector-slack')) {
-      map.setLayoutProperty('sector-slack', 'visibility', 'visible');
+      if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
+        map.setLayoutProperty(TV_DCB_GLANCE_LAYER_ID, 'visibility', showTrafficVolumes ? 'visible' : 'none');
+      }
+    } else if (map.getLayer(SLACK_LAYER_ID)) {
+      map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'visible');
     }
-  }, [slackMode, showTrafficVolumes]);
+    if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
+      map.setLayoutProperty(TV_DCB_GLANCE_LAYER_ID, 'visibility', showTrafficVolumes ? 'visible' : 'none');
+    }
+  }, [slackMode, showTrafficVolumes, slackEligible]);
 
   return (
     <>
@@ -845,7 +1042,7 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   const sim = useSimStore.getState();
   const tracks = (map as any).__trajectories as Trajectory[] | undefined;
   if (!tracks) return;
-  const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
     tracks,
     sim.t,
     sim.flLowerBound,
@@ -853,18 +1050,21 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
   );
 
   const lineIdsToShow = deriveVisibleFlightLineIds({
-    insideRangeActiveFlightIds: insideRangeActiveSet,
+    activeInsideRangeFlightIds: visibilitySnapshot.activeInsideRangeIds,
+    listDrivenEligibleFlightIds: visibilitySnapshot.listDrivenEligibleIds,
     focusMode: sim.focusMode,
     focusFlightIds: sim.focusFlightIds,
+    flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
     flowPreviewFlightId: sim.flowPreviewFlightId,
     flowPreviewGroupId: sim.flowPreviewGroupId,
     flowCommunities: sim.flowCommunities,
     flowGroups: sim.flowGroups,
     flowViewEnabled: sim.flowViewEnabled,
     showAllFlowCommunitiesWhenEnabled: true,
+    proposalPreviewActive: sim.proposalPreviewActive,
+    proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
     regulationPreviewActive: sim.regulationPreviewActive,
     regulationTargetFlightIds: sim.regulationTargetFlightIds,
-    clampToActiveSet: true,
   });
 
   let filterExpr: any;
@@ -880,9 +1080,10 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
+    const hasFlightLinePreview = sim.flightLinePreviewFlightIds.size > 0;
+    const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId || hasFlightLinePreview;
     const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
-    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
+    const lineOpacity = (sim.flowPreviewFlightId || hasFlightLinePreview) ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
@@ -910,7 +1111,7 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
   }
   const sim = useSimStore.getState();
   const tracks = (map as any).__trajectories as Trajectory[] | undefined;
-  const insideRangeActiveSet = getCurrentActiveFlightIdsInFlRange(
+  const visibilitySnapshot = getFlightLineVisibilitySnapshot(
     tracks,
     sim.t,
     sim.flLowerBound,
@@ -918,11 +1119,14 @@ function updateRegulationHighlight(map: maplibregl.Map | null) {
   );
   const ids = Array.from(sim.regulationTargetFlightIds)
     .map(String)
-    .filter((id) => insideRangeActiveSet.has(id));
+    .filter((id) => visibilitySnapshot.listDrivenEligibleIds.has(id));
   const filterExpr: any = ids.length > 0 ? ["in", ["to-string", ["get", "flightId"]], ["literal", ids]] : ["==", ["get", "flightId"], "__none__"];
   if (map.getLayer("reg-target-lines")) {
-    // Flow view normally hides the regulation overlay, but targeted preview should override that
-    const vis = sim.flowViewEnabled && !sim.regulationPreviewActive ? 'none' : 'visible';
+    const vis = sim.proposalPreviewActive
+      ? "none"
+      : sim.flowViewEnabled && !sim.regulationPreviewActive
+        ? "none"
+        : "visible";
     map.setLayoutProperty("reg-target-lines", "visibility", vis);
     map.setFilter("reg-target-lines", filterExpr as any);
   }
@@ -1011,7 +1215,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sim = useSimStore.getState();
   if (!map.getLayer('flight-lines')) return;
 
-  if (!sim.regulationPreviewActive && sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
+  if (!sim.proposalPreviewActive && !sim.regulationPreviewActive && sim.flowViewEnabled && sim.flowCommunities && Object.keys(sim.flowCommunities).length > 0) {
     // When not previewing regulation targets, apply flow coloring with centralized mapping
     const colorByCommunity = new Map<string, string>(
       Object.entries(sim.flowColorByCommunity || {})
@@ -1052,11 +1256,15 @@ function updateFlowRendering(map: maplibregl.Map | null) {
 
   // Ensure regulation overlay visibility matches flow precedence
   if (map.getLayer('reg-target-lines')) {
-    const vis = sim.flowViewEnabled && !sim.regulationPreviewActive ? 'none' : 'visible';
+    const vis = sim.proposalPreviewActive
+      ? "none"
+      : sim.flowViewEnabled && !sim.regulationPreviewActive
+        ? "none"
+        : "visible";
     map.setLayoutProperty('reg-target-lines', 'visibility', vis);
   }
 
-  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes, { includeSlack: true });
+  applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
   if (!sim.showTrafficVolumes) {
     if (map.getLayer('sector-slack')) {
       map.setLayoutProperty('sector-slack', 'visibility', 'none');
@@ -1072,7 +1280,7 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sectorPointId = TRAFFIC_VOLUME_LAYER_IDS.point;
   const sectorPointLabelsId = TRAFFIC_VOLUME_LAYER_IDS.pointLabel;
 
-  if (sim.flowViewEnabled && !sim.regulationPreviewActive) {
+  if (sim.flowViewEnabled && !sim.regulationPreviewActive && !sim.proposalPreviewActive) {
     // While flow coloring is active (and no regulation preview), hide base sector visuals
     if (map.getLayer(sectorFillId)) {
       map.setPaintProperty(sectorFillId, 'fill-opacity', 0);
@@ -1138,14 +1346,6 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   }
 }
 
-// Format seconds since midnight to HH:MM
-function formatSecondsToHHMM(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(s / 3600) % 24;
-  const m = Math.floor((s % 3600) / 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
 async function fetchAndApplySlack(
   map: maplibregl.Map,
   trafficVolumeId: string,
@@ -1155,14 +1355,15 @@ async function fetchAndApplySlack(
   setIsFetching: (v: boolean) => void,
   setSlackMetaByTv: React.Dispatch<React.SetStateAction<Record<string, { time_window: string; slack: number; occupancy: number }>>>,
   showImmediately?: boolean
-) {
-  if (!map || !map.isStyleLoaded()) return;
+): Promise<boolean> {
+  if (!map || !map.isStyleLoaded()) return false;
   setIsFetching(true);
   try {
     const url = new URL(`/api/slack_distribution`, window.location.origin);
     url.searchParams.set('traffic_volume_id', trafficVolumeId);
     url.searchParams.set('ref_time_str', refTimeStr);
     url.searchParams.set('sign', sign);
+    url.searchParams.set('tv_kind', 'any');
     if (!Number.isNaN(deltaMin)) {
       url.searchParams.set('delta_min', String(deltaMin));
     }
@@ -1171,85 +1372,128 @@ async function fetchAndApplySlack(
     if (!resp.ok) throw new Error(`Slack API error ${resp.status}`);
     const data = await resp.json();
     const results: any[] = Array.isArray(data?.results) ? data.results : [];
-    const slackByTv = new Map<string, number>();
     const metaRecord: Record<string, { time_window: string; slack: number; occupancy: number }> = {};
     for (const r of results) {
       const tv = String(r?.traffic_volume_id ?? '');
       const sv = typeof r?.slack === 'number' ? r.slack : Number(r?.slack) || 0;
-      if (tv) slackByTv.set(tv, sv);
       if (tv) metaRecord[tv] = { time_window: String(r?.time_window ?? ''), slack: Number(sv), occupancy: Number(r?.occupancy ?? 0) };
     }
     setSlackMetaByTv(metaRecord);
-    applySlackOverlay(map, slackByTv);
+    applySlackOverlay(map, results);
     const showTraffic = useSimStore.getState().showTrafficVolumes;
     if (showImmediately && showTraffic) {
-      if (map.getLayer('sector-slack')) {
-        map.setLayoutProperty('sector-slack', 'visibility', 'visible');
+      if (map.getLayer(SLACK_LAYER_ID)) {
+        map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'visible');
       }
     } else {
       hideSlackOverlay(map);
     }
+    return true;
   } catch (e) {
     console.error('Failed to fetch/apply slack:', e);
     hideSlackOverlay(map);
+    return false;
   } finally {
     setIsFetching(false);
   }
 }
 
-function applySlackOverlay(map: maplibregl.Map, slackByTv: Map<string, number>) {
+function applySlackOverlay(map: maplibregl.Map, results: any[]) {
   if (!map || !map.isStyleLoaded()) return;
   const src = map.getSource('sectors') as maplibregl.GeoJSONSource | undefined;
   const base = (map as any).__sectors as GeoJSON.FeatureCollection | undefined;
   if (!src || !base) return;
 
-  // Merge slack values into sector GeoJSON
+  const slackByTv = new Map<string, { slack: number; capacity: number }>();
+  for (const result of results) {
+    const tvId = String(result?.traffic_volume_id ?? '').trim();
+    if (!tvId) continue;
+    const slackValue = typeof result?.slack === 'number' ? result.slack : Number(result?.slack);
+    const capacityValue =
+      typeof result?.capacity_per_bin === 'number'
+        ? result.capacity_per_bin
+        : Number(result?.capacity_per_bin);
+    slackByTv.set(tvId, {
+      slack: Number.isFinite(slackValue) ? slackValue : 0,
+      capacity: Number.isFinite(capacityValue) ? capacityValue : 0,
+    });
+  }
+
   const updated: GeoJSON.FeatureCollection = {
     type: 'FeatureCollection',
     features: (base.features as any[]).map((f: any) => {
       const tvId = String(f?.properties?.traffic_volume_id ?? '');
-      const sv = slackByTv.get(tvId) ?? 0;
-      return { ...f, properties: { ...f.properties, slack_value: sv } };
+      const slackInfo = slackByTv.get(tvId);
+      const capacity = slackInfo?.capacity ?? 0;
+      const slack = slackInfo?.slack ?? 0;
+      const hasData = !!slackInfo;
+      const ratio = hasData && capacity > 0 ? slack / capacity : 0;
+      const intensity = clamp01(Math.min(Math.abs(ratio), 1));
+      const opacity = !hasData
+        ? 0
+        : slack <= 0
+          ? 0.12 + intensity * 0.24
+          : 0.08 + intensity * 0.2;
+      return {
+        ...f,
+        properties: {
+          ...f.properties,
+          slack_value: slack,
+          slack_capacity: capacity,
+          slack_missing: !hasData,
+          slack_hotspot: hasData ? slack <= 0 : false,
+          slack_fill_opacity: opacity,
+        },
+      };
     })
   } as any;
-
-  // Compute max slack for color scaling
-  let sMax = 0;
-  for (const f of updated.features as any[]) {
-    const sv = Number(f?.properties?.slack_value ?? 0);
-    if (sv > sMax) sMax = sv;
-  }
-  if (sMax <= 0) sMax = 1; // avoid divide-by-zero and keep visible scale
 
   src.setData(updated as any);
   (map as any).__sectors = updated;
 
-  // Ensure layer exists and is visible
-  if (!map.getLayer('sector-slack')) {
+  if (!map.getLayer(SLACK_LAYER_ID)) {
     map.addLayer({
-      id: 'sector-slack',
+      id: SLACK_LAYER_ID,
       type: 'fill',
       source: 'sectors',
       layout: { visibility: 'none' },
-      paint: { 'fill-color': '#facc15', 'fill-opacity': 0.03 }
+      paint: { 'fill-color': '#22c55e', 'fill-opacity': 0 }
     }, TRAFFIC_VOLUME_LAYER_IDS.point);
   }
-  if (map.getLayer('sector-slack')) {
-    const colorExpr: any = [
-      'interpolate', ['linear'], ['to-number', ['coalesce', ['get', 'slack_value'], 0]],
-      0, '#a855f7',           // bright purple (congested)
-      sMax * 0.25, '#facc15', // yellow
-      sMax * 0.5, '#3b82f6',  // blue
-      sMax, '#22c55e'         // green (plenty of slack)
-    ];
-    map.setPaintProperty('sector-slack', 'fill-color', colorExpr as any);
-    map.setPaintProperty('sector-slack', 'fill-opacity', 0.05);
+  if (map.getLayer(SLACK_LAYER_ID)) {
+    map.setPaintProperty(
+      SLACK_LAYER_ID,
+      'fill-color',
+      [
+        'case',
+        ['boolean', ['get', 'slack_missing'], true],
+        '#22c55e',
+        ['boolean', ['get', 'slack_hotspot'], false],
+        '#ef4444',
+        '#22c55e',
+      ] as any,
+    );
+    map.setPaintProperty(
+      SLACK_LAYER_ID,
+      'fill-opacity',
+      [
+        'case',
+        ['boolean', ['get', 'slack_missing'], true],
+        0,
+        ['to-number', ['coalesce', ['get', 'slack_fill_opacity'], 0]],
+      ] as any,
+    );
   }
 }
 
 function hideSlackOverlay(map: maplibregl.Map) {
   if (!map || !map.isStyleLoaded()) return;
-  if (map.getLayer('sector-slack')) {
-    map.setLayoutProperty('sector-slack', 'visibility', 'none');
+  if (map.getLayer(SLACK_LAYER_ID)) {
+    map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'none');
   }
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }

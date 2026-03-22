@@ -10,7 +10,7 @@ import { addMinutesToHHMM } from "@/lib/time";
 type LeftControl1RegulationProps = { embedded?: boolean };
 
 export default function LeftControl1Regulation({ embedded = false }: LeftControl1RegulationProps) {
-  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, hotspotsMetadata, setT, setSelectedTrafficVolume } = useSimStore();
+  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, hotspotsMetadata, setT, setSelectedTrafficVolume, resourceStateEpoch } = useSimStore();
   
   // Sorting state for hotspot table
   type SortKey = 'tv' | 'time' | 'occ' | 'cap' | 'ex';
@@ -18,13 +18,15 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   // Show-more toggle for hotspot table
   const [showAllHotspots, setShowAllHotspots] = useState(false);
+  // Search filter for hotspot TV names
+  const [tvSearch, setTvSearch] = useState('');
   
   // Fetch hotspots when show hotspots is turned on
   useEffect(() => {
     if (showHotspots) {
       fetchHotspots();
     }
-  }, [showHotspots, fetchHotspots]);
+  }, [fetchHotspots, resourceStateEpoch, showHotspots]);
 
   // Utility function to parse time string (HH:MM) to seconds
   const parseTimeToSeconds = (timeStr: string): number => {
@@ -76,12 +78,24 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
     return list;
   }, [hotspots, sortBy, sortDir]);
 
+  // Filter hotspots by TV name search (supports glob: EG* → EGEAST, EGEALL…)
+  const filteredHotspots = useMemo(() => {
+    const p = tvSearch.trim();
+    if (!p) return sortedHotspots;
+    if (p.includes('*') || p.includes('?')) {
+      const rx = new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
+      return sortedHotspots.filter((h: any) => rx.test(String(h.traffic_volume_id ?? '')));
+    }
+    const lower = p.toLowerCase();
+    return sortedHotspots.filter((h: any) => String(h.traffic_volume_id ?? '').toLowerCase().includes(lower));
+  }, [sortedHotspots, tvSearch]);
+
   // Determine which hotspots to display based on show-more state
   const displayedHotspots = useMemo(() => {
-    if (showAllHotspots) return sortedHotspots;
-    return sortedHotspots.slice(0, 20);
-  }, [sortedHotspots, showAllHotspots]);
-  const hiddenHotspotCount = Math.max(0, sortedHotspots.length - displayedHotspots.length);
+    if (showAllHotspots) return filteredHotspots;
+    return filteredHotspots.slice(0, 20);
+  }, [filteredHotspots, showAllHotspots]);
+  const hiddenHotspotCount = Math.max(0, filteredHotspots.length - displayedHotspots.length);
 
   const hotspotBinMinutesRaw = Number(hotspotsMetadata?.time_bin_minutes);
   const hotspotBinMinutes = Number.isFinite(hotspotBinMinutesRaw) && hotspotBinMinutesRaw > 0
@@ -162,10 +176,22 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
 
         {showHotspots && (
           <div className="flex-1 flex flex-col">
-            <div className="flex justify-between items-center mb-3">
-              <h4 className="font-medium text-sm opacity-90">Hotspots</h4>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="relative flex-1">
+                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 opacity-40 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                </svg>
+                <input
+                  type="search"
+                  value={tvSearch}
+                  onChange={e => { setTvSearch(e.target.value); setShowAllHotspots(false); }}
+                  placeholder="Filter by TV name (EG*…)"
+                  className="w-full pl-6 pr-2 py-0.5 text-xs rounded-lg border border-white/20 bg-white/10 placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-white/30"
+                  aria-label="Filter hotspots by traffic volume name"
+                />
+              </div>
               {hotspotsLoading && (
-                <div className="flex items-center">
+                <div className="flex items-center shrink-0">
                   <div className="animate-spin rounded-full h-3 w-3 border border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
                   <ShimmeringText text="Loading..." className="ml-1 text-xs opacity-70" />
                 </div>
@@ -173,6 +199,9 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
             </div>
             
             {hotspots.length > 0 && !hotspotsLoading ? (
+              filteredHotspots.length === 0 ? (
+                <p className="text-xs opacity-70 text-center py-4">No hotspots match &ldquo;{tvSearch}&rdquo;</p>
+              ) : (
               <div className="rounded-lg border border-white/10 overflow-hidden flex flex-col">
                 <div className={embedded ? "overflow-x-auto" : "flex-1 overflow-y-auto no-scrollbar overflow-x-auto"}>
                   <table className="w-full text-xs">
@@ -254,7 +283,7 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                           </Fragment>
                         );
                       })}
-                    {!showAllHotspots && sortedHotspots.length > 20 && (
+                    {!showAllHotspots && filteredHotspots.length > 20 && (
                       <tr
                         className="border-t border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
                         onClick={() => setShowAllHotspots(true)}
@@ -263,7 +292,7 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                         <td className="p-2 text-center italic opacity-80" colSpan={4}>{formatSeeMoreLabel(hiddenHotspotCount)}</td>
                       </tr>
                     )}
-                    {showAllHotspots && sortedHotspots.length > 20 && (
+                    {showAllHotspots && filteredHotspots.length > 20 && (
                       <tr
                         className="border-t border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
                         onClick={() => setShowAllHotspots(false)}
@@ -276,6 +305,7 @@ export default function LeftControl1Regulation({ embedded = false }: LeftControl
                 </table>
                 </div>
               </div>
+              )
             ) : !hotspotsLoading ? (
               <p className="text-xs opacity-70 text-center py-4">No hotspots found</p>
             ) : null}

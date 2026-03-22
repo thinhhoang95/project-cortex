@@ -1,5 +1,10 @@
 const SECONDS_PER_DAY = 24 * 60 * 60;
 
+function normalizeSecondsToDay(totalSeconds: number): number {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  return ((seconds % SECONDS_PER_DAY) + SECONDS_PER_DAY) % SECONDS_PER_DAY;
+}
+
 export function hhmmToMinutesSafe(hhmm?: string): number {
   if (!hhmm) return 0;
   const [h, m] = String(hhmm).split(":").map((x) => Number(x));
@@ -39,10 +44,14 @@ function parseHHMMToSeconds(value?: string): number | null {
 }
 
 export function formatSecondsToHHMM(totalSeconds: number): string {
-  const seconds = Math.max(0, Math.min(SECONDS_PER_DAY, Math.round(totalSeconds)));
-  if (seconds >= SECONDS_PER_DAY) {
-    return "24:00";
-  }
+  const seconds = normalizeSecondsToDay(totalSeconds);
+  const hh = Math.floor(seconds / 3600);
+  const mm = Math.floor((seconds % 3600) / 60);
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+export function formatSecondsToExtendedHHMM(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
   const hh = Math.floor(seconds / 3600);
   const mm = Math.floor((seconds % 3600) / 60);
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
@@ -75,7 +84,7 @@ export function parseCompactHMS(s: string): number {
 }
 
 export function formatSecondsToHHMMSS(totalSeconds: number): string {
-  const seconds = Math.max(0, Math.min(24 * 3600 - 1, Math.floor(totalSeconds)));
+  const seconds = Math.max(0, Math.floor(totalSeconds));
   const hh = Math.floor(seconds / 3600);
   const mm = Math.floor((seconds % 3600) / 60);
   const ss = seconds % 60;

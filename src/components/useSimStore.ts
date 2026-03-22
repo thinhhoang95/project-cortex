@@ -2,7 +2,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse, AlternativeRouteResponse, AlternativeRouteSegment } from "@/lib/models";
+import { normalizeFlowBasketItemsStrict } from "@/lib/flightIdentity";
+import type { RerouteImpactResponse } from "@/lib/rerouteImpact";
 import type { RerouteFunnel, RerouteGeometryResult, RerouteObstacle } from "@/lib/rerouteGeometry";
+import type { ResourceStateSummary, ResourceStateSyncPayload } from "@/lib/resourceStates";
+import {
+  applyCumulativeDelaysToTrajectories,
+  computeTrajectoryRange,
+} from "@/lib/resourceStates";
 import { toggleOrderedTrafficVolumes } from "@/lib/multiTrafficVolumeSelection";
 import {
   collectAllProposalFlights,
@@ -11,6 +18,8 @@ import {
   ProposeRegulationsResponse,
   proposeRegulations,
 } from "@/lib/regulationProposals";
+import type { ProposalRegulationSource } from "@/lib/regulationProposalToPlan";
+import { TV_DCB_GLANCE_DEFAULT_HORIZON_MINUTES } from "@/lib/tvDcbGlance";
 
 interface User {
   email: string;
@@ -64,13 +73,17 @@ function isTimeInBin(t: number, timeBin: string): boolean {
   return t >= startSeconds && t < endSeconds;
 }
 
-interface Regulation {
+export interface Regulation {
   id: string;
   trafficVolume: string;
   activeTimeWindowFrom: number;
   activeTimeWindowTo: number;
-  flightCallsigns: string[];
+  flightIds: string[];
+  flightCallsigns?: string[];
+  resourceDate: string | null;
+  resourceStateId: string | null;
   rate: number;
+  proposalSource?: ProposalRegulationSource | null;
   createdAt: number;
 }
 
@@ -104,6 +117,16 @@ type State = {
   speed: number;
   playing: boolean;
   resourceDate: string | null; // canonical operation date in YYYY-MM-DD
+  resourceStateSelectedId: string | null;
+  resourceStateHeadId: string | null;
+  resourceStateZeroId: string | null;
+  resourceStateStates: ResourceStateSummary[];
+  resourceStateHistoryGeneration: number;
+  resourceStateSelectedCumulativeDelaysMin: Record<string, number>;
+  resourceStatePendingId: string | null;
+  resourceStateError: string | null;
+  resourceStateLoading: boolean;
+  resourceStateEpoch: number;
   // Weather overlay selection
   weatherOverlay: 'none' | 'surface-precip';
   showFlightLineLabels: boolean;
@@ -119,6 +142,7 @@ type State = {
   selectedCollapsedSectorData: { properties: SectorFeatureProps } | null;
   flLowerBound: number;
   flUpperBound: number;
+  baselineFlights: Trajectory[];
   flights: Trajectory[];
   focusMode: boolean;
   focusFlightIds: Set<string>;
@@ -145,6 +169,7 @@ type State = {
   // Flow preview (hover) state
   flowPreviewGroupId: string | null;
   flowPreviewFlightId: string | null;
+  flightLinePreviewFlightIds: Set<string>;
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationPreviewActive: boolean;
@@ -178,6 +203,7 @@ type State = {
   slackSign: "minus" | "plus";
   isFetchingSlack: boolean;
   deltaMin: number;
+  glanceHorizonMinutes: number;
   // Reroute state
   rerouteBaseFlightIds: string[];
   rerouteTvBaselineFlightIds: string[];
@@ -198,6 +224,9 @@ type State = {
   rerouteGeometryComputing: boolean;
   rerouteGeometryError: string | null;
   reroutePreviewMode: ReroutePreviewMode;
+  rerouteImpactResult: RerouteImpactResponse | null;
+  isRerouteImpactResultsOpen: boolean;
+  rerouteImpactScenarioSignature: string | null;
   regulationCatcherMode: RegulationCatcherMode;
   regulationCatcherTimeframe: RegulationCatcherTimeframe;
   regulationCatcherActive: boolean;
@@ -213,6 +242,11 @@ type State = {
   setSpeed: (v: number) => void;
   setResourceDate: (date: string | null) => void;
   clearResourceDate: () => void;
+  setResourceStateLoading: (loading: boolean) => void;
+  setResourceStatePendingId: (stateId: string | null) => void;
+  setResourceStateError: (error: string | null) => void;
+  syncResourceState: (payload: ResourceStateSyncPayload) => void;
+  clearResourceState: () => void;
   setWeatherOverlay: (overlay: 'none' | 'surface-precip') => void;
   setShowFlightLineLabels: (show: boolean) => void;
   setShowCallsigns: (show: boolean) => void;
@@ -227,6 +261,7 @@ type State = {
   setFlLowerBound: (fl: number) => void;
   setFlUpperBound: (fl: number) => void;
   setFlRange: (lower: number, upper: number) => void;
+  setBaselineFlights: (flights: Trajectory[]) => Trajectory[];
   setFlights: (flights: Trajectory[]) => void;
   setFocusMode: (enabled: boolean) => void;
   setFocusFlightIds: (flightIds: Set<string>) => void;
@@ -245,6 +280,7 @@ type State = {
   setFlowError: (error: string | null) => void;
   setFlowPreviewGroupId: (groupId: string | null) => void;
   setFlowPreviewFlightId: (flightId: string | null) => void;
+  setFlightLinePreviewFlightIds: (flightIds: Set<string>) => void;
   setFlowColorByCommunity: (m: Record<string, string> | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
@@ -274,6 +310,7 @@ type State = {
   setSlackSign: (sign: "minus" | "plus") => void;
   setIsFetchingSlack: (fetching: boolean) => void;
   setDeltaMin: (delta: number) => void;
+  setGlanceHorizonMinutes: (minutes: number) => void;
   // Reroute actions
   setRerouteBaseFlightIds: (ids: string[], source?: RerouteBaseListSource) => void;
   setRerouteBaseSelectedFlightIds: (ids: Set<string>) => void;
@@ -301,6 +338,9 @@ type State = {
   setRerouteGeometryComputing: (computing: boolean) => void;
   setRerouteGeometryError: (error: string | null) => void;
   toggleReroutePreviewMode: () => void;
+  setRerouteImpactResult: (result: RerouteImpactResponse | null) => void;
+  setIsRerouteImpactResultsOpen: (open: boolean) => void;
+  setRerouteImpactScenarioSignature: (signature: string | null) => void;
   setRegulationCatcherMode: (mode: RegulationCatcherMode) => void;
   setRegulationCatcherTimeframe: (timeframe: RegulationCatcherTimeframe) => void;
   cancelRegulationCatcher: () => void;
@@ -355,6 +395,16 @@ const defaultState: Pick<State,
   | 'playing'
   | 'speed'
   | 'resourceDate'
+  | 'resourceStateSelectedId'
+  | 'resourceStateHeadId'
+  | 'resourceStateZeroId'
+  | 'resourceStateStates'
+  | 'resourceStateHistoryGeneration'
+  | 'resourceStateSelectedCumulativeDelaysMin'
+  | 'resourceStatePendingId'
+  | 'resourceStateError'
+  | 'resourceStateLoading'
+  | 'resourceStateEpoch'
   | 'weatherOverlay'
   | 'showFlightLineLabels'
   | 'showCallsigns'
@@ -369,6 +419,7 @@ const defaultState: Pick<State,
   | 'selectedCollapsedSectorData'
   | 'flLowerBound'
   | 'flUpperBound'
+  | 'baselineFlights'
   | 'flights'
   | 'focusMode'
   | 'focusFlightIds'
@@ -392,6 +443,7 @@ const defaultState: Pick<State,
   | 'flowError'
   | 'flowPreviewGroupId'
   | 'flowPreviewFlightId'
+  | 'flightLinePreviewFlightIds'
   | 'regulationTargetFlightIds'
   | 'regulationPreviewActive'
   | 'regulationVisibleFlightIds'
@@ -422,6 +474,7 @@ const defaultState: Pick<State,
   | 'slackSign'
   | 'isFetchingSlack'
   | 'deltaMin'
+  | 'glanceHorizonMinutes'
   | 'rerouteBaseFlightIds'
   | 'rerouteTvBaselineFlightIds'
   | 'rerouteBaseSelectedFlightIds'
@@ -441,6 +494,9 @@ const defaultState: Pick<State,
   | 'rerouteGeometryComputing'
   | 'rerouteGeometryError'
   | 'reroutePreviewMode'
+  | 'rerouteImpactResult'
+  | 'isRerouteImpactResultsOpen'
+  | 'rerouteImpactScenarioSignature'
   | 'regulationCatcherMode'
   | 'regulationCatcherTimeframe'
   | 'regulationCatcherActive'
@@ -452,6 +508,16 @@ const defaultState: Pick<State,
   playing: false,
   speed: 1,
   resourceDate: null,
+  resourceStateSelectedId: null,
+  resourceStateHeadId: null,
+  resourceStateZeroId: null,
+  resourceStateStates: [],
+  resourceStateHistoryGeneration: 0,
+  resourceStateSelectedCumulativeDelaysMin: {},
+  resourceStatePendingId: null,
+  resourceStateError: null,
+  resourceStateLoading: false,
+  resourceStateEpoch: 0,
   weatherOverlay: 'none',
   showFlightLineLabels: false,
   showCallsigns: false,
@@ -466,6 +532,7 @@ const defaultState: Pick<State,
   selectedCollapsedSectorData: null,
   flLowerBound: 0,
   flUpperBound: 500,
+  baselineFlights: [],
   flights: [],
   focusMode: false,
   focusFlightIds: new Set<string>(),
@@ -489,6 +556,7 @@ const defaultState: Pick<State,
   flowError: null,
   flowPreviewGroupId: null,
   flowPreviewFlightId: null,
+  flightLinePreviewFlightIds: new Set<string>(),
   regulationTargetFlightIds: new Set<string>(),
   regulationPreviewActive: false,
   regulationVisibleFlightIds: [],
@@ -519,6 +587,7 @@ const defaultState: Pick<State,
   slackSign: "minus",
   isFetchingSlack: false,
   deltaMin: 0,
+  glanceHorizonMinutes: TV_DCB_GLANCE_DEFAULT_HORIZON_MINUTES,
   rerouteBaseFlightIds: [],
   rerouteTvBaselineFlightIds: [],
   rerouteBaseSelectedFlightIds: new Set<string>(),
@@ -538,6 +607,9 @@ const defaultState: Pick<State,
   rerouteGeometryComputing: false,
   rerouteGeometryError: null,
   reroutePreviewMode: "rerouted",
+  rerouteImpactResult: null,
+  isRerouteImpactResultsOpen: false,
+  rerouteImpactScenarioSignature: null,
   regulationCatcherMode: "off",
   regulationCatcherTimeframe: "1h",
   regulationCatcherActive: false,
@@ -560,6 +632,35 @@ function cloneRerouteFunnel(funnel: RerouteFunnel): RerouteFunnel {
       (point) => [Number(point[0]), Number(point[1])] as [number, number]
     ),
   };
+}
+
+function clampTimeToRange(t: number, range: [number, number]): number {
+  if (!Number.isFinite(t)) return range[0];
+  if (t < range[0]) return range[0];
+  if (t > range[1]) return range[1];
+  return t;
+}
+
+function deriveFlightsAndRange(
+  baselineFlights: Trajectory[],
+  cumulativeDelaysMin: Record<string, number>,
+): { flights: Trajectory[]; range: [number, number] | null } {
+  const flights = applyCumulativeDelaysToTrajectories(baselineFlights, cumulativeDelaysMin);
+  return {
+    flights,
+    range: computeTrajectoryRange(flights),
+  };
+}
+
+function delayMapsEqual(a: Record<string, number>, b: Record<string, number>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 }
 
 export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'resourceDate'>>((set, get) => {
@@ -613,6 +714,96 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     });
   };
 
+  const buildResourceStateReset = (state: State) => {
+    const { flights, range } = deriveFlightsAndRange(state.baselineFlights, {});
+    const nextRange = range ?? state.range;
+
+    return {
+      resourceStateSelectedId: null,
+      resourceStateHeadId: null,
+      resourceStateZeroId: null,
+      resourceStateStates: [] as ResourceStateSummary[],
+      resourceStateHistoryGeneration: 0,
+      resourceStateSelectedCumulativeDelaysMin: {},
+      resourceStatePendingId: null,
+      resourceStateError: null,
+      resourceStateLoading: false,
+      resourceStateEpoch: state.resourceStateEpoch + 1,
+      regulationTargetFlightIds: new Set<string>(),
+      regulationPreviewActive: false,
+      regulationVisibleFlightIds: [],
+      regulationListedFlightIds: [],
+      regulationEditPayload: null,
+      flights,
+      range: nextRange,
+      t: clampTimeToRange(state.t, nextRange),
+    };
+  };
+
+  const buildResourceStateSync = (state: State, payload: ResourceStateSyncPayload) => {
+    const nextDelays = payload.selectedCumulativeDelaysMin ?? {};
+    const { flights, range } = deriveFlightsAndRange(state.baselineFlights, nextDelays);
+    const nextRange = range ?? state.range;
+    const selectionChanged = state.resourceStateSelectedId !== payload.selectedStateId;
+    const generationChanged = state.resourceStateHistoryGeneration !== payload.stateHistoryGeneration;
+    const delayMapChanged = !delayMapsEqual(state.resourceStateSelectedCumulativeDelaysMin, nextDelays);
+    const invalidateServerDerivedState = selectionChanged || generationChanged || delayMapChanged;
+
+    return {
+      resourceStateSelectedId: payload.selectedStateId,
+      resourceStateHeadId: payload.headStateId,
+      resourceStateZeroId: payload.stateZeroId,
+      resourceStateStates: payload.states.map((summary) => ({
+        ...summary,
+        is_selected: summary.state_id === payload.selectedStateId,
+        is_head: summary.state_id === payload.headStateId,
+        is_state_zero: summary.state_id === payload.stateZeroId,
+      })),
+      resourceStateHistoryGeneration: payload.stateHistoryGeneration,
+      resourceStateSelectedCumulativeDelaysMin: { ...nextDelays },
+      resourceStatePendingId: null,
+      resourceStateError: null,
+      resourceStateLoading: false,
+      resourceStateEpoch:
+        selectionChanged || generationChanged || delayMapChanged
+          ? state.resourceStateEpoch + 1
+          : state.resourceStateEpoch,
+      hotspots: invalidateServerDerivedState ? [] : state.hotspots,
+      hotspotsMetadata: invalidateServerDerivedState ? null : state.hotspotsMetadata,
+      proposalLoading: invalidateServerDerivedState ? false : state.proposalLoading,
+      proposalError: invalidateServerDerivedState ? null : state.proposalError,
+      proposalQuery: invalidateServerDerivedState ? null : state.proposalQuery,
+      proposalResults: invalidateServerDerivedState ? null : state.proposalResults,
+      proposalPreviewActive: invalidateServerDerivedState ? false : state.proposalPreviewActive,
+      proposalPreviewFlightIds: invalidateServerDerivedState ? new Set<string>() : state.proposalPreviewFlightIds,
+      proposalPreviewProposalId: invalidateServerDerivedState ? null : state.proposalPreviewProposalId,
+      proposalPreviewAll: invalidateServerDerivedState ? false : state.proposalPreviewAll,
+      proposalHoverFlightIds: invalidateServerDerivedState ? new Set<string>() : state.proposalHoverFlightIds,
+      proposalPinnedProposals: invalidateServerDerivedState ? new Set<string>() : state.proposalPinnedProposals,
+      proposalPinnedFlows: invalidateServerDerivedState ? new Set<string>() : state.proposalPinnedFlows,
+      proposalPinnedFlightIds: invalidateServerDerivedState ? new Set<string>() : state.proposalPinnedFlightIds,
+      regulationTargetFlightIds: invalidateServerDerivedState ? new Set<string>() : state.regulationTargetFlightIds,
+      regulationPreviewActive: invalidateServerDerivedState ? false : state.regulationPreviewActive,
+      regulationVisibleFlightIds: invalidateServerDerivedState ? [] : state.regulationVisibleFlightIds,
+      regulationListedFlightIds: invalidateServerDerivedState ? [] : state.regulationListedFlightIds,
+      regulationEditPayload: invalidateServerDerivedState ? null : state.regulationEditPayload,
+      regulationSimulationResult: invalidateServerDerivedState ? null : state.regulationSimulationResult,
+      isResultsOpen: invalidateServerDerivedState ? false : state.isResultsOpen,
+      flowCommunities: invalidateServerDerivedState ? null : state.flowCommunities,
+      flowGroups: invalidateServerDerivedState ? null : state.flowGroups,
+      flowColorByCommunity: invalidateServerDerivedState ? null : state.flowColorByCommunity,
+      flowPreviewGroupId: invalidateServerDerivedState ? null : state.flowPreviewGroupId,
+      flowPreviewFlightId: invalidateServerDerivedState ? null : state.flowPreviewFlightId,
+      flightLinePreviewFlightIds: invalidateServerDerivedState ? new Set<string>() : state.flightLinePreviewFlightIds,
+      rerouteImpactResult: invalidateServerDerivedState ? null : state.rerouteImpactResult,
+      isRerouteImpactResultsOpen: invalidateServerDerivedState ? false : state.isRerouteImpactResultsOpen,
+      rerouteImpactScenarioSignature: invalidateServerDerivedState ? null : state.rerouteImpactScenarioSignature,
+      flights,
+      range: nextRange,
+      t: clampTimeToRange(state.t, nextRange),
+    };
+  };
+
   return {
     ...defaultState,
     setUser: (user) => set({ user }),
@@ -646,8 +837,43 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setRange: (r, t = get().t) => set({ range: r, t }),
   setPlaying: (p) => set({ playing: p }),
   setSpeed: (v) => set({ speed: v }),
-  setResourceDate: (resourceDate) => set({ resourceDate: resourceDate ? String(resourceDate).trim() : null }),
-  clearResourceDate: () => set({ resourceDate: null }),
+  setResourceDate: (resourceDate) =>
+    set((state) => ({
+      resourceDate: resourceDate ? String(resourceDate).trim() : null,
+      ...buildResourceStateReset(state),
+      baselineFlights: [],
+      flights: [],
+      range: defaultState.range,
+      t: defaultState.t,
+      regulations: [],
+      flowBasket: [],
+      targetCells: [],
+      rerouteBaseFlightIds: [],
+      rerouteTvBaselineFlightIds: [],
+      rerouteBaseSelectedFlightIds: new Set<string>(),
+      rerouteBaseListLastSource: null,
+    })),
+  clearResourceDate: () =>
+    set((state) => ({
+      resourceDate: null,
+      ...buildResourceStateReset(state),
+      baselineFlights: [],
+      flights: [],
+      range: defaultState.range,
+      t: defaultState.t,
+      regulations: [],
+      flowBasket: [],
+      targetCells: [],
+      rerouteBaseFlightIds: [],
+      rerouteTvBaselineFlightIds: [],
+      rerouteBaseSelectedFlightIds: new Set<string>(),
+      rerouteBaseListLastSource: null,
+    })),
+  setResourceStateLoading: (loading) => set({ resourceStateLoading: loading }),
+  setResourceStatePendingId: (stateId) => set({ resourceStatePendingId: stateId }),
+  setResourceStateError: (error) => set({ resourceStateError: error, resourceStatePendingId: null, resourceStateLoading: false }),
+  syncResourceState: (payload) => set((state) => buildResourceStateSync(state, payload)),
+  clearResourceState: () => set((state) => buildResourceStateReset(state)),
   setWeatherOverlay: (overlay) => set({ weatherOverlay: overlay }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
@@ -732,6 +958,19 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setFlLowerBound: (fl) => set({ flLowerBound: fl }),
   setFlUpperBound: (fl) => set({ flUpperBound: fl }),
   setFlRange: (lower, upper) => set({ flLowerBound: lower, flUpperBound: upper }),
+  setBaselineFlights: (baselineFlights) => {
+    const state = get();
+    const { flights, range } = deriveFlightsAndRange(baselineFlights, state.resourceStateSelectedCumulativeDelaysMin);
+    const nextRange = range ?? state.range;
+    const nextT = range ? clampTimeToRange(state.t, nextRange) : state.t;
+    set({
+      baselineFlights,
+      flights,
+      range: nextRange,
+      t: nextT,
+    });
+    return flights;
+  },
   setFlights: (flights) => set({ flights }),
   setFocusMode: (enabled) => set({ focusMode: enabled }),
   setFocusFlightIds: (flightIds) => set({ focusFlightIds: flightIds }),
@@ -850,11 +1089,13 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setFlowError: (error) => set({ flowError: error }),
   setFlowPreviewGroupId: (groupId) => set({ flowPreviewGroupId: groupId }),
   setFlowPreviewFlightId: (flightId) => set({ flowPreviewFlightId: flightId }),
+  setFlightLinePreviewFlightIds: (flightIds) => set({ flightLinePreviewFlightIds: flightIds }),
   setFlowColorByCommunity: (m) => set({ flowColorByCommunity: m }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   setRegulationListedFlightIds: (ids) => set({ regulationListedFlightIds: ids }),
   setRegulationPreviewActive: (active) => set({ regulationPreviewActive: active }),
   fetchHotspots: async (threshold: number = 0.0) => {
+    const requestEpoch = get().resourceStateEpoch;
     set({ hotspotsLoading: true });
     try {
       const { authFetch } = await import("@/lib/auth");
@@ -868,7 +1109,11 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       if (data.error) {
         console.warn('Hotspot API warning:', data.error);
       }
-      
+
+      if (get().resourceStateEpoch !== requestEpoch) {
+        return;
+      }
+
       // Hotspots are already sorted by z_max in the API
       set({
         hotspots: data.hotspots || [],
@@ -876,9 +1121,14 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       });
     } catch (error) {
       console.error('Error fetching hotspots:', error);
+      if (get().resourceStateEpoch !== requestEpoch) {
+        return;
+      }
       set({ hotspots: [], hotspotsMetadata: null });
     } finally {
-      set({ hotspotsLoading: false });
+      if (get().resourceStateEpoch === requestEpoch) {
+        set({ hotspotsLoading: false });
+      }
     }
   },
   getActiveHotspots: () => {
@@ -903,7 +1153,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   addRegulation: (regulation) => {
     const newRegulation: Regulation = {
       ...regulation,
-      id: `REG${Date.now()}`,
+      id: `REG${Date.now()}${Math.floor(Math.random() * 1000)}`,
       createdAt: Date.now()
     };
     set(state => ({ regulations: [...state.regulations, newRegulation] }));
@@ -914,6 +1164,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setIsRegulationPanelOpen: (open) => set({ isRegulationPanelOpen: open }),
   setIsRegulationProposalPanelOpen: (open) => set({ isRegulationProposalPanelOpen: open }),
   fetchRegulationProposals: async (q) => {
+    const requestEpoch = get().resourceStateEpoch;
     set({
       isRegulationProposalPanelOpen: true,
       proposalLoading: true,
@@ -944,6 +1195,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
         body.resolution = q.resolution;
       }
       const data = await proposeRegulations(body);
+      if (get().resourceStateEpoch !== requestEpoch) {
+        return;
+      }
       set({
         proposalResults: data,
         proposalLoading: false,
@@ -951,6 +1205,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       });
       applyProposalPreview({ hover: new Set<string>(), proposalId: null, previewAll: false });
     } catch (error: any) {
+      if (get().resourceStateEpoch !== requestEpoch) {
+        return;
+      }
       set({
         proposalLoading: false,
         proposalError: error?.message || 'Failed to fetch regulation proposals',
@@ -1035,6 +1292,13 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setSlackSign: (sign) => set({ slackSign: sign }),
   setIsFetchingSlack: (fetching) => set({ isFetchingSlack: fetching }),
   setDeltaMin: (delta) => set({ deltaMin: delta }),
+  setGlanceHorizonMinutes: (minutes) =>
+    set({
+      glanceHorizonMinutes:
+        Number.isFinite(minutes) && minutes > 0
+          ? Math.round(minutes)
+          : TV_DCB_GLANCE_DEFAULT_HORIZON_MINUTES,
+    }),
   setRerouteBaseFlightIds: (ids, source = "tv") => {
     const next: string[] = [];
     const seen = new Set<string>();
@@ -1312,6 +1576,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     set((state) => ({
       reroutePreviewMode: state.reroutePreviewMode === "rerouted" ? "current" : "rerouted",
     })),
+  setRerouteImpactResult: (result) => set({ rerouteImpactResult: result }),
+  setIsRerouteImpactResultsOpen: (open) => set({ isRerouteImpactResultsOpen: open }),
+  setRerouteImpactScenarioSignature: (signature) =>
+    set({ rerouteImpactScenarioSignature: signature ? String(signature) : null }),
   setRegulationCatcherMode: (mode) =>
     set({
       regulationCatcherMode: mode,
@@ -1327,7 +1595,21 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   // Reset all stateful values back to defaults (used on page navigation)
   resetAll: () => {
     selectedTvDataCache.clear();
-    set((state) => ({ ...defaultState, user: state.user, resourceDate: state.resourceDate }));
+    set((state) => ({
+      ...defaultState,
+      user: state.user,
+      resourceDate: state.resourceDate,
+      resourceStateSelectedId: state.resourceStateSelectedId,
+      resourceStateHeadId: state.resourceStateHeadId,
+      resourceStateZeroId: state.resourceStateZeroId,
+      resourceStateStates: state.resourceStateStates,
+      resourceStateHistoryGeneration: state.resourceStateHistoryGeneration,
+      resourceStateSelectedCumulativeDelaysMin: state.resourceStateSelectedCumulativeDelaysMin,
+      resourceStatePendingId: state.resourceStatePendingId,
+      resourceStateError: state.resourceStateError,
+      resourceStateLoading: state.resourceStateLoading,
+      resourceStateEpoch: state.resourceStateEpoch,
+    }));
   }
   ,
   // Target Cells actions
@@ -1372,7 +1654,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     const createdAt = Date.now();
     const colorIdx = get().flowBasket.length % palette.length;
     const color = palette[colorIdx];
-    const normalized: FlowBasketItem[] = normalizeBasketItems(items);
+    const normalized: FlowBasketItem[] = normalizeBasketItems(items, get().flights);
     set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, createdAt }] }));
     return id;
   },
@@ -1385,7 +1667,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     const createdAt = Date.now();
     const colorIdx = get().flowBasket.length % palette.length;
     const color = palette[colorIdx];
-    const normalized: FlowBasketItem[] = normalizeBasketItems(items);
+    const normalized: FlowBasketItem[] = normalizeBasketItems(items, get().flights);
     set(state => ({ flowBasket: [...state.flowBasket, { id, name: name || `Flow ${state.flowBasket.length+1}`, color, items: normalized, periodFrom, periodTo, createdAt }] }));
     return id;
   },
@@ -1395,7 +1677,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   removeFlowBasket: (id: string) => set(state => ({ flowBasket: state.flowBasket.filter(f => f.id !== id) })),
   addFlightsToBasketFlow: (id: string, items: Array<string | FlowBasketItem>) => {
     if (!items || items.length === 0) return;
-    const normalized = normalizeBasketItems(items);
+    const normalized = normalizeBasketItems(items, get().flights);
     set(state => ({
       flowBasket: state.flowBasket.map(f => {
         if (f.id !== id) return f;
@@ -1442,19 +1724,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
 }
 ));
 
-function normalizeBasketItems(items: Array<string | FlowBasketItem> | undefined): FlowBasketItem[] {
-  const byKey = new Map<string, FlowBasketItem>();
-  for (const it of items || []) {
-    if (typeof it === 'string') {
-      const key = String(it);
-      byKey.set(key, { key });
-    } else if (it && typeof it === 'object' && 'key' in it) {
-      const key = String((it as any).key);
-      const prev = byKey.get(key) || { key };
-      byKey.set(key, { ...prev, ...it, key });
-    }
-  }
-  return Array.from(byKey.values());
+function normalizeBasketItems(items: Array<string | FlowBasketItem> | undefined, flights: Trajectory[]): FlowBasketItem[] {
+  return normalizeFlowBasketItemsStrict(items, flights);
 }
 
 // Compute a deterministic community -> color mapping so UI and map use identical colors

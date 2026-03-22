@@ -51,7 +51,7 @@ const STATUS_TONE_CLASSES: Record<StatusTone, { badge: string; dot: string }> = 
   },
   neutral: {
     badge:
-      'border border-[color:var(--panel-divider)] bg-[var(--panel-bg)] text-[color:var(--panel-text-muted)]',
+      'border border-white/10 bg-white/5 text-white/50',
     dot: 'bg-slate-300/70',
   },
 };
@@ -144,29 +144,29 @@ export default function AgentRunResultsList({
 
   return (
     <section
-      className={`glass-panel relative flex h-full min-h-[260px] flex-col rounded-[24px] text-left text-[color:var(--panel-text-primary)] backdrop-blur-xl shadow-[var(--panel-shadow)] ${className} overflow-y-auto no-scrollbar p-6`}
+      className={`relative flex h-full min-h-[260px] flex-col rounded-[24px] text-left text-white bg-transparent ${className} overflow-y-auto no-scrollbar p-6`}
     >
 
-      <h3 className="mt-2 text-xl font-semibold leading-tight text-[color:var(--panel-text-primary)]">
+      <h3 className="mt-2 text-xl font-semibold leading-tight text-white">
         Recent Runs
       </h3>
 
       <div className="mt-5 flex-1">
         {loading ? (
-          <div className="glass-panel-muted flex min-h-[180px] flex-col items-center justify-center rounded-2xl px-6 py-12">
-            <div className="mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[color:var(--panel-divider)] border-t-transparent" />
+          <div className="flex min-h-[180px] flex-col items-center justify-center rounded-[20px] bg-white/[0.02] border border-white/5 px-6 py-12">
+            <div className="mb-4 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-transparent" />
             <ShimmeringText
               text="Loading agent runs…"
-              className="text-sm text-[color:var(--panel-text-muted)] font-normal"
+              className="text-sm text-white/50 font-normal"
               theme="dark"
             />
           </div>
         ) : error ? (
-          <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
+          <div className="rounded-[20px] border border-rose-400/20 bg-rose-500/10 px-5 py-4 text-sm text-rose-200">
             {error}
           </div>
         ) : runs.length === 0 ? (
-          <div className="glass-panel-muted flex min-h-[180px] flex-col justify-center rounded-2xl px-5 py-8 text-sm leading-relaxed text-[color:var(--panel-text-muted)]">
+          <div className="flex min-h-[180px] flex-col justify-center rounded-[20px] bg-white/[0.02] border border-white/5 px-5 py-8 text-sm leading-relaxed text-white/50">
             No agent runs yet. Once the agent finishes an optimization run, the summary will appear here.
           </div>
         ) : (
@@ -183,7 +183,7 @@ export default function AgentRunResultsList({
               const hasImprovement =
                 typeof improvementValue === 'number' && !Number.isNaN(improvementValue);
               const improvementColor = !hasImprovement
-                ? 'text-[color:var(--panel-text-muted)]'
+                ? 'text-white/40'
                 : improvementValue >= 0
                   ? 'text-emerald-300'
                   : 'text-rose-300';
@@ -198,14 +198,14 @@ export default function AgentRunResultsList({
                         onRunSelect?.(ref);
                       }
                     }}
-                    className="glass-panel-muted w-full rounded-2xl px-5 py-4 text-left transition-all duration-200 hover:bg-[var(--panel-bg-strong)] hover:shadow-[var(--panel-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                    className="group w-full rounded-[20px] bg-white/[0.03] border border-white/10 px-5 py-4 text-left transition-all duration-200 hover:bg-white/[0.06] hover:border-white/20 hover:shadow-[0_0_20px_-5px_rgba(255,255,255,0.1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60"
                     aria-label={`Show summary for ${methodologyMeta?.label ?? 'agent'} run ${run.run_id}`}
                   >
                     <div className="flex flex-wrap items-stretch justify-between gap-4">
                       <div className="flex flex-col gap-3">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] uppercase text-[color:var(--panel-text-muted)]">
+                            <span className="text-[10px] uppercase text-white/50">
                               Run Id
                             </span>
                             {methodologyMeta ? (
@@ -216,10 +216,10 @@ export default function AgentRunResultsList({
                               </span>
                             ) : null}
                           </div>
-                          <p className="mt-2 text-lg font-semibold leading-6 text-[color:var(--panel-text-primary)]">
+                          <p className="mt-2 text-lg font-semibold leading-6 text-white group-hover:text-purple-100 transition-colors">
                             {run.run_id.toUpperCase()}
                           </p>
-                          <p className="mt-1 text-xs text-[color:var(--panel-text-muted)]">
+                          <p className="mt-1 text-xs text-white/50">
                             {methodologyMeta?.subtitle ?? 'Optimization run'}
                           </p>
                         </div>
@@ -236,13 +236,13 @@ export default function AgentRunResultsList({
                         </span>
                       </div>
                       <div className="flex flex-col justify-center gap-2 text-right">
-                        <span className="text-[10px] uppercase text-[color:var(--panel-text-muted)]">
+                        <span className="text-[10px] uppercase text-white/50">
                           Best Total Δ
                         </span>
-                        <span className={`text-2xl font-semibold leading-none ${improvementColor}`}>
+                        <span className={`text-2xl font-semibold leading-none ${improvementColor} transition-colors group-hover:brightness-125`}>
                           {formatImprovement(run.best_total_improvement)}
                         </span>
-                        <span className="text-xs text-[color:var(--panel-text-muted)]">
+                        <span className="text-xs text-white/50">
                           {methodology === 'sa' && !hasImprovement
                             ? 'cached summary unavailable'
                             : 'vs. baseline scenario'}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Trajectory } from "./models";
-import { getCurrentActiveFlightIdsInFlRange } from "./flightVisibility";
+import { getCurrentActiveFlightIdsInFlRange, getFlightLineVisibilitySnapshot } from "./flightVisibility";
 
 function makeTrajectory(
   flightId: string,
@@ -53,5 +53,31 @@ describe("getCurrentActiveFlightIdsInFlRange", () => {
 
     const flZero = getCurrentActiveFlightIdsInFlRange(tracks, 50, 0, 0);
     expect(flZero.has("MISSING_ALT")).toBe(true);
+  });
+});
+
+describe("getFlightLineVisibilitySnapshot", () => {
+  it("admits inactive flights only when their trajectory overlaps the FL band", () => {
+    const tracks: Trajectory[] = [
+      makeTrajectory("ACTIVE_IN", [0, 100], [[0, 0, 20000], [1, 1, 20000]]),
+      makeTrajectory("ACTIVE_OUT", [0, 100], [[0, 0, 32000], [1, 1, 32000]]),
+      makeTrajectory("INACTIVE_OVERLAP", [200, 300], [[0, 0, 18000], [1, 1, 26000]]),
+      makeTrajectory("INACTIVE_OUT", [200, 300], [[0, 0, 32000], [1, 1, 34000]]),
+    ];
+
+    const snapshot = getFlightLineVisibilitySnapshot(tracks, 50, 190, 250);
+
+    expect(Array.from(snapshot.activeInsideRangeIds)).toEqual(["ACTIVE_IN"]);
+    expect(Array.from(snapshot.listDrivenEligibleIds)).toEqual(["ACTIVE_IN", "INACTIVE_OVERLAP"]);
+  });
+
+  it("uses FL000 fallback when evaluating inactive trajectories with missing altitude", () => {
+    const tracks: Trajectory[] = [
+      makeTrajectory("INACTIVE_NO_ALT", [200, 300], [[0, 0], [1, 1]]),
+    ];
+
+    const snapshot = getFlightLineVisibilitySnapshot(tracks, 50, 0, 0);
+
+    expect(Array.from(snapshot.listDrivenEligibleIds)).toEqual(["INACTIVE_NO_ALT"]);
   });
 });

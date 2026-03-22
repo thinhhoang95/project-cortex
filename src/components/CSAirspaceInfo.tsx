@@ -99,6 +99,7 @@ export default function CSAirspaceInfo() {
     resourceDate,
     t,
     flights,
+    resourceStateEpoch,
     focusMode,
     setFocusMode,
     setFocusFlightIds,
@@ -117,6 +118,16 @@ export default function CSAirspaceInfo() {
   const [interestWindowLength, setInterestWindowLength] = useState<string>("1h");
   const [expanded, setExpanded] = useState(false);
   const MAX_VISIBLE = 20;
+
+  useEffect(() => {
+    setOccupancyData(null);
+    setOrderedFlightsData(null);
+    setError(null);
+    setFlightListError(null);
+    setLoading(false);
+    setFlightListLoading(false);
+    setExpanded(false);
+  }, [resourceStateEpoch]);
 
   const flightLevelRange = formatFlightLevelRange(
     selectedCollapsedSectorData?.properties?.min_fl ?? sectorMetadata?.min_fl,
@@ -246,7 +257,7 @@ export default function CSAirspaceInfo() {
     return () => {
       cancelled = true;
     };
-  }, [resourceDate, sectorMetadata?.metadata?.open_times_date, selectedCollapsedSector]);
+  }, [resourceDate, resourceStateEpoch, sectorMetadata?.metadata?.open_times_date, selectedCollapsedSector]);
 
   useEffect(() => {
     if (!selectedCollapsedSector) {
@@ -290,7 +301,7 @@ export default function CSAirspaceInfo() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCollapsedSector, t]);
+  }, [resourceStateEpoch, selectedCollapsedSector, t]);
 
   const baseChartData: ChartDataPoint[] = occupancyData
     ? Object.entries(occupancyData.occupancy_counts)

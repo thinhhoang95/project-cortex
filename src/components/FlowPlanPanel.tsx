@@ -8,6 +8,12 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import { loadSectors } from "@/lib/airspace";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
+import { buildFlightIdIndex, normalizeFlowBasketItemsStrict } from "@/lib/flightIdentity";
+import {
+  describeRegulationContext,
+  normalizeRegulationContext,
+  sameRegulationContext,
+} from "@/lib/regulationTargets";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import ModalDialog from "./ModalDialog";
 
@@ -27,6 +33,8 @@ type SavedFlowPlan = {
     targetCells: TargetCellsState;
     autoRippleEnabled: boolean;
     autoRippleBins: number;
+    resourceDate: string | null;
+    resourceStateId: string | null;
   };
 };
 
@@ -51,6 +59,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
     resourceDate,
+    resourceStateSelectedId,
   } = useSimStore();
 
   const [isMinimized, setIsMinimized] = useState(false);
@@ -67,6 +76,8 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const [loadSearch, setLoadSearch] = useState("");
   const [savedPlans, setSavedPlans] = useState<SavedFlowPlan[]>([]);
   const [basketStatsOpen, setBasketStatsOpen] = useState(false);
+  const [basketError, setBasketError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Target Cells: local search + time prompt state
   const [trafficVolumes, setTrafficVolumes] = useState<any[]>([]);
@@ -89,13 +100,12 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const hoverOrigColorsRef = useRef<ReturnType<typeof useSimStore.getState>["flowColorByCommunity"] | null>(null);
 
   // Utilities
-  const resolveByKey = useCallback((key: string) => {
-    // Try as flightId first, then as callsign
-    let f = flights.find(ff => String(ff.flightId) === String(key));
-    if (f) return f;
-    f = flights.find(ff => ff.callSign && String(ff.callSign) === String(key));
-    return f || null;
-  }, [flights]);
+  const currentContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
+  const flightsById = useMemo(() => buildFlightIdIndex(flights), [flights]);
+  const resolveByKey = useCallback((key: string) => flightsById.get(String(key).trim()) || null, [flightsById]);
 
   const restoreFlowPreview = () => {
     setFlowCommunities(hoverOrigCommunitiesRef.current, hoverOrigGroupsRef.current, hoverOrigColorsRef.current || null);
@@ -115,8 +125,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     const seen = new Set<string>();
     for (const flow of flowBasket) {
       for (const item of flow.items || []) {
-        const resolved = resolveByKey(item.key);
-        const raw = resolved?.flightId ? String(resolved.flightId) : item?.key !== undefined && item?.key !== null ? String(item.key) : "";
+        const raw = item?.key !== undefined && item?.key !== null ? String(item.key) : "";
         const normalized = raw.trim();
         if (!normalized || seen.has(normalized)) continue;
         seen.add(normalized);
@@ -133,10 +142,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     const flows: Record<string, string[]> = {};
     const colorsByFlow: Record<string, string> = {};
     flowsOrdered.forEach((flow, idx) => {
-      const items = (flow.items || []).map((it) => {
-        const f = resolveByKey(it.key);
-        return f?.flightId ? String(f.flightId) : String(it.key);
-      }).filter(Boolean);
+      const items = (flow.items || []).map((it) => String(it.key).trim()).filter(Boolean);
       flows[String(idx)] = items;
       colorsByFlow[String(idx)] = flow.color;
     });
@@ -172,7 +178,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     for (const bf of flowBasket) {
       const cid = `basket-${bf.id}`; // community id key for this basket flow
       const ids = (bf.items || [])
-        .map(it => resolveByKey(it.key)?.flightId)
+        .map(it => String(it.key).trim())
         .filter(Boolean)
         .map(String) as string[];
       groups[cid] = ids;
@@ -234,6 +240,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
       const now = Date.now();
       setSaveTimestamp(now);
       setSaveError(null);
+      setLoadError(null);
       setSaveLabel((prev) => {
         if (prev.trim()) return prev;
         return `Plan ${formatDateTime(now)}`;
@@ -246,6 +253,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   useEffect(() => {
     if (loadModalOpen) {
       setLoadSearch("");
+      setLoadError(null);
     }
   }, [loadModalOpen]);
 
@@ -297,11 +305,17 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
       return;
     }
     const now = Date.now();
+    if (!currentContext.resourceDate) {
+      setSaveError("Resource date is required before saving a flow plan.");
+      return;
+    }
     const planData = {
       flowBasket: deepCopy(flowBasket),
       targetCells: deepCopy(targetCells),
       autoRippleEnabled,
       autoRippleBins,
+      resourceDate: currentContext.resourceDate,
+      resourceStateId: currentContext.resourceStateId,
     };
     const existingIndex = savedPlans.findIndex((plan) => plan.label.toLowerCase() === trimmed.toLowerCase());
     let nextPlans: SavedFlowPlan[];
@@ -334,8 +348,21 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
 
   const handleLoadPlan = (plan: SavedFlowPlan) => {
     try {
+      const planContext = normalizeRegulationContext({
+        resourceDate: plan.data.resourceDate,
+        resourceStateId: plan.data.resourceStateId,
+      });
+      if (!sameRegulationContext(planContext, currentContext)) {
+        setLoadError(
+          `This flow plan belongs to ${describeRegulationContext(planContext)}, but the current workspace is ${describeRegulationContext(currentContext)}.`,
+        );
+        return;
+      }
+      const clonedFlows = deepCopy(plan.data.flowBasket || []).map((flow) => ({
+        ...flow,
+        items: normalizeFlowBasketItemsStrict(flow.items || [], flights),
+      }));
       restoreFlowPreview();
-      const clonedFlows = deepCopy(plan.data.flowBasket || []);
       const clonedTargets = deepCopy(plan.data.targetCells || []);
       useSimStore.setState({
         flowBasket: clonedFlows,
@@ -345,9 +372,13 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
       setAutoRippleBins(Number.isFinite(bins) && bins >= 1 ? Math.floor(bins) : 2);
       setAutoRippleEnabled(!!plan.data.autoRippleEnabled);
       setExpandedFlows({});
+      setBasketError(null);
+      setLoadError(null);
       closeLoadModal();
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load saved flow plan";
       console.warn("Failed to load saved flow plan", err);
+      setLoadError(message);
     }
   };
 
@@ -367,7 +398,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     const { groups, communities, colorMap } = buildBasketFlowMapping();
     setFlowCommunities(communities, groups, colorMap);
     setFlowViewEnabled(true);
-  }, [basketView, flowBasket, flights]);
+  }, [basketView, flowBasket]);
 
   useEffect(() => {
     setExpandedFlows((prev) => {
@@ -431,8 +462,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
             </button>
             <button
               onClick={handleSavePlan}
-              className="rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
               Save plan
             </button>
           </div>
@@ -466,6 +498,11 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
             </div>
           </div>
           <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-4">
+            {loadError && (
+              <div className="rounded-lg border border-red-300/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-100">
+                {loadError}
+              </div>
+            )}
             {filteredSavedPlans.length === 0 ? (
               <div className="text-xs text-white/60">
                 {savedPlans.length === 0 ? "No plans saved yet. Save a Flow Basket to load it later." : "No saved plans match your search."}
@@ -724,16 +761,18 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setLoadModalOpen(true)}
-                  className="px-2 py-1 rounded-lg border border-white/20 bg-white/10 text-white text-xs shadow hover:bg-white/15"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-white/20 bg-white/10 text-white text-xs shadow hover:bg-white/15"
                   title="Load a saved flow plan"
                 >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
                   Load plan
                 </button>
                 <button
                   onClick={() => setSaveModalOpen(true)}
-                  className="px-2 py-1 rounded-lg border border-indigo-300/40 bg-indigo-500/30 text-white text-xs shadow hover:bg-indigo-500/40"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-indigo-300/40 bg-indigo-500/30 text-white text-xs shadow hover:bg-indigo-500/40"
                   title="Save the current flow basket"
                 >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
                   Save plan
                 </button>
               </div>
@@ -747,10 +786,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 {flowBasket.map((bf) => {
                   const flowItems = bf.items || [];
                   const statsFlightIds = flowItems
-                    .map((it) => {
-                      const resolved = resolveByKey(it.key);
-                      return resolved?.flightId ? String(resolved.flightId) : String(it.key);
-                    })
+                    .map((it) => String(it.key).trim())
                     .filter((id) => id && id !== "undefined" && id !== "null");
                   const flowKey = String(bf.id);
                   const expanded = !!expandedFlows[flowKey];
@@ -767,7 +803,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     hoverOrigColorsRef.current = st.flowColorByCommunity;
                     // Build temp mapping for this basket flow
                     const ids = flowItems
-                      .map(it => resolveByKey(it.key)?.flightId)
+                      .map(it => String(it.key).trim())
                       .filter(Boolean)
                       .map(String) as string[];
                     const groups: Record<string, string[]> = { [tempGroupId]: ids };
@@ -891,7 +927,12 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                                   onAdd={(token) => {
                                     const trimmed = String(token || '').trim();
                                     if (!trimmed) return;
-                                    addFlightsToBasketFlow(bf.id, [trimmed]);
+                                    try {
+                                      addFlightsToBasketFlow(bf.id, [trimmed]);
+                                      setBasketError(null);
+                                    } catch (err) {
+                                      setBasketError(err instanceof Error ? err.message : "Failed to add flight to flow.");
+                                    }
                                   }}
                                 />
                               </tbody>
@@ -903,6 +944,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                   );
                 })}
               </div>
+            )}
+            {basketError && (
+              <div className="text-[11px] text-red-200">{basketError}</div>
             )}
             {/* Auto Ripples */}
             <div className="flex items-center justify-between pt-1">
@@ -954,8 +998,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     params.set('payload', b64);
                     params.set('autostart', '1');
                     window.open(`/flow-evaluation?${params.toString()}`, '_blank');
+                    setBasketError(null);
                   } catch (e) {
-                    alert('Failed to build payload');
+                    setBasketError(e instanceof Error ? e.message : 'Failed to build payload');
                   }
                 }}
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow flex items-center gap-2 text-sm hover:opacity-90"
@@ -1110,6 +1155,8 @@ function loadSavedPlansFromStorage(): SavedFlowPlan[] {
             targetCells: targetCells as TargetCellsState,
             autoRippleEnabled,
             autoRippleBins,
+            resourceDate: typeof data.resourceDate === "string" && data.resourceDate.trim().length > 0 ? data.resourceDate.trim() : null,
+            resourceStateId: typeof data.resourceStateId === "string" && data.resourceStateId.trim().length > 0 ? data.resourceStateId.trim() : null,
           },
         };
       })

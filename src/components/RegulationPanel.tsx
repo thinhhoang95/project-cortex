@@ -4,6 +4,7 @@ import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Toolti
 import { useSimStore, type RegulationCatcherMode, type RegulationCatcherTimeframe } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
@@ -14,10 +15,16 @@ import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import {
+  assertReplayableRegulationTargets,
+  normalizeFlightIdList,
+  normalizeRegulationContext,
+} from "@/lib/regulationTargets";
+import {
   buildMergedMultiTvChartRows,
   buildRollingChartDataFromOccupancy,
   type MergedMultiTvChartRow,
 } from "@/lib/airspaceInfoMultiTv";
+import { toTimeWindow } from "@/lib/regulationProposals";
 
 type RegulationPanelProps = { embedded?: boolean };
 
@@ -83,6 +90,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     selectedTrafficVolumeData,
     t,
     flights,
+    resourceDate,
+    resourceStateSelectedId,
+    resourceStateEpoch,
     focusMode,
     setFocusMode,
     setFocusFlightIds,
@@ -129,6 +139,11 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setRegulationCatcherMode,
     setRegulationCatcherTimeframe,
     cancelRegulationCatcher,
+    proposalLoading,
+    proposalQuery,
+    proposalResults,
+    fetchRegulationProposals,
+    resetProposalState,
   } = useSimStore();
 
   const selectedTvIds = useMemo(() => {
@@ -166,6 +181,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [communityReviewContext, setCommunityReviewContext] = useState<CommunityReviewContext | null>(null);
   const [communityHeuristics, setCommunityHeuristics] = useState<Record<string, CommunityHeuristicsSummary>>({});
   const [capacityRangeLabel, setCapacityRangeLabel] = useState<string | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [proposalTriggerError, setProposalTriggerError] = useState<string | null>(null);
   const flightLevelRange = formatFlightLevelRange(
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
@@ -174,6 +191,34 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
   const suppressNextPresetApplyRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    setOccupancyData(null);
+    setSecondaryOccupancyByTv({});
+    setFlightIdentifiersData(null);
+    setOrderedFlightsData(null);
+    setFlightListLoading(false);
+    setCurrentCount(0);
+    setCurrentAnchorCapacity(null);
+    setShowOnlyTargeted(false);
+    setCommunityReviewContext(null);
+    setCommunityHeuristics({});
+    setSelectionError(null);
+    setProposalTriggerError(null);
+  }, [resourceStateEpoch]);
+
+  useEffect(() => {
+    const proposalTvId = proposalResults?.traffic_volume_id ?? proposalQuery?.trafficVolumeId ?? null;
+    if (!proposalTvId) return;
+    if (selectedTvIds.length === 1 && proposalTvId === primaryTvId) return;
+    resetProposalState();
+    setProposalTriggerError(null);
+  }, [primaryTvId, proposalQuery, proposalResults, resetProposalState, selectedTvIds.length]);
+
+  const currentContext = useMemo(
+    () => normalizeRegulationContext({ resourceDate, resourceStateId: resourceStateSelectedId }),
+    [resourceDate, resourceStateSelectedId],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -191,7 +236,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     return () => {
       cancelled = true;
     };
-  }, [primaryTvId]);
+  }, [primaryTvId, resourceStateEpoch]);
 
   // Load occupancy/capacity and default rate when TV changes
   useEffect(() => {
@@ -254,7 +299,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     loadSecondaryOccupancy();
     return () => { cancelled = true; };
-  }, [primaryTvId, secondaryTvIds]);
+  }, [primaryTvId, resourceStateEpoch, secondaryTvIds]);
 
   // Load flight identifiers for this TV (ordered when possible)
   useEffect(() => {
@@ -283,7 +328,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     loadFlights();
     return () => { cancelled = true; };
-  }, [primaryTvId, t]);
+  }, [primaryTvId, resourceStateEpoch, t]);
 
   const timeBinMinutes = useMemo(
     () => inferTimeBinMinutesFromData(occupancyData),
@@ -504,6 +549,19 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     return set;
   }, [selectedTvIds.length, regulationListedFlightIds, orderedFlightsData, flightIdentifiersData, regulationTimeWindow]);
 
+  const listedFlightIdSet = useMemo(
+    () => new Set((regulationListedFlightIds || []).map((id) => String(id))),
+    [regulationListedFlightIds],
+  );
+  const summaryCurrentCount = selectedTvIds.length > 1
+    ? listedFlightIdSet.size
+    : currentCount;
+
+  const listedFlights = useMemo(() => {
+    if (listedFlightIdSet.size === 0) return [] as typeof flights;
+    return flights.filter((flight) => listedFlightIdSet.has(String(flight.flightId)));
+  }, [flights, listedFlightIdSet]);
+
   // derive selected flights
   const selectedFlights = useMemo(() => {
     const idSet = regulationTargetFlightIds;
@@ -530,6 +588,23 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   }, [showOnlyTargeted, hasTargetedFlights]);
 
   useEffect(() => {
+    if (!primaryTvId || listedFlightIdSet.size === 0) return;
+    const offListIds = Array.from(regulationTargetFlightIds).filter((id) => !listedFlightIdSet.has(String(id)));
+    if (offListIds.length === 0) return;
+    const next = new Set<string>();
+    for (const id of regulationTargetFlightIds) {
+      const normalized = String(id);
+      if (listedFlightIdSet.has(normalized)) {
+        next.add(normalized);
+      }
+    }
+    setRegulationTargetFlightIds(next);
+    setSelectionError(
+      `Removed ${offListIds.length} targeted flight${offListIds.length === 1 ? "" : "s"} that were not present in the current ranked flight list.`,
+    );
+  }, [primaryTvId, listedFlightIdSet, regulationTargetFlightIds, setRegulationTargetFlightIds]);
+
+  useEffect(() => {
     setRegulationPreviewActive(showTargetedOnly);
   }, [showTargetedOnly, setRegulationPreviewActive]);
 
@@ -538,6 +613,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setShowOnlyTargeted(false);
     setRegulationPreviewActive(false);
     clearRegulationTargetFlights();
+    setSelectionError(null);
     setFocusFlightIds(new Set());
     setFocusMode(false);
     setFlowViewEnabled(false);
@@ -612,24 +688,47 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setRegulationTimeWindow(from, to);
   }
 
+  const validateFlightIdsAgainstCurrentList = useCallback((flightIds: string[], actionLabel: string): string[] | null => {
+    const ids = normalizeFlightIdList(flightIds);
+    if (ids.length === 0) {
+      setSelectionError(`${actionLabel} failed because no target flights were provided.`);
+      return null;
+    }
+    if (listedFlightIdSet.size === 0) {
+      setSelectionError(`The current ranked flight list is unavailable. ${actionLabel} is blocked until it loads.`);
+      return null;
+    }
+    const offListIds = ids.filter((id) => !listedFlightIdSet.has(id));
+    if (offListIds.length > 0) {
+      setSelectionError(
+        `${actionLabel} refused because ${offListIds.length} flight${offListIds.length === 1 ? "" : "s"} ${offListIds.length === 1 ? "is" : "are"} not in the current ranked flight list.`,
+      );
+      return null;
+    }
+    setSelectionError(null);
+    return ids;
+  }, [listedFlightIdSet]);
+
   function handleEnter() {
     const q = inputValue.trim();
     if (!q) return;
     // Special keyword: add all currently visible flights from the flight list in a single update
     if (q.toLowerCase() === 'all') {
-      if (Array.isArray(regulationVisibleFlightIds) && regulationVisibleFlightIds.length > 0) {
+      const validatedIds = validateFlightIdsAgainstCurrentList(regulationVisibleFlightIds, "Add all visible flights");
+      if (validatedIds && validatedIds.length > 0) {
         const next = new Set<string>(regulationTargetFlightIds);
-        for (const id of regulationVisibleFlightIds) next.add(String(id));
+        for (const id of validatedIds) next.add(String(id));
         if (!areSetsEqual(next, regulationTargetFlightIds)) {
           setRegulationTargetFlightIds(next);
         }
+        setSelectionError(null);
       }
       setInputValue("");
       return;
     }
     // For now, support callsign/flightId exact match
     const queryLower = q.toLowerCase();
-    const flight = flights.find(f => {
+    const flight = listedFlights.find(f => {
       const idMatch = String(f.flightId).toLowerCase() === queryLower;
       const cs = f.callSign;
       const csLower = cs !== undefined && cs !== null ? String(cs).toLowerCase() : undefined;
@@ -638,19 +737,36 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     });
     if (flight) {
       addRegulationTargetFlight(String(flight.flightId));
+      setSelectionError(null);
       setInputValue("");
+      return;
     }
+    const globalMatch = flights.find(f => {
+      const idMatch = String(f.flightId).toLowerCase() === queryLower;
+      const cs = f.callSign;
+      const csLower = cs !== undefined && cs !== null ? String(cs).toLowerCase() : undefined;
+      const csMatch = csLower ? csLower === queryLower : false;
+      return idMatch || csMatch;
+    });
+    setSelectionError(
+      globalMatch
+        ? "That flight exists in the workspace but is not in the current ranked flight list. Refusing to add it."
+        : "No flight in the current ranked flight list matched that identifier.",
+    );
   }
 
   // Listen for map flight clicks to add to list
   useEffect(() => {
     const handler = (e: any) => {
       const { flightId } = e.detail || {};
-      if (flightId) addRegulationTargetFlight(String(flightId));
+      if (!flightId) return;
+      const validatedIds = validateFlightIdsAgainstCurrentList([String(flightId)], "Add flight from map");
+      if (!validatedIds) return;
+      addRegulationTargetFlight(validatedIds[0]);
     };
     window.addEventListener('regulation-add-flight', handler as any);
     return () => window.removeEventListener('regulation-add-flight', handler as any);
-  }, [addRegulationTargetFlight]);
+  }, [addRegulationTargetFlight, validateFlightIdsAgainstCurrentList]);
 
   // Clear previews on unmount
   useEffect(() => {
@@ -659,29 +775,26 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
   const addRegulationFromFlightIds = useCallback((flightIds: string[]) => {
     if (!primaryTvId) return false;
-    const uniqueIds = Array.from(new Set((flightIds || []).map((id) => String(id)).filter(Boolean)));
-    if (uniqueIds.length === 0) return false;
-    const idSet = new Set(uniqueIds);
-    const callsignMap = new Map<string, string>();
-    for (const flight of flights) {
-      const id = String(flight.flightId);
-      if (!idSet.has(id)) continue;
-      const callsign = flight.callSign ? String(flight.callSign) : id;
-      callsignMap.set(id, callsign);
+    if (!currentContext.resourceDate) {
+      setSelectionError("The current resource date is unavailable. Refusing to create a regulation without resource context.");
+      return false;
     }
-    const flightCallsigns = uniqueIds.map((id) => callsignMap.get(id) ?? id);
-    if (flightCallsigns.length === 0) return false;
+    const uniqueIds = validateFlightIdsAgainstCurrentList(flightIds, "Add regulation");
+    if (!uniqueIds || uniqueIds.length === 0) return false;
     addRegulation({
       trafficVolume: primaryTvId,
       activeTimeWindowFrom: regulationTimeWindow[0],
       activeTimeWindowTo: regulationTimeWindow[1],
-      flightCallsigns,
+      flightIds: uniqueIds,
+      resourceDate: currentContext.resourceDate,
+      resourceStateId: currentContext.resourceStateId,
       rate: regulationRate,
     });
     setIsRegulationPanelOpen(true);
     clearRegulationTargetFlights();
+    setSelectionError(null);
     return true;
-  }, [primaryTvId, flights, addRegulation, regulationTimeWindow, regulationRate, setIsRegulationPanelOpen, clearRegulationTargetFlights]);
+  }, [primaryTvId, currentContext, validateFlightIdsAgainstCurrentList, addRegulation, regulationTimeWindow, regulationRate, setIsRegulationPanelOpen, clearRegulationTargetFlights]);
 
   const handleReviewCommunity = useCallback((context: CommunityReviewContext) => {
     if (!context) return;
@@ -731,19 +844,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
   function handlePreviewRegulation() {
     if (!primaryTvId || selectedFlights.length === 0) return;
-
-    const flightCallsigns = selectedFlights.map(f => f.callSign || String(f.flightId));
-
-    addRegulation({
-      trafficVolume: primaryTvId,
-      activeTimeWindowFrom: regulationTimeWindow[0],
-      activeTimeWindowTo: regulationTimeWindow[1],
-      flightCallsigns,
-      rate: regulationRate
-    });
-
-    setIsRegulationPanelOpen(true);
-    clearRegulationTargetFlights();
+    addRegulationFromFlightIds(selectedFlights.map((flight) => String(flight.flightId)));
   }
 
   // Flow Control: request community assignments for visible arrivals
@@ -836,21 +937,18 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     suppressNextPresetApplyRef.current = true;
     setActivePreset(newPreset);
 
-    // Map provided callsigns/ids back to flight IDs present in store
-    const want = new Set(payload.flightCallsigns.map(String));
-    const idSet = new Set<string>();
-    for (const f of flights) {
-      const idStr = String(f.flightId);
-      const cs = f.callSign != null ? String(f.callSign) : undefined;
-      if (want.has(idStr) || (cs && want.has(cs))) {
-        idSet.add(idStr);
-      }
+    try {
+      const replayableIds = assertReplayableRegulationTargets(payload, currentContext);
+      setRegulationTargetFlightIds(new Set(replayableIds));
+      setSelectionError(null);
+    } catch (err) {
+      setRegulationTargetFlightIds(new Set<string>());
+      setSelectionError(err instanceof Error ? err.message : "Failed to load regulation targets for editing.");
     }
-    setRegulationTargetFlightIds(idSet);
 
     // Clear payload so it doesn't apply repeatedly
     setRegulationEditPayload(null);
-  }, [regulationEditPayload, primaryTvId, flights, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
+  }, [regulationEditPayload, primaryTvId, currentContext, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
 
   if (!primaryTvId || selectedTvIds.length === 0) return null;
 
@@ -880,35 +978,76 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             <div className="text-xs opacity-80">Capacity range: {capacityRangeLabel}</div>
           )}
         </div>
-        <PanelCloseButton
-          onClick={() => {
-            clearSelectedTrafficVolumes();
-            setFocusMode(false);
-            setFocusFlightIds(new Set());
-            setIsRegulationPanelOpen(false);
-            // Ensure Flow View is deactivated when panel closes
-            setFlowViewEnabled(false);
-            setFlowCommunities(null, null);
-            setFlowColorByCommunity(null);
-            setFlowError(null);
-            setCommunityHeuristics({});
-            setFlowPreviewFlightId(null);
-            setFlowPreviewGroupId(null);
-            clearRegulationTargetFlights();
-            setShowOnlyTargeted(false);
-            setRegulationPreviewActive(false);
-            setFlowColorByCommunity(null);
-            window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
-          }}
-        />
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <button
+              aria-label="Propose regulation bundles"
+              type="button"
+              onClick={async () => {
+                if (!primaryTvId || selectedTvIds.length > 1) return;
+                const [from, to] = regulationTimeWindow;
+                if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+                  setProposalTriggerError("Invalid time window; end must be after start.");
+                  return;
+                }
+                setProposalTriggerError(null);
+                await fetchRegulationProposals({
+                  trafficVolumeId: String(primaryTvId),
+                  timeWindow: toTimeWindow(formatTime(from), formatTime(to)),
+                  threshold: flowThreshold,
+                  resolution: flowResolution,
+                });
+              }}
+              disabled={proposalLoading || selectedTvIds.length > 1}
+              title={selectedTvIds.length > 1 ? "Regulation proposals are available only for a single selected TV" : "Propose regulation bundles"}
+              className={`h-7 w-7 flex items-center justify-center rounded-lg border text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${(proposalLoading || selectedTvIds.length > 1)
+                ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
+                : 'border-white/30 bg-white/20 hover:bg-white/30'}`}
+            >
+              <svg height="12" fill="currentColor" width="12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <g id="new">
+                  <g>
+                    <polygon points="13,23 11,23 11,13.7 3,18.4 2,16.6 10,12 2,7.4 3,5.6 11,10.3 11,1 13,1 13,10.3 21,5.6 22,7.4 14,12 22,16.6 21,18.4 13,13.7"/>
+                  </g>
+                </g>
+              </svg>
+            </button>
+            <PanelCloseButton
+              onClick={() => {
+                clearSelectedTrafficVolumes();
+                setFocusMode(false);
+                setFocusFlightIds(new Set());
+                setIsRegulationPanelOpen(false);
+                setFlowViewEnabled(false);
+                setFlowCommunities(null, null);
+                setFlowColorByCommunity(null);
+                setFlowError(null);
+                setCommunityHeuristics({});
+                setFlowPreviewFlightId(null);
+                setFlowPreviewGroupId(null);
+                clearRegulationTargetFlights();
+                setSelectionError(null);
+                setShowOnlyTargeted(false);
+                setRegulationPreviewActive(false);
+                setFlowColorByCommunity(null);
+                resetProposalState();
+                setProposalTriggerError(null);
+                window.dispatchEvent(new CustomEvent('clearTrafficVolumeHighlight'));
+              }}
+            />
+          </div>
+          {proposalTriggerError && (
+            <div className="text-[11px] text-red-200 text-right">{proposalTriggerError}</div>
+          )}
+        </div>
       </div>
 
       <div className={embedded ? "p-4 space-y-4" : "overflow-y-auto no-scrollbar p-4 flex-1 space-y-4"}>
         {/* Current count + capacity summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">Current Count</div>
-            <div className="text-lg font-semibold">{currentCount}</div>
+            <div className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Current Count"}</div>
+            <div className="text-lg font-semibold">{summaryCurrentCount}</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-xs opacity-70">Capacity</div>
@@ -956,8 +1095,13 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                   await requestFlowExtraction();
                 }
               }}
-              className={`px-3 py-1 rounded-lg border text-xs ${flowViewEnabled ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs ${flowViewEnabled ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
             >
+              {flowViewEnabled ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.86 18.86 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.86 18.86 0 0 1-3.17 4.13M1 1l22 22"/></svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+              )}
               {flowViewEnabled ? 'Disable Flow View' : 'Enable Flow View'}
             </button>
           </div>
@@ -1108,6 +1252,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                 ? "Gate freezes at first click. Double-click to finish, Esc to cancel."
                 : "Choose a catcher mode, then draw to include/exclude flights visible at gate start within the current flight list."}
             </p>
+            {selectionError && (
+              <div className="text-[11px] text-red-200">{selectionError}</div>
+            )}
           </div>
         </div>
 
@@ -1156,7 +1303,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               </button>
             </div>
             {selectedFlights.length > 0 && (
-              <button onClick={() => clearRegulationTargetFlights()} className="text-xs px-2 py-1 rounded border border-white/20 hover:bg-white/10">Clear</button>
+              <button onClick={() => { clearRegulationTargetFlights(); setSelectionError(null); }} className="text-xs px-2 py-1 rounded border border-white/20 hover:bg-white/10">Clear</button>
             )}
           </div>
           {selectedFlights.length === 0 ? (
@@ -1284,6 +1431,16 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           </div>
         )}
 
+        {occupancyData?.flight_level_counts?.bins?.length > 0 && (
+          <FlightLevelBinCountChart
+            data={occupancyData?.flight_level_counts}
+            trafficVolumeId={primaryTvId}
+            filterToWindow
+            windowStartSeconds={regulationTimeWindow[0]}
+            windowSeconds={Math.max(0, regulationTimeWindow[1] - regulationTimeWindow[0])}
+          />
+        )}
+
         {trafficOverloadSegments.length > 0 && (
           <div className="bg-white/5 rounded-lg p-4">
             <h4 className="font-medium text-sm opacity-90 mb-3">Traffic Volume Load</h4>
@@ -1331,11 +1488,14 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         onClose={() => setMagicSearchOpen(false)}
         flightIds={regulationListedFlightIds}
         onSelectFlights={(ids) => {
+          const validatedIds = validateFlightIdsAgainstCurrentList(ids, "Add flights from query");
+          if (!validatedIds) return;
           const next = new Set<string>(regulationTargetFlightIds);
-          ids.forEach((id) => next.add(String(id)));
+          validatedIds.forEach((id) => next.add(String(id)));
           if (!areSetsEqual(next, regulationTargetFlightIds)) {
             setRegulationTargetFlightIds(next);
           }
+          setSelectionError(null);
           setMagicSearchOpen(false);
         }}
         fullScreen

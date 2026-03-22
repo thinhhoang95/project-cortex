@@ -7,6 +7,7 @@ import { useSimStore } from "@/components/useSimStore";
 import PredictionsMapCanvas from "@/components/PredictionsMapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
 import PredictionSettingsPanel from "@/components/PredictionSettingsPanel";
+import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StochasticTrafficVolumePanel from "@/components/StochasticTrafficVolumePanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
@@ -101,6 +102,7 @@ export default function Page() {
           )}
         </div>
       </div>
+      <ResourceStateHistoryControl />
       <ViewOptionsControl />
       <ReleaseNotesDialog />
     </main>

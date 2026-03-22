@@ -1,5 +1,12 @@
 import type { Trajectory } from "./models";
 
+export interface FlightLineVisibilitySnapshot {
+  activeInsideRangeIds: Set<string>;
+  listDrivenEligibleIds: Set<string>;
+}
+
+const altitudeEnvelopeCache = new WeakMap<Trajectory, { minFeet: number; maxFeet: number }>();
+
 // Binary search for current segment index such that times[i] <= t <= times[i+1]
 function segmentIndex(times: number[], t: number): number {
   let lo = 0;
@@ -22,11 +29,37 @@ export function getCurrentActiveFlightIdsInFlRange(
   flLowerBound: number,
   flUpperBound: number
 ): Set<string> {
-  const insideRangeActiveSet = new Set<string>();
-  if (!tracks) return insideRangeActiveSet;
+  return getFlightLineVisibilitySnapshot(tracks, t, flLowerBound, flUpperBound).activeInsideRangeIds;
+}
+
+export function getFlightLineVisibilitySnapshot(
+  tracks: Trajectory[] | undefined,
+  t: number,
+  flLowerBound: number,
+  flUpperBound: number
+): FlightLineVisibilitySnapshot {
+  const activeInsideRangeIds = new Set<string>();
+  const listDrivenEligibleIds = new Set<string>();
+  if (!tracks) {
+    return { activeInsideRangeIds, listDrivenEligibleIds };
+  }
+
+  const minFeet = flLowerBound * 100;
+  const maxFeet = flUpperBound * 100;
 
   for (const tr of tracks) {
-    if (t < tr.t0 || t > tr.t1) continue;
+    const flightId = String(tr.flightId ?? "").trim();
+    if (!flightId) continue;
+
+    const isActive = t >= tr.t0 && t <= tr.t1;
+    if (!isActive) {
+      const envelope = getTrajectoryAltitudeEnvelope(tr);
+      if (envelope.maxFeet >= minFeet && envelope.minFeet <= maxFeet) {
+        listDrivenEligibleIds.add(flightId);
+      }
+      continue;
+    }
+
     if (!Array.isArray(tr.times) || tr.times.length < 2) continue;
     if (!Array.isArray(tr.coords) || tr.coords.length < 2) continue;
 
@@ -42,9 +75,33 @@ export function getCurrentActiveFlightIdsInFlRange(
     const flightLevel = Math.round(alt / 100);
 
     if (flightLevel >= flLowerBound && flightLevel <= flUpperBound) {
-      insideRangeActiveSet.add(String(tr.flightId));
+      activeInsideRangeIds.add(flightId);
+      listDrivenEligibleIds.add(flightId);
     }
   }
 
-  return insideRangeActiveSet;
+  return { activeInsideRangeIds, listDrivenEligibleIds };
+}
+
+function getTrajectoryAltitudeEnvelope(trajectory: Trajectory): { minFeet: number; maxFeet: number } {
+  const cached = altitudeEnvelopeCache.get(trajectory);
+  if (cached) return cached;
+
+  let minFeet = Number.POSITIVE_INFINITY;
+  let maxFeet = Number.NEGATIVE_INFINITY;
+
+  for (const coord of trajectory.coords || []) {
+    const altitude = Array.isArray(coord) && Number.isFinite(coord[2]) ? Number(coord[2]) : 0;
+    if (altitude < minFeet) minFeet = altitude;
+    if (altitude > maxFeet) maxFeet = altitude;
+  }
+
+  if (!Number.isFinite(minFeet) || !Number.isFinite(maxFeet)) {
+    minFeet = 0;
+    maxFeet = 0;
+  }
+
+  const envelope = { minFeet, maxFeet };
+  altitudeEnvelopeCache.set(trajectory, envelope);
+  return envelope;
 }

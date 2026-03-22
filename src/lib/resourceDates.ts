@@ -1,4 +1,5 @@
 import type { ResolvedResourcePaths } from "@/lib/dataPaths";
+import type { ResourceStateSummary } from "@/lib/resourceStates";
 import {
   getManifestMissingKeys,
   getResourceManifest,
@@ -13,6 +14,12 @@ export type ResourceContextResponse = {
   manifest_path: string | null;
   generation: number;
   resolved_paths: Record<string, string> | null;
+  selected_state_id?: string | null;
+  head_state_id?: string | null;
+  state_zero_id?: string | null;
+  num_states?: number;
+  state_history_generation?: number;
+  states?: ResourceStateSummary[];
   status?: string;
 };
 
