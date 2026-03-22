@@ -25,6 +25,7 @@ import {
 import {
   compareIntersectionFlightRows,
   intersectStringSets,
+  matchesSelectedTvTraversalOrder,
   type FlightSortMetric,
 } from "@/lib/airspaceInfoMultiTv";
 
@@ -716,14 +717,18 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           },
         };
       });
+    const orderedRows = rows.filter((row) =>
+      matchesSelectedTvTraversalOrder(row.sortMetric.perTv, selectedTvIds),
+    );
 
-    rows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
+    orderedRows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
     return {
-      flightTableData: rows.slice(0, MAX_FLIGHT_ROWS),
-      flightTableCount: rows.length,
+      flightTableData: orderedRows.slice(0, MAX_FLIGHT_ROWS),
+      flightTableCount: orderedRows.length,
     };
   }, [
     primaryTvId,
+    selectedTvIds,
     regulationTimeWindow,
     effectiveFlightListError,
     primaryFlightPayload,
@@ -1489,6 +1494,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         onClose={() => setQueryDialogOpen(false)}
         initialPrompt={queryInitialPrompt}
         flightIds={listedFlightIds}
+        sourceTrafficVolumeId={primaryTvId}
         onSelectFlights={handleFlightsSelectedFromQuery}
         fullScreen
       />

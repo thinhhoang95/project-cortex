@@ -6,6 +6,7 @@ import ModalDialog from "./ModalDialog";
 import ShimmeringText from "./ShimmeringText";
 import FlightListStatistics from "./FlightListStatistics";
 import FlightPathsMiniMap from "./FlightPathsMiniMap";
+import { shouldEnableReset } from "./flightQueryDialogState";
 import { useSimStore } from "./useSimStore";
 import { authFetch } from "@/lib/auth";
 
@@ -26,6 +27,14 @@ interface FlightQueryResponse {
   metadata?: Record<string, any> | null;
   [key: string]: any;
 }
+
+type OrderedTvFlightsResponse = {
+  details?: Array<{
+    flight_id?: string | number | null;
+    arrival_time?: string | null;
+    arrival?: string | null;
+  }>;
+};
 
 function normalizeFlightIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -49,6 +58,14 @@ function formatTimeOfDay(seconds: number | null | undefined): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function formatTimeForAPI(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const secs = Math.floor(safeSeconds % 60);
+  return `${String(hours).padStart(2, "0")}${String(minutes).padStart(2, "0")}${String(secs).padStart(2, "0")}`;
+}
+
 export default function FlightQueryDialog({
   open,
   onClose,
@@ -61,12 +78,15 @@ export default function FlightQueryDialog({
   sourceTrafficVolumeId,
 }: FlightQueryDialogProps) {
   const flights = useSimStore(state => state.flights);
+  const t = useSimStore(state => state.t);
   const [prompt, setPrompt] = useState(initialPrompt);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<FlightQueryResponse | null>(null);
   const [resultFlightIds, setResultFlightIds] = useState<string[]>([]);
   const [selectedFlightIdSet, setSelectedFlightIdSet] = useState<Set<string>>(new Set());
+  const [tvArrivalTimesById, setTvArrivalTimesById] = useState<Record<string, string>>({});
+  const [tvArrivalDetailsReady, setTvArrivalDetailsReady] = useState(false);
   const promptCardRef = useRef<HTMLDivElement | null>(null);
   const [promptCardHeight, setPromptCardHeight] = useState<number | null>(null);
 
@@ -88,6 +108,10 @@ export default function FlightQueryDialog({
 
   const baselineFlightIds = useMemo(() => normalizeFlightIds(flightIds), [flightIds]);
   const baselineFlightIdSet = useMemo(() => new Set(baselineFlightIds.map(id => String(id))), [baselineFlightIds]);
+  const normalizedSourceTrafficVolumeId = useMemo(() => {
+    const normalized = String(sourceTrafficVolumeId ?? "").trim();
+    return normalized.length > 0 ? normalized : null;
+  }, [sourceTrafficVolumeId]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +125,54 @@ export default function FlightQueryDialog({
   useEffect(() => {
     setSelectedFlightIdSet(new Set(resultFlightIds.map(id => String(id))));
   }, [resultFlightIds]);
+
+  useEffect(() => {
+    if (!open || !normalizedSourceTrafficVolumeId) {
+      setTvArrivalTimesById({});
+      setTvArrivalDetailsReady(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadTvArrivalTimes = async () => {
+      setTvArrivalDetailsReady(false);
+      try {
+        const ref = formatTimeForAPI(t);
+        const resp = await authFetch(
+          `/api/tv_flights?traffic_volume_id=${encodeURIComponent(normalizedSourceTrafficVolumeId)}&ref_time_str=${encodeURIComponent(ref)}`
+        );
+        if (!resp.ok) {
+          throw new Error(`Failed to load TV flight details (${resp.status})`);
+        }
+        const data = (await resp.json()) as OrderedTvFlightsResponse;
+        if (cancelled) return;
+
+        const nextArrivalTimesById: Record<string, string> = {};
+        for (const detail of data?.details || []) {
+          const flightId = String(detail?.flight_id ?? "").trim();
+          const arrivalTime = String(detail?.arrival_time ?? detail?.arrival ?? "").trim();
+          if (!flightId || !arrivalTime) continue;
+          nextArrivalTimesById[flightId] = arrivalTime;
+        }
+        setTvArrivalTimesById(nextArrivalTimesById);
+      } catch (err) {
+        console.error("Failed to load TV arrival details for flight query dialog", err);
+        if (cancelled) return;
+        setTvArrivalTimesById({});
+      } finally {
+        if (!cancelled) {
+          setTvArrivalDetailsReady(true);
+        }
+      }
+    };
+
+    void loadTvArrivalTimes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedSourceTrafficVolumeId, open, t]);
 
   const title = useMemo(() => {
     const matchedCount = resultFlightIds.length;
@@ -222,6 +294,9 @@ export default function FlightQueryDialog({
       resultFlightIds.map((rawId, index) => {
         const flightId = String(rawId);
         const flight = flightsById.get(flightId) ?? null;
+        const tvArrivalTime = normalizedSourceTrafficVolumeId
+          ? (tvArrivalTimesById[flightId] ?? null)
+          : null;
         return {
           flightId,
           index,
@@ -229,10 +304,12 @@ export default function FlightQueryDialog({
           callSign: flight?.callSign ? String(flight.callSign) : flightId,
           origin: flight?.origin ? String(flight.origin) : "—",
           destination: flight?.destination ? String(flight.destination) : "—",
-          arrivalTime: flight ? formatTimeOfDay(flight.t1) : "—",
+          arrivalTime: normalizedSourceTrafficVolumeId
+            ? (tvArrivalTime ?? (tvArrivalDetailsReady ? "N/A" : "—"))
+            : (flight ? formatTimeOfDay(flight.t1) : "—"),
         };
       }),
-    [baselineFlightIdSet, flightsById, resultFlightIds]
+    [baselineFlightIdSet, flightsById, normalizedSourceTrafficVolumeId, resultFlightIds, tvArrivalDetailsReady, tvArrivalTimesById]
   );
 
   const mapFlightIds = useMemo(
@@ -246,6 +323,17 @@ export default function FlightQueryDialog({
   );
 
   const allowFlightSelection = baselineFlightIds.length > 0 && !!onSelectFlights;
+  const hasBaseline = baselineFlightIds.length > 0;
+  const canReset = useMemo(
+    () => shouldEnableReset({
+      baselineFlightIds,
+      resultFlightIds,
+      isSubmitting,
+      hasResponse: response !== null,
+      hasError: error !== null,
+    }),
+    [baselineFlightIds, error, isSubmitting, response, resultFlightIds],
+  );
 
   const toggleFlightSelection = useCallback(
     (flightId: string) => {
@@ -287,6 +375,17 @@ export default function FlightQueryDialog({
     if (!onSelectFlights) return;
     onSelectFlights(selectedFlightIds);
   }, [onSelectFlights, selectedFlightIds]);
+
+  const handleReset = useCallback(() => {
+    if (!hasBaseline || !canReset) return;
+    setResultFlightIds(baselineFlightIds);
+    setResponse(null);
+    setError(null);
+  }, [baselineFlightIds, canReset, hasBaseline]);
+
+  const arrivalColumnLabel = normalizedSourceTrafficVolumeId
+    ? `Arr. (${normalizedSourceTrafficVolumeId})`
+    : "Arr.";
 
   return (
     <ModalDialog
@@ -363,7 +462,7 @@ export default function FlightQueryDialog({
                                 <th className="p-2 font-semibold">CS</th>
                                 <th className="p-2 font-semibold">Ori.</th>
                                 <th className="p-2 font-semibold">Des.</th>
-                                <th className="p-2 font-semibold">TV Arr.</th>
+                                <th className="p-2 font-semibold whitespace-nowrap">{arrivalColumnLabel}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -485,17 +584,29 @@ export default function FlightQueryDialog({
                   Select these flights
                 </button>
               )}
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={isSubmitting || !prompt.trim()}
-                className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-2 text-sm font-medium shadow-[0_12px_35px_-18px_rgba(59,130,246,0.8)] transition hover:from-blue-600 hover:to-purple-700 disabled:cursor-not-allowed disabled:from-slate-600 disabled:to-slate-700 disabled:text-white/60"
-              >
-                {isSubmitting && (
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
+              <div className="flex items-center gap-3">
+                {hasBaseline && (
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    disabled={!canReset}
+                    className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-5 py-2 text-sm font-medium text-white/80 transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Reset
+                  </button>
                 )}
-                {isSubmitting ? <ShimmeringText text="Sending…" /> : "Send"}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || !prompt.trim()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-2 text-sm font-medium shadow-[0_12px_35px_-18px_rgba(59,130,246,0.8)] transition hover:from-blue-600 hover:to-purple-700 disabled:cursor-not-allowed disabled:from-slate-600 disabled:to-slate-700 disabled:text-white/60"
+                >
+                  {isSubmitting && (
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
+                  )}
+                  {isSubmitting ? <ShimmeringText text="Sending…" /> : "Send"}
+                </button>
+              </div>
             </div>
 
             <FlightListStatistics

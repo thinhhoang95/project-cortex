@@ -55,6 +55,14 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
     () => (rerouteTvBaselineFlightIds.length > 0 ? rerouteTvBaselineFlightIds : undefined),
     [rerouteTvBaselineFlightIds]
   );
+  const primaryTvId = useMemo(() => {
+    if (Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0) {
+      const normalized = String(selectedTrafficVolumes[0] ?? "").trim();
+      return normalized.length > 0 ? normalized : null;
+    }
+    const normalized = String(selectedTrafficVolume ?? "").trim();
+    return normalized.length > 0 ? normalized : null;
+  }, [selectedTrafficVolume, selectedTrafficVolumes]);
   const isTvSelected = useMemo(() => {
     if (Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0) return true;
     return !!selectedTrafficVolume;
@@ -367,6 +375,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
         onClose={() => setQueryOpen(false)}
         initialPrompt={queryInitialPrompt}
         flightIds={baselineIds}
+        sourceTrafficVolumeId={primaryTvId}
         onSelectFlights={(flightIds) => {
           setRerouteBaseFlightIds(flightIds, "query");
           setQueryOpen(false);

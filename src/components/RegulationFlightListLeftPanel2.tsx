@@ -11,6 +11,7 @@ import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import {
   compareIntersectionFlightRows,
   intersectStringSets,
+  matchesSelectedTvTraversalOrder,
   type FlightSortMetric,
 } from "@/lib/airspaceInfoMultiTv";
 
@@ -367,12 +368,15 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
           },
         };
       });
+    const orderedRows = nextRows.filter((row) =>
+      matchesSelectedTvTraversalOrder(row.sortMetric.perTv, selectedTvIds),
+    );
 
     if (selectedTvIds.length > 1) {
-      nextRows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
+      orderedRows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
     }
 
-    return nextRows;
+    return orderedRows;
   }, [primaryTvId, selectedTvIds, secondaryTvIds, secondaryFlightDataByTv, filteredRankedFlights, flightsById]);
 
   const hourGlassArrivalData = useMemo(() => {

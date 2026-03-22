@@ -97,6 +97,17 @@ type ProposalReviewContext =
   | { type: "flow"; proposal: RegulationProposal; flow: ProposalFlow }
   | { type: "proposal"; proposal: RegulationProposal };
 
+function resolveSingleControlVolumeId(flows: ProposalFlow[]): string | null {
+  const uniqueIds = new Set<string>();
+  for (const flow of flows || []) {
+    const normalized = String(flow?.control_volume_id ?? "").trim();
+    if (!normalized) continue;
+    uniqueIds.add(normalized);
+    if (uniqueIds.size > 1) return null;
+  }
+  return uniqueIds.size === 1 ? Array.from(uniqueIds)[0] : null;
+}
+
 function extractTimeRange(label?: string | null): TimeRange | null {
   if (!label) return null;
   const match = label.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*[–-]\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
@@ -166,7 +177,11 @@ export default function RegulationProposalPanel({
   const [expandedProposals, setExpandedProposals] = useState<Record<string, boolean>>({});
   const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
   const [showAllFlightLists, setShowAllFlightLists] = useState<Record<string, boolean>>({});
-  const [statsDialog, setStatsDialog] = useState<{ flightIds: string[]; fullScreen?: boolean } | null>(null);
+  const [statsDialog, setStatsDialog] = useState<{
+    flightIds: string[];
+    fullScreen?: boolean;
+    sourceTrafficVolumeId?: string | null;
+  } | null>(null);
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<ProposalReviewContext | null>(null);
   const [basketError, setBasketError] = useState<string | null>(null);
@@ -217,6 +232,15 @@ export default function RegulationProposalPanel({
     const label = `${reviewContext.proposal.id} · Proposal`;
     return { highlight, baseline: label };
   }, [mode, reviewContext]);
+
+  const reviewSourceTrafficVolumeId = useMemo(() => {
+    if (!reviewContext) return null;
+    if (reviewContext.type === "flow") {
+      const normalized = String(reviewContext.flow.control_volume_id ?? "").trim();
+      return normalized.length > 0 ? normalized : null;
+    }
+    return resolveSingleControlVolumeId(reviewContext.proposal.flows || []);
+  }, [reviewContext]);
 
   const flightLookup = useMemo(() => {
     const map = new Map<string, Trajectory>();
@@ -857,7 +881,11 @@ export default function RegulationProposalPanel({
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (!flow.flight_ids?.length) return;
-                                      setStatsDialog({ flightIds: flow.flight_ids.map((id) => String(id)), fullScreen: true });
+                                      setStatsDialog({
+                                        flightIds: flow.flight_ids.map((id) => String(id)),
+                                        fullScreen: true,
+                                        sourceTrafficVolumeId: flow.control_volume_id ?? null,
+                                      });
                                     }}
                                     className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors ${hasFlightIds
                                       ? 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'
@@ -1039,7 +1067,11 @@ export default function RegulationProposalPanel({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (!hasProposalFlights) return;
-                        setStatsDialog({ flightIds: proposalFlights, fullScreen: true });
+                        setStatsDialog({
+                          flightIds: proposalFlights,
+                          fullScreen: true,
+                          sourceTrafficVolumeId: resolveSingleControlVolumeId(proposal.flows || []),
+                        });
                       }}
                       aria-label={`View flight statistics for proposal ${proposal.id}`}
                       title="Flight statistics"
@@ -1118,6 +1150,7 @@ export default function RegulationProposalPanel({
         open={!!reviewContext}
         onClose={handleCloseReview}
         flightIds={reviewFlightIds}
+        sourceTrafficVolumeId={reviewSourceTrafficVolumeId}
         onSelectFlights={handleReviewSelection}
         highlightLabel={reviewLabels.highlight}
         baselineLabel={reviewLabels.baseline}
@@ -1128,6 +1161,7 @@ export default function RegulationProposalPanel({
           open={!!statsDialog}
           onClose={() => setStatsDialog(null)}
           flightIds={statsDialog.flightIds}
+          sourceTrafficVolumeId={statsDialog.sourceTrafficVolumeId ?? null}
           fullScreen={statsDialog.fullScreen ?? true}
         />,
         document.body

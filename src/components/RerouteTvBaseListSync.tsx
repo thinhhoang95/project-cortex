@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { authFetch } from "@/lib/auth";
-import { compareIntersectionFlightRows, intersectStringSets, type FlightSortMetric } from "@/lib/airspaceInfoMultiTv";
+import {
+  compareIntersectionFlightRows,
+  intersectStringSets,
+  matchesSelectedTvTraversalOrder,
+  type FlightSortMetric,
+} from "@/lib/airspaceInfoMultiTv";
 import { useSimStore } from "@/components/useSimStore";
 
 type OrderedFlightsData = {
@@ -280,10 +285,12 @@ function buildBaseListForSelection(
       }
     }
 
-    sortableRows.push({
+    const sortableRow = {
       flightId: row.flightId,
       perTv,
-    });
+    };
+    if (!matchesSelectedTvTraversalOrder(sortableRow.perTv, selectedTvIds)) continue;
+    sortableRows.push(sortableRow);
   }
 
   sortableRows.sort((a, b) => compareIntersectionFlightRows(a, b, primaryTvId));

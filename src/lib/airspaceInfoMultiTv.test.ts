@@ -6,6 +6,7 @@ import {
   compareIntersectionFlightRows,
   filterChartRowsByWindow,
   intersectStringSets,
+  matchesSelectedTvTraversalOrder,
   type RollingChartDataPoint,
 } from "./airspaceInfoMultiTv";
 
@@ -90,5 +91,50 @@ describe("airspaceInfoMultiTv", () => {
     const sorted = [...rows].sort((a, b) => compareIntersectionFlightRows(a, b, "TV_A"));
     expect(sorted.map((r) => r.flightId)).toEqual(["F1", "F2", "F3"]);
   });
-});
 
+  it("checks selected TV traversal order using per-TV arrival metrics", () => {
+    expect(
+      matchesSelectedTvTraversalOrder(
+        {
+          TV_A: { deltaSeconds: 10, arrivalSeconds: 100, windowStartSeconds: null },
+          TV_B: { deltaSeconds: 20, arrivalSeconds: 200, windowStartSeconds: null },
+          TV_C: { deltaSeconds: 30, arrivalSeconds: 300, windowStartSeconds: null },
+        },
+        ["TV_A", "TV_B", "TV_C"],
+      ),
+    ).toBe(true);
+
+    expect(
+      matchesSelectedTvTraversalOrder(
+        {
+          TV_A: { deltaSeconds: 10, arrivalSeconds: 300, windowStartSeconds: null },
+          TV_B: { deltaSeconds: 20, arrivalSeconds: 200, windowStartSeconds: null },
+        },
+        ["TV_A", "TV_B"],
+      ),
+    ).toBe(false);
+  });
+
+  it("falls back to time-window starts and tolerates missing timing data", () => {
+    expect(
+      matchesSelectedTvTraversalOrder(
+        {
+          TV_A: { deltaSeconds: null, arrivalSeconds: null, windowStartSeconds: 600 },
+          TV_B: { deltaSeconds: null, arrivalSeconds: null, windowStartSeconds: 900 },
+        },
+        ["TV_A", "TV_B"],
+      ),
+    ).toBe(true);
+
+    expect(
+      matchesSelectedTvTraversalOrder(
+        {
+          TV_A: { deltaSeconds: null, arrivalSeconds: 600, windowStartSeconds: null },
+          TV_B: { deltaSeconds: null, arrivalSeconds: null, windowStartSeconds: null },
+          TV_C: { deltaSeconds: null, arrivalSeconds: 500, windowStartSeconds: null },
+        },
+        ["TV_A", "TV_B", "TV_C"],
+      ),
+    ).toBe(false);
+  });
+});

@@ -233,8 +233,8 @@ export default function Header() {
         <div className="flex items-center justify-between px-6 py-1">
           <div className="flex items-center space-x-3">
             <h1 className="text-xl font-bold text-white">Flow&apos;s Kitchen</h1>
-            <span className="text-[0.625rem] uppercase text-white/80 border border-white/60 rounded-full px-2 py-0.5">
-              RESEARCH PREVIEW
+            <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
+              Public Preview
             </span>
           </div>
 

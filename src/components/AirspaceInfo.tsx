@@ -29,6 +29,7 @@ import {
   compareIntersectionFlightRows,
   filterChartRowsByWindow,
   intersectStringSets,
+  matchesSelectedTvTraversalOrder,
   type FlightSortMetric,
   type MergedMultiTvChartRow,
   type RollingChartDataPoint,
@@ -486,12 +487,15 @@ export default function AirspaceInfo() {
             detail && typeof detail.delta_seconds === "number" && Number.isFinite(detail.delta_seconds)
               ? detail.delta_seconds
               : null;
+          const windowStartSeconds = detail?.time_window
+            ? parseTimeWindowStartSeconds(detail.time_window)
+            : null;
           const cell: TvFlightCell = {
             arrivalTime: detail?.arrival_time || "N/A",
             dwellSeconds: detail?.dwell_seconds ?? null,
             arrivalSeconds,
             deltaSeconds,
-            windowStartSeconds: null,
+            windowStartSeconds,
           };
           perTv[tvId] = cell;
           sortPerTv[tvId] = {
@@ -530,11 +534,14 @@ export default function AirspaceInfo() {
         },
       };
     });
+    const orderedRows = rows.filter((row) =>
+      matchesSelectedTvTraversalOrder(row.sortMetric.perTv, selectedTvIds),
+    );
 
-    rows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
+    orderedRows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
 
     return {
-      intersectionFlightRows: rows,
+      intersectionFlightRows: orderedRows,
       hasAnyOrderedFlightData: anyOrdered,
       primaryFlightPayload: primaryTvId ? flightDataByTv[primaryTvId] ?? null : null,
     };
@@ -786,7 +793,7 @@ export default function AirspaceInfo() {
                     : "bg-white/10 border-white/20 text-white/80 hover:bg-white/15 hover:border-white/30"
                 }`}
               >
-                <div className="text-lg mb-1">🎯</div>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-1"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
                 <span className="text-xs font-medium">Focus</span>
               </button>
             </div>

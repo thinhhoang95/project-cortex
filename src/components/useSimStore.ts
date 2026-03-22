@@ -11,6 +11,7 @@ import {
   computeTrajectoryRange,
 } from "@/lib/resourceStates";
 import { toggleOrderedTrafficVolumes } from "@/lib/multiTrafficVolumeSelection";
+import type { FlightLineLabelMode } from "@/lib/flightLineLabels";
 import {
   collectAllProposalFlights,
   collectProposalFlights,
@@ -130,6 +131,7 @@ type State = {
   // Weather overlay selection
   weatherOverlay: 'none' | 'surface-precip';
   showFlightLineLabels: boolean;
+  flightLineLabelMode: FlightLineLabelMode;
   showCallsigns: boolean;
   showFlightLines: boolean;
   showWaypoints: boolean;
@@ -249,6 +251,7 @@ type State = {
   clearResourceState: () => void;
   setWeatherOverlay: (overlay: 'none' | 'surface-precip') => void;
   setShowFlightLineLabels: (show: boolean) => void;
+  setFlightLineLabelMode: (mode: FlightLineLabelMode) => void;
   setShowCallsigns: (show: boolean) => void;
   setShowFlightLines: (show: boolean) => void;
   setShowWaypoints: (show: boolean) => void;
@@ -407,6 +410,7 @@ const defaultState: Pick<State,
   | 'resourceStateEpoch'
   | 'weatherOverlay'
   | 'showFlightLineLabels'
+  | 'flightLineLabelMode'
   | 'showCallsigns'
   | 'showFlightLines'
   | 'showWaypoints'
@@ -520,6 +524,7 @@ const defaultState: Pick<State,
   resourceStateEpoch: 0,
   weatherOverlay: 'none',
   showFlightLineLabels: false,
+  flightLineLabelMode: "callsign",
   showCallsigns: false,
   showFlightLines: true,
   showWaypoints: true,
@@ -876,6 +881,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   clearResourceState: () => set((state) => buildResourceStateReset(state)),
   setWeatherOverlay: (overlay) => set({ weatherOverlay: overlay }),
   setShowFlightLineLabels: (show) => set({ showFlightLineLabels: show }),
+  setFlightLineLabelMode: (mode) => set({ flightLineLabelMode: mode }),
   setShowCallsigns: (show) => set({ showCallsigns: show }),
   setShowFlightLines: (show) => set({ showFlightLines: show }),
   setShowWaypoints: (show) => set({ showWaypoints: show }),

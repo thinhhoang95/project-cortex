@@ -7,6 +7,10 @@ import { loadTrajectories } from "@/lib/flights";
 import { loadSectors } from "@/lib/airspace";
 import { loadWaypoints } from "@/lib/waypoints";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
+import {
+  setFlightLineLabelFilters,
+} from "@/lib/flightLineLabels";
+import { syncFlightLevelLabelLayer } from "@/lib/flightLineLabelLayer";
 import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
@@ -75,6 +79,7 @@ export default function MapCanvas() {
     tick,
     flights,
     showFlightLineLabels,
+    flightLineLabelMode,
     showCallsigns,
     showTrafficVolumes,
     airspaceDisplayMode,
@@ -249,12 +254,6 @@ export default function MapCanvas() {
           },
           paint: { "text-color": "#34d399", "text-halo-color": "#0f172a", "text-halo-width": 2 }
         });
-        // Apply initial visibility based on store defaults
-        try {
-          const { showFlightLineLabels } = useSimStore.getState();
-          map.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
-          map.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
-        } catch { }
 
         // --- Waypoints (zoom-based filtering for better UX) ---
         // Load only waypoints within sector bbox with small margin
@@ -630,12 +629,9 @@ export default function MapCanvas() {
 
   // on showFlightLineLabels change, update layer visibility
   useEffect(() => {
-    if (mapRef.current && mapRef.current.getLayer("flight-line-labels")) {
-      // Prefer paint properties over layout visibility to avoid side effects on sibling layers
-      mapRef.current.setPaintProperty("flight-line-labels", "text-opacity", showFlightLineLabels ? 1 : 0);
-      mapRef.current.setPaintProperty("flight-line-labels", "text-halo-width", showFlightLineLabels ? 2 : 0);
-    }
-  }, [showFlightLineLabels]);
+    if (!mapRef.current) return;
+    updatePlanePositions(mapRef.current);
+  }, [flightLineLabelMode, showFlightLineLabels]);
 
   // on showCallsigns change, toggle plane text visibility via paint properties
   useEffect(() => {
@@ -1327,7 +1323,14 @@ function updatePlanePositions(map: maplibregl.Map | null) {
 
   if (map.getLayer("flight-lines")) {
     map.setFilter("flight-lines", filterExpr as any);
-    if (map.getLayer("flight-line-labels")) map.setFilter("flight-line-labels", filterExpr as any);
+    syncFlightLevelLabelLayer({
+      map,
+      tracks,
+      visibleFlightIds: lineIdsToShow,
+      showFlightLineLabels: sim.showFlightLineLabels,
+      flightLineLabelMode: sim.flightLineLabelMode,
+    });
+    setFlightLineLabelFilters(map, filterExpr);
     if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
     const inFocusContext =
       sim.focusMode ||

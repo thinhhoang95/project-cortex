@@ -1487,6 +1487,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         open={magicSearchOpen}
         onClose={() => setMagicSearchOpen(false)}
         flightIds={regulationListedFlightIds}
+        sourceTrafficVolumeId={primaryTvId}
         onSelectFlights={(ids) => {
           const validatedIds = validateFlightIdsAgainstCurrentList(ids, "Add flights from query");
           if (!validatedIds) return;
@@ -1504,6 +1505,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         open={!!communityReviewContext}
         onClose={handleCloseCommunityReview}
         flightIds={communityReviewFlightIds}
+        sourceTrafficVolumeId={primaryTvId}
         onSelectFlights={handleCommunityReviewSelection}
         highlightLabel={communityReviewLabels.highlight}
         baselineLabel={communityReviewLabels.baseline}

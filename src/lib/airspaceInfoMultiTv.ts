@@ -168,6 +168,29 @@ function metricArrivalForWindow(metric: FlightSortMetric["perTv"][string]): numb
   return null;
 }
 
+export function matchesSelectedTvTraversalOrder(
+  metricByTv: FlightSortMetric["perTv"],
+  selectedTvIds: readonly string[],
+): boolean {
+  if (!selectedTvIds.length) return true;
+
+  let previousComparableTime: number | null = null;
+
+  for (const tvId of selectedTvIds) {
+    const comparableTime = metricArrivalForWindow(metricByTv[tvId]);
+    if (comparableTime === null) continue;
+
+    if (previousComparableTime !== null && comparableTime < previousComparableTime) {
+      return false;
+    }
+
+    previousComparableTime = comparableTime;
+  }
+
+  // Missing timing data should not exclude the row; this stays best-effort client logic.
+  return true;
+}
+
 function minAbsDelta(metricByTv: FlightSortMetric["perTv"]): number {
   let best = Number.POSITIVE_INFINITY;
   for (const metric of Object.values(metricByTv)) {
