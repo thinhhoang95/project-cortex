@@ -331,6 +331,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
           <div className="flex items-center gap-2">
             <FlightStatisticsButton
               flightIds={rows.map((row) => row.flightId)}
+              sourceTrafficVolumeId={showTvColumns ? (selectedTvIds[0] ?? null) : null}
               buttonClassName="border-white/20 text-white/80"
               title="Open flight statistics"
               ariaLabel="Open flight statistics"

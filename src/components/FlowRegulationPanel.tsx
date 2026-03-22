@@ -24,6 +24,7 @@ type FlowReviewContext = {
   periodFrom?: string | null;
   periodTo?: string | null;
   tvs: string[];
+  sourceTrafficVolumeId?: string | null;
 };
 
 type FlowHeuristicsDiagnostics = {
@@ -627,6 +628,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         </div>
                         <FlightStatisticsButton
                           flightIds={statsFlightIds}
+                          sourceTrafficVolumeId={flow.controlled_volume}
                           buttonClassName="border-white/20 text-white/80"
                           ariaLabel={`Open flight statistics for flow ${flow.flow_id}`}
                           title="Open flight statistics"
@@ -654,6 +656,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                           tvs={selectedTVs}
                           periodFrom={fromTime}
                           periodTo={toTime}
+                          sourceTrafficVolumeId={flow.controlled_volume}
                           openId={openAddMenuFor}
                           setOpenId={setOpenAddMenuFor}
                           flowBasket={flowBasket}
@@ -767,6 +770,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         open={!!reviewContext}
         onClose={handleCloseReview}
         flightIds={reviewFlightIds}
+        sourceTrafficVolumeId={reviewContext?.sourceTrafficVolumeId ?? null}
         onSelectFlights={handleReviewSelection}
         highlightLabel={reviewLabels.highlight}
         baselineLabel={reviewLabels.baseline}
@@ -884,6 +888,7 @@ type AddToBasketMenuProps = {
   tvs: string[];
   periodFrom: string;
   periodTo: string;
+  sourceTrafficVolumeId?: string | null;
   openId: string | null;
   setOpenId: (id: string | null) => void;
   flowBasket: ReturnType<typeof useSimStore.getState>["flowBasket"];
@@ -903,6 +908,7 @@ function AddToBasketMenu({
   tvs,
   periodFrom,
   periodTo,
+  sourceTrafficVolumeId,
   openId,
   setOpenId,
   flowBasket,
@@ -968,6 +974,7 @@ function AddToBasketMenu({
       periodFrom,
       periodTo,
       tvs: tvList,
+      sourceTrafficVolumeId,
     });
   };
 
@@ -985,6 +992,7 @@ function AddToBasketMenu({
       periodFrom,
       periodTo,
       tvs: tvList,
+      sourceTrafficVolumeId,
     });
   };
 

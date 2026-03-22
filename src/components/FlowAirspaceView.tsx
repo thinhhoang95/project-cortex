@@ -1489,6 +1489,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         onClose={() => setQueryDialogOpen(false)}
         initialPrompt={queryInitialPrompt}
         flightIds={listedFlightIds}
+        sourceTrafficVolumeId={primaryTvId}
         onSelectFlights={handleFlightsSelectedFromQuery}
         fullScreen
       />
