@@ -69,8 +69,8 @@ Primary-TV scoped:
 
 Multi-TV scoped:
 - selected header (shows all selected TVs, primary labeled reference)
-- focus flight filtering (uses intersecting list when multiple TVs selected)
-- flow extraction candidate list (intersection)
+- focus flight filtering (uses the left-list result when multiple TVs selected)
+- flow extraction candidate list (left-list result)
 - occupancy chart (multi-series when multiple TVs selected)
 
 Why this matters:
@@ -100,7 +100,8 @@ This is the most important regulations-specific coupling.
 - uses the regulation ranking endpoint for the **primary TV** (`/api/regulation_ranking_tv_flights_ordered`)
 - fetches `/api/tv_flights` for secondary TVs
 - intersects primary ranked/window-filtered flights with secondary memberships
-- publishes intersecting IDs to:
+- then applies a best-effort client-side traversal-order filter using the selected TV order
+- publishes the surviving IDs to:
   - `regulationVisibleFlightIds`
   - `regulationListedFlightIds`
 
@@ -113,15 +114,17 @@ Why this matters:
 - If the left panel is hidden, removed, or refactored independently, flow extraction/focus behavior can break unless you preserve this publishing behavior.
 
 ## Intersection semantics in regulations are not identical to AirspaceInfo
-The regulations flight list mirrors the *style* of AirspaceInfo (intersection + multi-TV columns), but the source pipeline differs:
+The regulations flight list mirrors the *style* of AirspaceInfo (membership intersection + traversal-order filtering + multi-TV columns), but the source pipeline differs:
 
 - Primary ordering comes from a regulation ranking endpoint (top-K ranked list)
 - Secondary TVs use `tv_flights` membership/details
-- Intersection is applied **after** primary ranking/window filtering
+- Membership intersection is applied **after** primary ranking/window filtering
+- Traversal-order filtering is then applied client-side using per-TV arrival/window-start data in selected-TV order
 
 This means the resulting list is:
-- “intersection of currently ranked primary flights and secondary memberships”
+- “ordered subset of currently ranked primary flights that also survive secondary membership checks”
 - not necessarily “all flights intersecting every selected TV”
+- not necessarily “all flights that would satisfy the ordered path if evaluated on a complete backend candidate universe”
 
 ### Consequence (easy to miss)
 Because the primary ranking endpoint is capped (`top_k=500`), valid intersecting flights beyond the primary top-K are excluded from:
@@ -129,12 +132,16 @@ Because the primary ranking endpoint is capped (`top_k=500`), valid intersecting
 - `regulationListedFlightIds`
 - `Extract Flows`
 
+Because traversal-order filtering is client-side and best-effort:
+- valid ordered flights can still be excluded if a secondary TV payload is truncated around `ref_time_str`
+- legacy payloads only provide coarse `windowStartSeconds`
+
 If you need full intersection completeness:
 - add a dedicated backend endpoint for multi-TV regulation candidates or full primary candidate membership
 - do not rely on primary top-K ranking output as the full universe
 
 ## Extract Flows behavior change
-`Extract Flows` now uses the intersecting list (`regulationListedFlightIds`) and therefore is conditioned on multi-TV intersection.
+`Extract Flows` now uses the filtered left-list result (`regulationListedFlightIds`) and therefore is conditioned on multi-TV membership intersection plus traversal-order filtering.
 
 Current call pattern remains:
 - `traffic_volume_id = primaryTvId`
@@ -155,12 +162,13 @@ Behavior with legacy payloads:
 - membership/intersection still works
 - per-TV arrival/dwell columns show `N/A`
 - sorting falls back to available metrics (`windowStartSeconds`/primary ties)
+- traversal-order filtering falls back to available `windowStartSeconds` data and is therefore coarser
 
 If you copy this elsewhere:
 - keep this compatibility unless backend payload shape is guaranteed.
 
 ## Focus-mode behavior changed subtly
-When multiple TVs are selected, `RegulationPanel` focus filtering now uses `regulationListedFlightIds` (published by the left list intersection), not the panel’s local single-TV flight payload.
+When multiple TVs are selected, `RegulationPanel` focus filtering now uses `regulationListedFlightIds` (published by the left list result), not the panel’s local single-TV flight payload.
 
 Why this matters:
 - Focus mode is now indirectly dependent on left-panel data readiness and correctness.
@@ -193,6 +201,7 @@ Before copying to another page/panel:
 ## Recommended next improvements (if revisiting)
 - Add explicit UI error state for secondary occupancy chart fetch failures.
 - Add a backend endpoint for complete multi-TV regulation candidate membership (avoid primary top-K truncation bias).
+- If order-sensitive regulation candidates must be backend-correct, add an endpoint that accepts an ordered TV list and evaluates ordered traversal server-side.
 - Add component tests for:
   - multi-TV left list intersection publishing (`regulationListedFlightIds`)
   - `Extract Flows` empty/intersection states
