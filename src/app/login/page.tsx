@@ -50,7 +50,7 @@ export default function LoginPage() {
             />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-slate-900/30 to-transparent" />
             <div className="absolute bottom-2 right-2 text-xs text-white/30">
-              GPT-Image 1.5
+              
             </div>
           </div>
 
@@ -65,7 +65,7 @@ export default function LoginPage() {
         </div>
 
         <div className="mt-6 text-center">
-          <span className="text-sm text-white/50">A Battle Against the Sky</span>
+          <span className="text-sm text-white/50">Sunset in Veneto</span>
           <span className="text-sm text-white/40 mx-2">·</span>
           <Link href="https://www.intuelle.com" className="text-sm text-white/60 hover:text-white">
             Visit the Kitchen&apos;s Blog
