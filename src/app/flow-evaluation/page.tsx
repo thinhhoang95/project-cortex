@@ -110,7 +110,7 @@ export default function FlowEvaluationPage() {
           <Header />
           <div className="pt-16 pb-12 px-6">
             <div className="max-w-7xl mx-auto">
-              <div className="text-white/70 text-sm">Loading...</div>
+              <ShimmeringText text="Loading..." className="text-sm text-white/70 font-normal" />
             </div>
           </div>
         </main>
@@ -1886,7 +1886,7 @@ function FlowEvaluationPageContent() {
             <section className="mb-8">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-[11px] uppercase tracking-wider text-white/60">Per-TV Occupancy Contributions vs Original</div>
-                {origCountsState.loading && <div className="text-xs text-white/70">Loading...</div>}
+                {origCountsState.loading && <ShimmeringText text="Loading..." className="text-xs text-white/70 font-normal" />}
               </div>
               {origCountsState.error && (
                 <div className="text-xs text-rose-300 mb-2">{origCountsState.error}</div>

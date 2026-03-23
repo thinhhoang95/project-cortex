@@ -9,6 +9,8 @@ import FlightPathsMiniMap from "./FlightPathsMiniMap";
 import { shouldEnableReset } from "./flightQueryDialogState";
 import { useSimStore } from "./useSimStore";
 import { authFetch } from "@/lib/auth";
+import { formatDwellingTime } from "@/lib/dwellTime";
+import { formatCrossingFlightLevelRange } from "@/lib/trafficVolumeFormat";
 
 interface FlightQueryDialogProps {
   open: boolean;
@@ -20,10 +22,21 @@ interface FlightQueryDialogProps {
   baselineLabel?: string;
   fullScreen?: boolean;
   sourceTrafficVolumeId?: string | null;
+  trafficReviewDetailsByFlightId?: Record<string, {
+    flightLevelRangeLabel?: string | null;
+    dwellSeconds?: number | null;
+    selectedTvId?: string | null;
+  }>;
 }
 
 interface FlightQueryResponse {
   flight_ids?: string[];
+  flight_level_by_flight?: Record<string, {
+    min_fl?: number | null;
+    max_fl?: number | null;
+    label?: string | null;
+    scope?: string | null;
+  } | null> | null;
   metadata?: Record<string, any> | null;
   [key: string]: any;
 }
@@ -76,6 +89,7 @@ export default function FlightQueryDialog({
   baselineLabel = "Baseline",
   fullScreen = false,
   sourceTrafficVolumeId,
+  trafficReviewDetailsByFlightId,
 }: FlightQueryDialogProps) {
   const flights = useSimStore(state => state.flights);
   const t = useSimStore(state => state.t);
@@ -112,6 +126,49 @@ export default function FlightQueryDialog({
     const normalized = String(sourceTrafficVolumeId ?? "").trim();
     return normalized.length > 0 ? normalized : null;
   }, [sourceTrafficVolumeId]);
+  const normalizedTrafficReviewDetailsByFlightId = useMemo(() => {
+    const entries = Object.entries(trafficReviewDetailsByFlightId || {});
+    if (entries.length === 0) return {} as Record<string, {
+      flightLevelRangeLabel: string | null;
+      dwellSeconds: number | null;
+      selectedTvId: string | null;
+    }>;
+
+    const normalized: Record<string, {
+      flightLevelRangeLabel: string | null;
+      dwellSeconds: number | null;
+      selectedTvId: string | null;
+    }> = {};
+
+    for (const [rawFlightId, details] of entries) {
+      const flightId = String(rawFlightId ?? "").trim();
+      if (!flightId) continue;
+      normalized[flightId] = {
+        flightLevelRangeLabel: typeof details?.flightLevelRangeLabel === "string"
+          ? details.flightLevelRangeLabel
+          : null,
+        dwellSeconds:
+          typeof details?.dwellSeconds === "number" && Number.isFinite(details.dwellSeconds)
+            ? details.dwellSeconds
+            : null,
+        selectedTvId: String(details?.selectedTvId ?? "").trim() || null,
+      };
+    }
+
+    return normalized;
+  }, [trafficReviewDetailsByFlightId]);
+  const queryFlightLevelLabelsByFlightId = useMemo(() => {
+    const raw = response?.flight_level_by_flight;
+    if (!raw || typeof raw !== "object") return {} as Record<string, string | null>;
+
+    const next: Record<string, string | null> = {};
+    for (const [rawFlightId, range] of Object.entries(raw)) {
+      const flightId = String(rawFlightId ?? "").trim();
+      if (!flightId) continue;
+      next[flightId] = formatCrossingFlightLevelRange(range);
+    }
+    return next;
+  }, [response?.flight_level_by_flight]);
 
   useEffect(() => {
     if (!open) return;
@@ -294,6 +351,8 @@ export default function FlightQueryDialog({
       resultFlightIds.map((rawId, index) => {
         const flightId = String(rawId);
         const flight = flightsById.get(flightId) ?? null;
+        const trafficReviewDetails = normalizedTrafficReviewDetailsByFlightId[flightId] ?? null;
+        const queryFlightLevelLabel = queryFlightLevelLabelsByFlightId[flightId] ?? null;
         const tvArrivalTime = normalizedSourceTrafficVolumeId
           ? (tvArrivalTimesById[flightId] ?? null)
           : null;
@@ -307,9 +366,29 @@ export default function FlightQueryDialog({
           arrivalTime: normalizedSourceTrafficVolumeId
             ? (tvArrivalTime ?? (tvArrivalDetailsReady ? "N/A" : "—"))
             : (flight ? formatTimeOfDay(flight.t1) : "—"),
+          flightLevelRangeLabel: trafficReviewDetails?.flightLevelRangeLabel ?? queryFlightLevelLabel,
+          dwellLabel: formatDwellingTime(trafficReviewDetails?.dwellSeconds ?? null),
+          selectedTvId: trafficReviewDetails?.selectedTvId ?? null,
         };
       }),
-    [baselineFlightIdSet, flightsById, normalizedSourceTrafficVolumeId, resultFlightIds, tvArrivalDetailsReady, tvArrivalTimesById]
+    [
+      baselineFlightIdSet,
+      flightsById,
+      normalizedSourceTrafficVolumeId,
+      normalizedTrafficReviewDetailsByFlightId,
+      queryFlightLevelLabelsByFlightId,
+      resultFlightIds,
+      tvArrivalDetailsReady,
+      tvArrivalTimesById,
+    ]
+  );
+  const showTrafficReviewColumns = useMemo(
+    () => resultFlightRows.some(
+      (row) =>
+        Object.prototype.hasOwnProperty.call(normalizedTrafficReviewDetailsByFlightId, row.flightId) ||
+        row.flightLevelRangeLabel !== null,
+    ),
+    [normalizedTrafficReviewDetailsByFlightId, resultFlightRows],
   );
 
   const mapFlightIds = useMemo(
@@ -463,6 +542,12 @@ export default function FlightQueryDialog({
                                 <th className="p-2 font-semibold">Ori.</th>
                                 <th className="p-2 font-semibold">Des.</th>
                                 <th className="p-2 font-semibold whitespace-nowrap">{arrivalColumnLabel}</th>
+                                {showTrafficReviewColumns && (
+                                  <>
+                                    <th className="p-2 font-semibold whitespace-nowrap">FL</th>
+                                    <th className="p-2 font-semibold whitespace-nowrap">Dwell</th>
+                                  </>
+                                )}
                               </tr>
                             </thead>
                             <tbody>
@@ -541,6 +626,29 @@ export default function FlightQueryDialog({
                                     >
                                       {row.arrivalTime}
                                     </td>
+                                    {showTrafficReviewColumns && (
+                                      <>
+                                        <td className={`p-2 text-right font-mono ${
+                                          isAdmitted ? "text-white/70" : "text-white/45 line-through"
+                                        }`}
+                                        >
+                                          <div className="flex flex-col items-end gap-1">
+                                            <span>{row.flightLevelRangeLabel ?? "–"}</span>
+                                            {row.selectedTvId && row.selectedTvId !== normalizedSourceTrafficVolumeId && (
+                                              <span className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/70 no-underline">
+                                                TV {row.selectedTvId}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className={`p-2 text-right font-mono ${
+                                          isAdmitted ? "text-white/70" : "text-white/45 line-through"
+                                        }`}
+                                        >
+                                          {row.dwellLabel}
+                                        </td>
+                                      </>
+                                    )}
                                   </tr>
                                 );
                               })}

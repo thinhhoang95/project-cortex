@@ -2,13 +2,11 @@
 
 import { useState } from "react";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
+import BottomControlsGroup from "@/components/BottomControlsGroup";
 import Header from "@/components/Header";
 import LeftControl1 from "@/components/LeftControl1";
-import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import MapCanvasReroute from "@/components/MapCanvasReroute";
-import SlackViewControl from "@/components/SlackViewControl";
-import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import RerouteBaseFlightListPanel from "@/components/RerouteBaseFlightListPanel";
 import RerouteGeometrySync from "@/components/RerouteGeometrySync";
@@ -74,9 +72,7 @@ export default function ReroutePage() {
         </div>
       </div>
 
-      <ResourceStateHistoryControl />
-      <SlackViewControl />
-      <ViewOptionsControl showAirspaceDisplayToggle />
+      <BottomControlsGroup showAirspaceDisplayToggle />
     </main>
   );
 }

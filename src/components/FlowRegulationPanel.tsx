@@ -12,6 +12,7 @@ import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import { formatDwellingTime } from "@/lib/dwellTime";
+import { formatCrossingFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import type { FlowBasketItem } from "@/components/useSimStore";
 
@@ -25,6 +26,11 @@ type FlowReviewContext = {
   periodTo?: string | null;
   tvs: string[];
   sourceTrafficVolumeId?: string | null;
+  trafficReviewDetailsByFlightId?: Record<string, {
+    flightLevelRangeLabel?: string | null;
+    dwellSeconds?: number | null;
+    selectedTvId?: string | null;
+  }>;
 };
 
 type FlowHeuristicsDiagnostics = {
@@ -653,6 +659,16 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                           flowId={flowId}
                           flowLabel={`Flow ${flow.flow_id}`}
                           items={(flow.flights || []).map(fl => ({ key: String(fl.flight_id), requestedBin: fl.requested_bin, earliestCrossing: extractTimeFromDateTime(fl.earliest_crossing_time) }))}
+                          trafficReviewDetailsByFlightId={Object.fromEntries(
+                            (flow.flights || []).map((fl) => [
+                              String(fl.flight_id),
+                              {
+                                flightLevelRangeLabel: formatCrossingFlightLevelRange(fl.flight_level_range),
+                                dwellSeconds: fl.dwell_seconds ?? null,
+                                selectedTvId: String(fl.selected_tv_id ?? "").trim() || null,
+                              },
+                            ]),
+                          )}
                           tvs={selectedTVs}
                           periodFrom={fromTime}
                           periodTo={toTime}
@@ -719,8 +735,8 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                     </div>
                     {flightListOpen && (
                       <div className="px-2 pb-2 pt-2">
-                        <div className="rounded-lg border border-white/10 overflow-hidden">
-                          <table className="w-full text-[11px]">
+                        <div className="rounded-lg border border-white/10 overflow-x-auto">
+                          <table className="w-full min-w-max text-[11px]">
                             <thead>
                               <tr className="bg-white/10">
                                 <th className="text-left p-2 font-semibold">CS</th>
@@ -728,6 +744,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                                 <th className="text-left p-2 font-semibold">Des.</th>
                                 <th className="text-left p-2 font-semibold">Requested Bin</th>
                                 <th className="text-left p-2 font-semibold">Earliest Crossing</th>
+                                <th className="text-left p-2 font-semibold">FL</th>
                                 <th className="text-left p-2 font-semibold">Dwell</th>
                               </tr>
                             </thead>
@@ -738,6 +755,10 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                                 const origin = full?.origin || 'N/A';
                                 const destination = full?.destination || 'N/A';
                                 const earliest = extractTimeFromDateTime(fl.earliest_crossing_time) || 'N/A';
+                                const flightLevelRangeLabel = formatCrossingFlightLevelRange(fl.flight_level_range);
+                                const selectedTvId = String(fl.selected_tv_id ?? "").trim();
+                                const controlledVolume = String(flow.controlled_volume ?? "").trim();
+                                const showSelectedTvBadge = !!selectedTvId && selectedTvId !== controlledVolume;
                                 return (
                                   <tr
                                     key={`${flow.flow_id}-${fl.flight_id}`}
@@ -750,6 +771,16 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                                     <td className="p-2">{destination}</td>
                                     <td className="p-2 text-right font-mono">{fl.requested_bin}</td>
                                     <td className="p-2 text-right font-mono">{earliest}</td>
+                                    <td className="p-2 text-right font-mono">
+                                      <div className="flex flex-col items-end gap-1">
+                                        <span>{flightLevelRangeLabel ?? "–"}</span>
+                                        {showSelectedTvBadge && (
+                                          <span className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/70">
+                                            TV {selectedTvId}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
                                     <td className="p-2 text-right font-mono">{formatDwellingTime(fl.dwell_seconds ?? null)}</td>
                                   </tr>
                                 );
@@ -771,6 +802,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         onClose={handleCloseReview}
         flightIds={reviewFlightIds}
         sourceTrafficVolumeId={reviewContext?.sourceTrafficVolumeId ?? null}
+        trafficReviewDetailsByFlightId={reviewContext?.trafficReviewDetailsByFlightId}
         onSelectFlights={handleReviewSelection}
         highlightLabel={reviewLabels.highlight}
         baselineLabel={reviewLabels.baseline}
@@ -820,10 +852,29 @@ type FlowsResponse = {
     flights: Array<{
       flight_id: string;
       requested_bin: number;
+      requested_dt?: string | null;
       earliest_crossing_time: string | null;
+      selected_tv_id?: string | null;
+      selected_crossing?: {
+        tvtw_index?: number | null;
+        entry_time_s?: number | null;
+        exit_time_s?: number | null;
+      } | null;
       dwell_seconds?: number | null;
+      flight_level_range?: {
+        min_fl?: number | null;
+        max_fl?: number | null;
+        label?: string | null;
+        scope?: string | null;
+      } | null;
     }>;
   }>;
+  heuristics_metadata?: {
+    timebins_used?: number[];
+    window_source?: string | null;
+    hotspot_mode?: string | null;
+    errors?: string[];
+  } | null;
 };
 
 async function fetchFlows(params: {
@@ -885,6 +936,11 @@ type AddToBasketMenuProps = {
   flowId: string;
   flowLabel: string;
   items: FlowBasketItem[];
+  trafficReviewDetailsByFlightId?: Record<string, {
+    flightLevelRangeLabel?: string | null;
+    dwellSeconds?: number | null;
+    selectedTvId?: string | null;
+  }>;
   tvs: string[];
   periodFrom: string;
   periodTo: string;
@@ -905,6 +961,7 @@ function AddToBasketMenu({
   flowId,
   flowLabel,
   items,
+  trafficReviewDetailsByFlightId,
   tvs,
   periodFrom,
   periodTo,
@@ -975,6 +1032,7 @@ function AddToBasketMenu({
       periodTo,
       tvs: tvList,
       sourceTrafficVolumeId,
+      trafficReviewDetailsByFlightId,
     });
   };
 
@@ -993,6 +1051,7 @@ function AddToBasketMenu({
       periodTo,
       tvs: tvList,
       sourceTrafficVolumeId,
+      trafficReviewDetailsByFlightId,
     });
   };
 

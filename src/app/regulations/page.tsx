@@ -9,11 +9,9 @@ import RegulationFlightListLeftPanel2 from "@/components/RegulationFlightListLef
 import RegulationPanel from "@/components/RegulationPanel";
 import RegulationPlanPanel from "@/components/RegulationPlanPanel";
 import RegulationProposalPanel from "@/components/RegulationProposalPanel";
+import BottomControlsGroup from "@/components/BottomControlsGroup";
 import Header from "@/components/Header";
-import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
-import SlackViewControl from "@/components/SlackViewControl";
-import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import {
   loadRegSnapshots,
@@ -151,9 +149,7 @@ export default function RegulationsPage() {
           </div>
         )}
       </div>
-      <ResourceStateHistoryControl />
-      <SlackViewControl />
-      <ViewOptionsControl />
+      <BottomControlsGroup />
       {regComparisonToast && (
         <div
           className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm flex items-start gap-3 ${

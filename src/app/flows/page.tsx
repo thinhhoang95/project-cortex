@@ -9,11 +9,9 @@ import FlowRegulationPanel from "@/components/FlowRegulationPanel";
 import RegulationProposalPanel from "@/components/RegulationProposalPanel";
 import FlowAirspaceView from "@/components/FlowAirspaceView";
 import FlowPlanPanel from "@/components/FlowPlanPanel";
+import BottomControlsGroup from "@/components/BottomControlsGroup";
 import Header from "@/components/Header";
-import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
-import SlackViewControl from "@/components/SlackViewControl";
-import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 
 export default function FlowsPage() {
@@ -84,9 +82,7 @@ export default function FlowsPage() {
           </div>
         </div>
       </div>
-      <ResourceStateHistoryControl />
-      <SlackViewControl />
-      <ViewOptionsControl />
+      <BottomControlsGroup />
     </main>
   );
 }

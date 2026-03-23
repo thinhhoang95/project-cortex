@@ -21,7 +21,15 @@ function getStateLabel(label: string | null | undefined, episodeIndex: number): 
   return episodeIndex === 0 ? "State Zero" : `Episode ${episodeIndex}`;
 }
 
-export default function ResourceStateHistoryControl() {
+type ResourceStateHistoryControlProps = {
+  embedded?: boolean;
+  className?: string;
+};
+
+export default function ResourceStateHistoryControl({
+  embedded = false,
+  className,
+}: ResourceStateHistoryControlProps) {
   const router = useRouter();
   const {
     resourceDate,
@@ -141,9 +149,13 @@ export default function ResourceStateHistoryControl() {
   if (!resourceDate) return null;
   if (!resourceStateLoading && resourceStateStates.length === 0 && !resourceStateError) return null;
 
+  const containerClassName = embedded
+    ? `pointer-events-auto flex items-center ${className ?? ""}`
+    : `fixed left-1/2 z-40 -translate-x-1/2 pointer-events-none ${bottomClass} ${className ?? ""}`;
+
   return (
-    <div className={`fixed left-1/2 z-40 -translate-x-1/2 pointer-events-none ${bottomClass}`}>
-      <div className="pointer-events-auto flex items-center">
+    <div className={containerClassName}>
+      <div className={embedded ? "flex items-center" : "pointer-events-auto flex items-center"}>
 
         {/* Loading skeleton ticks */}
         {resourceStateLoading && resourceStateStates.length === 0 && (

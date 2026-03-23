@@ -39,11 +39,8 @@ export default function SelectDatePage() {
         <div className="w-full">
           <div className="mb-8 max-w-3xl">
             <h1 className="text-4xl font-semibold tracking-tight text-white">
-              Select a date
+              Scenario Replay
             </h1>
-            <p className="mt-3 text-base leading-7 text-white/65">
-              Choose a date available on both the client and server, then continue.
-            </p>
           </div>
 
           <ResourceDateSelectorPanel

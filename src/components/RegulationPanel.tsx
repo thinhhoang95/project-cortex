@@ -14,6 +14,7 @@ import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/Mo
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
+import ShimmeringText from "@/components/ShimmeringText";
 import {
   assertReplayableRegulationTargets,
   normalizeFlightIdList,
@@ -1354,7 +1355,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               <span className="text-[10px] opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>
             </div>
             {selectedTvIds.length > 1 && !multiChartDataReady && (
-              <div className="text-[10px] opacity-70 mb-2">Loading occupancy for additional selected TVs…</div>
+              <ShimmeringText text="Loading occupancy for additional selected TVs…" className="mb-2 text-[10px] opacity-70 font-normal" />
             )}
             <div style={{ width: '100%', height: 180 }}>
               {selectedTvIds.length > 1 && multiChartDataReady && displayMergedChartData.length > 0 ? (

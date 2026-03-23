@@ -17,6 +17,7 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import ShimmeringText from "@/components/ShimmeringText";
 
 interface SectorOccupancyData {
   elementary_sector_id: string;
@@ -548,7 +549,7 @@ export default function CSAirspaceInfo() {
           {(loading || metadataLoading) && (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-6 w-6 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
-              <span className="ml-2 text-sm opacity-70">Loading...</span>
+              <ShimmeringText text="Loading..." className="ml-2 text-sm opacity-70 font-normal" />
             </div>
           )}
 
@@ -660,7 +661,7 @@ export default function CSAirspaceInfo() {
             {flightListLoading && (
               <div className="flex items-center justify-center py-4">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
-                <span className="ml-2 text-xs opacity-70">Loading flights...</span>
+                <ShimmeringText text="Loading flights..." className="ml-2 text-xs opacity-70 font-normal" />
               </div>
             )}
 

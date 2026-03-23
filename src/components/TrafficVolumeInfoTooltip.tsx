@@ -21,6 +21,7 @@ import { createPortal } from "react-dom";
 import type { SectorFeatureProps } from "@/lib/models";
 import { fetchTrafficVolumeFeature, getCachedTrafficVolumeFeature } from "@/lib/trafficVolumes";
 import { getDerivedCapacityRangeForTv, getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
+import ShimmeringText from "./ShimmeringText";
 import TrafficVolumeMiniMap from "./TrafficVolumeMiniMap";
 
 type TrafficVolumeInfoTooltipProps = {
@@ -227,7 +228,7 @@ export default function TrafficVolumeInfoTooltip({
                     <span className="truncate font-mono text-[10px] tracking-wide text-white/60">{normalizedId}</span>
                   )}
                 </div>
-                {status === "loading" && <span className="mt-2 text-white/60">Loading…</span>}
+                {status === "loading" && <ShimmeringText text="Loading…" className="mt-2 text-white/60 font-normal" />}
                 {status === "error" && <span className="mt-2 text-rose-300">{error || "Not available"}</span>}
                 {status === "ready" && (
                   <div className="mt-2 space-y-1 text-white/70">

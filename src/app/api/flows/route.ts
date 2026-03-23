@@ -99,11 +99,19 @@ export async function GET(request: NextRequest) {
     if (unauthorized) return unauthorized;
 
     if (!resp.ok) {
+      const contentType = resp.headers.get('content-type') || '';
+      if (contentType.toLowerCase().includes('application/json')) {
+        const data = await resp.json();
+        return NextResponse.json(data, { status: resp.status });
+      }
+
       const text = await resp.text();
-      return NextResponse.json(
-        { error: `Backend error: ${resp.status}`, details: text },
-        { status: 502 }
-      );
+      return new NextResponse(text, {
+        status: resp.status,
+        headers: text
+          ? { 'Content-Type': contentType || 'text/plain; charset=utf-8' }
+          : undefined,
+      });
     }
     const data = await resp.json();
     return NextResponse.json(data);

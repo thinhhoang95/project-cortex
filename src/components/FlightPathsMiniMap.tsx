@@ -8,6 +8,7 @@ import { createMapStyle } from "@/lib/mapStyle";
 import { useSimStore } from "./useSimStore";
 import { useThemeStore } from "./useThemeStore";
 import type { Trajectory } from "@/lib/models";
+import ShimmeringText from "./ShimmeringText";
 
 type FlightPathsMiniMapProps = {
   flightIds?: string[];
@@ -302,7 +303,7 @@ export default function FlightPathsMiniMap({
       <div ref={containerRef} className="absolute inset-0" />
       {!mapReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-xs text-white/60">
-          Loading map…
+          <ShimmeringText text="Loading map…" className="text-xs text-white/60 font-normal" />
         </div>
       )}
       {mapReady && !hasFlights && (

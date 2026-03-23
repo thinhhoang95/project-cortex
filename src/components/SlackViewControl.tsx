@@ -2,7 +2,15 @@
 import { useEffect, useMemo } from "react";
 import { useSimStore } from "@/components/useSimStore";
 
-export default function SlackViewControl() {
+type SlackViewControlProps = {
+  embedded?: boolean;
+  className?: string;
+};
+
+export default function SlackViewControl({
+  embedded = false,
+  className,
+}: SlackViewControlProps) {
   const {
     slackMode,
     setSlackMode,
@@ -10,10 +18,10 @@ export default function SlackViewControl() {
     deltaMin,
     setDeltaMin,
     isFetchingSlack,
-    viewOptionsMinimized,
     airspaceDisplayMode,
     selectedTrafficVolume,
     selectedTrafficVolumes,
+    viewOptionsMinimized,
   } = useSimStore();
 
   const selectedTvIds = useMemo(
@@ -44,10 +52,12 @@ export default function SlackViewControl() {
           : "hover:bg-white/10 text-gray-200"
     }`;
 
+  const containerClassName = embedded
+    ? `bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md w-max ${className ?? ""}`
+    : `absolute ${viewOptionsMinimized ? "bottom-16" : "bottom-24"} left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md z-47 ${className ?? ""}`;
+
   return (
-    <div
-      className={`absolute ${viewOptionsMinimized ? "bottom-16" : "bottom-24"} left-1/2 -translate-x-1/2 transform bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-1 text-xs text-gray-200 flex items-center gap-1 shadow-md z-47`}
-    >
+    <div className={containerClassName}>
       <span className="px-2 text-gray-300">Slack View</span>
       <div className="w-px h-4 bg-white/30"></div>
       <button

@@ -7,11 +7,9 @@ import MapCanvas from "@/components/MapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
 import NetworkStatusPanel from "@/components/NetworkStatusPanel";
 import RightControl1 from "@/components/RightControl1";
+import BottomControlsGroup from "@/components/BottomControlsGroup";
 import Header from "@/components/Header";
-import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
-import SlackViewControl from "@/components/SlackViewControl";
-import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
 
@@ -133,9 +131,7 @@ export default function Page() {
           <RightControl1 embedded />
         </div>
       </div>
-      <ResourceStateHistoryControl />
-      <SlackViewControl />
-      <ViewOptionsControl showAirspaceDisplayToggle />
+      <BottomControlsGroup showAirspaceDisplayToggle />
       <ReleaseNotesDialog />
     </main>
   );
