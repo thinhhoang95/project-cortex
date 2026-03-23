@@ -33,7 +33,8 @@ const REQUIRED_RESOURCE_KEYS: readonly ResourceManifestResourceKey[] = [
   "tvCapacityRanges",
 ] as const;
 
-const parsedManifest = resourceManifestJson as ResourceManifest;
+const bundledManifest = resourceManifestJson as ResourceManifest;
+let runtimeManifestOverride: ResourceManifest | null = null;
 
 function isNonEmptyPath(value: unknown): value is string {
   return typeof value === "string" && value.trim().startsWith("/");
@@ -49,15 +50,41 @@ function withDateCacheKey(path: string, date: string): string {
 function getManifestEntry(date: string): Partial<ResourceManifestEntry> | null {
   const normalizedDate = String(date ?? "").trim();
   if (!normalizedDate) return null;
-  return parsedManifest?.dates?.[normalizedDate] ?? null;
+  return getResourceManifest().dates?.[normalizedDate] ?? null;
 }
 
 export function getResourceManifest(): ResourceManifest {
-  return parsedManifest;
+  return runtimeManifestOverride ?? bundledManifest;
+}
+
+function isValidResourceManifest(input: unknown): input is ResourceManifest {
+  if (!input || typeof input !== "object") return false;
+  const version = (input as ResourceManifest).version;
+  const dates = (input as ResourceManifest).dates;
+  return typeof version === "number" && !!dates && typeof dates === "object";
+}
+
+export async function refreshRuntimeResourceManifest(): Promise<ResourceManifest> {
+  if (typeof window === "undefined") {
+    return getResourceManifest();
+  }
+
+  const response = await fetch("/data/resource_manifest.json", { cache: "no-cache" });
+  if (!response.ok) {
+    throw new Error(`Failed to refresh resource manifest: ${response.status} ${response.statusText}`);
+  }
+
+  const payload = await response.json();
+  if (!isValidResourceManifest(payload)) {
+    throw new Error("Failed to refresh resource manifest: invalid payload");
+  }
+
+  runtimeManifestOverride = payload;
+  return runtimeManifestOverride;
 }
 
 export function listLocalResourceDates(): string[] {
-  return Object.keys(parsedManifest?.dates ?? {}).sort();
+  return Object.keys(getResourceManifest().dates ?? {}).sort();
 }
 
 export function getManifestMissingKeys(date: string): ResourceManifestResourceKey[] {

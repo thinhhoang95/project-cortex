@@ -1,5 +1,5 @@
 import { fetchCached } from "./cache";
-import { getTvCapacityRangesPath, listLocalResourceDates } from "./dataPaths";
+import { getTvCapacityRangesPath, listLocalResourceDates, refreshRuntimeResourceManifest } from "./dataPaths";
 import { useSimStore } from "@/components/useSimStore";
 
 export type TvCapacityRangeEntry = {
@@ -58,6 +58,11 @@ export async function loadTvCapacityRanges(): Promise<TvCapacityRangeMap> {
 
   if (!tvCapacityRangesLoadPromiseByDate.has(resourceDate)) {
     tvCapacityRangesLoadPromiseByDate.set(resourceDate, (async () => {
+      try {
+        await refreshRuntimeResourceManifest();
+      } catch {
+        // Fall back to the bundled manifest when the runtime copy is unavailable.
+      }
       const response = await fetchCached(getTvCapacityRangesPath(resourceDate));
       if (!response.ok) {
         throw new Error(`Failed to load TV capacity ranges: ${response.status} ${response.statusText}`);
