@@ -9,6 +9,7 @@ import { useThemeStore } from "./useThemeStore";
 import { fetchTrafficVolumeFeature, getCachedTrafficVolumeFeature } from "@/lib/trafficVolumes";
 import type { TrafficVolumeFeature } from "@/lib/trafficVolumes";
 import { getTrafficVolumeTheme } from "@/lib/trafficVolumeLayers";
+import ShimmeringText from "./ShimmeringText";
 
 const SOURCE_ID = "mini-traffic-volume";
 const FILL_LAYER_ID = "mini-traffic-volume-fill";
@@ -352,7 +353,7 @@ export default function TrafficVolumeMiniMap({
       <div ref={containerRef} className="absolute inset-0" />
       {!mapReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-xs text-white/60">
-          Loading map…
+          <ShimmeringText text="Loading map…" className="text-xs text-white/60 font-normal" />
         </div>
       )}
       {mapReady && showNoSelection && (
@@ -362,7 +363,7 @@ export default function TrafficVolumeMiniMap({
       )}
       {mapReady && showLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-xs text-white/60">
-          Loading traffic volume data…
+          <ShimmeringText text="Loading traffic volume data…" className="text-xs text-white/60 font-normal" />
         </div>
       )}
       {mapReady && showMissing && (

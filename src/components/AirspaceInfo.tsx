@@ -22,6 +22,7 @@ import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
+import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import {
   buildMergedMultiTvChartRows,
@@ -64,6 +65,12 @@ interface OrderedFlightsData {
     delta_seconds: number;
     time_window: string;
     dwell_seconds?: number | null;
+    flight_level_range?: {
+      min_fl?: number | null;
+      max_fl?: number | null;
+      label?: string | null;
+      scope?: string | null;
+    } | null;
   }[];
 }
 
@@ -73,6 +80,7 @@ type TvFlightsPayload =
 
 type TvFlightCell = {
   arrivalTime: string;
+  flightLevelRangeLabel: string | null;
   dwellSeconds: number | null;
   arrivalSeconds: number | null;
   deltaSeconds: number | null;
@@ -492,6 +500,7 @@ export default function AirspaceInfo() {
             : null;
           const cell: TvFlightCell = {
             arrivalTime: detail?.arrival_time || "N/A",
+            flightLevelRangeLabel: formatSelectedCrossingFlightLevelRange(detail?.flight_level_range),
             dwellSeconds: detail?.dwell_seconds ?? null,
             arrivalSeconds,
             deltaSeconds,
@@ -507,6 +516,7 @@ export default function AirspaceInfo() {
           const windowStartSeconds = legacyWindowStartByTv[tvId]?.get(String(flightId)) ?? null;
           const cell: TvFlightCell = {
             arrivalTime: "N/A",
+            flightLevelRangeLabel: null,
             dwellSeconds: null,
             arrivalSeconds: null,
             deltaSeconds: null,
@@ -742,7 +752,7 @@ export default function AirspaceInfo() {
     return "";
   };
 
-  const dynamicFlightColumnCount = selectedTvIds.length * 2;
+  const dynamicFlightColumnCount = selectedTvIds.length * 3;
   const tableColSpan = 4 + dynamicFlightColumnCount;
 
   const renderTooltip = useCallback(
@@ -823,7 +833,7 @@ export default function AirspaceInfo() {
           {loading && (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-6 w-6 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]" />
-              <span className="ml-2 text-sm opacity-70">Loading traffic volumes...</span>
+              <ShimmeringText text="Loading traffic volumes..." className="ml-2 text-sm opacity-70 font-normal" />
             </div>
           )}
 
@@ -981,7 +991,7 @@ export default function AirspaceInfo() {
             {flightListLoading && (
               <div className="flex items-center justify-center py-4">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]" />
-                <span className="ml-2 text-xs opacity-70">Loading flights...</span>
+                <ShimmeringText text="Loading flights..." className="ml-2 text-xs opacity-70 font-normal" />
               </div>
             )}
 
@@ -1004,6 +1014,9 @@ export default function AirspaceInfo() {
                         <Fragment key={`cols-${tvId}`}>
                           <th className="text-left p-2 font-semibold whitespace-nowrap">
                             Arr. ({tvId})
+                          </th>
+                          <th className="text-left p-2 font-semibold whitespace-nowrap">
+                            FL ({tvId})
                           </th>
                           <th className="text-left p-2 font-semibold whitespace-nowrap">
                             Dwell ({tvId})
@@ -1038,6 +1051,9 @@ export default function AirspaceInfo() {
                           <Fragment key={`${flight.flightId}-${tvId}`}>
                             <td className="p-2 text-right font-mono">
                               {flight.perTv[tvId]?.arrivalTime ?? "N/A"}
+                            </td>
+                            <td className="p-2 text-right font-mono">
+                              {flight.perTv[tvId]?.flightLevelRangeLabel ?? "N/A"}
                             </td>
                             <td className="p-2 text-right font-mono">
                               {formatDwellingTime(flight.perTv[tvId]?.dwellSeconds)}
@@ -1086,6 +1102,34 @@ function formatTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+}
+
+function formatSelectedCrossingFlightLevelRange(
+  range:
+    | {
+        min_fl?: number | null;
+        max_fl?: number | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): string | null {
+  const label = String(range?.label ?? "").trim();
+  if (label) {
+    const compactLabel = label.match(/^FL\s*(-?\d+)(?:-FL\s*(-?\d+))?$/i);
+    if (compactLabel) {
+      const [, start, end] = compactLabel;
+      return end ? `${start}-${end}` : start;
+    }
+    return label;
+  }
+
+  const minFl = typeof range?.min_fl === "number" ? range.min_fl : Number(range?.min_fl);
+  const maxFl = typeof range?.max_fl === "number" ? range.max_fl : Number(range?.max_fl);
+  if (!Number.isFinite(minFl) || !Number.isFinite(maxFl)) return null;
+  if (minFl < 0 || maxFl < 0) return "-1";
+
+  return `${Math.round(minFl)}-${Math.round(maxFl)}`;
 }
 
 function formatTimeForAPI(seconds: number): string {

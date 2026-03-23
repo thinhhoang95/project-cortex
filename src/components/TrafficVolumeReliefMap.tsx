@@ -12,6 +12,7 @@ import {
   type TrafficVolumeFeature,
 } from "@/lib/trafficVolumes";
 import { clipToDomain, computeRobustSymmetricDomain } from "@/lib/trafficVolumeRelief";
+import ShimmeringText from "@/components/ShimmeringText";
 
 const SOURCE_ID = "tv-relief-source";
 const FILL_LAYER_ID = "tv-relief-fill";
@@ -429,12 +430,12 @@ export default function TrafficVolumeReliefMap({
 
         {!mapReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-xs text-white/60">
-            Loading map…
+            <ShimmeringText text="Loading map…" className="text-xs text-white/60 font-normal" />
           </div>
         )}
         {mapReady && effectiveLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-xs text-white/60">
-            Loading traffic volume data…
+            <ShimmeringText text="Loading traffic volume data…" className="text-xs text-white/60 font-normal" />
           </div>
         )}
         {mapReady && showEmpty && (

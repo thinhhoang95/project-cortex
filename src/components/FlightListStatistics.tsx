@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useMemo, useState } from "react";
 import { useSimStore } from "./useSimStore";
+import ShimmeringText from "./ShimmeringText";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
@@ -1313,7 +1314,7 @@ function FlightListStatistics({
                 {countsLoading ? (
                   <div className="flex items-center gap-3 text-sm text-white/70">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-transparent rounded-full animate-spin" />
-                    <span>Loading occupancy data…</span>
+                    <ShimmeringText text="Loading occupancy data…" className="text-sm text-white/70 font-normal" />
                   </div>
                 ) : rankedCards.length === 0 ? (
                   <div className="text-xs text-white/70 border border-white/10 rounded-lg px-3 py-4 text-center">

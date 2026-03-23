@@ -17,6 +17,7 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { toTimeWindow } from "@/lib/regulationProposals";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
+import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import {
   assertReplayableRegulationTargets,
@@ -58,6 +59,12 @@ interface OrderedFlightsData {
     delta_seconds: number;
     time_window: string;
     dwell_seconds?: number | null;
+    flight_level_range?: {
+      min_fl?: number | null;
+      max_fl?: number | null;
+      label?: string | null;
+      scope?: string | null;
+    } | null;
   }[];
 }
 
@@ -67,6 +74,7 @@ type TvFlightsPayload =
 
 type TvFlightCell = {
   arrivalTime: string;
+  flightLevelRangeLabel: string | null;
   dwellSeconds: number | null;
   arrivalSeconds: number | null;
   deltaSeconds: number | null;
@@ -540,6 +548,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             const windowStartSeconds = parseTimeWindowStartSeconds(detail.time_window);
             const primaryCell: TvFlightCell = {
               arrivalTime: detail.arrival_time || "N/A",
+              flightLevelRangeLabel: formatFlightLevelRangeLabel(detail.flight_level_range),
               dwellSeconds: detail.dwell_seconds ?? null,
               arrivalSeconds,
               deltaSeconds,
@@ -589,6 +598,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         const fullFlight = flightsById.get(candidate.flightId);
         const primaryCell: TvFlightCell = {
           arrivalTime: "N/A",
+          flightLevelRangeLabel: null,
           dwellSeconds: null,
           arrivalSeconds: null,
           deltaSeconds: null,
@@ -685,6 +695,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             const windowStartSeconds = detail?.time_window ? parseTimeWindowStartSeconds(detail.time_window) : null;
             nextPerTv[tvId] = {
               arrivalTime: detail?.arrival_time || "N/A",
+              flightLevelRangeLabel: formatFlightLevelRangeLabel(detail?.flight_level_range),
               dwellSeconds: detail?.dwell_seconds ?? null,
               arrivalSeconds,
               deltaSeconds,
@@ -695,6 +706,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             const windowStartSeconds = legacyWindowStartByTv[tvId]?.get(String(row.flightId)) ?? null;
             nextPerTv[tvId] = {
               arrivalTime: "N/A",
+              flightLevelRangeLabel: null,
               dwellSeconds: null,
               arrivalSeconds: null,
               deltaSeconds: null,
@@ -1306,7 +1318,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           {isFlightListLoading && (
             <div className="flex items-center justify-center py-4">
               <div className="animate-spin rounded-full h-4 w-4 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]"></div>
-              <span className="ml-2 text-xs opacity-70">Loading flights...</span>
+              <ShimmeringText text="Loading flights..." className="ml-2 text-xs opacity-70 font-normal" />
             </div>
           )}
 
@@ -1318,8 +1330,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
           {flightTableData.length > 0 && !isFlightListLoading && (
             <>
-              <div className="rounded-lg border border-white/10 overflow-hidden">
-                <table className="w-full text-xs">
+              <div className="rounded-lg border border-white/10 overflow-x-auto">
+                <table className="w-full min-w-max text-xs">
                   <thead>
                     <tr className="bg-white/10">
                       <th className="text-center p-2 font-semibold w-8">
@@ -1353,6 +1365,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       {selectedTvIds.map((tvId) => ([
                         <th key={`${tvId}-arr`} className="text-left p-2 font-semibold whitespace-nowrap">
                           {selectedTvIds.length === 1 ? "TV Arr." : `${tvId} Arr.`}
+                        </th>,
+                        <th key={`${tvId}-fl`} className="text-left p-2 font-semibold whitespace-nowrap">
+                          {selectedTvIds.length === 1 ? "FL" : `${tvId} FL`}
                         </th>,
                         <th key={`${tvId}-dwell`} className="text-left p-2 font-semibold whitespace-nowrap">
                           {selectedTvIds.length === 1 ? "Dwell" : `${tvId} Dwell`}
@@ -1394,6 +1409,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                               <td key={`${flightId}-${tvId}-arr`} className={`p-2 text-right font-mono ${isChecked ? "" : "text-white/60 line-through"}`}>
                                 {cell?.arrivalTime || "N/A"}
                               </td>,
+                              <td key={`${flightId}-${tvId}-fl`} className={`p-2 text-right font-mono ${isChecked ? "" : "text-white/60 line-through"}`}>
+                                {cell?.flightLevelRangeLabel ?? "N/A"}
+                              </td>,
                               <td key={`${flightId}-${tvId}-dwell`} className={`p-2 text-right font-mono ${isChecked ? "" : "text-white/60 line-through"}`}>
                                 {formatDwellingTime(cell?.dwellSeconds ?? null)}
                               </td>,
@@ -1409,7 +1427,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                       >
                         <td
                           className="p-2 text-center italic opacity-80"
-                          colSpan={5 + (selectedTvIds.length * 2)}
+                          colSpan={5 + (selectedTvIds.length * 3)}
                         >
                           {expanded ? SEE_LESS_LABEL : formatSeeMoreLabel(hiddenFlightCount)}
                         </td>
@@ -1574,6 +1592,33 @@ function parseTimeWindowStartSeconds(timeWindow: string): number | null {
   } catch {
     return null;
   }
+}
+
+function formatFlightLevelRangeLabel(
+  range:
+    | {
+        min_fl?: number | null;
+        max_fl?: number | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): string | null {
+  const label = String(range?.label ?? "").trim();
+  if (label) {
+    const compactLabel = label.match(/^FL\s*(-?\d+)(?:-FL\s*(-?\d+))?$/i);
+    if (compactLabel) {
+      const [, start, end] = compactLabel;
+      return end ? `${start}-${end}` : start;
+    }
+    return label;
+  }
+
+  const minFl = typeof range?.min_fl === "number" ? range.min_fl : Number(range?.min_fl);
+  const maxFl = typeof range?.max_fl === "number" ? range.max_fl : Number(range?.max_fl);
+  if (!Number.isFinite(minFl) || !Number.isFinite(maxFl)) return null;
+  if (minFl < 0 || maxFl < 0) return "-1";
+  return `${Math.round(minFl)}-${Math.round(maxFl)}`;
 }
 
 function inferTimeBinMinutesFromData(occupancyData: any): number {

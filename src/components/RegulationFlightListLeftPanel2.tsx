@@ -21,6 +21,12 @@ interface RankedFlight {
   time_window: string; // HH:MM-HH:MM
   delta_seconds: number;
   dwell_seconds?: number | null;
+  flight_level_range?: {
+    min_fl?: number | null;
+    max_fl?: number | null;
+    label?: string | null;
+    scope?: string | null;
+  } | null;
 }
 
 interface RankedFlightsResponse {
@@ -51,6 +57,12 @@ interface OrderedTvFlightsData {
     delta_seconds: number;
     time_window: string;
     dwell_seconds?: number | null;
+    flight_level_range?: {
+      min_fl?: number | null;
+      max_fl?: number | null;
+      label?: string | null;
+      scope?: string | null;
+    } | null;
   }[];
 }
 
@@ -60,6 +72,7 @@ type TvFlightsPayload =
 
 type TvFlightCell = {
   arrivalTime: string;
+  flightLevelRangeLabel: string | null;
   dwellSeconds: number | null;
   arrivalSeconds: number | null;
   deltaSeconds: number | null;
@@ -302,6 +315,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
         const perTv: Record<string, TvFlightCell> = {
           [primaryTvId]: {
             arrivalTime: rf.arrival_time || 'N/A',
+            flightLevelRangeLabel: formatFlightLevelRangeLabel(rf.flight_level_range),
             dwellSeconds: rf.dwell_seconds ?? null,
             arrivalSeconds: Number.isFinite(primaryArrivalSeconds) ? primaryArrivalSeconds : null,
             deltaSeconds: typeof rf.delta_seconds === 'number' && Number.isFinite(rf.delta_seconds) ? rf.delta_seconds : null,
@@ -333,6 +347,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 
             perTv[tvId] = {
               arrivalTime: detail?.arrival_time || 'N/A',
+              flightLevelRangeLabel: formatFlightLevelRangeLabel(detail?.flight_level_range),
               dwellSeconds: detail?.dwell_seconds ?? null,
               arrivalSeconds,
               deltaSeconds,
@@ -343,6 +358,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
             const windowStartSeconds = legacyWindowStartByTv[tvId]?.get(flightId) ?? null;
             perTv[tvId] = {
               arrivalTime: 'N/A',
+              flightLevelRangeLabel: null,
               dwellSeconds: null,
               arrivalSeconds: null,
               deltaSeconds: null,
@@ -416,7 +432,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
 
   const isLoading = loading || (secondaryTvIds.length > 0 && secondaryLoading);
   const combinedError = error || secondaryError;
-  const tableColSpan = 4 + (selectedTvIds.length * 2);
+  const tableColSpan = 4 + (selectedTvIds.length * 3);
 
   if (!primaryTvId) return null;
 
@@ -481,6 +497,9 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                       <th className="text-left p-2 font-semibold whitespace-nowrap">
                         {selectedTvIds.length === 1 ? 'TV Arr.' : `${tvId} Arr.`}
                       </th>
+                      <th className="text-left p-2 font-semibold whitespace-nowrap min-w-[72px]">
+                        {selectedTvIds.length === 1 ? 'FL' : `${tvId} FL`}
+                      </th>
                       <th className="text-left p-2 font-semibold whitespace-nowrap">
                         {selectedTvIds.length === 1 ? 'Dwell' : `${tvId} Dwell`}
                       </th>
@@ -514,6 +533,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
                         return (
                           <Fragment key={tvId}>
                             <td className="p-2 text-right font-mono">{cell?.arrivalTime || 'N/A'}</td>
+                            <td className="p-2 text-right font-mono whitespace-nowrap min-w-[72px]">{cell?.flightLevelRangeLabel ?? 'N/A'}</td>
                             <td className="p-2 text-right font-mono">{formatDwellingTime(cell?.dwellSeconds ?? null)}</td>
                           </Fragment>
                         );
@@ -586,4 +606,31 @@ function parseTimeWindowStartSeconds(timeWindow: string): number | null {
   } catch {
     return null;
   }
+}
+
+function formatFlightLevelRangeLabel(
+  range:
+    | {
+        min_fl?: number | null;
+        max_fl?: number | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): string | null {
+  const label = String(range?.label ?? '').trim();
+  if (label) {
+    const compactLabel = label.match(/^FL\s*(-?\d+)(?:-FL\s*(-?\d+))?$/i);
+    if (compactLabel) {
+      const [, start, end] = compactLabel;
+      return end ? `${start}-${end}` : start;
+    }
+    return label;
+  }
+
+  const minFl = typeof range?.min_fl === 'number' ? range.min_fl : Number(range?.min_fl);
+  const maxFl = typeof range?.max_fl === 'number' ? range.max_fl : Number(range?.max_fl);
+  if (!Number.isFinite(minFl) || !Number.isFinite(maxFl)) return null;
+  if (minFl < 0 || maxFl < 0) return '-1';
+  return `${Math.round(minFl)}-${Math.round(maxFl)}`;
 }

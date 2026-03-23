@@ -23,6 +23,7 @@ import {
 import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import PanelCloseButton from "@/components/PanelCloseButton";
+import ShimmeringText from "@/components/ShimmeringText";
 import { type FlightLevelCountsPayload } from "@/lib/flightLevelBinCounts";
 
 type OccupancyData = {
@@ -300,7 +301,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
         {loading && (
           <div className="flex items-center justify-center py-4">
             <div className="animate-spin rounded-full h-4 w-4 border-2 border-[color:var(--panel-border)] border-t-[color:var(--panel-text-primary)]" />
-            <span className="ml-2 text-xs opacity-70">Loading occupancy...</span>
+            <ShimmeringText text="Loading occupancy..." className="ml-2 text-xs opacity-70 font-normal" />
           </div>
         )}
 

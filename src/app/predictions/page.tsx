@@ -4,14 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from "@/components/useSimStore";
+import BottomControlsGroup from "@/components/BottomControlsGroup";
 import PredictionsMapCanvas from "@/components/PredictionsMapCanvas";
 import LeftControl1 from "@/components/LeftControl1";
 import PredictionSettingsPanel from "@/components/PredictionSettingsPanel";
-import ResourceStateHistoryControl from "@/components/ResourceStateHistoryControl";
 import StochasticTrafficVolumePanel from "@/components/StochasticTrafficVolumePanel";
 import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
-import ViewOptionsControl from "@/components/ViewOptionsControl";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
 import AlternativeRoutesPanel from "@/components/AlternativeRoutesPanel";
@@ -102,8 +101,7 @@ export default function Page() {
           )}
         </div>
       </div>
-      <ResourceStateHistoryControl />
-      <ViewOptionsControl />
+      <BottomControlsGroup />
       <ReleaseNotesDialog />
     </main>
   );

@@ -31,6 +31,12 @@ type OrderedFlightsData = {
     delta_seconds: number;
     time_window: string;
     dwell_seconds?: number | null;
+    flight_level_range?: {
+      min_fl?: number | null;
+      max_fl?: number | null;
+      label?: string | null;
+      scope?: string | null;
+    } | null;
   }[];
 };
 
@@ -42,6 +48,7 @@ type TvFlightsPayload =
 
 type TvFlightCell = {
   arrivalTime: string;
+  flightLevelRangeLabel: string | null;
   dwellSeconds: number | null;
 };
 
@@ -156,6 +163,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
           if (!flightId) continue;
           map.set(flightId, {
             arrivalTime: detail.arrival_time || "N/A",
+            flightLevelRangeLabel: formatFlightLevelRangeLabel(detail.flight_level_range),
             dwellSeconds: detail.dwell_seconds ?? null,
           });
         }
@@ -164,7 +172,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
           for (const rawId of ids || []) {
             const flightId = String(rawId ?? "").trim();
             if (!flightId || map.has(flightId)) continue;
-            map.set(flightId, { arrivalTime: "N/A", dwellSeconds: null });
+            map.set(flightId, { arrivalTime: "N/A", flightLevelRangeLabel: null, dwellSeconds: null });
           }
         }
       }
@@ -198,6 +206,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
           perTv: selectedTvIds.reduce<Record<string, TvFlightCell>>((acc, tvId) => {
             acc[tvId] = tvCellsByFlightAndTv[tvId]?.get(String(id)) || {
               arrivalTime: "N/A",
+              flightLevelRangeLabel: null,
               dwellSeconds: null,
             };
             return acc;
@@ -224,7 +233,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
 
   const visibleRows = expanded ? rows : rows.slice(0, MAX_VISIBLE);
   const hiddenCount = Math.max(0, rows.length - visibleRows.length);
-  const tableColSpan = 5 + (showTvColumns ? selectedTvIds.length * 2 : 0);
+  const tableColSpan = 5 + (showTvColumns ? selectedTvIds.length * 3 : 0);
   const panelClassName = embedded
     ? "w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col"
     : "absolute top-20 right-4 z-50 min-w-[320px] max-w-[400px] max-h-[calc(100vh-6rem)] rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col";
@@ -440,6 +449,9 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                           {selectedTvIds.length === 1 ? "TV Arr." : `${tvId} Arr.`}
                         </th>
                         <th className="text-left p-2 font-semibold whitespace-nowrap">
+                          {selectedTvIds.length === 1 ? "FL" : `${tvId} FL`}
+                        </th>
+                        <th className="text-left p-2 font-semibold whitespace-nowrap">
                           {selectedTvIds.length === 1 ? "Dwell" : `${tvId} Dwell`}
                         </th>
                       </Fragment>
@@ -514,6 +526,9 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                               {row.perTv[tvId]?.arrivalTime ?? "N/A"}
                             </td>
                             <td className={`p-2 text-right font-mono ${inactiveTextClass}`}>
+                              {row.perTv[tvId]?.flightLevelRangeLabel ?? "N/A"}
+                            </td>
+                            <td className={`p-2 text-right font-mono ${inactiveTextClass}`}>
                               {formatDwellingTime(row.perTv[tvId]?.dwellSeconds ?? null)}
                             </td>
                           </Fragment>
@@ -552,6 +567,33 @@ function parseDurationPresetToSeconds(preset: string): number {
   }
   const minutesOnly = Number.parseInt(normalized, 10) || 0;
   return minutesOnly * 60;
+}
+
+function formatFlightLevelRangeLabel(
+  range:
+    | {
+        min_fl?: number | null;
+        max_fl?: number | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): string | null {
+  const label = String(range?.label ?? "").trim();
+  if (label) {
+    const compactLabel = label.match(/^FL\s*(-?\d+)(?:-FL\s*(-?\d+))?$/i);
+    if (compactLabel) {
+      const [, start, end] = compactLabel;
+      return end ? `${start}-${end}` : start;
+    }
+    return label;
+  }
+
+  const minFl = typeof range?.min_fl === "number" ? range.min_fl : Number(range?.min_fl);
+  const maxFl = typeof range?.max_fl === "number" ? range.max_fl : Number(range?.max_fl);
+  if (!Number.isFinite(minFl) || !Number.isFinite(maxFl)) return null;
+  if (minFl < 0 || maxFl < 0) return "-1";
+  return `${Math.round(minFl)}-${Math.round(maxFl)}`;
 }
 
 function formatTimeOfDay(seconds: number | null | undefined): string {
