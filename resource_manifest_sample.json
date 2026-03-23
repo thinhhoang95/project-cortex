@@ -1,0 +1,14 @@
+{
+"version": 1,
+"dates": {
+    "2023-07-16": {
+        "resources": {
+            "flightsCsv": "/data/1607/flights_20230716_0000-2359.csv",
+            "airspaceGeojson": "/data/1607/wxm_sm_ih_maxpool_plus_nonas.geojson",
+            "collapsedSectorsGeojson": "/data/1607/collapsed_sectors.geojson",
+            "airspaceJson": "/data/1607/airspace.geojson",
+            "tvCapacityRanges": "/data/1607/tv_capacity_ranges_by_es.json"
+        }
+        }
+    }
+}

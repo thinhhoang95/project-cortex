@@ -40,6 +40,7 @@ export default function Header() {
   const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [showSystemCredits, setShowSystemCredits] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const router = useRouter();
   const {
@@ -238,30 +239,32 @@ export default function Header() {
             </span>
           </div>
 
-          <div className="flex items-center space-x-8">
-            <nav className="flex items-center space-x-6">
-              <Link href="/" className={`${pathname === '/' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
+          <div className="flex items-center space-x-4 xl:space-x-8">
+            <nav className="flex items-center space-x-4 xl:space-x-6">
+              <Link href="/" className={`${pathname === '/' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
                 Monitoring
               </Link>
-              <Link href="/predictions" className={`${pathname === '/predictions' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
+              <Link href="/predictions" className={`${pathname === '/predictions' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
                 Prediction
               </Link>
-              <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
+              <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
                 Regulation
               </Link>
-              <Link href="/reroute" className={`${pathname === '/reroute' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors flex items-center gap-1.5`}>
+
+              {/* Always-visible links on xl+; hidden on smaller screens */}
+              <Link href="/reroute" className={`hidden xl:flex ${pathname === '/reroute' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors items-center gap-1.5 whitespace-nowrap`}>
                 <span>Reroute</span>
                 <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
                   New
                 </span>
               </Link>
-              <Link href="/flows" className={`${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}>
+              <Link href="/flows" className={`hidden xl:inline ${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
                 DeepFlow
               </Link>
-              <div className="relative">
+              <div className="hidden xl:block relative">
                 <button
                   onClick={() => setShowAnalyticsDropdown(!showAnalyticsDropdown)}
-                  className={`${pathname?.includes('/original_count') || pathname?.includes('/flow-evaluation') || pathname?.includes('/regulation-comparison') || pathname?.includes('/solution-comparison') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}
+                  className={`${pathname?.includes('/original_count') || pathname?.includes('/flow-evaluation') || pathname?.includes('/regulation-comparison') || pathname?.includes('/solution-comparison') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}
                 >
                   Analytics
                 </button>
@@ -288,14 +291,63 @@ export default function Header() {
                     >
                       Compare DeepFlow Plans
                     </Link>
-                    {/* <Link
-                    href="/flow-evaluation"
-                    onClick={() => setShowAnalyticsDropdown(false)}
-                    className="block w-full px-4 py-3 text-left text-slate-700 hover:text-slate-900 hover:bg-white/20 transition-colors rounded-lg"
-                  >
-                    Flow Evaluation
-                  </Link> */}
+                  </div>
+                )}
+              </div>
 
+              {/* Overflow "More" menu — visible only below xl */}
+              <div className="xl:hidden relative">
+                <button
+                  onClick={() => setShowMoreMenu(!showMoreMenu)}
+                  className="flex items-center gap-1 text-white/80 hover:text-white transition-colors whitespace-nowrap"
+                >
+                  More
+                  <svg className={`w-3.5 h-3.5 transition-transform ${showMoreMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showMoreMenu && (
+                  <div className="absolute left-0 top-full mt-2 w-48 glass-menu rounded-lg shadow-xl z-[2100]">
+                    <Link
+                      href="/reroute"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={`flex items-center gap-2 w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/reroute' ? 'text-blue-300' : ''}`}
+                    >
+                      Reroute
+                      <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
+                        New
+                      </span>
+                    </Link>
+                    <Link
+                      href="/flows"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : ''}`}
+                    >
+                      DeepFlow
+                    </Link>
+                    <div className="mx-4 my-1 glass-menu-divider" />
+                    <p className="px-4 pt-1 pb-0.5 text-xs text-[var(--menu-text-muted)] uppercase tracking-wide">Analytics</p>
+                    <Link
+                      href="/original_count"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname?.includes('/original_count') ? 'text-blue-300' : ''}`}
+                    >
+                      Current Occupancy
+                    </Link>
+                    <Link
+                      href="/regulation-comparison"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname?.includes('/regulation-comparison') ? 'text-blue-300' : ''}`}
+                    >
+                      Compare Regulations Plans
+                    </Link>
+                    <Link
+                      href="/solution-comparison"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname?.includes('/solution-comparison') ? 'text-blue-300' : ''}`}
+                    >
+                      Compare DeepFlow Plans
+                    </Link>
                   </div>
                 )}
               </div>
@@ -304,13 +356,13 @@ export default function Header() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search flights, traffic volumes, or collapsed sectors..."
+                placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={handleSearchKeyPress}
                 onBlur={handleSearchBlur}
                 onFocus={() => searchQuery && setShowSearchResults(true)}
-                className="w-80 pl-4 pr-14 py-2 glass-input backdrop-blur-sm rounded-full focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-[var(--panel-bg-muted)] transition-all"
+                className="w-44 pl-4 pr-14 py-2 glass-input backdrop-blur-sm rounded-full focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-[var(--panel-bg-muted)] transition-all"
               />
               <button
                 type="button"
