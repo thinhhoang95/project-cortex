@@ -12,6 +12,11 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
+  <h4 class="font-bold mb-4">Wed. 25/03/2026</h4>
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Stabilization of the platform and CD pipeline run.</strong></li>
+  </ul>
+
   <h4 class="font-bold mb-4">Sun. 23/03/2026</h4>
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Resource Date Selection.</strong> The app now treats the selected resource date as a first-class primitive. A dedicated <code>/select-date</code> page guides first-time users, and all screens, caches, and derived views automatically invalidate when the server context changes underneath them.</li>
