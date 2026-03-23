@@ -35,7 +35,9 @@ import {
   Legend,
 } from "recharts";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
-import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
+import OccupancyPrePostPanel, {
+  type OccupancyPrePostSortMode,
+} from "@/components/OccupancyPrePostPanel";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { buildFlightIdIndex, buildUniqueCallsignIndex } from "@/lib/flightIdentity";
 import { FlowInputPayload } from "@/lib/flow-input";
@@ -175,7 +177,7 @@ function FlowEvaluationPageContent() {
   // Occupancy Flow/Total-Pre TV sort mode
   const [occOrigSortMode, setOccOrigSortMode] = useState<'total' | 'flow_absolute' | 'flow_relative' | 'exceedance'>("total");
   // Occupancy Pre-Post TV sort mode
-  const [occAllSortMode, setOccAllSortMode] = useState<'total' | 'abs_change' | 'relative_change' | 'exceedance'>("total");
+  const [occAllSortMode, setOccAllSortMode] = useState<OccupancyPrePostSortMode>("total");
   const [snapshotPromptOpen, setSnapshotPromptOpen] = useState(false);
   const [snapshotDescription, setSnapshotDescription] = useState("");
   const [snapshotSaving, setSnapshotSaving] = useState(false);
@@ -386,6 +388,14 @@ function FlowEvaluationPageContent() {
     });
     return Object.keys(result).length > 0 ? result : undefined;
   }, [occAllState.data?.capacity, hasTvFilter, selectedTvSet]);
+
+  const hasOccAllCapacity = useMemo(() => {
+    return Object.values(occAllCapacityForView || {}).some(
+      (series) =>
+        Array.isArray(series) &&
+        series.some((value) => Number.isFinite(Number(value))),
+    );
+  }, [occAllCapacityForView]);
 
   const occAllTvOrderForView = useMemo<string[]>(() => {
     const order = occAllState.data?.tv_ids_order || [];
@@ -1832,7 +1842,7 @@ function FlowEvaluationPageContent() {
                       className="h-[42px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
                       value={occAllSortMode}
                       aria-label="Occupancy pre-post sort"
-                      onChange={(e) => setOccAllSortMode(e.currentTarget.value as 'total' | 'abs_change' | 'exceedance')}
+                      onChange={(e) => setOccAllSortMode(e.currentTarget.value as OccupancyPrePostSortMode)}
                     >
                       <option value="total">Rank by Total</option>
                       <option
@@ -1848,6 +1858,32 @@ function FlowEvaluationPageContent() {
                         title={!canRankOccAllChanges ? 'Run optimization to compare pre and post counts.' : undefined}
                       >
                         Rank by Relative Changes (Pre vs Post)
+                      </option>
+                      <option
+                        value="total_excess_reduced"
+                        disabled={!canRankOccAllChanges || !hasOccAllCapacity}
+                        title={
+                          !canRankOccAllChanges
+                            ? 'Run optimization to compare pre and post counts.'
+                            : !hasOccAllCapacity
+                              ? 'Capacity data is required to rank by total excess reduced.'
+                              : undefined
+                        }
+                      >
+                        Total Excess Reduced
+                      </option>
+                      <option
+                        value="total_excess_induced"
+                        disabled={!canRankOccAllChanges || !hasOccAllCapacity}
+                        title={
+                          !canRankOccAllChanges
+                            ? 'Run optimization to compare pre and post counts.'
+                            : !hasOccAllCapacity
+                              ? 'Capacity data is required to rank by total excess induced.'
+                              : undefined
+                        }
+                      >
+                        Total Excess Induced
                       </option>
                       <option value="exceedance">By Exceedances</option>
                     </select>

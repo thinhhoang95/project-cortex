@@ -11,7 +11,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
+import OccupancyPrePostPanel, {
+  type OccupancyPrePostSortMode,
+} from '@/components/OccupancyPrePostPanel';
 import OdDelayAttributionPanel from '@/components/OdDelayAttributionPanel';
 import PerAccDelayAttributionPanel from '@/components/PerAccDelayAttributionPanel';
 import ShimmeringText from '@/components/ShimmeringText';
@@ -277,9 +279,7 @@ export default function AgentSaResultSummaryPanel({
   const [selectedWindowLabel, setSelectedWindowLabel] = useState<string | null>(null);
   const [viewFrom, setViewFrom] = useState<string>('00:00');
   const [viewTo, setViewTo] = useState<string>('23:59');
-  const [occSortMode, setOccSortMode] = useState<
-    'total' | 'abs_change' | 'relative_change' | 'exceedance'
-  >('abs_change');
+  const [occSortMode, setOccSortMode] = useState<OccupancyPrePostSortMode>('abs_change');
   const [pinnedTrafficVolumes, setPinnedTrafficVolumes] = useState<string[]>([]);
   const flights = useSimStore((state) => state.flights);
   const deferredOccSortMode = useDeferredValue(occSortMode);
@@ -918,13 +918,7 @@ export default function AgentSaResultSummaryPanel({
 	                  value={occSortMode}
 	                  aria-label="SA occupancy histogram sort"
 	                  onChange={(e) =>
-	                    setOccSortMode(
-	                      e.currentTarget.value as
-	                        | 'total'
-	                        | 'abs_change'
-	                        | 'relative_change'
-	                        | 'exceedance',
-	                    )
+	                    setOccSortMode(e.currentTarget.value as OccupancyPrePostSortMode)
 	                  }
 	                >
 	                  <option value="total">Rank by Total</option>
@@ -941,6 +935,32 @@ export default function AgentSaResultSummaryPanel({
 	                    title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
 	                  >
 	                    Rank by Relative Changes
+	                  </option>
+	                  <option
+	                    value="total_excess_reduced"
+	                    disabled={!canRankOccAllChanges || !hasOccCapacity}
+	                    title={
+	                      !canRankOccAllChanges
+	                        ? 'Pre and post counts required to rank by changes.'
+	                        : !hasOccCapacity
+	                          ? 'Capacity data required to rank by total excess reduced.'
+	                          : undefined
+	                    }
+	                  >
+	                    Total Excess Reduced
+	                  </option>
+	                  <option
+	                    value="total_excess_induced"
+	                    disabled={!canRankOccAllChanges || !hasOccCapacity}
+	                    title={
+	                      !canRankOccAllChanges
+	                        ? 'Pre and post counts required to rank by changes.'
+	                        : !hasOccCapacity
+	                          ? 'Capacity data required to rank by total excess induced.'
+	                          : undefined
+	                    }
+	                  >
+	                    Total Excess Induced
 	                  </option>
 	                  <option
 	                    value="exceedance"

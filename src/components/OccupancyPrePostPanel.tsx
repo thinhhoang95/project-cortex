@@ -7,6 +7,9 @@ import type { OccupancySeriesByTv } from "@/lib/models";
 import {
   computeOccupancyWindowStatsByTv,
   getOccupancyWindowRange,
+  OCCUPANCY_CAPACITY_HIDE_THRESHOLD,
+  scoreOccupancyTvWindowStats,
+  type OccupancyWindowSortMode,
 } from "@/lib/occupancyWindowStats";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
@@ -14,9 +17,7 @@ import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import ShimmeringText from "@/components/ShimmeringText";
 
 const PAGE_SIZE = 20;
-const CAPACITY_HIDE_THRESHOLD = 998;
-
-type SortMode = "total" | "abs_change" | "relative_change" | "exceedance";
+export type OccupancyPrePostSortMode = OccupancyWindowSortMode;
 
 export interface OccupancyPrePostPanelProps {
   postCounts: OccupancySeriesByTv;
@@ -27,9 +28,9 @@ export interface OccupancyPrePostPanelProps {
   viewFrom: string;
   viewTo: string;
   initialLimit?: number;
-  sortMode?: SortMode;
-  defaultSortMode?: SortMode;
-  onSortModeChange?: (m: SortMode) => void;
+  sortMode?: OccupancyPrePostSortMode;
+  defaultSortMode?: OccupancyPrePostSortMode;
+  onSortModeChange?: (m: OccupancyPrePostSortMode) => void;
   fetchPre?: (tvIds: string[]) => Promise<{ preCounts: OccupancySeriesByTv; capacity?: OccupancySeriesByTv; binMinutes?: number }>;
   loading?: boolean;
   error?: string | null;
@@ -186,8 +187,8 @@ function OccupancyPrePostPanelInner({
   reliefMapTitle = "Traffic Volume Relief Map",
 }: OccupancyPrePostPanelProps) {
   // Internal state for uncontrolled sort mode
-  const [internalSort] = useState<SortMode>(defaultSortMode);
-  const effectiveSort: SortMode = sortMode || internalSort;
+  const [internalSort] = useState<OccupancyPrePostSortMode>(defaultSortMode);
+  const effectiveSort: OccupancyPrePostSortMode = sortMode || internalSort;
 
   const pinnedSet = useMemo(() => {
     if (!Array.isArray(pinnedTvIds) || pinnedTvIds.length === 0) return new Set<string>();
@@ -273,7 +274,7 @@ function OccupancyPrePostPanelInner({
         tvIds: UNION_TVS,
         windowRange,
         binMinutes,
-        capacityHideThreshold: CAPACITY_HIDE_THRESHOLD,
+        capacityHideThreshold: OCCUPANCY_CAPACITY_HIDE_THRESHOLD,
       }),
     [postCounts, effectivePre, effectiveCap, UNION_TVS, windowRange, binMinutes],
   );
@@ -289,28 +290,7 @@ function OccupancyPrePostPanelInner({
   const scoresByTv = useMemo(() => {
     const s: Record<string, number> = {};
     for (const tv of UNION_TVS) {
-      const stats = statsByTv[tv];
-      if (!stats) {
-        s[tv] = 0;
-        continue;
-      }
-      if (effectiveSort === 'total') {
-        s[tv] = stats.total;
-      } else if (effectiveSort === 'abs_change') {
-        s[tv] = stats.hasPreSeries && stats.hasPostSeries ? stats.absChange : 0;
-      } else if (effectiveSort === 'relative_change') {
-        if (!stats.hasPreSeries || !stats.hasPostSeries) {
-          s[tv] = 0;
-          continue;
-        }
-        if (stats.relativeBase > 0) {
-          s[tv] = stats.relativeDelta / stats.relativeBase;
-        } else {
-          s[tv] = stats.relativeDelta > 0 ? Number.MAX_SAFE_INTEGER : 0;
-        }
-      } else {
-        s[tv] = stats.exceedance;
-      }
+      s[tv] = scoreOccupancyTvWindowStats(statsByTv[tv], effectiveSort);
     }
     return s;
   }, [UNION_TVS, statsByTv, effectiveSort]);
@@ -535,7 +515,7 @@ function buildRowsForWindow(options: {
     const postValue = Number.isFinite(postValueRaw) ? postValueRaw : 0;
     const capacityValueRaw = Number(capacitySeries?.[index] ?? NaN);
     const capacityValue =
-      Number.isFinite(capacityValueRaw) && capacityValueRaw <= CAPACITY_HIDE_THRESHOLD
+      Number.isFinite(capacityValueRaw) && capacityValueRaw <= OCCUPANCY_CAPACITY_HIDE_THRESHOLD
         ? capacityValueRaw
         : null;
 

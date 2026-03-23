@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import ModalDialog from "@/components/ModalDialog";
-import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
+import OccupancyPrePostPanel, {
+  type OccupancyPrePostSortMode,
+} from "@/components/OccupancyPrePostPanel";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import type {
   RerouteImpactDetouredFlight,
@@ -16,8 +18,6 @@ type RerouteImpactResultsProps = {
   result: RerouteImpactResponse | null;
   onClose: () => void;
 };
-
-type SortMode = "total" | "abs_change" | "relative_change" | "exceedance";
 
 type FlightRow = {
   flightId: string;
@@ -37,7 +37,7 @@ export default function RerouteImpactResults({
   const [minimized, setMinimized] = useState(false);
   const [viewFrom, setViewFrom] = useState("00:00");
   const [viewTo, setViewTo] = useState("23:59");
-  const [sortMode, setSortMode] = useState<SortMode>("abs_change");
+  const [sortMode, setSortMode] = useState<OccupancyPrePostSortMode>("abs_change");
   const [diagExpanded, setDiagExpanded] = useState(true);
 
   useEffect(() => {
@@ -88,6 +88,21 @@ export default function RerouteImpactResults({
 
   const changedTvCount = result?.tv_ids_order?.length ?? 0;
   const canShowOccupancy = changedTvCount > 0;
+  const hasBothPrePost = useMemo(() => {
+    const pre = result?.rolling_hour?.pre_counts || {};
+    const post = result?.rolling_hour?.post_counts || {};
+    const hasPre = Object.values(pre).some((series) => Array.isArray(series) && series.length > 0);
+    const hasPost = Object.values(post).some((series) => Array.isArray(series) && series.length > 0);
+    return hasPre && hasPost;
+  }, [result?.rolling_hour?.pre_counts, result?.rolling_hour?.post_counts]);
+  const hasCapacity = useMemo(() => {
+    const capacity = result?.capacity || {};
+    return Object.values(capacity).some(
+      (series) =>
+        Array.isArray(series) &&
+        series.some((value) => Number.isFinite(Number(value))),
+    );
+  }, [result?.capacity]);
 
   const handleClose = () => {
     setMinimized(false);
@@ -165,11 +180,13 @@ export default function RerouteImpactResults({
                   <select
                     className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[12px] text-white/90 focus:outline-none"
                     value={sortMode}
-                    onChange={(event) => setSortMode(event.currentTarget.value as SortMode)}
+                    onChange={(event) => setSortMode(event.currentTarget.value as OccupancyPrePostSortMode)}
                   >
                     <option value="total">Rank by Total</option>
-                    <option value="abs_change">Rank by Absolute Changes</option>
-                    <option value="relative_change">Rank by Relative Changes</option>
+                    <option value="abs_change" disabled={!hasBothPrePost}>Rank by Absolute Changes</option>
+                    <option value="relative_change" disabled={!hasBothPrePost}>Rank by Relative Changes</option>
+                    <option value="total_excess_reduced" disabled={!hasBothPrePost || !hasCapacity}>Total Excess Reduced</option>
+                    <option value="total_excess_induced" disabled={!hasBothPrePost || !hasCapacity}>Total Excess Induced</option>
                     <option value="exceedance">By Exceedances</option>
                   </select>
                 </div>

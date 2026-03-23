@@ -9,7 +9,9 @@ import {
 } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
 import ModalDialog from "./ModalDialog";
-import OccupancyPrePostPanel from "@/components/OccupancyPrePostPanel";
+import OccupancyPrePostPanel, {
+  type OccupancyPrePostSortMode,
+} from "@/components/OccupancyPrePostPanel";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import { minutesToHHMM } from "@/lib/time";
@@ -251,7 +253,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
   );
   const [viewFrom, setViewFrom] = useState<string>("00:00");
   const [viewTo, setViewTo] = useState<string>("23:59");
-  const [sortMode, setSortMode] = useState<'total' | 'abs_change' | 'relative_change' | 'exceedance'>("abs_change");
+  const [sortMode, setSortMode] = useState<OccupancyPrePostSortMode>("abs_change");
   const [perAccAttribMode, setPerAccAttribMode] = useState<RegulationPlanPerAccAttribMode>("dwelling_spread");
   const [perAccAttribLoading, setPerAccAttribLoading] = useState(false);
   const [perAccAttribError, setPerAccAttribError] = useState<string | null>(null);
@@ -1224,11 +1226,13 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                   <select
                     className="px-2 py-1 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
                     value={sortMode}
-                    onChange={(e) => setSortMode(e.currentTarget.value as any)}
+                    onChange={(e) => setSortMode(e.currentTarget.value as OccupancyPrePostSortMode)}
                   >
                     <option value="total">Rank by Total</option>
                     <option value="abs_change" disabled={!hasBoth}>Rank by Absolute Changes</option>
                     <option value="relative_change" disabled={!hasBoth}>Rank by Relative Changes</option>
+                    <option value="total_excess_reduced" disabled={!hasBoth || !hasCap}>Total Excess Reduced</option>
+                    <option value="total_excess_induced" disabled={!hasBoth || !hasCap}>Total Excess Induced</option>
                     <option value="exceedance" disabled={!hasCap}>By Exceedances</option>
                   </select>
                 );

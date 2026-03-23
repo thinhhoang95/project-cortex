@@ -13,7 +13,9 @@ import { createPortal } from 'react-dom';
 import FlightListStatistics from '@/components/FlightListStatistics';
 import AgentSaResultSummaryPanel from '@/components/AgentSaResultSummaryPanel';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
-import OccupancyPrePostPanel from '@/components/OccupancyPrePostPanel';
+import OccupancyPrePostPanel, {
+  type OccupancyPrePostSortMode,
+} from '@/components/OccupancyPrePostPanel';
 import PerAccDelayAttributionPanel from '@/components/PerAccDelayAttributionPanel';
 import PerStageRewardPanel, { type PerStageRewardEntry } from '@/components/PerStageRewardPanel';
 import TrafficVolumeInfoTooltip from '@/components/TrafficVolumeInfoTooltip';
@@ -1291,7 +1293,7 @@ export default function AgentResultSummaryComponent({
   const [selectedFlightIds, setSelectedFlightIds] = useState<string[]>([]);
   const [viewFrom, setViewFrom] = useState<string>('00:00');
   const [viewTo, setViewTo] = useState<string>('23:59');
-  const [occSortMode, setOccSortMode] = useState<'total' | 'abs_change' | 'relative_change' | 'exceedance'>('total');
+  const [occSortMode, setOccSortMode] = useState<OccupancyPrePostSortMode>('total');
   const [pinnedTrafficVolumes, setPinnedTrafficVolumes] = useState<string[]>([]);
 
   const flights = useSimStore((state) => state.flights);
@@ -1909,6 +1911,14 @@ export default function AgentResultSummaryComponent({
     return hasPre && hasPost;
   }, [detailsData?.pre_post?.pre_counts, detailsData?.pre_post?.post_counts]);
 
+  const hasOccCapacity = useMemo(() => {
+    return Object.values(filteredCapacityCounts || {}).some(
+      (series) =>
+        Array.isArray(series) &&
+        series.some((value) => Number.isFinite(Number(value))),
+    );
+  }, [filteredCapacityCounts]);
+
   useEffect(() => {
     const range = deriveViewRange(detailsData);
     const end = range.viewTo === '24:00' ? '23:59' : range.viewTo;
@@ -2451,7 +2461,7 @@ export default function AgentResultSummaryComponent({
                           className="h-[40px] px-3 text-[12px] rounded-md bg-white/10 border border-white/20 text-white/90 focus:outline-none"
                           value={occSortMode}
                           aria-label="Occupancy pre-post sort"
-                          onChange={(e) => setOccSortMode(e.currentTarget.value as 'total' | 'abs_change' | 'relative_change' | 'exceedance')}
+                          onChange={(e) => setOccSortMode(e.currentTarget.value as OccupancyPrePostSortMode)}
                         >
                           <option value="total">Rank by Total</option>
                           <option
@@ -2467,6 +2477,32 @@ export default function AgentResultSummaryComponent({
                             title={!canRankOccAllChanges ? 'Pre and post counts required to rank by changes.' : undefined}
                           >
                             Rank by Relative Changes
+                          </option>
+                          <option
+                            value="total_excess_reduced"
+                            disabled={!canRankOccAllChanges || !hasOccCapacity}
+                            title={
+                              !canRankOccAllChanges
+                                ? 'Pre and post counts required to rank by changes.'
+                                : !hasOccCapacity
+                                  ? 'Capacity data required to rank by total excess reduced.'
+                                  : undefined
+                            }
+                          >
+                            Total Excess Reduced
+                          </option>
+                          <option
+                            value="total_excess_induced"
+                            disabled={!canRankOccAllChanges || !hasOccCapacity}
+                            title={
+                              !canRankOccAllChanges
+                                ? 'Pre and post counts required to rank by changes.'
+                                : !hasOccCapacity
+                                  ? 'Capacity data required to rank by total excess induced.'
+                                  : undefined
+                            }
+                          >
+                            Total Excess Induced
                           </option>
                           <option value="exceedance">By Exceedances</option>
                         </select>

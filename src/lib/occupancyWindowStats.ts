@@ -1,9 +1,19 @@
 import type { OccupancySeriesByTv } from "@/lib/models";
 
+export const OCCUPANCY_CAPACITY_HIDE_THRESHOLD = 998;
+
 export interface OccupancyWindowRange {
   startIndex: number;
   endIndex: number;
 }
+
+export type OccupancyWindowSortMode =
+  | "total"
+  | "abs_change"
+  | "relative_change"
+  | "exceedance"
+  | "total_excess_reduced"
+  | "total_excess_induced";
 
 export interface OccupancyTvWindowStats {
   total: number;
@@ -11,6 +21,8 @@ export interface OccupancyTvWindowStats {
   relativeDelta: number;
   relativeBase: number;
   exceedance: number;
+  totalExcessReduced: number;
+  totalExcessInduced: number;
   netDelta: number;
   hasPreSeries: boolean;
   hasPostSeries: boolean;
@@ -71,6 +83,8 @@ export function computeOccupancyTvWindowStats({
   let relativeDelta = 0;
   let relativeBase = 0;
   let exceedance = 0;
+  let totalExcessReduced = 0;
+  let totalExcessInduced = 0;
   let netDelta = 0;
 
   if (length <= 0 || safeStartIndex > safeEndIndex) {
@@ -80,6 +94,8 @@ export function computeOccupancyTvWindowStats({
       relativeDelta,
       relativeBase,
       exceedance,
+      totalExcessReduced,
+      totalExcessInduced,
       netDelta,
       hasPreSeries,
       hasPostSeries,
@@ -100,11 +116,21 @@ export function computeOccupancyTvWindowStats({
     total += displayValue;
 
     if (hasPreSeries && hasPostSeries) {
-      const delta = Math.abs(postValue - preValue);
-      absChange += delta;
-      relativeDelta += delta;
+      const rawDelta = postValue - preValue;
+      const absDelta = Math.abs(rawDelta);
+      absChange += absDelta;
+      relativeDelta += absDelta;
       relativeBase += Math.abs(preValue);
-      netDelta += postValue - preValue;
+      netDelta += rawDelta;
+
+      if (hasCapacityValue) {
+        if (rawDelta < 0 && preValue > rawCapacityValue) {
+          totalExcessReduced += -rawDelta;
+        }
+        if (rawDelta > 0 && postValue > rawCapacityValue) {
+          totalExcessInduced += rawDelta;
+        }
+      }
     }
 
     if (hasCapacityValue) {
@@ -118,10 +144,47 @@ export function computeOccupancyTvWindowStats({
     relativeDelta,
     relativeBase,
     exceedance,
+    totalExcessReduced,
+    totalExcessInduced,
     netDelta,
     hasPreSeries,
     hasPostSeries,
   };
+}
+
+export function scoreOccupancyTvWindowStats(
+  stats: OccupancyTvWindowStats | null | undefined,
+  sortMode: OccupancyWindowSortMode,
+): number {
+  if (!stats) return 0;
+
+  if (sortMode === "total") {
+    return stats.total;
+  }
+
+  if (sortMode === "abs_change") {
+    return stats.hasPreSeries && stats.hasPostSeries ? stats.absChange : 0;
+  }
+
+  if (sortMode === "relative_change") {
+    if (!stats.hasPreSeries || !stats.hasPostSeries) {
+      return 0;
+    }
+    if (stats.relativeBase > 0) {
+      return stats.relativeDelta / stats.relativeBase;
+    }
+    return stats.relativeDelta > 0 ? Number.MAX_SAFE_INTEGER : 0;
+  }
+
+  if (sortMode === "exceedance") {
+    return stats.exceedance;
+  }
+
+  if (sortMode === "total_excess_reduced") {
+    return stats.totalExcessReduced;
+  }
+
+  return stats.totalExcessInduced;
 }
 
 export function computeOccupancyWindowStatsByTv(options: {

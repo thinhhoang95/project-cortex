@@ -32,6 +32,12 @@ import { normalizeCapacity } from "@/lib/capacity";
 import { hhmmToMinutesSafe, minutesToHHMM, binIndexToRangeLabel } from "@/lib/time";
 import { formatSeeMoreLabel } from "@/lib/seeMoreLess";
 import { computeNetDeltaByTv } from "@/lib/trafficVolumeRelief";
+import {
+  computeOccupancyWindowStatsByTv,
+  getOccupancyWindowRange,
+  OCCUPANCY_CAPACITY_HIDE_THRESHOLD,
+  scoreOccupancyTvWindowStats,
+} from "@/lib/occupancyWindowStats";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import type { RegulationPlanPerAccAttribMode } from "@/lib/models";
 import {
@@ -54,6 +60,8 @@ import {
 const PALETTE = ["#38bdf8", "#f472b6", "#facc15", "#34d399"];
 const ABS_CHANGE_PREFIX = "abs_change:" as const;
 const REL_CHANGE_PREFIX = "rel_change:" as const;
+const EXCESS_REDUCED_PREFIX = "excess_reduced:" as const;
+const EXCESS_INDUCED_PREFIX = "excess_induced:" as const;
 
 type FlightSortMode = "max" | "diff" | "callsign";
 type TvSortMode =
@@ -61,17 +69,32 @@ type TvSortMode =
   | "peak"
   | "alphabetical"
   | `${typeof ABS_CHANGE_PREFIX}${string}`
-  | `${typeof REL_CHANGE_PREFIX}${string}`;
+  | `${typeof REL_CHANGE_PREFIX}${string}`
+  | `${typeof EXCESS_REDUCED_PREFIX}${string}`
+  | `${typeof EXCESS_INDUCED_PREFIX}${string}`;
+
+type SnapshotSortPrefix =
+  | typeof ABS_CHANGE_PREFIX
+  | typeof REL_CHANGE_PREFIX
+  | typeof EXCESS_REDUCED_PREFIX
+  | typeof EXCESS_INDUCED_PREFIX;
 
 function getPrefixedSnapshotId(
   mode: TvSortMode,
-  prefix: typeof ABS_CHANGE_PREFIX | typeof REL_CHANGE_PREFIX,
+  prefix: SnapshotSortPrefix,
 ): string | null {
   return mode.startsWith(prefix) ? mode.slice(prefix.length) : null;
 }
 
 const getAbsChangeSnapshotId = (mode: TvSortMode) => getPrefixedSnapshotId(mode, ABS_CHANGE_PREFIX);
 const getRelativeChangeSnapshotId = (mode: TvSortMode) => getPrefixedSnapshotId(mode, REL_CHANGE_PREFIX);
+const getExcessReducedSnapshotId = (mode: TvSortMode) => getPrefixedSnapshotId(mode, EXCESS_REDUCED_PREFIX);
+const getExcessInducedSnapshotId = (mode: TvSortMode) => getPrefixedSnapshotId(mode, EXCESS_INDUCED_PREFIX);
+const isSnapshotScopedTvSortMode = (mode: TvSortMode) =>
+  getAbsChangeSnapshotId(mode) !== null ||
+  getRelativeChangeSnapshotId(mode) !== null ||
+  getExcessReducedSnapshotId(mode) !== null ||
+  getExcessInducedSnapshotId(mode) !== null;
 
 type FlightRow = {
   flightId: string;
@@ -96,6 +119,13 @@ type ChangeSortOption = {
   disabled: boolean;
   reason?: string;
   snapshotId: string;
+};
+
+type SnapshotTvSortScores = {
+  absChange: Record<string, number>;
+  relativeChange: Record<string, number>;
+  excessReduced: Record<string, number>;
+  excessInduced: Record<string, number>;
 };
 
 type AirportDelayRow = {
@@ -1217,82 +1247,58 @@ export default function RegulationComparisonPage() {
     });
   }, [alignedSnapshots, tvIdsUnion, tvSeriesBySnapshot, capacityBySnapshot, minutesPerBin, viewFromMin, viewToMin]);
 
-  const tvAbsChangeBySnapshot = useMemo(() => {
-    const map = new Map<string, Record<string, number>>();
-    alignedSnapshots.forEach((snap) => {
-      const aggregated = snap.aggregatedRolling;
-      if (!aggregated) {
-        map.set(snap.id, {});
-        return;
-      }
-      const pre = aggregated.pre_counts || {};
-      const post = aggregated.post_counts || {};
-      const tvIds = new Set<string>([...Object.keys(pre), ...Object.keys(post)]);
-      const entries: Record<string, number> = {};
-      const minutes = Number(aggregated.time_bin_minutes || minutesPerBin || snap.minutesPerBin || 15);
-      tvIds.forEach((tvId) => {
-        const preSeries = pre?.[tvId] || [];
-        const postSeries = post?.[tvId] || [];
-        const n = Math.min(preSeries.length, postSeries.length);
-        let score = 0;
-        for (let i = 0; i < n; i++) {
-          const start = i * minutes;
-          if (start < viewFromMin || start > viewToMin) continue;
-          const a = Number(preSeries[i] ?? 0);
-          const b = Number(postSeries[i] ?? 0);
-          score += Math.abs((Number.isFinite(b) ? b : 0) - (Number.isFinite(a) ? a : 0));
-        }
-        entries[tvId] = score;
-      });
-      map.set(snap.id, entries);
-    });
-    return map;
-  }, [alignedSnapshots, minutesPerBin, viewFromMin, viewToMin]);
+  const snapshotSortScoresBySnapshot = useMemo(() => {
+    const map = new Map<string, SnapshotTvSortScores>();
 
-  const tvRelativeChangeBySnapshot = useMemo(() => {
-    const map = new Map<string, Record<string, number>>();
     alignedSnapshots.forEach((snap) => {
+      const emptyScores: SnapshotTvSortScores = {
+        absChange: {},
+        relativeChange: {},
+        excessReduced: {},
+        excessInduced: {},
+      };
       const aggregated = snap.aggregatedRolling;
       if (!aggregated) {
-        map.set(snap.id, {});
+        map.set(snap.id, emptyScores);
         return;
       }
+
       const pre = aggregated.pre_counts || {};
       const post = aggregated.post_counts || {};
-      const tvIds = new Set<string>([
+      const capacity = aggregated.capacity || {};
+      const tvIds = Array.from(new Set<string>([
         ...Object.keys(pre || {}),
         ...Object.keys(post || {}),
-      ]);
-      const entries: Record<string, number> = {};
-      if (tvIds.size === 0) {
-        map.set(snap.id, entries);
+        ...Object.keys(capacity || {}),
+      ]));
+
+      if (tvIds.length === 0) {
+        map.set(snap.id, emptyScores);
         return;
       }
+
       const minutes = Number(aggregated.time_bin_minutes || minutesPerBin || snap.minutesPerBin || 15);
-      tvIds.forEach((tvId) => {
-        const preSeries = pre?.[tvId] || [];
-        const postSeries = post?.[tvId] || [];
-        const n = Math.min(preSeries.length, postSeries.length);
-        let deltaSum = 0;
-        let baseSum = 0;
-        for (let i = 0; i < n; i++) {
-          const start = i * minutes;
-          if (start < viewFromMin || start > viewToMin) continue;
-          const a = Number(preSeries[i] ?? 0);
-          const b = Number(postSeries[i] ?? 0);
-          const aa = Number.isFinite(a) ? a : 0;
-          const bb = Number.isFinite(b) ? b : 0;
-          deltaSum += Math.abs(bb - aa);
-          baseSum += Math.abs(aa);
-        }
-        if (baseSum > 0) {
-          entries[tvId] = deltaSum / baseSum;
-        } else {
-          entries[tvId] = deltaSum > 0 ? Number.MAX_SAFE_INTEGER : 0;
-        }
+      const statsByTv = computeOccupancyWindowStatsByTv({
+        preCounts: pre,
+        postCounts: post,
+        capacity,
+        tvIds,
+        windowRange: getOccupancyWindowRange(viewFromMin, viewToMin, minutes),
+        binMinutes: minutes,
+        capacityHideThreshold: OCCUPANCY_CAPACITY_HIDE_THRESHOLD,
       });
-      map.set(snap.id, entries);
+
+      tvIds.forEach((tvId) => {
+        const stats = statsByTv[tvId];
+        emptyScores.absChange[tvId] = scoreOccupancyTvWindowStats(stats, "abs_change");
+        emptyScores.relativeChange[tvId] = scoreOccupancyTvWindowStats(stats, "relative_change");
+        emptyScores.excessReduced[tvId] = scoreOccupancyTvWindowStats(stats, "total_excess_reduced");
+        emptyScores.excessInduced[tvId] = scoreOccupancyTvWindowStats(stats, "total_excess_induced");
+      });
+
+      map.set(snap.id, emptyScores);
     });
+
     return map;
   }, [alignedSnapshots, minutesPerBin, viewFromMin, viewToMin]);
 
@@ -1344,22 +1350,84 @@ export default function RegulationComparisonPage() {
     });
   }, [alignedSnapshots]);
 
-  useEffect(() => {
-    const absSnapshotId = getAbsChangeSnapshotId(tvSort);
-    if (absSnapshotId) {
-      const option = absChangeSortOptions.find((opt) => opt.snapshotId === absSnapshotId);
-      if (!option || option.disabled) {
-        if (tvSort !== "exceedance") setTvSort("exceedance");
+  const excessReducedSortOptions = useMemo<ChangeSortOption[]>(() => {
+    return alignedSnapshots.map((snap) => {
+      const aggregated = snap.aggregatedRolling;
+      const preCount = Object.keys(aggregated?.pre_counts || {}).length;
+      const postCount = Object.keys(aggregated?.post_counts || {}).length;
+      const capacityCount = Object.keys(aggregated?.capacity || {}).length;
+      let disabled = false;
+      let reason: string | undefined;
+      if (!aggregated || postCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing post-rolling counts.";
+      } else if (preCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing baseline rolling counts.";
+      } else if (capacityCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing rolling capacity data.";
       }
-      return;
-    }
-    const relSnapshotId = getRelativeChangeSnapshotId(tvSort);
-    if (!relSnapshotId) return;
-    const option = relativeChangeSortOptions.find((opt) => opt.snapshotId === relSnapshotId);
+      return {
+        value: `${EXCESS_REDUCED_PREFIX}${snap.id}` as TvSortMode,
+        label: `Total Excess Reduced (${snap.description || "Untitled"})`,
+        disabled,
+        reason,
+        snapshotId: snap.id,
+      };
+    });
+  }, [alignedSnapshots]);
+
+  const excessInducedSortOptions = useMemo<ChangeSortOption[]>(() => {
+    return alignedSnapshots.map((snap) => {
+      const aggregated = snap.aggregatedRolling;
+      const preCount = Object.keys(aggregated?.pre_counts || {}).length;
+      const postCount = Object.keys(aggregated?.post_counts || {}).length;
+      const capacityCount = Object.keys(aggregated?.capacity || {}).length;
+      let disabled = false;
+      let reason: string | undefined;
+      if (!aggregated || postCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing post-rolling counts.";
+      } else if (preCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing baseline rolling counts.";
+      } else if (capacityCount === 0) {
+        disabled = true;
+        reason = "Snapshot is missing rolling capacity data.";
+      }
+      return {
+        value: `${EXCESS_INDUCED_PREFIX}${snap.id}` as TvSortMode,
+        label: `Total Excess Induced (${snap.description || "Untitled"})`,
+        disabled,
+        reason,
+        snapshotId: snap.id,
+      };
+    });
+  }, [alignedSnapshots]);
+
+  const snapshotSortOptionMap = useMemo(() => {
+    const options = [
+      ...absChangeSortOptions,
+      ...relativeChangeSortOptions,
+      ...excessReducedSortOptions,
+      ...excessInducedSortOptions,
+    ];
+    return new Map(options.map((option) => [option.value, option]));
+  }, [
+    absChangeSortOptions,
+    relativeChangeSortOptions,
+    excessReducedSortOptions,
+    excessInducedSortOptions,
+  ]);
+
+  useEffect(() => {
+    if (!isSnapshotScopedTvSortMode(tvSort)) return;
+    const option = snapshotSortOptionMap.get(tvSort);
     if (!option || option.disabled) {
       if (tvSort !== "exceedance") setTvSort("exceedance");
     }
-  }, [absChangeSortOptions, relativeChangeSortOptions, tvSort]);
+  }, [snapshotSortOptionMap, tvSort]);
 
   const filteredTvIds = useMemo(() => {
     let list = tvMetrics;
@@ -1367,9 +1435,21 @@ export default function RegulationComparisonPage() {
       list = list.filter((item) => selectedTvSet.has(item.tvId));
     }
     const absChangeSnapshotId = getAbsChangeSnapshotId(tvSort);
-    const absScores = absChangeSnapshotId ? tvAbsChangeBySnapshot.get(absChangeSnapshotId) || null : null;
+    const absScores = absChangeSnapshotId
+      ? snapshotSortScoresBySnapshot.get(absChangeSnapshotId)?.absChange || null
+      : null;
     const relChangeSnapshotId = getRelativeChangeSnapshotId(tvSort);
-    const relScores = relChangeSnapshotId ? tvRelativeChangeBySnapshot.get(relChangeSnapshotId) || null : null;
+    const relScores = relChangeSnapshotId
+      ? snapshotSortScoresBySnapshot.get(relChangeSnapshotId)?.relativeChange || null
+      : null;
+    const excessReducedSnapshotId = getExcessReducedSnapshotId(tvSort);
+    const excessReducedScores = excessReducedSnapshotId
+      ? snapshotSortScoresBySnapshot.get(excessReducedSnapshotId)?.excessReduced || null
+      : null;
+    const excessInducedSnapshotId = getExcessInducedSnapshotId(tvSort);
+    const excessInducedScores = excessInducedSnapshotId
+      ? snapshotSortScoresBySnapshot.get(excessInducedSnapshotId)?.excessInduced || null
+      : null;
     const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
     const sorted = [...list];
     sorted.sort((a, b) => {
@@ -1383,7 +1463,33 @@ export default function RegulationComparisonPage() {
         const scoreA = relScores[a.tvId] ?? 0;
         const scoreB = relScores[b.tvId] ?? 0;
         if (scoreB !== scoreA) return scoreB - scoreA;
-        const absMap = relChangeSnapshotId ? tvAbsChangeBySnapshot.get(relChangeSnapshotId) || {} : {};
+        const absMap = relChangeSnapshotId
+          ? snapshotSortScoresBySnapshot.get(relChangeSnapshotId)?.absChange || {}
+          : {};
+        const absA = absMap[a.tvId] ?? 0;
+        const absB = absMap[b.tvId] ?? 0;
+        if (absB !== absA) return absB - absA;
+        return collator.compare(a.tvId, b.tvId);
+      }
+      if (excessReducedScores) {
+        const scoreA = excessReducedScores[a.tvId] ?? 0;
+        const scoreB = excessReducedScores[b.tvId] ?? 0;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        const absMap = excessReducedSnapshotId
+          ? snapshotSortScoresBySnapshot.get(excessReducedSnapshotId)?.absChange || {}
+          : {};
+        const absA = absMap[a.tvId] ?? 0;
+        const absB = absMap[b.tvId] ?? 0;
+        if (absB !== absA) return absB - absA;
+        return collator.compare(a.tvId, b.tvId);
+      }
+      if (excessInducedScores) {
+        const scoreA = excessInducedScores[a.tvId] ?? 0;
+        const scoreB = excessInducedScores[b.tvId] ?? 0;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        const absMap = excessInducedSnapshotId
+          ? snapshotSortScoresBySnapshot.get(excessInducedSnapshotId)?.absChange || {}
+          : {};
         const absA = absMap[a.tvId] ?? 0;
         const absB = absMap[b.tvId] ?? 0;
         if (absB !== absA) return absB - absA;
@@ -1405,8 +1511,7 @@ export default function RegulationComparisonPage() {
     hasTvFilter,
     selectedTvSet,
     tvSort,
-    tvAbsChangeBySnapshot,
-    tvRelativeChangeBySnapshot,
+    snapshotSortScoresBySnapshot,
   ]);
 
   const visibleTvs = filteredTvIds.slice(0, visibleTvCount);
@@ -2320,6 +2425,26 @@ export default function RegulationComparisonPage() {
                     </option>
                   ))}
                   {relativeChangeSortOptions.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={option.disabled}
+                      title={option.reason}
+                    >
+                      {option.label}
+                    </option>
+                  ))}
+                  {excessReducedSortOptions.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={option.disabled}
+                      title={option.reason}
+                    >
+                      {option.label}
+                    </option>
+                  ))}
+                  {excessInducedSortOptions.map((option) => (
                     <option
                       key={option.value}
                       value={option.value}

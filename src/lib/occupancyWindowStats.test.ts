@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  OCCUPANCY_CAPACITY_HIDE_THRESHOLD,
   computeOccupancyTvWindowStats,
   computeOccupancyWindowStatsByTv,
   getOccupancyWindowRange,
+  scoreOccupancyTvWindowStats,
 } from "./occupancyWindowStats";
 
 describe("occupancyWindowStats", () => {
@@ -24,6 +26,8 @@ describe("occupancyWindowStats", () => {
       relativeDelta: 10,
       relativeBase: 50,
       exceedance: 1,
+      totalExcessReduced: 5,
+      totalExcessInduced: 5,
       netDelta: 0,
       hasPreSeries: true,
       hasPostSeries: true,
@@ -44,6 +48,8 @@ describe("occupancyWindowStats", () => {
       relativeDelta: 0,
       relativeBase: 0,
       exceedance: 0,
+      totalExcessReduced: 0,
+      totalExcessInduced: 0,
       netDelta: 0,
       hasPreSeries: true,
       hasPostSeries: false,
@@ -75,6 +81,8 @@ describe("occupancyWindowStats", () => {
       relativeDelta: 5,
       relativeBase: 6,
       exceedance: 0.5,
+      totalExcessReduced: 0,
+      totalExcessInduced: 2,
       netDelta: 3,
       hasPreSeries: true,
       hasPostSeries: true,
@@ -85,6 +93,8 @@ describe("occupancyWindowStats", () => {
       relativeDelta: 0,
       relativeBase: 0,
       exceedance: 1.5,
+      totalExcessReduced: 0,
+      totalExcessInduced: 0,
       netDelta: 0,
       hasPreSeries: true,
       hasPostSeries: false,
@@ -99,9 +109,52 @@ describe("occupancyWindowStats", () => {
       startIndex: 0,
       endIndex: 1,
       binMinutes: 15,
-      capacityHideThreshold: 998,
+      capacityHideThreshold: OCCUPANCY_CAPACITY_HIDE_THRESHOLD,
     });
 
     expect(stats.exceedance).toBe(0);
+    expect(stats.totalExcessReduced).toBe(0);
+    expect(stats.totalExcessInduced).toBe(0);
+  });
+
+  it("counts excess reduction using bins that are over capacity before regulation", () => {
+    const stats = computeOccupancyTvWindowStats({
+      preSeries: [12, 5, 9],
+      postSeries: [7, 3, 9],
+      capacitySeries: [10, 4, 9],
+      startIndex: 0,
+      endIndex: 2,
+      binMinutes: 15,
+    });
+
+    expect(stats.totalExcessReduced).toBe(7);
+    expect(scoreOccupancyTvWindowStats(stats, "total_excess_reduced")).toBe(7);
+  });
+
+  it("counts excess induction using bins that are over capacity after regulation", () => {
+    const stats = computeOccupancyTvWindowStats({
+      preSeries: [8, 6, 5],
+      postSeries: [11, 9, 5],
+      capacitySeries: [10, 8, 7],
+      startIndex: 0,
+      endIndex: 2,
+      binMinutes: 15,
+    });
+
+    expect(stats.totalExcessInduced).toBe(6);
+    expect(scoreOccupancyTvWindowStats(stats, "total_excess_induced")).toBe(6);
+  });
+
+  it("returns zero excess-reduced and excess-induced scores without both pre and post series", () => {
+    const stats = computeOccupancyTvWindowStats({
+      postSeries: [4, 5, 6],
+      capacitySeries: [3, 3, 3],
+      startIndex: 0,
+      endIndex: 2,
+      binMinutes: 15,
+    });
+
+    expect(scoreOccupancyTvWindowStats(stats, "total_excess_reduced")).toBe(0);
+    expect(scoreOccupancyTvWindowStats(stats, "total_excess_induced")).toBe(0);
   });
 });
