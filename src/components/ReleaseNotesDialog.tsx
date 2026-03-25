@@ -14,7 +14,9 @@ const RELEASE_NOTES_CONTENT = `
 
   <h4 class="font-bold mb-4">Wed. 25/03/2026</h4>
   <ul class="list-disc pl-6 space-y-2 mb-4">
-    <li><strong>Stabilization of the platform and CD pipeline run.</strong></li>
+    <li><strong>Grouped Traffic Volume Selection (OR Semantics).</strong> You can now build grouped TV selections using OR semantics — click to append traffic volumes into logical groups, and the platform evaluates demand across any member of the group. Flight lists, occupancy counts, and canvas highlights all reflect the grouped expression.</li>
+    <li><strong>New Diagnostics Metrics.</strong> The Flow Regulation and Regulation Proposal panels now surface four new per-TV metrics: <em>Pressure Benefit</em>, <em>Flight Cost</em>, <em>Slack Fragility</em>, and <em>Rho Risk</em>, giving a richer picture of the trade-offs behind each regulation candidate.</li>
+    <li><strong>Cache Management Hardening.</strong> TV and capacity-range caches no longer repopulate from in-flight loads that resolve after a cache clear, eliminating stale cross-date data that could appear after a date switch or manual cache reset.</li>
   </ul>
 
   <h4 class="font-bold mb-4">Sun. 23/03/2026</h4>
