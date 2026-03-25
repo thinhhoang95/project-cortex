@@ -107,7 +107,26 @@ describe("useSimStore resourceDate", () => {
       properties: { traffic_volume_id: "TV_B" } as any,
     });
 
+    expect(useSimStore.getState().selectedTrafficVolumeClauses).toEqual([["TV_A"], ["TV_B"]]);
     expect(useSimStore.getState().selectedTrafficVolumes).toEqual(["TV_A", "TV_B"]);
+    expect(useSimStore.getState().selectedTrafficVolume).toBe("TV_A");
+  });
+
+  it("adds Ctrl/Cmd-style OR selections into the trailing clause", () => {
+    const store = useSimStore.getState();
+
+    store.setSelectedTrafficVolume("TV_A", {
+      properties: { traffic_volume_id: "TV_A" } as any,
+    });
+    store.appendSelectedTrafficVolume("TV_B", {
+      properties: { traffic_volume_id: "TV_B" } as any,
+    });
+    store.toggleSelectedTrafficVolumeWithMode("TV_C", {
+      properties: { traffic_volume_id: "TV_C" } as any,
+    }, "or");
+
+    expect(useSimStore.getState().selectedTrafficVolumeClauses).toEqual([["TV_A"], ["TV_B", "TV_C"]]);
+    expect(useSimStore.getState().selectedTrafficVolumes).toEqual(["TV_A", "TV_B", "TV_C"]);
     expect(useSimStore.getState().selectedTrafficVolume).toBe("TV_A");
   });
 });

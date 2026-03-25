@@ -20,7 +20,7 @@ import { createMapStyle } from "@/lib/mapStyle";
 import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
-  applyTrafficVolumeHighlight,
+  applyTrafficVolumeHighlightList,
   applyTrafficVolumeVisibility,
   getTrafficVolumeCenter,
   getTrafficVolumeCenterFromMap,
@@ -50,7 +50,7 @@ export default function MapCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const tvSourcesRef = useRef<AirspaceSources | null>(null);
   const lastTs = useRef<number>(performance.now());
-  const { t, resourceDate, weatherOverlay, tick, flights, showFlightLineLabels, flightLineLabelMode, showCallsigns, showWaypoints, showTrafficVolumes, setBaselineFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, setSelectedTrafficVolume, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute, resourceStateEpoch, glanceHorizonMinutes } = useSimStore();
+  const { t, resourceDate, weatherOverlay, tick, flights, showFlightLineLabels, flightLineLabelMode, showCallsigns, showWaypoints, showTrafficVolumes, setBaselineFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedTrafficVolumes, toggleSelectedTrafficVolumeWithMode, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute, resourceStateEpoch, glanceHorizonMinutes } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
@@ -59,7 +59,6 @@ export default function MapCanvas() {
     [resourceDate],
   );
 
-  const [highlightedTrafficVolume, setHighlightedTrafficVolume] = useState<string | null>(null);
   const [baseDataLoading, setBaseDataLoading] = useState(true);
   const [visibleGlanceTvIds, setVisibleGlanceTvIds] = useState<string[]>([]);
   const [glanceCacheVersion, setGlanceCacheVersion] = useState(0);
@@ -252,14 +251,13 @@ export default function MapCanvas() {
       // Save trajectories on map for the animation step
       (map as any).__trajectories = activeTracks;
 
-      const selectTrafficVolume = (trafficVolumeId: string) => {
+      const selectTrafficVolume = (trafficVolumeId: string, mode: "and" | "or") => {
         const sectorFeatures = map.querySourceFeatures('sectors', {
           filter: ['==', 'traffic_volume_id', trafficVolumeId]
         });
         const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
         const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-        setSelectedTrafficVolume(trafficVolumeId, tvData);
-        setHighlightedTrafficVolume(prev => (prev === trafficVolumeId ? null : trafficVolumeId));
+        toggleSelectedTrafficVolumeWithMode(trafficVolumeId, tvData, mode);
       };
 
       const getTrafficVolumeIdFromEvent = (e: maplibregl.MapLayerMouseEvent) => {
@@ -270,7 +268,12 @@ export default function MapCanvas() {
 
       const handleTrafficVolumeClick = (e: maplibregl.MapLayerMouseEvent) => {
         const trafficVolumeId = getTrafficVolumeIdFromEvent(e);
-        if (trafficVolumeId) selectTrafficVolume(trafficVolumeId);
+        if (!trafficVolumeId) return;
+        const mode =
+          e.originalEvent && ("ctrlKey" in e.originalEvent) && (e.originalEvent.ctrlKey || e.originalEvent.metaKey)
+            ? "or"
+            : "and";
+        selectTrafficVolume(trafficVolumeId, mode);
       };
 
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeClick);
@@ -632,8 +635,8 @@ export default function MapCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyTrafficVolumeHighlight(map, highlightedTrafficVolume);
-  }, [highlightedTrafficVolume]);
+    applyTrafficVolumeHighlightList(map, selectedTrafficVolumes);
+  }, [selectedTrafficVolumes]);
 
   // on showWaypoints change, toggle waypoint visibility via paint properties
   useEffect(() => {
@@ -825,9 +828,6 @@ export default function MapCanvas() {
       }
 
       if (!tvId) return;
-
-      // Highlight the traffic volume (same as clicking on it)
-      setHighlightedTrafficVolume(tvId);
 
       const center = tvGeometry
         ? getTrafficVolumeCenter(tvGeometry)

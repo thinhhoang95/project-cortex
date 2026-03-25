@@ -25,6 +25,10 @@ import {
   buildRollingChartDataFromOccupancy,
   type MergedMultiTvChartRow,
 } from "@/lib/airspaceInfoMultiTv";
+import {
+  formatTrafficVolumeSelectionExpression,
+  getEffectiveTrafficVolumeSelectionClauses,
+} from "@/lib/multiTrafficVolumeSelection";
 import { toTimeWindow } from "@/lib/regulationProposals";
 
 type RegulationPanelProps = { embedded?: boolean };
@@ -98,6 +102,7 @@ const REGULATION_CATCHER_TIMEFRAME_OPTIONS: Array<{ value: RegulationCatcherTime
 export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumeClauses,
     selectedTrafficVolumes,
     selectedTrafficVolumeData,
     t,
@@ -158,26 +163,32 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     resetProposalState,
   } = useSimStore();
 
-  const selectedTvIds = useMemo(() => {
-    const source =
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [];
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of source) {
-      const id = String(raw ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-    }
-    return out;
-  }, [selectedTrafficVolumes, selectedTrafficVolume]);
-  const selectedTvKey = selectedTvIds.join("|");
+  const selectedTvClauses = useMemo(
+    () =>
+      getEffectiveTrafficVolumeSelectionClauses({
+        selectedTrafficVolumeClauses,
+        selectedTrafficVolumes,
+        selectedTrafficVolume,
+      }),
+    [selectedTrafficVolumeClauses, selectedTrafficVolumes, selectedTrafficVolume],
+  );
+  const selectedTvIds = useMemo(
+    () => selectedTvClauses.flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
+  const selectedTvKey = useMemo(
+    () => selectedTvClauses.map((clause) => clause.join("||")).join("|"),
+    [selectedTvClauses],
+  );
   const primaryTvId = selectedTvIds[0] ?? null;
-  const secondaryTvIds = useMemo(() => selectedTvIds.slice(1), [selectedTvIds]);
+  const secondaryTvIds = useMemo(
+    () => selectedTvClauses.slice(1).flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
+  const selectionExpression = useMemo(
+    () => formatTrafficVolumeSelectionExpression(selectedTvClauses),
+    [selectedTvClauses],
+  );
 
   const [inputValue, setInputValue] = useState("");
   const [activePreset, setActivePreset] = useState<string>("1h");
@@ -869,7 +880,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       setFlowPreviewGroupId(null);
       setFlowPreviewFlightId(null);
       setFlowError(selectedTvIds.length > 1
-        ? 'No intersecting flights available across selected traffic volumes.'
+        ? 'No flights match the current TV selection.'
         : 'No flights available to extract flows.');
       setCommunityHeuristics({});
       return;
@@ -978,14 +989,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             {selectedTvIds.length > 1 ? `Reference TV (${selectedTvIds.length} selected)` : 'Reference TV'}
           </div>
           <div className="text-lg font-semibold">{primaryTvId}</div>
-          {secondaryTvIds.length > 0 && (
-            <div className="mt-1 space-y-0.5">
-              {secondaryTvIds.map((tvId) => (
-                <div key={tvId} className="text-[11px] opacity-75 break-all">
-                  {tvId}
-                </div>
-              ))}
-            </div>
+          {selectedTvIds.length > 1 && selectionExpression && (
+            <div className="mt-1 text-[11px] opacity-75 break-all">{selectionExpression}</div>
           )}
           {flightLevelRange && (
             <div className="text-xs opacity-80">{flightLevelRange}</div>
@@ -1062,7 +1067,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         {/* Current count + capacity summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Current Count"}</div>
+            <div className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Selection Result Count" : "Current Count"}</div>
             <div className="text-lg font-semibold">{summaryCurrentCount}</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
@@ -1156,7 +1161,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           {!flowLoading && (
             <div className="text-[10px] opacity-70 mt-2">
               {selectedTvIds.length > 1
-                ? `Extract Flows uses the intersection of the current flight list across ${selectedTvIds.length} selected TVs (${regulationListedFlightIds.length} flights).`
+                ? `Extract Flows uses flights matching the current TV selection (${regulationListedFlightIds.length} flights).`
                 : `Extract Flows uses the current flight list (${regulationListedFlightIds.length} flights).`}
             </div>
           )}

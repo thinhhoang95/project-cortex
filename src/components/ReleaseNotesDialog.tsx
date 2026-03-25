@@ -26,7 +26,7 @@ const RELEASE_NOTES_CONTENT = `
     <li><strong>TV DCB Glance.</strong> Short-horizon Demand-Capacity Balance summaries are now rendered as glance labels directly on the map, scoped to visible traffic volumes and invalidated automatically on state or date changes.</li>
     <li><strong>Flight-Level Bin Distribution.</strong> A new <em>Flight-Level Bin Count Chart</em> aggregates occupancy into selectable 1 000 / 2 000 / 3 000 / 5 000 ft groupings, with on-hover flight-ID previews scoped to the current time window.</li>
     <li><strong>SA Posthoc Analytics.</strong> A new <em>SA Result Summary</em> dashboard exposes objective-history trends, convergence metrics, per-ACC delay attribution, OD delay attribution, and per-flight solution tables for completed agent runs.</li>
-    <li><strong>Intersection Count Labels.</strong> Multi-TV summary cards now correctly label counts as <em>Intersection Count</em> to distinguish them from single-TV <em>Current Count</em> figures.</li>
+    <li><strong>Selection Result Count Labels.</strong> Multi-TV summary cards now label grouped TV results distinctly from single-TV <em>Current Count</em> figures.</li>
     <li><strong>Regulation Plan Panel "Measures".</strong> The header previously labelled <em>Active Network</em> has been renamed to <em>Measures</em> for clarity.</li>
   </ul>
 

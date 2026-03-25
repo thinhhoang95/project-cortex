@@ -25,10 +25,14 @@ import {
 } from "@/lib/regulationTargets";
 import {
   compareIntersectionFlightRows,
-  intersectStringSets,
-  matchesSelectedTvTraversalOrder,
+  intersectSelectedTvClauseMemberships,
+  matchesSelectedTvTraversalOrderClauses,
   type FlightSortMetric,
 } from "@/lib/airspaceInfoMultiTv";
+import {
+  formatTrafficVolumeSelectionExpression,
+  getEffectiveTrafficVolumeSelectionClauses,
+} from "@/lib/multiTrafficVolumeSelection";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
 const MAX_VISIBLE = 20;
@@ -94,6 +98,7 @@ type FlightRow = {
 export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewProps) {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumeClauses,
     selectedTrafficVolumes,
     selectedTrafficVolumeData,
     t,
@@ -163,27 +168,33 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const [flightListError, setFlightListError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [proposalTriggerError, setProposalTriggerError] = useState<string | null>(null);
-  const selectedTvIds = useMemo(() => {
-    const source =
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [];
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of source) {
-      const id = String(raw ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-    }
-    return out;
-  }, [selectedTrafficVolumes, selectedTrafficVolume]);
-  const selectedTvKey = selectedTvIds.join("|");
+  const selectedTvClauses = useMemo(
+    () =>
+      getEffectiveTrafficVolumeSelectionClauses({
+        selectedTrafficVolumeClauses,
+        selectedTrafficVolumes,
+        selectedTrafficVolume,
+      }),
+    [selectedTrafficVolumeClauses, selectedTrafficVolumes, selectedTrafficVolume],
+  );
+  const selectedTvIds = useMemo(
+    () => selectedTvClauses.flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
+  const selectedTvKey = useMemo(
+    () => selectedTvClauses.map((clause) => clause.join("||")).join("|"),
+    [selectedTvClauses],
+  );
   const primaryTvId = selectedTvIds[0] ?? null;
-  const secondaryTvIds = useMemo(() => selectedTvIds.slice(1), [selectedTvIds]);
+  const secondaryTvIds = useMemo(
+    () => selectedTvClauses.slice(1).flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
   const isMultiTv = selectedTvIds.length > 1;
+  const selectionExpression = useMemo(
+    () => formatTrafficVolumeSelectionExpression(selectedTvClauses),
+    [selectedTvClauses],
+  );
   const flightLevelRange = formatFlightLevelRange(
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
@@ -328,7 +339,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         setSecondaryFlightDataByTv(Object.fromEntries(entries));
       } catch (e: any) {
         if (!cancelled) {
-          setSecondaryFlightListError(e?.message || "Failed to fetch intersecting flight data");
+          setSecondaryFlightListError(e?.message || "Failed to fetch grouped flight data");
           setSecondaryFlightDataByTv({});
         }
       } finally {
@@ -634,7 +645,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       };
     }
 
-    const secondaryMembershipSets: Array<Set<string>> = [];
+    const membershipByTv: Record<string, Set<string>> = {
+      [primaryTvId]: new Set(primaryRows.map((row) => String(row.flightId))),
+    };
     const orderedDetailMapByTv: Record<string, Map<string, OrderedFlightsData["details"][number]>> = {};
     const legacyWindowStartByTv: Record<string, Map<string, number | null>> = {};
 
@@ -648,7 +661,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         if (membership.size === 0) {
           for (const detail of payload.data.details || []) membership.add(String(detail.flight_id));
         }
-        secondaryMembershipSets.push(membership);
+        membershipByTv[tvId] = membership;
 
         const detailMap = new Map<string, OrderedFlightsData["details"][number]>();
         for (const detail of payload.data.details || []) {
@@ -666,13 +679,12 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             if (!startMap.has(fid)) startMap.set(fid, startSeconds);
           }
         }
-        secondaryMembershipSets.push(membership);
+        membershipByTv[tvId] = membership;
         legacyWindowStartByTv[tvId] = startMap;
       }
     }
 
-    const primaryMembershipSet = new Set(primaryRows.map((row) => String(row.flightId)));
-    const intersectionSet = intersectStringSets([primaryMembershipSet, ...secondaryMembershipSets]);
+    const intersectionSet = intersectSelectedTvClauseMemberships(selectedTvClauses, membershipByTv);
 
     const rows = primaryRows
       .filter((row) => intersectionSet.has(String(row.flightId)))
@@ -728,9 +740,9 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             perTv: nextSortPerTv,
           },
         };
-      });
+    });
     const orderedRows = rows.filter((row) =>
-      matchesSelectedTvTraversalOrder(row.sortMetric.perTv, selectedTvIds),
+      matchesSelectedTvTraversalOrderClauses(row.sortMetric.perTv, selectedTvClauses),
     );
 
     orderedRows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
@@ -740,6 +752,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     };
   }, [
     primaryTvId,
+    selectedTvClauses,
     selectedTvIds,
     regulationTimeWindow,
     effectiveFlightListError,
@@ -965,7 +978,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       setFlowPreviewGroupId(null);
       setFlowPreviewFlightId(null);
       setFlowError(isMultiTv
-        ? 'No intersecting flights available across selected traffic volumes.'
+        ? 'No flights match the current TV selection.'
         : 'No flights available to extract flows.');
       return;
     }
@@ -1052,14 +1065,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
             {selectedTvIds.length > 1 ? `Reference TV (${selectedTvIds.length} selected)` : "Reference TV"}
           </div>
           <div className="text-lg font-semibold">{primaryTvId}</div>
-          {secondaryTvIds.length > 0 && (
-            <div className="mt-1 space-y-0.5">
-              {secondaryTvIds.map((tvId) => (
-                <div key={tvId} className="text-[11px] opacity-75 break-all">
-                  {tvId}
-                </div>
-              ))}
-            </div>
+          {selectedTvIds.length > 1 && selectionExpression && (
+            <div className="mt-1 text-[11px] opacity-75 break-all">{selectionExpression}</div>
           )}
           {flightLevelRange && (
             <div className="text-xs opacity-80">{flightLevelRange}</div>
@@ -1159,7 +1166,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         {/* Current count + capacity summary */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-lg p-3">
-            <div className="text-xs opacity-70">{isMultiTv ? "Intersection Count" : "Current Count"}</div>
+            <div className="text-xs opacity-70">{isMultiTv ? "Selection Result Count" : "Current Count"}</div>
             <div className="text-lg font-semibold">{summaryCurrentCount}</div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
@@ -1447,7 +1454,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
           {flightTableData.length === 0 && !isFlightListLoading && !effectiveFlightListError && (
             <p className="text-xs opacity-70 text-center py-4">
-              {isMultiTv ? "No intersecting flights found for this window" : "No flights found for this window"}
+              {isMultiTv ? "No flights match the current TV selection for this window" : "No flights found for this window"}
             </p>
           )}
         </div>

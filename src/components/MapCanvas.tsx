@@ -86,7 +86,7 @@ export default function MapCanvas() {
     setAirspaceDisplayMode,
     setBaselineFlights,
     setSelectedTrafficVolume,
-    toggleSelectedTrafficVolume,
+    toggleSelectedTrafficVolumeWithMode,
     setSelectedCollapsedSector,
     flLowerBound,
     flUpperBound,
@@ -435,13 +435,13 @@ export default function MapCanvas() {
         map.getCanvas().style.cursor = '';
       });
 
-      const selectTrafficVolume = (trafficVolumeId: string) => {
+      const selectTrafficVolume = (trafficVolumeId: string, mode: "and" | "or") => {
         const sectorFeatures = map.querySourceFeatures('sectors', {
           filter: ['==', 'traffic_volume_id', trafficVolumeId]
         });
         const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
         const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-        toggleSelectedTrafficVolume(trafficVolumeId, tvData);
+        toggleSelectedTrafficVolumeWithMode(trafficVolumeId, tvData, mode);
       };
 
       const getTrafficVolumeIdFromEvent = (e: maplibregl.MapLayerMouseEvent) => {
@@ -462,7 +462,11 @@ export default function MapCanvas() {
           setSelectedCollapsedSector(trafficVolumeId, collapsedSectorData);
           return;
         }
-        selectTrafficVolume(trafficVolumeId);
+        const mode =
+          e.originalEvent && ("ctrlKey" in e.originalEvent) && (e.originalEvent.ctrlKey || e.originalEvent.metaKey)
+            ? "or"
+            : "and";
+        selectTrafficVolume(trafficVolumeId, mode);
       };
 
       // Add click handlers for traffic volumes (labels + points)

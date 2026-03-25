@@ -25,6 +25,10 @@ import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/Traf
 import PanelCloseButton from "@/components/PanelCloseButton";
 import ShimmeringText from "@/components/ShimmeringText";
 import { type FlightLevelCountsPayload } from "@/lib/flightLevelBinCounts";
+import {
+  formatTrafficVolumeSelectionExpression,
+  getEffectiveTrafficVolumeSelectionClauses,
+} from "@/lib/multiTrafficVolumeSelection";
 
 type OccupancyData = {
   traffic_volume_id: string;
@@ -56,6 +60,7 @@ type RerouteTvSelectionInfoPanelProps = {
 export default function RerouteTvSelectionInfoPanel({ embedded = false }: RerouteTvSelectionInfoPanelProps) {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumeClauses,
     selectedTrafficVolumes,
     airspaceDisplayMode,
     t,
@@ -70,27 +75,29 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
     setFlowPreviewGroupId,
   } = useSimStore();
 
-  const selectedTvIds = useMemo(() => {
-    const source =
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [];
+  const selectedTvClauses = useMemo(
+    () =>
+      getEffectiveTrafficVolumeSelectionClauses({
+        selectedTrafficVolumeClauses,
+        selectedTrafficVolumes,
+        selectedTrafficVolume,
+      }),
+    [selectedTrafficVolumeClauses, selectedTrafficVolumes, selectedTrafficVolume],
+  );
+  const selectedTvIds = useMemo(
+    () => selectedTvClauses.flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
 
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of source) {
-      const id = String(raw ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-    }
-    return out;
-  }, [selectedTrafficVolume, selectedTrafficVolumes]);
-
-  const selectedTvKey = selectedTvIds.join("|");
+  const selectedTvKey = useMemo(
+    () => selectedTvClauses.map((clause) => clause.join("||")).join("|"),
+    [selectedTvClauses],
+  );
   const primaryTvId = selectedTvIds[0] ?? null;
+  const selectionExpression = useMemo(
+    () => formatTrafficVolumeSelectionExpression(selectedTvClauses),
+    [selectedTvClauses],
+  );
 
   const [occupancyByTv, setOccupancyByTv] = useState<Record<string, OccupancyData>>({});
   const [loading, setLoading] = useState(false);
@@ -279,7 +286,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
             <p className="text-xs opacity-70 mt-1">
               {selectedTvIds.length === 1
                 ? `TV ${selectedTvIds[0]}`
-                : `Intersection context across ${selectedTvIds.length} TVs`}
+                : selectionExpression}
             </p>
           </div>
           <PanelCloseButton
@@ -319,7 +326,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
                 <p className="text-lg font-semibold">{primarySummary.movements.toLocaleString("en-US")}</p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
-                <p className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Current Count"}</p>
+                <p className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Selection Result Count" : "Current Count"}</p>
                 <p className="text-lg font-semibold">
                   {summaryCurrentCount != null ? summaryCurrentCount.toFixed(0) : "—"}
                 </p>

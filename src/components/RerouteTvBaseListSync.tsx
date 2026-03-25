@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { authFetch } from "@/lib/auth";
 import {
   compareIntersectionFlightRows,
-  intersectStringSets,
-  matchesSelectedTvTraversalOrder,
+  intersectSelectedTvClauseMemberships,
+  matchesSelectedTvTraversalOrderClauses,
   type FlightSortMetric,
 } from "@/lib/airspaceInfoMultiTv";
+import { getEffectiveTrafficVolumeSelectionClauses } from "@/lib/multiTrafficVolumeSelection";
 import { useSimStore } from "@/components/useSimStore";
 
 type OrderedFlightsData = {
@@ -33,6 +34,7 @@ type TvFlightsPayload =
 export default function RerouteTvBaseListSync() {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumeClauses,
     selectedTrafficVolumes,
     airspaceDisplayMode,
     t,
@@ -44,26 +46,24 @@ export default function RerouteTvBaseListSync() {
     setFocusFlightIds,
   } = useSimStore();
 
-  const selectedTvIds = useMemo(() => {
-    const source =
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [];
+  const selectedTvClauses = useMemo(
+    () =>
+      getEffectiveTrafficVolumeSelectionClauses({
+        selectedTrafficVolumeClauses,
+        selectedTrafficVolumes,
+        selectedTrafficVolume,
+      }),
+    [selectedTrafficVolumeClauses, selectedTrafficVolumes, selectedTrafficVolume],
+  );
+  const selectedTvIds = useMemo(
+    () => selectedTvClauses.flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
 
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of source) {
-      const id = String(raw ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-    }
-    return out;
-  }, [selectedTrafficVolume, selectedTrafficVolumes]);
-
-  const selectedTvKey = selectedTvIds.join("|");
+  const selectedTvKey = useMemo(
+    () => selectedTvClauses.map((clause) => clause.join("||")).join("|"),
+    [selectedTvClauses],
+  );
   const requestSeq = useRef(0);
   const appliedTvFocusRef = useRef(false);
   const previousSelectionContextKeyRef = useRef<string | null>(null);
@@ -125,7 +125,7 @@ export default function RerouteTvBaseListSync() {
 
         const payloadByTv = Object.fromEntries(entries) as Record<string, TvFlightsPayload>;
         const orderedFlightIds = buildBaseListForSelection(
-          selectedTvIds,
+          selectedTvClauses,
           payloadByTv,
           windowFrom,
           windowTo
@@ -165,6 +165,7 @@ export default function RerouteTvBaseListSync() {
   }, [
     airspaceDisplayMode,
     selectedTvKey,
+    selectedTvClauses,
     selectedTvIds,
     resourceStateEpoch,
     t,
@@ -179,11 +180,12 @@ export default function RerouteTvBaseListSync() {
 }
 
 function buildBaseListForSelection(
-  selectedTvIds: string[],
+  selectedTvClauses: string[][],
   payloadByTv: Record<string, TvFlightsPayload>,
   windowFrom: number,
   windowTo: number
 ): string[] {
+  const selectedTvIds = selectedTvClauses.flatMap((clause) => clause);
   if (selectedTvIds.length === 0) return [];
   const primaryTvId = selectedTvIds[0] ?? null;
   if (!primaryTvId) return [];
@@ -195,8 +197,10 @@ function buildBaseListForSelection(
   if (primaryRows.length === 0) return [];
   if (selectedTvIds.length === 1) return primaryRows.map((row) => row.flightId);
 
-  const secondaryTvIds = selectedTvIds.slice(1);
-  const secondaryMembershipSets: Array<Set<string>> = [];
+  const secondaryTvIds = selectedTvClauses.slice(1).flatMap((clause) => clause);
+  const membershipByTv: Record<string, Set<string>> = {
+    [primaryTvId]: new Set(primaryRows.map((row) => row.flightId)),
+  };
   const orderedMetricsByTv: Record<string, Map<string, FlightSortMetric["perTv"][string]>> = {};
   const legacyWindowStartByTv: Record<string, Map<string, number | null>> = {};
 
@@ -218,7 +222,7 @@ function buildBaseListForSelection(
           membership.add(id);
         }
       }
-      secondaryMembershipSets.push(membership);
+      membershipByTv[tvId] = membership;
 
       const metricMap = new Map<string, FlightSortMetric["perTv"][string]>();
       for (const detail of payload.data.details || []) {
@@ -252,14 +256,11 @@ function buildBaseListForSelection(
         if (!startMap.has(id)) startMap.set(id, windowStart);
       }
     }
-    secondaryMembershipSets.push(membership);
+    membershipByTv[tvId] = membership;
     legacyWindowStartByTv[tvId] = startMap;
   }
 
-  const intersection = intersectStringSets([
-    new Set(primaryRows.map((row) => row.flightId)),
-    ...secondaryMembershipSets,
-  ]);
+  const intersection = intersectSelectedTvClauseMemberships(selectedTvClauses, membershipByTv);
 
   const sortableRows: FlightSortMetric[] = [];
   for (const row of primaryRows) {
@@ -289,7 +290,7 @@ function buildBaseListForSelection(
       flightId: row.flightId,
       perTv,
     };
-    if (!matchesSelectedTvTraversalOrder(sortableRow.perTv, selectedTvIds)) continue;
+    if (!matchesSelectedTvTraversalOrderClauses(sortableRow.perTv, selectedTvClauses)) continue;
     sortableRows.push(sortableRow);
   }
 

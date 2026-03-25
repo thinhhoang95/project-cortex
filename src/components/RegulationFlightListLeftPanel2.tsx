@@ -10,10 +10,14 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import {
   compareIntersectionFlightRows,
-  intersectStringSets,
-  matchesSelectedTvTraversalOrder,
+  intersectSelectedTvClauseMemberships,
+  matchesSelectedTvTraversalOrderClauses,
   type FlightSortMetric,
 } from "@/lib/airspaceInfoMultiTv";
+import {
+  formatTrafficVolumeSelectionExpression,
+  getEffectiveTrafficVolumeSelectionClauses,
+} from "@/lib/multiTrafficVolumeSelection";
 
 interface RankedFlight {
   flight_id: string;
@@ -93,6 +97,7 @@ type RegulationFlightListLeftPanel2Props = { embedded?: boolean };
 export default function RegulationFlightListLeftPanel2({ embedded = false }: RegulationFlightListLeftPanel2Props) {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumeClauses,
     selectedTrafficVolumes,
     t,
     flights,
@@ -105,26 +110,32 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
     setFlowPreviewFlightId,
   } = useSimStore();
 
-  const selectedTvIds = useMemo(() => {
-    const source =
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [];
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of source) {
-      const id = String(raw ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-    }
-    return out;
-  }, [selectedTrafficVolumes, selectedTrafficVolume]);
-  const selectedTvKey = selectedTvIds.join("|");
+  const selectedTvClauses = useMemo(
+    () =>
+      getEffectiveTrafficVolumeSelectionClauses({
+        selectedTrafficVolumeClauses,
+        selectedTrafficVolumes,
+        selectedTrafficVolume,
+      }),
+    [selectedTrafficVolumeClauses, selectedTrafficVolumes, selectedTrafficVolume],
+  );
+  const selectedTvIds = useMemo(
+    () => selectedTvClauses.flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
+  const selectedTvKey = useMemo(
+    () => selectedTvClauses.map((clause) => clause.join("||")).join("|"),
+    [selectedTvClauses],
+  );
   const primaryTvId = selectedTvIds[0] ?? null;
-  const secondaryTvIds = useMemo(() => selectedTvIds.slice(1), [selectedTvIds]);
+  const secondaryTvIds = useMemo(
+    () => selectedTvClauses.slice(1).flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
+  const selectionExpression = useMemo(
+    () => formatTrafficVolumeSelectionExpression(selectedTvClauses),
+    [selectedTvClauses],
+  );
 
   const [rankingData, setRankingData] = useState<RankedFlightsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -234,7 +245,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
         setSecondaryFlightDataByTv(Object.fromEntries(entries));
       } catch (e: any) {
         if (!cancelled) {
-          setSecondaryError(e?.message || 'Failed to fetch intersecting flight data');
+          setSecondaryError(e?.message || 'Failed to fetch grouped flight data');
           setSecondaryFlightDataByTv({});
         }
       } finally {
@@ -261,7 +272,9 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
       if (missingSecondary) return [] as RegulationFlightListRow[];
     }
 
-    const secondaryMembershipSets: Array<Set<string>> = [];
+    const membershipByTv: Record<string, Set<string>> = {
+      [primaryTvId]: new Set(filteredRankedFlights.map((rf) => String(rf.flight_id))),
+    };
     const orderedDetailMapByTv: Record<string, Map<string, OrderedTvFlightsData['details'][number]>> = {};
     const legacyWindowStartByTv: Record<string, Map<string, number | null>> = {};
 
@@ -275,7 +288,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
         if (membership.size === 0) {
           for (const detail of payload.data.details || []) membership.add(String(detail.flight_id));
         }
-        secondaryMembershipSets.push(membership);
+        membershipByTv[tvId] = membership;
 
         const detailMap = new Map<string, OrderedTvFlightsData['details'][number]>();
         for (const detail of payload.data.details || []) {
@@ -293,15 +306,12 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
             if (!startMap.has(fid)) startMap.set(fid, startSeconds);
           }
         }
-        secondaryMembershipSets.push(membership);
+        membershipByTv[tvId] = membership;
         legacyWindowStartByTv[tvId] = startMap;
       }
     }
 
-    const primaryMembershipSet = new Set(filteredRankedFlights.map((rf) => String(rf.flight_id)));
-    const intersectionSet = secondaryMembershipSets.length > 0
-      ? intersectStringSets([primaryMembershipSet, ...secondaryMembershipSets])
-      : primaryMembershipSet;
+    const intersectionSet = intersectSelectedTvClauseMemberships(selectedTvClauses, membershipByTv);
 
     const nextRows: RegulationFlightListRow[] = filteredRankedFlights
       .filter((rf) => intersectionSet.has(String(rf.flight_id)))
@@ -385,7 +395,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
         };
       });
     const orderedRows = nextRows.filter((row) =>
-      matchesSelectedTvTraversalOrder(row.sortMetric.perTv, selectedTvIds),
+      matchesSelectedTvTraversalOrderClauses(row.sortMetric.perTv, selectedTvClauses),
     );
 
     if (selectedTvIds.length > 1) {
@@ -393,7 +403,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
     }
 
     return orderedRows;
-  }, [primaryTvId, selectedTvIds, secondaryTvIds, secondaryFlightDataByTv, filteredRankedFlights, flightsById]);
+  }, [primaryTvId, selectedTvClauses, selectedTvIds, secondaryTvIds, secondaryFlightDataByTv, filteredRankedFlights, flightsById]);
 
   const hourGlassArrivalData = useMemo(() => {
     if (!primaryTvId) return [] as string[];
@@ -443,8 +453,8 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
       <div className="flex items-center justify-between p-3 border-b border-white/20 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="font-semibold text-sm">Flight List ({rows.length})</h3>
-          {selectedTvIds.length > 1 && (
-            <span className="text-[10px] opacity-70 truncate">Intersection across {selectedTvIds.length} TVs</span>
+          {selectedTvIds.length > 1 && selectionExpression && (
+            <span className="text-[10px] opacity-70 truncate">{selectionExpression}</span>
           )}
           <button
             type="button"
@@ -557,7 +567,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
         ) : (
           <p className="text-xs opacity-70 text-center py-4">
             {selectedTvIds.length > 1
-              ? 'No intersecting flights found for this time window'
+              ? 'No flights match the current TV selection for this time window'
               : 'No flights found for this time window'}
           </p>
         )}

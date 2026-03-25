@@ -82,7 +82,7 @@ export default function RegulationCanvas() {
     flightLineLabelMode,
     showFlightLines,
     setBaselineFlights,
-    toggleSelectedTrafficVolume,
+    toggleSelectedTrafficVolumeWithMode,
     flLowerBound,
     flUpperBound,
     showHotspots,
@@ -320,11 +320,11 @@ export default function RegulationCanvas() {
       });
 
       // Helper to select traffic volume by id
-      const selectTrafficVolume = (trafficVolumeId: string) => {
+      const selectTrafficVolume = (trafficVolumeId: string, mode: "and" | "or") => {
         const sectorFeatures = map.querySourceFeatures('sectors', { filter: ['==', 'traffic_volume_id', trafficVolumeId] });
         const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
         const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-        toggleSelectedTrafficVolume(trafficVolumeId, tvData);
+        toggleSelectedTrafficVolumeWithMode(trafficVolumeId, tvData, mode);
       };
 
       const pickClosestTrafficVolumeId = (e: maplibregl.MapLayerMouseEvent) => {
@@ -353,7 +353,12 @@ export default function RegulationCanvas() {
         const lineHits = map.queryRenderedFeatures(e.point, { layers: ['reg-target-lines', 'flight-lines'] });
         if (lineHits && lineHits.length > 0) return;
         const trafficVolumeId = pickClosestTrafficVolumeId(e);
-        if (trafficVolumeId) selectTrafficVolume(String(trafficVolumeId));
+        if (!trafficVolumeId) return;
+        const mode =
+          e.originalEvent && ("ctrlKey" in e.originalEvent) && (e.originalEvent.ctrlKey || e.originalEvent.metaKey)
+            ? "or"
+            : "and";
+        selectTrafficVolume(String(trafficVolumeId), mode);
       };
 
       map.on('click', TRAFFIC_VOLUME_LAYER_IDS.label, handleTrafficVolumeClick);

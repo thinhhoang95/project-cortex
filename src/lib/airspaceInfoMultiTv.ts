@@ -1,4 +1,8 @@
 import { normalizeCapacity } from "./capacity";
+import {
+  normalizeTrafficVolumeClauses,
+  type TrafficVolumeSelectionClause,
+} from "./multiTrafficVolumeSelection";
 
 export interface OccupancyDataLike {
   occupancy_counts: Record<string, number>;
@@ -168,27 +172,80 @@ function metricArrivalForWindow(metric: FlightSortMetric["perTv"][string]): numb
   return null;
 }
 
+export function unionStringSets(sets: Array<ReadonlySet<string>>): Set<string> {
+  const out = new Set<string>();
+  for (const set of sets) {
+    for (const value of set) {
+      out.add(String(value));
+    }
+  }
+  return out;
+}
+
+export function intersectSelectedTvClauseMemberships(
+  selectedTvClauses: readonly TrafficVolumeSelectionClause[],
+  membershipByTv: Record<string, ReadonlySet<string> | undefined>,
+): Set<string> {
+  const normalizedClauses = normalizeTrafficVolumeClauses(selectedTvClauses);
+  if (!normalizedClauses.length) return new Set<string>();
+
+  const clauseSets = normalizedClauses.map((clause) =>
+    unionStringSets(
+      clause
+        .map((tvId) => membershipByTv[tvId])
+        .filter((set): set is ReadonlySet<string> => !!set),
+    ),
+  );
+
+  return intersectStringSets(clauseSets);
+}
+
+export function matchesSelectedTvTraversalOrderClauses(
+  metricByTv: FlightSortMetric["perTv"],
+  selectedTvClauses: readonly TrafficVolumeSelectionClause[],
+): boolean {
+  const normalizedClauses = normalizeTrafficVolumeClauses(selectedTvClauses);
+  if (!normalizedClauses.length) return true;
+
+  const clauseTimes = normalizedClauses.map((clause) => {
+    const times = clause
+      .map((tvId) => metricArrivalForWindow(metricByTv[tvId]))
+      .filter((value): value is number => value !== null && Number.isFinite(value))
+      .sort((left, right) => left - right);
+    return Array.from(new Set(times));
+  });
+
+  const canMatchFrom = (clauseIndex: number, previousComparableTime: number | null): boolean => {
+    if (clauseIndex >= clauseTimes.length) return true;
+
+    const comparableTimes = clauseTimes[clauseIndex];
+    if (comparableTimes.length === 0) {
+      return canMatchFrom(clauseIndex + 1, previousComparableTime);
+    }
+
+    for (const comparableTime of comparableTimes) {
+      if (previousComparableTime !== null && comparableTime < previousComparableTime) {
+        continue;
+      }
+      if (canMatchFrom(clauseIndex + 1, comparableTime)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  return canMatchFrom(0, null);
+}
+
 export function matchesSelectedTvTraversalOrder(
   metricByTv: FlightSortMetric["perTv"],
   selectedTvIds: readonly string[],
 ): boolean {
-  if (!selectedTvIds.length) return true;
-
-  let previousComparableTime: number | null = null;
-
-  for (const tvId of selectedTvIds) {
-    const comparableTime = metricArrivalForWindow(metricByTv[tvId]);
-    if (comparableTime === null) continue;
-
-    if (previousComparableTime !== null && comparableTime < previousComparableTime) {
-      return false;
-    }
-
-    previousComparableTime = comparableTime;
-  }
-
-  // Missing timing data should not exclude the row; this stays best-effort client logic.
-  return true;
+  return matchesSelectedTvTraversalOrderClauses(
+    metricByTv,
+    selectedTvIds.map((tvId) => [String(tvId)]),
+  );
 }
 
 function minAbsDelta(metricByTv: FlightSortMetric["perTv"]): number {

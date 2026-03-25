@@ -11,8 +11,10 @@ import {
   computeTrajectoryRange,
 } from "@/lib/resourceStates";
 import {
-  appendOrderedTrafficVolumes,
-  toggleOrderedTrafficVolumes,
+  appendTrafficVolumeSelectionClauses,
+  getEffectiveTrafficVolumeSelectionClauses,
+  toggleTrafficVolumeSelectionClauses,
+  type TrafficVolumeSelectionMode,
 } from "@/lib/multiTrafficVolumeSelection";
 import type { FlightLineLabelMode } from "@/lib/flightLineLabels";
 import {
@@ -141,6 +143,7 @@ type State = {
   showTrafficVolumes: boolean;
   airspaceDisplayMode: "tv" | "es";
   selectedTrafficVolume: string | null;
+  selectedTrafficVolumeClauses: string[][];
   selectedTrafficVolumes: string[];
   selectedTrafficVolumeData: { properties: SectorFeatureProps } | null;
   selectedCollapsedSector: string | null;
@@ -263,6 +266,7 @@ type State = {
   setSelectedTrafficVolume: (tv: string | null, tvData?: { properties: SectorFeatureProps } | null) => void;
   appendSelectedTrafficVolume: (tv: string, tvData?: { properties: SectorFeatureProps } | null) => { changed: boolean; reason?: "max_limit" };
   toggleSelectedTrafficVolume: (tv: string, tvData?: { properties: SectorFeatureProps } | null) => { changed: boolean; reason?: "max_limit" };
+  toggleSelectedTrafficVolumeWithMode: (tv: string, tvData?: { properties: SectorFeatureProps } | null, mode?: TrafficVolumeSelectionMode) => { changed: boolean; reason?: "max_limit" };
   clearSelectedTrafficVolumes: () => void;
   setSelectedCollapsedSector: (sectorId: string | null, sectorData?: { properties: SectorFeatureProps } | null) => void;
   setFlLowerBound: (fl: number) => void;
@@ -421,6 +425,7 @@ const defaultState: Pick<State,
   | 'showTrafficVolumes'
   | 'airspaceDisplayMode'
   | 'selectedTrafficVolume'
+  | 'selectedTrafficVolumeClauses'
   | 'selectedTrafficVolumes'
   | 'selectedTrafficVolumeData'
   | 'selectedCollapsedSector'
@@ -535,6 +540,7 @@ const defaultState: Pick<State,
   showTrafficVolumes: true,
   airspaceDisplayMode: "tv",
   selectedTrafficVolume: null,
+  selectedTrafficVolumeClauses: [],
   selectedTrafficVolumes: [],
   selectedTrafficVolumeData: null,
   selectedCollapsedSector: null,
@@ -674,6 +680,12 @@ function delayMapsEqual(a: Record<string, number>, b: Record<string, number>): b
 
 export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'resourceDate'>>((set, get) => {
   const selectedTvDataCache = new Map<string, { properties: SectorFeatureProps } | null>();
+  const getSelectedTrafficVolumeClauses = (state: Pick<State, "selectedTrafficVolume" | "selectedTrafficVolumeClauses" | "selectedTrafficVolumes">) =>
+    getEffectiveTrafficVolumeSelectionClauses({
+      selectedTrafficVolumeClauses: state.selectedTrafficVolumeClauses,
+      selectedTrafficVolumes: state.selectedTrafficVolumes,
+      selectedTrafficVolume: state.selectedTrafficVolume,
+    });
 
   const recomputePinnedFlights = (
     nextPinnedProposals: Set<string>,
@@ -899,10 +911,12 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       selectedTvDataCache.clear();
     }
     const nextSelectedTrafficVolumes = nextTv ? [nextTv] : [];
+    const nextSelectedTrafficVolumeClauses = nextTv ? [[nextTv]] : [];
     // Selecting a traffic volume should open the Regulation panel in Regulations view
     // Clearing the selection should close it for consistency across views
     set({
       selectedTrafficVolume: nextTv,
+      selectedTrafficVolumeClauses: nextSelectedTrafficVolumeClauses,
       selectedTrafficVolumes: nextSelectedTrafficVolumes,
       selectedTrafficVolumeData: nextTv ? (tvData ?? null) : null,
       selectedCollapsedSector: null,
@@ -918,9 +932,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     }
 
     const state = get();
-    const result = appendOrderedTrafficVolumes(
-      state.selectedTrafficVolumes,
+    const result = appendTrafficVolumeSelectionClauses(
+      getSelectedTrafficVolumeClauses(state),
       nextTv,
+      "and",
       MAX_SELECTED_TRAFFIC_VOLUMES,
     );
     const nextPrimaryId = result.selectedTrafficVolumes[0] ?? null;
@@ -929,6 +944,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       : null;
 
     set({
+      selectedTrafficVolumeClauses: result.selectedTrafficVolumeClauses,
       selectedTrafficVolumes: result.selectedTrafficVolumes,
       selectedTrafficVolume: nextPrimaryId,
       selectedTrafficVolumeData: nextPrimaryData,
@@ -939,7 +955,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
 
     return { changed: result.changed, reason: result.reason };
   },
-  toggleSelectedTrafficVolume: (tv, tvData = null) => {
+  toggleSelectedTrafficVolume: (tv, tvData = null) =>
+    get().toggleSelectedTrafficVolumeWithMode(tv, tvData, "and"),
+  toggleSelectedTrafficVolumeWithMode: (tv, tvData = null, mode = "and") => {
     const nextTv = String(tv ?? "").trim();
     if (!nextTv) return { changed: false };
     if (tvData !== undefined) {
@@ -947,9 +965,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     }
 
     const state = get();
-    const result = toggleOrderedTrafficVolumes(
-      state.selectedTrafficVolumes,
+    const result = toggleTrafficVolumeSelectionClauses(
+      getSelectedTrafficVolumeClauses(state),
       nextTv,
+      mode,
       MAX_SELECTED_TRAFFIC_VOLUMES,
     );
     if (!result.changed) {
@@ -964,6 +983,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       : null;
 
     set({
+      selectedTrafficVolumeClauses: result.selectedTrafficVolumeClauses,
       selectedTrafficVolumes: result.selectedTrafficVolumes,
       selectedTrafficVolume: nextPrimaryId,
       selectedTrafficVolumeData: nextPrimaryData,
@@ -977,6 +997,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   clearSelectedTrafficVolumes: () => {
     selectedTvDataCache.clear();
     set({
+      selectedTrafficVolumeClauses: [],
       selectedTrafficVolumes: [],
       selectedTrafficVolume: null,
       selectedTrafficVolumeData: null,
@@ -988,6 +1009,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     set({
       selectedCollapsedSector: sectorId,
       selectedCollapsedSectorData: sectorData,
+      selectedTrafficVolumeClauses: [],
       selectedTrafficVolumes: [],
       selectedTrafficVolume: null,
       selectedTrafficVolumeData: null,
@@ -1018,6 +1040,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       selectedTvDataCache.clear();
       set({
         selectedFlightForAnalysis: flightId,
+        selectedTrafficVolumeClauses: [],
         selectedTrafficVolumes: [],
         selectedTrafficVolume: null,
         selectedTrafficVolumeData: null,
@@ -1039,6 +1062,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
         isAlternativeRoutesPanelOpen: false,
         alternativeRoutesLoading: false,
         hoveredAlternativeRoute: null,
+        selectedTrafficVolumeClauses: [],
         selectedTrafficVolumes: [],
         selectedTrafficVolume: null,
         selectedTrafficVolumeData: null,

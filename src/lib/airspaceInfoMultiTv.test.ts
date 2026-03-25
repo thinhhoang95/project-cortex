@@ -6,8 +6,11 @@ import {
   compareIntersectionFlightRows,
   filterChartRowsByWindow,
   intersectStringSets,
+  intersectSelectedTvClauseMemberships,
   matchesSelectedTvTraversalOrder,
+  matchesSelectedTvTraversalOrderClauses,
   type RollingChartDataPoint,
+  unionStringSets,
 } from "./airspaceInfoMultiTv";
 
 describe("airspaceInfoMultiTv", () => {
@@ -134,6 +137,53 @@ describe("airspaceInfoMultiTv", () => {
           TV_C: { deltaSeconds: null, arrivalSeconds: 500, windowStartSeconds: null },
         },
         ["TV_A", "TV_B", "TV_C"],
+      ),
+    ).toBe(false);
+  });
+
+  it("unions TVs within a clause before intersecting across clauses", () => {
+    expect(
+      Array.from(
+        unionStringSets([new Set(["F1", "F2"]), new Set(["F2", "F3"])]),
+      ),
+    ).toEqual(["F1", "F2", "F3"]);
+
+    expect(
+      Array.from(
+        intersectSelectedTvClauseMemberships(
+          [["TV_A"], ["TV_B", "TV_C"]],
+          {
+            TV_A: new Set(["F1", "F2", "F3"]),
+            TV_B: new Set(["F2"]),
+            TV_C: new Set(["F3"]),
+          },
+        ),
+      ),
+    ).toEqual(["F2", "F3"]);
+  });
+
+  it("allows any OR member that preserves clause order", () => {
+    expect(
+      matchesSelectedTvTraversalOrderClauses(
+        {
+          TV_A: { deltaSeconds: 10, arrivalSeconds: 100, windowStartSeconds: null },
+          TV_B: { deltaSeconds: 20, arrivalSeconds: 50, windowStartSeconds: null },
+          TV_C: { deltaSeconds: 30, arrivalSeconds: 200, windowStartSeconds: null },
+          TV_D: { deltaSeconds: 40, arrivalSeconds: 300, windowStartSeconds: null },
+        },
+        [["TV_A"], ["TV_B", "TV_C"], ["TV_D"]],
+      ),
+    ).toBe(true);
+
+    expect(
+      matchesSelectedTvTraversalOrderClauses(
+        {
+          TV_A: { deltaSeconds: 10, arrivalSeconds: 300, windowStartSeconds: null },
+          TV_B: { deltaSeconds: 20, arrivalSeconds: 200, windowStartSeconds: null },
+          TV_C: { deltaSeconds: 30, arrivalSeconds: 250, windowStartSeconds: null },
+          TV_D: { deltaSeconds: 40, arrivalSeconds: 240, windowStartSeconds: null },
+        },
+        [["TV_A"], ["TV_B", "TV_C"], ["TV_D"]],
       ),
     ).toBe(false);
   });

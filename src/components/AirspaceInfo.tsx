@@ -29,13 +29,17 @@ import {
   buildRollingChartDataFromOccupancy,
   compareIntersectionFlightRows,
   filterChartRowsByWindow,
-  intersectStringSets,
-  matchesSelectedTvTraversalOrder,
+  intersectSelectedTvClauseMemberships,
+  matchesSelectedTvTraversalOrderClauses,
   type FlightSortMetric,
   type MergedMultiTvChartRow,
   type RollingChartDataPoint,
 } from "@/lib/airspaceInfoMultiTv";
 import { type FlightLevelCountsPayload } from "@/lib/flightLevelBinCounts";
+import {
+  formatTrafficVolumeSelectionExpression,
+  getEffectiveTrafficVolumeSelectionClauses,
+} from "@/lib/multiTrafficVolumeSelection";
 
 interface OccupancyData {
   traffic_volume_id: string;
@@ -156,6 +160,7 @@ function AirspaceCustomTooltip({
 export default function AirspaceInfo() {
   const {
     selectedTrafficVolume,
+    selectedTrafficVolumeClauses,
     selectedTrafficVolumes,
     selectedTrafficVolumeData,
     t,
@@ -170,26 +175,28 @@ export default function AirspaceInfo() {
 
   const deferredT = useDeferredValue(t);
 
-  const selectedTvIds = useMemo(() => {
-    const source =
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [];
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of source) {
-      const id = String(raw ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-    }
-    return out;
-  }, [selectedTrafficVolumes, selectedTrafficVolume]);
-  const selectedTvKey = selectedTvIds.join("|");
+  const selectedTvClauses = useMemo(
+    () =>
+      getEffectiveTrafficVolumeSelectionClauses({
+        selectedTrafficVolumeClauses,
+        selectedTrafficVolumes,
+        selectedTrafficVolume,
+      }),
+    [selectedTrafficVolumeClauses, selectedTrafficVolumes, selectedTrafficVolume],
+  );
+  const selectedTvIds = useMemo(
+    () => selectedTvClauses.flatMap((clause) => clause),
+    [selectedTvClauses],
+  );
+  const selectedTvKey = useMemo(
+    () => selectedTvClauses.map((clause) => clause.join("||")).join("|"),
+    [selectedTvClauses],
+  );
   const primaryTvId = selectedTvIds[0] ?? null;
-  const secondaryTvIds = selectedTvIds.slice(1);
+  const selectionExpression = useMemo(
+    () => formatTrafficVolumeSelectionExpression(selectedTvClauses),
+    [selectedTvClauses],
+  );
   const currentTimeStr = useMemo(() => formatTimeForAPI(t), [t]);
 
   const [occupancyByTv, setOccupancyByTv] = useState<Record<string, OccupancyData>>({});
@@ -426,7 +433,7 @@ export default function AirspaceInfo() {
       };
     }
 
-    const membershipSets: Array<Set<string>> = [];
+    const membershipByTv: Record<string, Set<string>> = {};
     const orderedDetailMapByTv: Record<string, Map<string, OrderedFlightsData["details"][number]>> = {};
     const legacyWindowStartByTv: Record<string, Map<string, number | null>> = {};
     let anyOrdered = false;
@@ -452,7 +459,7 @@ export default function AirspaceInfo() {
             membership.add(String(detail.flight_id));
           }
         }
-        membershipSets.push(membership);
+        membershipByTv[tvId] = membership;
 
         const detailMap = new Map<string, OrderedFlightsData["details"][number]>();
         for (const detail of payload.data.details || []) {
@@ -470,12 +477,14 @@ export default function AirspaceInfo() {
             if (!startMap.has(fid)) startMap.set(fid, startSeconds);
           }
         }
-        membershipSets.push(membership);
+        membershipByTv[tvId] = membership;
         legacyWindowStartByTv[tvId] = startMap;
       }
     }
 
-    const intersectionIds = Array.from(intersectStringSets(membershipSets));
+    const intersectionIds = Array.from(
+      intersectSelectedTvClauseMemberships(selectedTvClauses, membershipByTv),
+    );
     const rows: FlightTableRow[] = intersectionIds.map((flightId) => {
       const flight = flightsById.get(String(flightId));
       const perTv: Record<string, TvFlightCell> = {};
@@ -545,7 +554,7 @@ export default function AirspaceInfo() {
       };
     });
     const orderedRows = rows.filter((row) =>
-      matchesSelectedTvTraversalOrder(row.sortMetric.perTv, selectedTvIds),
+      matchesSelectedTvTraversalOrderClauses(row.sortMetric.perTv, selectedTvClauses),
     );
 
     orderedRows.sort((a, b) => compareIntersectionFlightRows(a.sortMetric, b.sortMetric, primaryTvId));
@@ -555,7 +564,7 @@ export default function AirspaceInfo() {
       hasAnyOrderedFlightData: anyOrdered,
       primaryFlightPayload: primaryTvId ? flightDataByTv[primaryTvId] ?? null : null,
     };
-  }, [selectedTvIds, flightDataReadyForSelection, flightListError, flightDataByTv, flightsById, primaryTvId]);
+  }, [selectedTvClauses, selectedTvIds, flightDataReadyForSelection, flightListError, flightDataByTv, flightsById, primaryTvId]);
 
   const { displayFlightTableData, displayFlightTableCount, filteredFlightIds } = useMemo(() => {
     if (!selectedTvIds.length || !flightDataReadyForSelection || flightListError) {
@@ -773,14 +782,8 @@ export default function AirspaceInfo() {
               <div className="min-w-0">
                 <h3 className="font-medium text-sm opacity-90">Selected Traffic Volumes ({selectedTvIds.length})</h3>
                 {primaryTvId && <p className="text-lg font-semibold break-all">{primaryTvId}</p>}
-                {secondaryTvIds.length > 0 && (
-                  <div className="mt-1 space-y-1">
-                    {secondaryTvIds.map((tvId) => (
-                      <p key={tvId} className="text-xs opacity-75 break-all">
-                        {tvId}
-                      </p>
-                    ))}
-                  </div>
+                {selectedTvIds.length > 1 && selectionExpression && (
+                  <p className="mt-1 text-xs opacity-75 break-all">{selectionExpression}</p>
                 )}
                 {flightLevelRange && (
                   <p className="text-xs opacity-70 mt-1">Primary FL range: {flightLevelRange}</p>
@@ -851,7 +854,7 @@ export default function AirspaceInfo() {
                   <p className="text-lg font-semibold">{primaryOccupancyData.metadata.total_flights_in_tv}</p>
                 </div>
                 <div className="bg-white/10 rounded-lg p-3">
-                  <p className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Intersection Count" : "Primary Current Count"}</p>
+                  <p className="text-xs opacity-70">{selectedTvIds.length > 1 ? "Selection Result Count" : "Primary Current Count"}</p>
                   <p className="text-lg font-semibold">{summaryCurrentCount ?? "—"}</p>
                 </div>
                 {typeof currentAnchorCapacity === "number" && (
@@ -970,7 +973,7 @@ export default function AirspaceInfo() {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="flex justify-between items-center mb-3 gap-2">
               <div className="flex items-center gap-2 min-w-0">
-                <h4 className="font-medium text-sm opacity-90">Flight List (Intersection)</h4>
+                <h4 className="font-medium text-sm opacity-90">Flight List</h4>
                 <FlightStatisticsButton
                   flightIds={displayFlightTableData.map((flight) => flight.flightId)}
                   sourceTrafficVolumeId={primaryTvId}
@@ -1078,7 +1081,9 @@ export default function AirspaceInfo() {
                   <p className="text-xs opacity-70 text-center mt-2">Showing first {MAX_FLIGHT_ROWS} flights</p>
                 )}
                 <p className="text-xs opacity-70 text-center mt-2">
-                  Intersection across {selectedTvIds.length} selected traffic volume{selectedTvIds.length === 1 ? "" : "s"}
+                  {selectedTvIds.length > 1
+                    ? `Flights matching the current TV selection across ${selectedTvIds.length} traffic volume${selectedTvIds.length === 1 ? "" : "s"}`
+                    : "Flights matching the selected traffic volume"}
                   {hasAnyOrderedFlightData ? `, ordered by proximity to current time (${formatTime(t)})` : ""}
                 </p>
               </div>
@@ -1087,7 +1092,7 @@ export default function AirspaceInfo() {
             {displayFlightTableData.length === 0 && !flightListLoading && !flightListError && (
               <p className="text-xs opacity-70 text-center py-4">
                 {selectedTvIds.length > 1
-                  ? "No intersected flights found for the selected traffic volumes"
+                  ? "No flights match the current TV selection"
                   : "No flights found for this traffic volume"}
               </p>
             )}
