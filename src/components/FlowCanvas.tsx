@@ -17,7 +17,7 @@ import { Trajectory } from "@/lib/models";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
 import { createMapStyle } from "@/lib/mapStyle";
-import { getHourBin, getTrafficVolumeFilter } from "@/lib/airspaceDisplay";
+import { getMinuteOfDay, getTrafficVolumeFilter } from "@/lib/airspaceDisplay";
 import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
@@ -81,7 +81,6 @@ export default function FlowCanvas() {
     flightLineLabelMode,
     showTrafficVolumes,
     setBaselineFlights,
-    setSelectedTrafficVolume,
     toggleSelectedTrafficVolume,
     flLowerBound,
     flUpperBound,
@@ -130,7 +129,7 @@ export default function FlowCanvas() {
     () => (resourceDate ? getResourcePathsForDate(resourceDate) : null),
     [resourceDate],
   );
-  const currentTrafficVolumeBin = useMemo(() => getHourBin(t), [t]);
+  const currentMinuteOfDay = useMemo(() => getMinuteOfDay(t), [t]);
   const currentMinuteTick = useMemo(() => Math.floor(t / 60), [t]);
   const glanceReferenceBinSeconds = useMemo(() => {
     const safeBinMinutes = Math.max(1, Math.round(glanceTimeBinMinutes || TV_DCB_GLANCE_DEFAULT_BIN_MINUTES));
@@ -671,7 +670,10 @@ export default function FlowCanvas() {
 
     const apply = () => {
       if (!map.getSource("sectors")) return;
-      const filterExpression = getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin);
+      const filterExpression = getTrafficVolumeFilter(flLowerBound, flUpperBound, t, {
+        currentMinuteOfDay,
+        capacityRangeCount: tvSourcesRef.current?.maxCapacityRangeCount ?? 0,
+      });
       applyTrafficVolumeFilters(map, filterExpression, { includeSlack: true });
     };
 
@@ -692,7 +694,7 @@ export default function FlowCanvas() {
       cancelled = true;
       try { map.off("render", waitForReady); } catch { }
     };
-  }, [flLowerBound, flUpperBound, currentTrafficVolumeBin]);
+  }, [currentMinuteOfDay, flLowerBound, flUpperBound, t]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -759,7 +761,7 @@ export default function FlowCanvas() {
       try { map.off("zoomend", refreshVisibleIds); } catch { }
       try { map.off("resize", refreshVisibleIds); } catch { }
     };
-  }, [currentTrafficVolumeBin, flLowerBound, flUpperBound, resourceStateEpoch, showTrafficVolumes]);
+  }, [currentMinuteOfDay, flLowerBound, flUpperBound, resourceStateEpoch, showTrafficVolumes]);
 
   useEffect(() => {
     if (!showTrafficVolumes || visibleGlanceTvIds.length === 0) {
@@ -919,7 +921,7 @@ export default function FlowCanvas() {
   // Listen for traffic volume search selection events to pan and select
   useEffect(() => {
     const handleTrafficVolumeSearchSelect = (event: any) => {
-      const { trafficVolume, trafficVolumeId } = event.detail || {};
+      const { trafficVolume, trafficVolumeId, selectionApplied } = event.detail || {};
       const map = mapRef.current;
       if (!map) return;
       let tvId: string | null = null;
@@ -933,11 +935,12 @@ export default function FlowCanvas() {
         if (sectorFeatures.length > 0) tvGeometry = sectorFeatures[0].geometry;
       }
       if (!tvId) return;
-      // Select TV
-      const sectorFeatures = map.querySourceFeatures('sectors', { filter: ['==', 'traffic_volume_id', tvId] });
-      const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
-      const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
-      setSelectedTrafficVolume(tvId, tvData);
+      if (!selectionApplied) {
+        const sectorFeatures = map.querySourceFeatures('sectors', { filter: ['==', 'traffic_volume_id', tvId] });
+        const fullSectorFeature = sectorFeatures.length > 0 ? sectorFeatures[0] : null;
+        const tvData = fullSectorFeature ? { properties: (fullSectorFeature.properties as any) as import("@/lib/models").SectorFeatureProps } : null;
+        useSimStore.getState().appendSelectedTrafficVolume(tvId, tvData);
+      }
       const center = tvGeometry
         ? getTrafficVolumeCenter(tvGeometry)
         : getTrafficVolumeCenterFromMap(map, tvId);
@@ -947,7 +950,7 @@ export default function FlowCanvas() {
     };
     window.addEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect);
     return () => { window.removeEventListener('traffic-volume-search-select', handleTrafficVolumeSearchSelect); };
-  }, [setSelectedTrafficVolume]);
+  }, []);
 
   return (
     <>

@@ -25,6 +25,7 @@ export type AirspaceDisplayFilterParams = {
   currentTrafficVolumeBin: string;
   currentMinuteOfDay: number;
   csOpenRangeCount: number;
+  tvCapacityRangeCount?: number;
 };
 
 function pad2(value: number): string {
@@ -71,6 +72,66 @@ function parseCapacitySlotRange(slot: string, value: unknown): CapacitySlotRange
   };
 }
 
+function parseCapacitySlotRanges(
+  capacity: Record<string, unknown> | null | undefined,
+): CapacitySlotRange[] {
+  if (!capacity || typeof capacity !== "object") return [];
+  return Object.entries(capacity)
+    .map(([slot, value]) => parseCapacitySlotRange(slot, value))
+    .filter((entry): entry is CapacitySlotRange => entry !== null);
+}
+
+export function getCapacitySlotRangeCount(
+  capacity: Record<string, unknown> | null | undefined,
+): number {
+  return parseCapacitySlotRanges(capacity).length;
+}
+
+function normalizeMinuteOfDay(value: number): number {
+  const safeValue = Math.floor(Number.isFinite(value) ? value : 0);
+  return ((safeValue % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+}
+
+function doesMinuteFallWithinRange(
+  currentMinuteOfDay: number,
+  range: OpenTimeRange,
+): boolean {
+  if (range.endMinute >= range.startMinute) {
+    return currentMinuteOfDay >= range.startMinute && currentMinuteOfDay < range.endMinute;
+  }
+  return currentMinuteOfDay >= range.startMinute || currentMinuteOfDay < range.endMinute;
+}
+
+export function getCapacityValueAtMinute(
+  capacity: Record<string, unknown> | null | undefined,
+  currentMinuteOfDay: number,
+): number | null {
+  const current = normalizeMinuteOfDay(currentMinuteOfDay);
+  for (const range of parseCapacitySlotRanges(capacity)) {
+    if (!doesMinuteFallWithinRange(current, range)) continue;
+    const numericValue = Number(range.value);
+    return Number.isFinite(numericValue) ? numericValue : null;
+  }
+  return null;
+}
+
+function buildCapacityRangeProperties(
+  capacity: Record<string, unknown> | null | undefined,
+  maxRangeCount: number,
+): Record<string, unknown> {
+  const parsedSlots = parseCapacitySlotRanges(capacity);
+  const exactRangeProps: Record<string, unknown> = {
+    capacity_range_count: parsedSlots.length,
+  };
+  for (let i = 0; i < maxRangeCount; i += 1) {
+    const range = parsedSlots[i];
+    exactRangeProps[`capacity_start_min_${i}`] = range ? range.startMinute : -1;
+    exactRangeProps[`capacity_end_min_${i}`] = range ? range.endMinute : -1;
+    exactRangeProps[`capacity_value_${i}`] = range ? range.value : 9999;
+  }
+  return exactRangeProps;
+}
+
 function getHourBinLabel(hourIndex: number): string {
   const startHour = ((hourIndex % HOURS_PER_DAY) + HOURS_PER_DAY) % HOURS_PER_DAY;
   const endHour = startHour + 1;
@@ -107,11 +168,7 @@ function getOverlappingHourBins(startMinute: number, endMinute: number): string[
 export function expandCapacityToHourlyProperties(
   capacity: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> {
-  if (!capacity || typeof capacity !== "object") return {};
-
-  const parsedSlots = Object.entries(capacity)
-    .map(([slot, value]) => parseCapacitySlotRange(slot, value))
-    .filter((entry): entry is CapacitySlotRange => entry !== null)
+  const parsedSlots = parseCapacitySlotRanges(capacity)
     .sort((a, b) => b.durationMinutes - a.durationMinutes);
 
   const expanded: Record<string, unknown> = {};
@@ -126,14 +183,17 @@ export function expandCapacityToHourlyProperties(
 
 export function normalizeTrafficVolumeFeatureProperties(
   props: Record<string, unknown>,
+  options: { maxCapacityRangeCount?: number } = {},
 ): Record<string, unknown> {
   const capacity =
     props.capacity && typeof props.capacity === "object"
       ? (props.capacity as Record<string, unknown>)
       : null;
+  const maxCapacityRangeCount = Math.max(0, Math.floor(options.maxCapacityRangeCount ?? 0));
 
   return {
     ...expandCapacityToHourlyProperties(capacity),
+    ...buildCapacityRangeProperties(capacity, maxCapacityRangeCount),
     ...props,
   };
 }
@@ -176,20 +236,59 @@ export function getTrafficVolumeFilter(
   flLowerBound: number,
   flUpperBound: number,
   tOrHourBin: number | string,
+  options: {
+    currentMinuteOfDay?: number;
+    capacityRangeCount?: number;
+  } = {},
 ): FilterSpecification {
   const hourBin = typeof tOrHourBin === "string" ? tOrHourBin : getHourBin(tOrHourBin);
-  const capRaw = [
-    "coalesce",
-    ["get", getCapacityKeyForHourBin(hourBin)],
-    ["get", hourBin, ["get", "capacity"]],
-  ];
+  const currentMinuteOfDay =
+    options.currentMinuteOfDay != null
+      ? normalizeMinuteOfDay(options.currentMinuteOfDay)
+      : typeof tOrHourBin === "number"
+        ? getMinuteOfDay(tOrHourBin)
+        : null;
+  const capacityRangeCount = Math.max(0, Math.floor(options.capacityRangeCount ?? 0));
 
-  const cap = [
-    "case",
-    ["==", capRaw, null],
-    9999,
-    ["to-number", capRaw, 9999],
-  ];
+  let cap: unknown;
+  if (currentMinuteOfDay != null && capacityRangeCount > 0) {
+    cap = 9999;
+    for (let i = capacityRangeCount - 1; i >= 0; i -= 1) {
+      const startExpr = ["to-number", ["get", `capacity_start_min_${i}`], -1];
+      const endExpr = ["to-number", ["get", `capacity_end_min_${i}`], -1];
+      const valueExpr = ["to-number", ["get", `capacity_value_${i}`], 9999];
+      const inNonWrapRange: FilterSpecification = [
+        "all",
+        ["<=", startExpr, endExpr],
+        [">=", currentMinuteOfDay, startExpr],
+        ["<", currentMinuteOfDay, endExpr],
+      ] as unknown as FilterSpecification;
+      const inWrapRange: FilterSpecification = [
+        "all",
+        [">", startExpr, endExpr],
+        ["any", [">=", currentMinuteOfDay, startExpr], ["<", currentMinuteOfDay, endExpr]],
+      ] as unknown as FilterSpecification;
+      const inRange: FilterSpecification = [
+        "all",
+        [">=", startExpr, 0],
+        [">=", endExpr, 0],
+        ["any", inNonWrapRange, inWrapRange],
+      ] as unknown as FilterSpecification;
+      cap = ["case", inRange, valueExpr, cap];
+    }
+  } else {
+    const capRaw = [
+      "coalesce",
+      ["get", getCapacityKeyForHourBin(hourBin)],
+      ["get", hourBin, ["get", "capacity"]],
+    ];
+    cap = [
+      "case",
+      ["==", capRaw, null],
+      9999,
+      ["to-number", capRaw, 9999],
+    ];
+  }
 
   const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);
   return ["all", flFilter, ["<", cap, 999]] as unknown as FilterSpecification;
@@ -287,9 +386,13 @@ export function getAirspaceDisplayFilter({
   currentTrafficVolumeBin,
   currentMinuteOfDay,
   csOpenRangeCount,
+  tvCapacityRangeCount = 0,
 }: AirspaceDisplayFilterParams): FilterSpecification {
   if (mode === "tv") {
-    return getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin);
+    return getTrafficVolumeFilter(flLowerBound, flUpperBound, currentTrafficVolumeBin, {
+      currentMinuteOfDay,
+      capacityRangeCount: tvCapacityRangeCount,
+    });
   }
 
   const flFilter = getTrafficVolumeFlIntersectionFilter(flLowerBound, flUpperBound);

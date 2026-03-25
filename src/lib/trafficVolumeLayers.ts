@@ -3,6 +3,7 @@ import type { FilterSpecification } from "maplibre-gl";
 import * as turf from "@turf/turf";
 import type { ThemeName } from "@/styles/theme";
 import {
+  getCapacitySlotRangeCount,
   getTrafficVolumeFlIntersectionFilter,
   normalizeTrafficVolumeFeatureProperties,
 } from "@/lib/airspaceDisplay";
@@ -109,7 +110,7 @@ function getBaseFilterForLayer(layerId: string): FilterSpecification | null {
   }
 }
 
-function normalizeFeature(feature: GeoJSON.Feature): GeoJSON.Feature {
+function normalizeFeature(feature: GeoJSON.Feature, maxCapacityRangeCount: number): GeoJSON.Feature {
   const geometryType = feature.geometry?.type;
   const sourceGeomType = geometryType === "Point" ? "Point" : "Polygon";
   const props = (feature.properties ?? {}) as Record<string, unknown>;
@@ -117,7 +118,7 @@ function normalizeFeature(feature: GeoJSON.Feature): GeoJSON.Feature {
   return {
     ...feature,
     properties: {
-      ...normalizeTrafficVolumeFeatureProperties(props),
+      ...normalizeTrafficVolumeFeatureProperties(props, { maxCapacityRangeCount }),
       source_geom_type: sourceGeomType,
       tv_kind: tvKind,
     },
@@ -159,8 +160,18 @@ function buildCentroidFeature(feature: GeoJSON.Feature): GeoJSON.Feature<GeoJSON
 export function buildTrafficVolumeSources(collection: GeoJSON.FeatureCollection): {
   sectors: GeoJSON.FeatureCollection;
   centroids: GeoJSON.FeatureCollection;
+  maxCapacityRangeCount: number;
 } {
-  const features = (collection.features || []).map(normalizeFeature);
+  const maxCapacityRangeCount = (collection.features || []).reduce((max, feature) => {
+    const props = (feature?.properties ?? {}) as Record<string, unknown>;
+    const count = getCapacitySlotRangeCount(
+      props.capacity && typeof props.capacity === "object"
+        ? (props.capacity as Record<string, unknown>)
+        : null,
+    );
+    return Math.max(max, count);
+  }, 0);
+  const features = (collection.features || []).map((feature) => normalizeFeature(feature, maxCapacityRangeCount));
   const centroids = features
     .map(buildCentroidFeature)
     .filter(Boolean) as GeoJSON.Feature<GeoJSON.Point>[];
@@ -168,18 +179,19 @@ export function buildTrafficVolumeSources(collection: GeoJSON.FeatureCollection)
   return {
     sectors: { type: "FeatureCollection", features },
     centroids: { type: "FeatureCollection", features: centroids },
+    maxCapacityRangeCount,
   };
 }
 
 export function addTrafficVolumeSources(
   map: maplibregl.Map,
   collection: GeoJSON.FeatureCollection
-): { sectors: GeoJSON.FeatureCollection; centroids: GeoJSON.FeatureCollection } {
-  const { sectors, centroids } = buildTrafficVolumeSources(collection);
+): { sectors: GeoJSON.FeatureCollection; centroids: GeoJSON.FeatureCollection; maxCapacityRangeCount: number } {
+  const { sectors, centroids, maxCapacityRangeCount } = buildTrafficVolumeSources(collection);
   map.addSource(TRAFFIC_VOLUME_SOURCE_ID, { type: "geojson", data: sectors });
   map.addSource(TRAFFIC_VOLUME_CENTROIDS_SOURCE_ID, { type: "geojson", data: centroids });
   (map as any).__sectors = sectors;
-  return { sectors, centroids };
+  return { sectors, centroids, maxCapacityRangeCount };
 }
 
 export type TrafficVolumeLayerOptions = {

@@ -165,8 +165,8 @@ export default function ViewOptionsControl({
                 aria-label="Weather Overlay"
                 title="Weather Overlay"
               >
-                <option className="bg-slate-800 text-white" value="none">No Weather Overlay</option>
-                <option className="bg-slate-800 text-white" value="surface-precip">Surface Precipitation</option>
+                <option className="bg-slate-800 text-white" value="none">Weather Overlay</option>
+                <option className="bg-slate-800 text-white" value="surface-precip">Surface Precip.</option>
               </select>
               <svg
                 className="pointer-events-none absolute right-0 mr-0.5 w-4 h-4 text-white/70"

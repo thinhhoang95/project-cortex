@@ -2,6 +2,7 @@
 import { useSimStore } from "@/components/useSimStore";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import ShimmeringText from "@/components/ShimmeringText";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
@@ -10,7 +11,20 @@ import { addMinutesToHHMM } from "@/lib/time";
 type LeftControl1Props = { embedded?: boolean };
 
 export default function LeftControl1({ embedded = false }: LeftControl1Props) {
-  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, hotspotsMetadata, setT, setSelectedTrafficVolume, resourceStateEpoch } = useSimStore();
+  const {
+    showHotspots,
+    setShowHotspots,
+    fetchHotspots,
+    hotspotsLoading,
+    hotspots,
+    hotspotsMetadata,
+    setT,
+    appendSelectedTrafficVolume,
+    setSelectedTrafficVolume,
+    resourceStateEpoch,
+  } = useSimStore();
+  const pathname = usePathname();
+  const supportsMultiTrafficVolumeSelection = pathname === "/";
   
   // Sorting state for hotspot table
   type SortKey = 'tv' | 'time' | 'occ' | 'cap' | 'ex';
@@ -119,11 +133,15 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
     setT(startSeconds);
 
     // Open the AirspaceInfo panel for this traffic volume
-    setSelectedTrafficVolume(hotspot.traffic_volume_id, null);
+    if (supportsMultiTrafficVolumeSelection) {
+      appendSelectedTrafficVolume(hotspot.traffic_volume_id, null);
+    } else {
+      setSelectedTrafficVolume(hotspot.traffic_volume_id, null);
+    }
 
     // Dispatch event to pan to the traffic volume (similar to traffic volume search)
     const event = new CustomEvent('traffic-volume-search-select', {
-      detail: { trafficVolumeId: hotspot.traffic_volume_id }
+      detail: { trafficVolumeId: hotspot.traffic_volume_id, selectionApplied: true }
     });
     window.dispatchEvent(event);
   };

@@ -49,6 +49,7 @@ export default function Header() {
     setFocusFlightIds,
     setT,
     t,
+    appendSelectedTrafficVolume,
     setSelectedTrafficVolume,
     setSelectedCollapsedSector,
     setAirspaceDisplayMode,
@@ -60,6 +61,11 @@ export default function Header() {
   } = useSimStore();
   const { theme, toggleTheme } = useThemeStore();
   const pathname = usePathname();
+  const supportsMultiTrafficVolumeSelection =
+    pathname === '/' ||
+    pathname === '/flows' ||
+    pathname === '/regulations' ||
+    pathname === '/reroute';
 
   // Load traffic volumes + collapsed sectors on component mount
   useEffect(() => {
@@ -171,8 +177,12 @@ export default function Header() {
     setAirspaceDisplayMode('tv');
     setSelectedCollapsedSector(null);
 
-    // Set selected traffic volume (this opens the AirspaceInfo panel)
-    setSelectedTrafficVolume(trafficVolumeId, trafficVolume);
+    // Search should append on canvases that support multi-TV selection.
+    if (supportsMultiTrafficVolumeSelection) {
+      appendSelectedTrafficVolume(trafficVolumeId, trafficVolume);
+    } else {
+      setSelectedTrafficVolume(trafficVolumeId, trafficVolume);
+    }
 
     // Close search results
     setShowSearchResults(false);
@@ -180,7 +190,7 @@ export default function Header() {
 
     // Trigger map panning to traffic volume
     const event = new CustomEvent('traffic-volume-search-select', {
-      detail: { trafficVolume }
+      detail: { trafficVolume, selectionApplied: true }
     });
     window.dispatchEvent(event);
   };
@@ -210,7 +220,7 @@ export default function Header() {
 
     // Reuse existing map search event with a normalized id property.
     const event = new CustomEvent('traffic-volume-search-select', {
-      detail: { trafficVolume: normalizedSector, trafficVolumeId: sectorId }
+      detail: { trafficVolume: normalizedSector, trafficVolumeId: sectorId, selectionApplied: true }
     });
     window.dispatchEvent(event);
   };

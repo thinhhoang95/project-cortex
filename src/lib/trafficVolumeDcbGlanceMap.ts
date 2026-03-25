@@ -7,6 +7,7 @@ import { buildTvDcbGlanceLabel, type TvDcbGlanceSummary } from "@/lib/tvDcbGlanc
 export type AirspaceSources = {
   sectors: GeoJSON.FeatureCollection;
   centroids: GeoJSON.FeatureCollection;
+  maxCapacityRangeCount: number;
 };
 
 export const TV_DCB_GLANCE_SOURCE_ID = "tv-dcb-glance";

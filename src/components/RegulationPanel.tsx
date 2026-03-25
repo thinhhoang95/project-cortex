@@ -39,6 +39,10 @@ type CommunityHeuristicsSummary = {
   vTilde: number | null;
   slack15: number | null;
   slack30: number | null;
+  pressureBenefit: number | null;
+  flightCost: number | null;
+  slack15Fragility: number | null;
+  rhoRisk: number | null;
   flights: number | null;
   mvtv15: MostVulnerableTvItem[];
   mvtv30: MostVulnerableTvItem[];
@@ -48,6 +52,13 @@ type FlowHeuristicsDiagnostics = {
   v_tilde?: number | null;
   Slack_G15?: number | null;
   Slack_G30?: number | null;
+  pressure_benefit?: number | null;
+  flight_cost?: number | null;
+  slack15_fragility?: number | null;
+  rho_risk?: number | null;
+  intervention_cost?: number | null;
+  after_reg_fragility_cost?: number | null;
+  before_reg_fragility_cost?: number | null;
   num_flights?: number | null;
   MVTV15?: MostVulnerableTvItem[] | null;
   MVTV30?: MostVulnerableTvItem[] | null;
@@ -889,6 +900,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             vTilde: normalizeHeuristicValue(diagnostics?.v_tilde),
             slack15: normalizeHeuristicValue(diagnostics?.Slack_G15),
             slack30: normalizeHeuristicValue(diagnostics?.Slack_G30),
+            pressureBenefit: resolveDiagnosticsMetric(diagnostics, "pressure_benefit"),
+            flightCost: resolveDiagnosticsMetric(diagnostics, "flight_cost", "intervention_cost"),
+            slack15Fragility: resolveDiagnosticsMetric(diagnostics, "slack15_fragility", "after_reg_fragility_cost"),
+            rhoRisk: resolveDiagnosticsMetric(diagnostics, "rho_risk", "before_reg_fragility_cost"),
             flights: normalizeHeuristicValue(diagnostics?.num_flights),
             mvtv15: normalizeMostVulnerableTvItems(diagnostics?.MVTV15),
             mvtv30: normalizeMostVulnerableTvItems(diagnostics?.MVTV30),
@@ -1259,94 +1274,6 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           </div>
         </div>
 
-        {/* Selected flights table */}
-        <div className="bg-white/5 border border-white/10 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div className="font-medium text-sm opacity-90">Targeted Flights ({selectedFlights.length})</div>
-              <FlightStatisticsButton
-                flightIds={selectedFlights.map((flight) => flight.flightId)}
-                sourceTrafficVolumeId={primaryTvId}
-                buttonClassName="border-white/20 text-white/80"
-              />
-              <button
-                type="button"
-                onClick={toggleSeeOnlyTargeted}
-                disabled={!hasTargetedFlights}
-                aria-pressed={showTargetedOnly}
-                aria-label={showTargetedOnly ? "Show filtered flights" : "See only targeted flights"}
-                title={showTargetedOnly ? "Show filtered flights" : "See only targeted flights"}
-                className={`h-6 w-6 p-0 rounded border flex items-center justify-center transition-colors ${showTargetedOnly ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30' : 'border-white/10 text-white/80 hover:bg-white/10'} disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-white/30`}
-              >
-                {showTargetedOnly ? (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden="true"
-                  >
-                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden="true"
-                  >
-                    <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" />
-                  </svg>
-                )}
-              </button>
-            </div>
-            {selectedFlights.length > 0 && (
-              <button onClick={() => { clearRegulationTargetFlights(); setSelectionError(null); }} className="text-xs px-2 py-1 rounded border border-white/20 hover:bg-white/10">Clear</button>
-            )}
-          </div>
-          {selectedFlights.length === 0 ? (
-            <div className="text-xs opacity-70">No flights targeted. Click lines on map or enter callsign.</div>
-          ) : (
-            <div className="rounded-lg border border-white/10 overflow-hidden">
-              <div className={embedded ? "overflow-x-auto" : "max-h-52 overflow-y-auto no-scrollbar overflow-x-auto"}>
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 z-10">
-                    <tr className="bg-slate-900/90 backdrop-blur-sm select-none border-b border-white/10">
-                      <th className="text-left p-2 font-semibold">CS</th>
-                      <th className="text-left p-2 font-semibold">Ori.</th>
-                      <th className="text-left p-2 font-semibold">Des.</th>
-                      <th className="text-left p-2 font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedFlights.map((f, index) => (
-                      <tr
-                        key={String(f.flightId)}
-                        className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer transition-colors`}
-                        onMouseEnter={() => setFlowPreviewFlightId(String(f.flightId))}
-                        onMouseLeave={() => setFlowPreviewFlightId(null)}
-                      >
-                        <td className="p-2 font-mono">{f.callSign || f.flightId}</td>
-                        <td className="p-2">{f.origin || 'N/A'}</td>
-                        <td className="p-2">{f.destination || 'N/A'}</td>
-                        <td className="p-2">
-                          <button onClick={() => removeRegulationTargetFlight(String(f.flightId))} className="text-red-300 hover:text-red-200">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          <div className="text-[10px] opacity-70 mt-2">Selected flight lines are shown in bright red on the map.</div>
-        </div>
-
         {/* Histogram (Focus Mode style) */}
         {(displayChartData.length > 0 || (selectedTvIds.length > 1 && displayMergedChartData.length > 0)) && (
           <div className="bg-white/5 rounded-lg p-4">
@@ -1441,6 +1368,94 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             windowSeconds={Math.max(0, regulationTimeWindow[1] - regulationTimeWindow[0])}
           />
         )}
+
+        {/* Selected flights table */}
+        <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="font-medium text-sm opacity-90">Targeted Flights ({selectedFlights.length})</div>
+              <FlightStatisticsButton
+                flightIds={selectedFlights.map((flight) => flight.flightId)}
+                sourceTrafficVolumeId={primaryTvId}
+                buttonClassName="border-white/20 text-white/80"
+              />
+              <button
+                type="button"
+                onClick={toggleSeeOnlyTargeted}
+                disabled={!hasTargetedFlights}
+                aria-pressed={showTargetedOnly}
+                aria-label={showTargetedOnly ? "Show filtered flights" : "See only targeted flights"}
+                title={showTargetedOnly ? "Show filtered flights" : "See only targeted flights"}
+                className={`h-6 w-6 p-0 rounded border flex items-center justify-center transition-colors ${showTargetedOnly ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30' : 'border-white/10 text-white/80 hover:bg-white/10'} disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-white/30`}
+              >
+                {showTargetedOnly ? (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            {selectedFlights.length > 0 && (
+              <button onClick={() => { clearRegulationTargetFlights(); setSelectionError(null); }} className="text-xs px-2 py-1 rounded border border-white/20 hover:bg-white/10">Clear</button>
+            )}
+          </div>
+          {selectedFlights.length === 0 ? (
+            <div className="text-xs opacity-70">No flights targeted. Click lines on map or enter callsign.</div>
+          ) : (
+            <div className="rounded-lg border border-white/10 overflow-hidden">
+              <div className={embedded ? "overflow-x-auto" : "max-h-52 overflow-y-auto no-scrollbar overflow-x-auto"}>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-900/90 backdrop-blur-sm select-none border-b border-white/10">
+                      <th className="text-left p-2 font-semibold">CS</th>
+                      <th className="text-left p-2 font-semibold">Ori.</th>
+                      <th className="text-left p-2 font-semibold">Des.</th>
+                      <th className="text-left p-2 font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedFlights.map((f, index) => (
+                      <tr
+                        key={String(f.flightId)}
+                        className={`border-t border-white/10 ${index % 2 === 0 ? 'bg-white/0' : 'bg-white/5'} hover:bg-white/10 cursor-pointer transition-colors`}
+                        onMouseEnter={() => setFlowPreviewFlightId(String(f.flightId))}
+                        onMouseLeave={() => setFlowPreviewFlightId(null)}
+                      >
+                        <td className="p-2 font-mono">{f.callSign || f.flightId}</td>
+                        <td className="p-2">{f.origin || 'N/A'}</td>
+                        <td className="p-2">{f.destination || 'N/A'}</td>
+                        <td className="p-2">
+                          <button onClick={() => removeRegulationTargetFlight(String(f.flightId))} className="text-red-300 hover:text-red-200">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <div className="text-[10px] opacity-70 mt-2">Selected flight lines are shown in bright red on the map.</div>
+        </div>
 
         {trafficOverloadSegments.length > 0 && (
           <div className="bg-white/5 rounded-lg p-4">
@@ -1764,6 +1779,22 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                   <span>{formatHeuristicMetric(heuristics?.slack30)}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-white/60">Benefit:</span>
+                  <span>{formatHeuristicMetric(heuristics?.pressureBenefit)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">Flight Cost:</span>
+                  <span>{formatHeuristicMetric(heuristics?.flightCost)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">S15 Fragility:</span>
+                  <span>{formatHeuristicMetric(heuristics?.slack15Fragility)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">Rho Risk:</span>
+                  <span>{formatHeuristicMetric(heuristics?.rhoRisk)}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-white/60">N. Flights:</span>
                   <span>{formatHeuristicMetric(heuristicFlightCount, 0)}</span>
                 </div>
@@ -1821,6 +1852,20 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
 function normalizeHeuristicValue(value: number | null | undefined): number | null {
   if (typeof value !== "number" || Number.isNaN(value)) return null;
   return value;
+}
+
+function resolveDiagnosticsMetric(
+  diagnostics: FlowHeuristicsDiagnostics | null | undefined,
+  ...keys: string[]
+): number | null {
+  if (!diagnostics) return null;
+  for (const key of keys) {
+    const value = diagnostics[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
 }
 
 function normalizeMostVulnerableTvItems(value: unknown): MostVulnerableTvItem[] {

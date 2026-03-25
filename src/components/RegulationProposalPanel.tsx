@@ -29,35 +29,46 @@ type RegulationProposalPanelProps = {
 };
 
 type FeatureSummary = {
-  vAvg: number | null;
-  slack15Avg: number | null;
-  slack30Avg: number | null;
+  pressureBenefitAvg: number | null;
+  flightCostAvg: number | null;
+  slack15FragilityAvg: number | null;
+  rhoRiskAvg: number | null;
   totalFlights: number;
 };
 
 function summarizeProposalFeatures(proposal: RegulationProposal): FeatureSummary {
   const accumulator = {
-    vSum: 0,
-    vCount: 0,
-    s15Sum: 0,
-    s15Count: 0,
-    s30Sum: 0,
-    s30Count: 0,
+    pressureBenefitSum: 0,
+    pressureBenefitCount: 0,
+    flightCostSum: 0,
+    flightCostCount: 0,
+    slack15FragilitySum: 0,
+    slack15FragilityCount: 0,
+    rhoRiskSum: 0,
+    rhoRiskCount: 0,
     flights: 0,
   };
   for (const flow of proposal.flows || []) {
     const features = flow.features || {};
-    if (typeof features.v_tilde === "number") {
-      accumulator.vSum += features.v_tilde;
-      accumulator.vCount += 1;
+    const pressureBenefit = getProposalFeatureMetric(features, "pressure_benefit");
+    if (pressureBenefit !== null) {
+      accumulator.pressureBenefitSum += pressureBenefit;
+      accumulator.pressureBenefitCount += 1;
     }
-    if (typeof features.slack15 === "number") {
-      accumulator.s15Sum += features.slack15;
-      accumulator.s15Count += 1;
+    const flightCost = getProposalFeatureMetric(features, "flight_cost", "intervention_cost");
+    if (flightCost !== null) {
+      accumulator.flightCostSum += flightCost;
+      accumulator.flightCostCount += 1;
     }
-    if (typeof features.slack30 === "number") {
-      accumulator.s30Sum += features.slack30;
-      accumulator.s30Count += 1;
+    const slack15Fragility = getProposalFeatureMetric(features, "slack15_fragility", "after_reg_fragility_cost");
+    if (slack15Fragility !== null) {
+      accumulator.slack15FragilitySum += slack15Fragility;
+      accumulator.slack15FragilityCount += 1;
+    }
+    const rhoRisk = getProposalFeatureMetric(features, "rho_risk", "before_reg_fragility_cost");
+    if (rhoRisk !== null) {
+      accumulator.rhoRiskSum += rhoRisk;
+      accumulator.rhoRiskCount += 1;
     }
     if (typeof features.num_flights === "number") {
       accumulator.flights += features.num_flights;
@@ -66,9 +77,10 @@ function summarizeProposalFeatures(proposal: RegulationProposal): FeatureSummary
     }
   }
   return {
-    vAvg: accumulator.vCount > 0 ? accumulator.vSum / accumulator.vCount : null,
-    slack15Avg: accumulator.s15Count > 0 ? accumulator.s15Sum / accumulator.s15Count : null,
-    slack30Avg: accumulator.s30Count > 0 ? accumulator.s30Sum / accumulator.s30Count : null,
+    pressureBenefitAvg: accumulator.pressureBenefitCount > 0 ? accumulator.pressureBenefitSum / accumulator.pressureBenefitCount : null,
+    flightCostAvg: accumulator.flightCostCount > 0 ? accumulator.flightCostSum / accumulator.flightCostCount : null,
+    slack15FragilityAvg: accumulator.slack15FragilityCount > 0 ? accumulator.slack15FragilitySum / accumulator.slack15FragilityCount : null,
+    rhoRiskAvg: accumulator.rhoRiskCount > 0 ? accumulator.rhoRiskSum / accumulator.rhoRiskCount : null,
     totalFlights: accumulator.flights,
   };
 }
@@ -76,11 +88,26 @@ function summarizeProposalFeatures(proposal: RegulationProposal): FeatureSummary
 function summarizeFlowFeatures(flow: ProposalFlow) {
   const features = flow.features || {};
   return {
-    v: typeof features.v_tilde === "number" ? features.v_tilde : null,
-    slack15: typeof features.slack15 === "number" ? features.slack15 : null,
-    slack30: typeof features.slack30 === "number" ? features.slack30 : null,
+    pressureBenefit: getProposalFeatureMetric(features, "pressure_benefit"),
+    flightCost: getProposalFeatureMetric(features, "flight_cost", "intervention_cost"),
+    slack15Fragility: getProposalFeatureMetric(features, "slack15_fragility", "after_reg_fragility_cost"),
+    rhoRisk: getProposalFeatureMetric(features, "rho_risk", "before_reg_fragility_cost"),
     flights: typeof features.num_flights === "number" ? features.num_flights : flow.flight_ids?.length || 0,
   };
+}
+
+function getProposalFeatureMetric(
+  features: ProposalFlow["features"] | null | undefined,
+  ...keys: string[]
+): number | null {
+  if (!features) return null;
+  for (const key of keys) {
+    const value = (features as Record<string, unknown>)[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
 }
 
 type TimeRange = {
@@ -796,9 +823,10 @@ export default function RegulationProposalPanel({
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px] opacity-80">
-                  <span className="rounded-full bg-white/5 px-2 py-1">V {formatNumber(summary.vAvg)}</span>
-                  <span className="rounded-full bg-white/5 px-2 py-1">S15 {formatNumber(summary.slack15Avg)}</span>
-                  <span className="rounded-full bg-white/5 px-2 py-1">S30 {formatNumber(summary.slack30Avg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">Benefit {formatNumber(summary.pressureBenefitAvg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">Flight Cost {formatNumber(summary.flightCostAvg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">S15 Fragility {formatNumber(summary.slack15FragilityAvg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">Rho Risk {formatNumber(summary.rhoRiskAvg)}</span>
                   <span className="rounded-full bg-white/5 px-2 py-1">N {summary.totalFlights}</span>
                 </div>
               </div>
@@ -942,20 +970,28 @@ export default function RegulationProposalPanel({
                                   <span>{formatNumber(flow.assigned_cut_per_hour, 1)}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                  <span className="text-white/60">V:</span>
-                                  <span>{formatNumber(flowFeatures.v)}</span>
+                                  <span className="text-white/60">Benefit:</span>
+                                  <span>{formatNumber(flowFeatures.pressureBenefit)}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                  <span className="text-white/60">S15:</span>
-                                  <span>{formatNumber(flowFeatures.slack15)}</span>
+                                  <span className="text-white/60">Flight Cost:</span>
+                                  <span>{formatNumber(flowFeatures.flightCost)}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                  <span className="text-white/60">S30:</span>
-                                  <span>{formatNumber(flowFeatures.slack30)}</span>
+                                  <span className="text-white/60">S15 Fragility:</span>
+                                  <span>{formatNumber(flowFeatures.slack15Fragility)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">Rho Risk:</span>
+                                  <span>{formatNumber(flowFeatures.rhoRisk)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-white/60">Flights:</span>
                                   <span>{flowFeatures.flights}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">Score:</span>
+                                  <span>{formatNumber(flow.final_score)}</span>
                                 </div>
                               </div>
                               <div className="mt-3 flex justify-end">

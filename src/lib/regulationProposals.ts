@@ -23,6 +23,13 @@ export type ProposalFlowFeatures = {
   tGu?: number;
   bins_count?: number;
   num_flights?: number;
+  pressure_benefit?: number;
+  flight_cost?: number;
+  slack15_fragility?: number;
+  rho_risk?: number;
+  intervention_cost?: number;
+  after_reg_fragility_cost?: number;
+  before_reg_fragility_cost?: number;
 };
 
 export type ProposalFlow = {

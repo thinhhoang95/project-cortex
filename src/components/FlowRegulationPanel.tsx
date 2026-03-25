@@ -37,6 +37,13 @@ type FlowHeuristicsDiagnostics = {
   v_tilde?: number | null;
   Slack_G15?: number | null;
   Slack_G30?: number | null;
+  pressure_benefit?: number | null;
+  flight_cost?: number | null;
+  slack15_fragility?: number | null;
+  rho_risk?: number | null;
+  intervention_cost?: number | null;
+  after_reg_fragility_cost?: number | null;
+  before_reg_fragility_cost?: number | null;
   num_flights?: number | null;
   MVTV15?: MostVulnerableTvItem[] | null;
   MVTV30?: MostVulnerableTvItem[] | null;
@@ -723,6 +730,22 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         <span>{formatHeuristicValue(diagnostics?.Slack_G30)}</span>
                       </div>
                       <div className="flex justify-between">
+                        <span className="text-white/60">Benefit:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "pressure_benefit"))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">Flight Cost:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "flight_cost", "intervention_cost"))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">S15 Fragility:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "slack15_fragility", "after_reg_fragility_cost"))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">Rho Risk:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "rho_risk", "before_reg_fragility_cost"))}</span>
+                      </div>
+                      <div className="flex justify-between">
                         <span className="text-white/60">N. Flights:</span>
                         <span>{formatHeuristicValue(flowFlightCount, 0)}</span>
                       </div>
@@ -835,6 +858,20 @@ function hhmmOrHHMMSSec(s: string): number {
 function formatHeuristicValue(value: number | null | undefined, digits = 2): string {
   if (typeof value !== "number" || Number.isNaN(value)) return "–";
   return value.toFixed(digits);
+}
+
+function resolveFlowDiagnosticsMetric(
+  diagnostics: FlowHeuristicsDiagnostics | null | undefined,
+  ...keys: string[]
+): number | null {
+  if (!diagnostics) return null;
+  for (const key of keys) {
+    const value = diagnostics[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
 }
 
 // Types for flows API response

@@ -10,7 +10,10 @@ import {
   applyCumulativeDelaysToTrajectories,
   computeTrajectoryRange,
 } from "@/lib/resourceStates";
-import { toggleOrderedTrafficVolumes } from "@/lib/multiTrafficVolumeSelection";
+import {
+  appendOrderedTrafficVolumes,
+  toggleOrderedTrafficVolumes,
+} from "@/lib/multiTrafficVolumeSelection";
 import type { FlightLineLabelMode } from "@/lib/flightLineLabels";
 import {
   collectAllProposalFlights,
@@ -258,6 +261,7 @@ type State = {
   setShowTrafficVolumes: (show: boolean) => void;
   setAirspaceDisplayMode: (mode: "tv" | "es") => void;
   setSelectedTrafficVolume: (tv: string | null, tvData?: { properties: SectorFeatureProps } | null) => void;
+  appendSelectedTrafficVolume: (tv: string, tvData?: { properties: SectorFeatureProps } | null) => { changed: boolean; reason?: "max_limit" };
   toggleSelectedTrafficVolume: (tv: string, tvData?: { properties: SectorFeatureProps } | null) => { changed: boolean; reason?: "max_limit" };
   clearSelectedTrafficVolumes: () => void;
   setSelectedCollapsedSector: (sectorId: string | null, sectorData?: { properties: SectorFeatureProps } | null) => void;
@@ -905,6 +909,35 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       selectedCollapsedSectorData: null,
       isRegulationPanelOpen: !!nextTv,
     });
+  },
+  appendSelectedTrafficVolume: (tv, tvData = null) => {
+    const nextTv = String(tv ?? "").trim();
+    if (!nextTv) return { changed: false };
+    if (tvData !== undefined) {
+      selectedTvDataCache.set(nextTv, tvData ?? null);
+    }
+
+    const state = get();
+    const result = appendOrderedTrafficVolumes(
+      state.selectedTrafficVolumes,
+      nextTv,
+      MAX_SELECTED_TRAFFIC_VOLUMES,
+    );
+    const nextPrimaryId = result.selectedTrafficVolumes[0] ?? null;
+    const nextPrimaryData = nextPrimaryId
+      ? (selectedTvDataCache.get(nextPrimaryId) ?? null)
+      : null;
+
+    set({
+      selectedTrafficVolumes: result.selectedTrafficVolumes,
+      selectedTrafficVolume: nextPrimaryId,
+      selectedTrafficVolumeData: nextPrimaryData,
+      selectedCollapsedSector: null,
+      selectedCollapsedSectorData: null,
+      isRegulationPanelOpen: result.selectedTrafficVolumes.length > 0,
+    });
+
+    return { changed: result.changed, reason: result.reason };
   },
   toggleSelectedTrafficVolume: (tv, tvData = null) => {
     const nextTv = String(tv ?? "").trim();

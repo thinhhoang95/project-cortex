@@ -9,7 +9,17 @@ import { addMinutesToHHMM } from "@/lib/time";
 type LeftControl1FlowProps = { embedded?: boolean };
 
 export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowProps) {
-  const { showHotspots, setShowHotspots, fetchHotspots, hotspotsLoading, hotspots, hotspotsMetadata, setT, setSelectedTrafficVolume, resourceStateEpoch } = useSimStore();
+  const {
+    showHotspots,
+    setShowHotspots,
+    fetchHotspots,
+    hotspotsLoading,
+    hotspots,
+    hotspotsMetadata,
+    setT,
+    appendSelectedTrafficVolume,
+    resourceStateEpoch,
+  } = useSimStore();
   
   // Sorting state for hotspot table
   type SortKey = 'tv' | 'time' | 'occ' | 'cap' | 'ex';
@@ -117,10 +127,10 @@ export default function LeftControl1Flow({ embedded = false }: LeftControl1FlowP
     setT(startSeconds);
 
     // Open the Regulation Design panel (select the TV)
-    setSelectedTrafficVolume(hotspot.traffic_volume_id, null);
+    appendSelectedTrafficVolume(hotspot.traffic_volume_id, null);
 
     // Pan to the TV
-    const event = new CustomEvent('traffic-volume-search-select', { detail: { trafficVolumeId: hotspot.traffic_volume_id } });
+    const event = new CustomEvent('traffic-volume-search-select', { detail: { trafficVolumeId: hotspot.traffic_volume_id, selectionApplied: true } });
     window.dispatchEvent(event);
   };
   

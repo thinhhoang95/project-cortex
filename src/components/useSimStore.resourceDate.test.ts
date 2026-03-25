@@ -96,4 +96,18 @@ describe("useSimStore resourceDate", () => {
     expect(delayedFlights[0]?.t1).toBe(300 + 12 * 60);
     expect(useSimStore.getState().range).toEqual([120 + 12 * 60, 300 + 12 * 60]);
   });
+
+  it("appends traffic-volume selections without replacing the existing multi-selection", () => {
+    const store = useSimStore.getState();
+
+    store.setSelectedTrafficVolume("TV_A", {
+      properties: { traffic_volume_id: "TV_A" } as any,
+    });
+    store.appendSelectedTrafficVolume("TV_B", {
+      properties: { traffic_volume_id: "TV_B" } as any,
+    });
+
+    expect(useSimStore.getState().selectedTrafficVolumes).toEqual(["TV_A", "TV_B"]);
+    expect(useSimStore.getState().selectedTrafficVolume).toBe("TV_A");
+  });
 });

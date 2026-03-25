@@ -316,6 +316,7 @@ export default function MapCanvasReroute() {
           currentTrafficVolumeBin: getHourBin(sim.t),
           currentMinuteOfDay: getMinuteOfDay(sim.t),
           csOpenRangeCount: csOpenRangeCountRef.current,
+          tvCapacityRangeCount: tvSourcesRef.current?.maxCapacityRangeCount ?? 0,
         });
         applyTrafficVolumeFilters(map, initialFilter, { includeSlack: true });
 
@@ -1429,6 +1430,7 @@ export default function MapCanvasReroute() {
         currentTrafficVolumeBin,
         currentMinuteOfDay,
         csOpenRangeCount: csOpenRangeCountRef.current,
+        tvCapacityRangeCount: tvSourcesRef.current?.maxCapacityRangeCount ?? 0,
       });
       applyTrafficVolumeFilters(map, filterExpression, { includeSlack: true });
     };
@@ -1828,17 +1830,19 @@ export default function MapCanvasReroute() {
   // Listen for traffic volume search selection events
   useEffect(() => {
     const handleTrafficVolumeSearchSelect = (event: any) => {
-      const { trafficVolume, trafficVolumeId } = event.detail || {};
+      const { trafficVolume, trafficVolumeId, selectionApplied } = event.detail || {};
       const map = mapRef.current;
       if (!map) return;
 
       // If we only received an ID, try to retrieve the feature from the map source
       let tvId: string | null = null;
       let tvGeometry: any = null;
+      let fullSectorFeature: any = null;
 
       if (trafficVolume && trafficVolume.properties?.traffic_volume_id) {
         tvId = trafficVolume.properties.traffic_volume_id;
         tvGeometry = trafficVolume.geometry;
+        fullSectorFeature = trafficVolume;
       } else if (trafficVolumeId) {
         tvId = trafficVolumeId;
         // Query the sector feature by id
@@ -1846,11 +1850,26 @@ export default function MapCanvasReroute() {
           filter: ['==', 'traffic_volume_id', trafficVolumeId]
         });
         if (sectorFeatures.length > 0) {
+          fullSectorFeature = sectorFeatures[0];
           tvGeometry = sectorFeatures[0].geometry;
         }
       }
 
       if (!tvId) return;
+      if (!selectionApplied) {
+        const sim = useSimStore.getState();
+        if (sim.airspaceDisplayMode === "es") {
+          const collapsedSectorData = fullSectorFeature
+            ? { properties: (fullSectorFeature.properties as any) as SectorFeatureProps }
+            : null;
+          sim.setSelectedCollapsedSector(tvId, collapsedSectorData);
+        } else {
+          const tvData = fullSectorFeature
+            ? { properties: (fullSectorFeature.properties as any) as SectorFeatureProps }
+            : null;
+          sim.appendSelectedTrafficVolume(tvId, tvData);
+        }
+      }
 
       const center = tvGeometry
         ? getTrafficVolumeCenter(tvGeometry)
