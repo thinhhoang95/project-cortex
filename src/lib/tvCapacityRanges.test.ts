@@ -66,4 +66,33 @@ describe("tvCapacityRanges", () => {
     expect(syncValue).toBe("3 to 61");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("does not repopulate cache when a cleared in-flight load resolves later", async () => {
+    let resolveFetch: ((value: Response) => void) | null = null;
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const mod = await import("./tvCapacityRanges");
+    const pending = mod.loadTvCapacityRanges();
+
+    mod.clearTvCapacityRangesCache();
+    resolveFetch?.(
+      new Response(
+        JSON.stringify({
+          TV_A: { min_capacity: 3, max_capacity: 61 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const resolved = await pending;
+
+    expect(resolved.TV_A).toBeTruthy();
+    expect(mod.getCachedTvCapacityRanges()).toBeNull();
+  });
 });

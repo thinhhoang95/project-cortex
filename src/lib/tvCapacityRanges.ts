@@ -14,8 +14,10 @@ export type TvCapacityRangeMap = Record<string, TvCapacityRangeEntry>;
 
 const tvCapacityRangesCacheByDate = new Map<string, TvCapacityRangeMap>();
 const tvCapacityRangesLoadPromiseByDate = new Map<string, Promise<TvCapacityRangeMap>>();
+let tvCapacityRangesCacheGeneration = 0;
 
 export function clearTvCapacityRangesCache(): void {
+  tvCapacityRangesCacheGeneration += 1;
   tvCapacityRangesCacheByDate.clear();
   tvCapacityRangesLoadPromiseByDate.clear();
 }
@@ -57,6 +59,7 @@ export async function loadTvCapacityRanges(): Promise<TvCapacityRangeMap> {
   if (cached) return cached;
 
   if (!tvCapacityRangesLoadPromiseByDate.has(resourceDate)) {
+    const generationAtLoadStart = tvCapacityRangesCacheGeneration;
     tvCapacityRangesLoadPromiseByDate.set(resourceDate, (async () => {
       try {
         await refreshRuntimeResourceManifest();
@@ -69,6 +72,9 @@ export async function loadTvCapacityRanges(): Promise<TvCapacityRangeMap> {
       }
       const payload = await response.json();
       const normalized = normalizeRangeMap(payload);
+      if (generationAtLoadStart !== tvCapacityRangesCacheGeneration) {
+        return normalized;
+      }
       tvCapacityRangesCacheByDate.set(resourceDate, normalized);
       return normalized;
     })().catch((error) => {

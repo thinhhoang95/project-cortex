@@ -4,10 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import ModalDialog from "@/components/ModalDialog";
 import ShimmeringText from "@/components/ShimmeringText";
-import { clearAppCache } from "@/lib/cache";
 import { fetchResourceContext, selectResourceDate } from "@/lib/resourceContextClient";
-import { clearTrafficVolumeCache } from "@/lib/trafficVolumes";
-import { clearTvCapacityRangesCache } from "@/lib/tvCapacityRanges";
+import { clearResourceCaches } from "@/lib/resourceCache";
 import {
   formatResourceDateForDisplay,
   getResourceStatusLabel,
@@ -245,9 +243,7 @@ export default function ResourceDateSelectorPanel({
                 setError(null);
                 try {
                   const nextContext = await selectResourceDate(selectedAvailability.date);
-                  await clearAppCache();
-                  clearTrafficVolumeCache();
-                  clearTvCapacityRangesCache();
+                  await clearResourceCaches();
                   const activeDate = nextContext.selected_date ?? selectedAvailability.date;
                   setResourceDate(activeDate);
                   setResourceContext(nextContext);

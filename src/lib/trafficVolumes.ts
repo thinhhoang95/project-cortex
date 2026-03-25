@@ -8,8 +8,10 @@ export type TrafficVolumeFeature = GeoJSON.Feature<GeoJSON.Geometry, SectorFeatu
 const trafficVolumeFeatureCollectionByDate = new Map<string, GeoJSON.FeatureCollection>();
 const trafficVolumeFeatureMapByDate = new Map<string, Map<string, TrafficVolumeFeature>>();
 const trafficVolumeLoadPromiseByDate = new Map<string, Promise<Map<string, TrafficVolumeFeature>>>();
+let trafficVolumeCacheGeneration = 0;
 
 export function clearTrafficVolumeCache(): void {
+  trafficVolumeCacheGeneration += 1;
   trafficVolumeFeatureCollectionByDate.clear();
   trafficVolumeFeatureMapByDate.clear();
   trafficVolumeLoadPromiseByDate.clear();
@@ -66,8 +68,12 @@ async function ensureTrafficVolumeMap(resourceDate = getCurrentResourceDate()): 
   }
 
   if (!trafficVolumeLoadPromiseByDate.has(resourceDate)) {
+    const generationAtLoadStart = trafficVolumeCacheGeneration;
     trafficVolumeLoadPromiseByDate.set(resourceDate, (async () => {
       const collection = await loadTrafficVolumeCollection(resourceDate);
+      if (generationAtLoadStart !== trafficVolumeCacheGeneration) {
+        return buildFeatureMap(collection);
+      }
       trafficVolumeFeatureCollectionByDate.set(resourceDate, collection);
       const map = buildFeatureMap(collection);
       trafficVolumeFeatureMapByDate.set(resourceDate, map);

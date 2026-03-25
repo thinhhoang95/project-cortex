@@ -7,9 +7,7 @@ import { loadSectors } from '@/lib/airspace';
 import { getResourcePathsForDate } from '@/lib/dataPaths';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { clearAppCache } from '@/lib/cache';
-import { clearTrafficVolumeCache } from '@/lib/trafficVolumes';
-import { clearTvCapacityRangesCache } from '@/lib/tvCapacityRanges';
+import { clearResourceCaches } from '@/lib/resourceCache';
 import AgentModal from '@/components/AgentModal';
 import AgentResultSummaryDialog from '@/components/AgentResultSummaryDialog';
 import ReleaseNotesDialog from '@/components/ReleaseNotesDialog';
@@ -70,6 +68,9 @@ export default function Header() {
   // Load traffic volumes + collapsed sectors on component mount
   useEffect(() => {
     if (!resourceDate) return;
+    let cancelled = false;
+    setTrafficVolumes([]);
+    setCollapsedSectors([]);
 
     const resourcePaths = getResourcePathsForDate(resourceDate);
     const loadAirspaceData = async () => {
@@ -77,6 +78,8 @@ export default function Header() {
         loadSectors(resourcePaths.airspaceGeojson),
         loadSectors(resourcePaths.collapsedSectorsGeojson),
       ]);
+
+      if (cancelled) return;
 
       if (tvResult.status === 'fulfilled') {
         setTrafficVolumes(tvResult.value.features);
@@ -91,6 +94,10 @@ export default function Header() {
       }
     };
     loadAirspaceData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [resourceDate]);
 
   const handleSearch = async () => {
@@ -512,9 +519,7 @@ export default function Header() {
                 <div className="absolute right-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl z-[2100]">
                   <button
                     onClick={async () => {
-                      await clearAppCache();
-                      clearTrafficVolumeCache();
-                      clearTvCapacityRangesCache();
+                      await clearResourceCaches();
                       clearResourceDate();
                       window.localStorage.removeItem("flow-kitchen-region-banner-dismissed");
                       resetAll();
