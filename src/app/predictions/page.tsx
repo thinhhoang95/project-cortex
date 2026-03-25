@@ -33,16 +33,12 @@ function PredictionUnavailableOverlay() {
           <h3 className="mb-2 text-xl font-semibold text-white">Prediction API Unavailable</h3>
           
           <p className="mb-8 text-sm leading-relaxed text-white/60">
-            Prediction API is currently unavailable due to Project Gemini's sunset.<br/>
-            For more information, please contact ENAC's PoC at{' '}
-            <a href="mailto:huijuan.yang@enac.fr" className="font-medium text-cyan-300 hover:text-cyan-200 hover:underline">
-              huijuan.yang@enac.fr
-            </a>
+            Prediction API is currently unavailable due to Google Cloud Compute account being inaccessible.<br/>
             .
           </p>
           
            <Link href="/" className="rounded-full bg-white/10 px-8 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/20 ring-1 ring-white/10">
-              Return to Dashboard
+              Return to Monitoring
            </Link>
         </div>
       </div>
