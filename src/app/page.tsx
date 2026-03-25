@@ -12,6 +12,11 @@ import Header from "@/components/Header";
 import StateResetOnPageLoad from "@/components/StateResetOnPageLoad";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
+import {
+  buildNetworkStatusDelayHistogramRows,
+  computeAverageDelayMinutes,
+  findSelectedResourceState,
+} from "@/lib/networkStatus";
 
 function countTimesUpTo(sortedTimes: number[], value: number): number {
   let lo = 0;
@@ -33,6 +38,11 @@ const DAY_SECONDS = 24 * 60 * 60;
 export default function Page() {
   const flights = useSimStore((state) => state.flights);
   const t = useSimStore((state) => state.t);
+  const resourceStateSelectedId = useSimStore((state) => state.resourceStateSelectedId);
+  const resourceStateStates = useSimStore((state) => state.resourceStateStates);
+  const resourceStateDelayHistogramBins = useSimStore(
+    (state) => state.resourceStateDelayHistogramBins,
+  );
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
   const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
@@ -88,6 +98,29 @@ export default function Page() {
     };
   }, [flights, sortedStartTimes, sortedEndTimes, t]);
 
+  const selectedResourceState = useMemo(
+    () => findSelectedResourceState(resourceStateStates, resourceStateSelectedId),
+    [resourceStateSelectedId, resourceStateStates],
+  );
+
+  const averageDelayMinutes = useMemo(
+    () =>
+      computeAverageDelayMinutes(
+        selectedResourceState?.total_cumulative_delay_minutes,
+        flightsTotal,
+      ),
+    [flightsTotal, selectedResourceState?.total_cumulative_delay_minutes],
+  );
+
+  const delayHistogram = useMemo(
+    () =>
+      buildNetworkStatusDelayHistogramRows(
+        resourceStateDelayHistogramBins,
+        selectedResourceState?.cumulative_delay_histogram,
+      ),
+    [resourceStateDelayHistogramBins, selectedResourceState?.cumulative_delay_histogram],
+  );
+
   if (!hydrated || !ready || !user) {
     return null;
   }
@@ -120,6 +153,8 @@ export default function Page() {
           flightsTotal={flightsTotal}
           flightsLanded={flightsLanded}
           flightsAirborne={flightsAirborne}
+          averageDelayMinutes={averageDelayMinutes}
+          delayHistogram={delayHistogram}
         />
       </div>
       {/* Right-side wrapper: full-height scroll for the panel */}

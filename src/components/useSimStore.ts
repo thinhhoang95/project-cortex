@@ -5,9 +5,14 @@ import { Trajectory, SectorFeatureProps, RegulationPlanSimulationResponse, Alter
 import { normalizeFlowBasketItemsStrict } from "@/lib/flightIdentity";
 import type { RerouteImpactResponse } from "@/lib/rerouteImpact";
 import type { RerouteFunnel, RerouteGeometryResult, RerouteObstacle } from "@/lib/rerouteGeometry";
-import type { ResourceStateSummary, ResourceStateSyncPayload } from "@/lib/resourceStates";
+import type {
+  ResourceStateDelayHistogramBin,
+  ResourceStateSummary,
+  ResourceStateSyncPayload,
+} from "@/lib/resourceStates";
 import {
   applyCumulativeDelaysToTrajectories,
+  cloneResourceStateDelayHistogramBin,
   computeTrajectoryRange,
 } from "@/lib/resourceStates";
 import {
@@ -128,6 +133,7 @@ type State = {
   resourceStateZeroId: string | null;
   resourceStateStates: ResourceStateSummary[];
   resourceStateHistoryGeneration: number;
+  resourceStateDelayHistogramBins: ResourceStateDelayHistogramBin[];
   resourceStateSelectedCumulativeDelaysMin: Record<string, number>;
   resourceStatePendingId: string | null;
   resourceStateError: string | null;
@@ -411,6 +417,7 @@ const defaultState: Pick<State,
   | 'resourceStateZeroId'
   | 'resourceStateStates'
   | 'resourceStateHistoryGeneration'
+  | 'resourceStateDelayHistogramBins'
   | 'resourceStateSelectedCumulativeDelaysMin'
   | 'resourceStatePendingId'
   | 'resourceStateError'
@@ -526,6 +533,7 @@ const defaultState: Pick<State,
   resourceStateZeroId: null,
   resourceStateStates: [],
   resourceStateHistoryGeneration: 0,
+  resourceStateDelayHistogramBins: [],
   resourceStateSelectedCumulativeDelaysMin: {},
   resourceStatePendingId: null,
   resourceStateError: null,
@@ -745,6 +753,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       resourceStateZeroId: null,
       resourceStateStates: [] as ResourceStateSummary[],
       resourceStateHistoryGeneration: 0,
+      resourceStateDelayHistogramBins: [] as ResourceStateDelayHistogramBin[],
       resourceStateSelectedCumulativeDelaysMin: {},
       resourceStatePendingId: null,
       resourceStateError: null,
@@ -781,6 +790,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
         is_state_zero: summary.state_id === payload.stateZeroId,
       })),
       resourceStateHistoryGeneration: payload.stateHistoryGeneration,
+      resourceStateDelayHistogramBins: payload.delayHistogramBins.map(
+        cloneResourceStateDelayHistogramBin,
+      ),
       resourceStateSelectedCumulativeDelaysMin: { ...nextDelays },
       resourceStatePendingId: null,
       resourceStateError: null,
@@ -1667,6 +1679,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       resourceStateZeroId: state.resourceStateZeroId,
       resourceStateStates: state.resourceStateStates,
       resourceStateHistoryGeneration: state.resourceStateHistoryGeneration,
+      resourceStateDelayHistogramBins: state.resourceStateDelayHistogramBins,
       resourceStateSelectedCumulativeDelaysMin: state.resourceStateSelectedCumulativeDelaysMin,
       resourceStatePendingId: state.resourceStatePendingId,
       resourceStateError: state.resourceStateError,

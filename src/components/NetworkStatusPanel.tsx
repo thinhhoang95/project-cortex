@@ -2,6 +2,11 @@
 import { useMemo, useState } from "react";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import {
+  buildNetworkStatusDelayCauseRows,
+  type NetworkStatusDelayCause,
+  type NetworkStatusHistogramBin,
+} from "@/lib/networkStatus";
+import {
   ResponsiveContainer,
   CartesianGrid,
   XAxis,
@@ -11,56 +16,26 @@ import {
   Bar,
 } from "recharts";
 
-type DelayCause = {
-  cause: string;
-  count: number; // number of occurrences or aggregated delay minutes
-};
-
-type HistogramBin = {
-  bucket: string; // e.g., "0-15", "15-30"
-  count: number; // frequency
-};
+const DEFAULT_DELAY_CAUSES = buildNetworkStatusDelayCauseRows();
 
 type NetworkStatusPanelProps = {
   embedded?: boolean;
   flightsTotal?: number;
   flightsLanded?: number;
   flightsAirborne?: number;
-  averageDelayMinutes?: number; // average delay per flight (minutes)
-  delayCauses?: DelayCause[];
-  delayHistogram?: HistogramBin[];
+  averageDelayMinutes?: number | null;
+  delayCauses?: NetworkStatusDelayCause[];
+  delayHistogram?: NetworkStatusHistogramBin[];
 };
-
-const DEFAULT_DELAY_CAUSES: DelayCause[] = [
-  { cause: "Weather", count: 120 },
-  { cause: "ATC Staffing", count: 95 },
-  { cause: "Runway Congestion", count: 80 },
-  { cause: "Aircraft Readiness", count: 65 },
-  { cause: "Ground Operations", count: 48 },
-  { cause: "Security", count: 35 },
-  { cause: "Airspace Restrictions", count: 28 },
-  { cause: "Late Inbound", count: 22 },
-  { cause: "Crew", count: 17 },
-  { cause: "Other", count: 11 },
-];
-
-const DEFAULT_HISTOGRAM: HistogramBin[] = [
-  { bucket: "0-15", count: 210 },
-  { bucket: "15-30", count: 130 },
-  { bucket: "30-45", count: 70 },
-  { bucket: "45-60", count: 38 },
-  { bucket: "60-90", count: 20 },
-  { bucket: ">=90", count: 9 },
-];
 
 export default function NetworkStatusPanel({
   embedded = true,
   flightsTotal = 0,
   flightsLanded = 0,
   flightsAirborne = 0,
-  averageDelayMinutes = 14,
+  averageDelayMinutes = 0,
   delayCauses = DEFAULT_DELAY_CAUSES,
-  delayHistogram = DEFAULT_HISTOGRAM,
+  delayHistogram = [],
 }: NetworkStatusPanelProps) {
   // Local state for the expandable causes table
   const [showAllCauses, setShowAllCauses] = useState(false);
@@ -68,21 +43,16 @@ export default function NetworkStatusPanel({
   const flightsTotalDisplay = useMemo(() => formatFlightCount(flightsTotal), [flightsTotal]);
   const flightsLandedDisplay = useMemo(() => formatFlightCount(flightsLanded), [flightsLanded]);
   const flightsAirborneDisplay = useMemo(() => formatFlightCount(flightsAirborne), [flightsAirborne]);
-
-  // Sort causes by count desc for table and pie accumulation
-  const sortedCauses = useMemo(() => {
-    const copy = [...delayCauses];
-    copy.sort((a, b) => b.count - a.count);
-    return copy;
-  }, [delayCauses]);
+  const averageDelayDisplay = useMemo(
+    () => formatAverageDelayMinutes(averageDelayMinutes),
+    [averageDelayMinutes],
+  );
 
   const displayedCauses = useMemo(() => {
-    if (showAllCauses) return sortedCauses;
-    return sortedCauses.slice(0, 5);
-  }, [sortedCauses, showAllCauses]);
-  const hiddenCauseCount = Math.max(0, sortedCauses.length - displayedCauses.length);
-
-  
+    if (showAllCauses) return delayCauses;
+    return delayCauses.slice(0, 5);
+  }, [delayCauses, showAllCauses]);
+  const hiddenCauseCount = Math.max(0, delayCauses.length - displayedCauses.length);
 
   return (
     <div
@@ -157,7 +127,7 @@ export default function NetworkStatusPanel({
           <div className="mb-4">
             <MetricCard
               label="Avg Delay / Flight"
-              value={`${averageDelayMinutes} mins`}
+              value={averageDelayDisplay}
               accent="bg-amber-400/30"
               icon={
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -177,7 +147,7 @@ export default function NetworkStatusPanel({
               <thead>
                 <tr className="bg-white/10">
                   <th className="text-left p-2 font-semibold">Cause</th>
-                  <th className="text-right p-2 font-semibold">Count</th>
+                  <th className="text-right p-2 font-semibold">Delay (min)</th>
                 </tr>
               </thead>
               <tbody>
@@ -187,17 +157,17 @@ export default function NetworkStatusPanel({
                     className={`border-t border-white/10 ${idx % 2 === 0 ? "bg-white/0" : "bg-white/5"}`}
                   >
                     <td className="p-2">{row.cause}</td>
-                    <td className="p-2 text-right font-mono">{row.count.toLocaleString()}</td>
+                    <td className="p-2 text-right font-mono">{formatDelayCauseMinutes(row.delayMinutes)}</td>
                   </tr>
                 ))}
-                {sortedCauses.length > 5 && !showAllCauses && (
+                {delayCauses.length > 5 && !showAllCauses && (
                   <tr className="border-t border-white/10 hover:bg-white/10 cursor-pointer" onClick={() => setShowAllCauses(true)}>
                     <td className="p-2 text-center italic opacity-80" colSpan={2}>
                       {formatSeeMoreLabel(hiddenCauseCount)}
                     </td>
                   </tr>
                 )}
-                {sortedCauses.length > 5 && showAllCauses && (
+                {delayCauses.length > 5 && showAllCauses && (
                   <tr className="border-t border-white/10 hover:bg-white/10 cursor-pointer" onClick={() => setShowAllCauses(false)}>
                     <td className="p-2 text-center italic opacity-80" colSpan={2}>
                       {SEE_LESS_LABEL}
@@ -223,6 +193,27 @@ function MetricCard({ label, value, accent, icon }: { label: string; value: stri
       </div>
     </div>
   );
+}
+
+function formatDelayCauseMinutes(value: number | null | undefined): string {
+  if (!Number.isFinite(value ?? Number.NaN)) {
+    return "—";
+  }
+
+  return Math.max(0, Math.round(Number(value))).toLocaleString();
+}
+
+function formatAverageDelayMinutes(value: number | null | undefined): string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "0 min";
+  }
+
+  const rounded = Math.round(numeric * 10) / 10;
+  return `${rounded.toLocaleString(undefined, {
+    minimumFractionDigits: Number.isInteger(rounded) ? 0 : 1,
+    maximumFractionDigits: 1,
+  })} min`;
 }
 
 const compactNumberFormatter = new Intl.NumberFormat("en", {

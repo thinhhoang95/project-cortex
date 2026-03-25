@@ -11,6 +11,10 @@ const RESOURCE_STATE_PAYLOAD: ResourceStateSyncPayload = {
   stateZeroId: "state-0000",
   numStates: 2,
   stateHistoryGeneration: 1,
+  delayHistogramBins: [
+    { key: "0-15", label: "0-15", min_inclusive: 0, max_exclusive: 15 },
+    { key: "15-30", label: "15-30", min_inclusive: 15, max_exclusive: 30 },
+  ],
   states: [
     {
       state_id: "state-0000",
@@ -21,6 +25,10 @@ const RESOURCE_STATE_PAYLOAD: ResourceStateSyncPayload = {
       num_delayed_flights: 0,
       total_incremental_delay_minutes: 0,
       total_cumulative_delay_minutes: 0,
+      cumulative_delay_histogram: {
+        "0-15": 0,
+        "15-30": 0,
+      },
       is_selected: false,
       is_head: false,
       is_state_zero: true,
@@ -34,6 +42,10 @@ const RESOURCE_STATE_PAYLOAD: ResourceStateSyncPayload = {
       num_delayed_flights: 1,
       total_incremental_delay_minutes: 12,
       total_cumulative_delay_minutes: 12,
+      cumulative_delay_histogram: {
+        "0-15": 1,
+        "15-30": 0,
+      },
       is_selected: true,
       is_head: true,
       is_state_zero: false,
@@ -66,6 +78,9 @@ describe("useSimStore resourceDate", () => {
 
     expect(useSimStore.getState().resourceDate).toBe("2023-07-17");
     expect(useSimStore.getState().resourceStateSelectedId).toBe("state-0001");
+    expect(useSimStore.getState().resourceStateDelayHistogramBins).toEqual(
+      RESOURCE_STATE_PAYLOAD.delayHistogramBins,
+    );
     expect(useSimStore.getState().showFlightLines).toBe(true);
     expect(useSimStore.getState().flightLineLabelMode).toBe("callsign");
   });
@@ -95,6 +110,13 @@ describe("useSimStore resourceDate", () => {
     expect(delayedFlights[0]?.t0).toBe(120 + 12 * 60);
     expect(delayedFlights[0]?.t1).toBe(300 + 12 * 60);
     expect(useSimStore.getState().range).toEqual([120 + 12 * 60, 300 + 12 * 60]);
+    expect(
+      useSimStore.getState().resourceStateStates.find((state) => state.state_id === "state-0001")
+        ?.cumulative_delay_histogram,
+    ).toEqual({
+      "0-15": 1,
+      "15-30": 0,
+    });
   });
 
   it("appends traffic-volume selections without replacing the existing multi-selection", () => {

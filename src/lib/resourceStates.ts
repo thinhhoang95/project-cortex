@@ -1,5 +1,14 @@
 import type { Trajectory } from "@/lib/models";
 
+export type ResourceStateDelayHistogramBin = {
+  key: string;
+  label: string;
+  min_inclusive: number;
+  max_exclusive: number | null;
+};
+
+export type ResourceStateDelayHistogram = Record<string, number>;
+
 export type ResourceStateSummary = {
   state_id: string;
   parent_state_id: string | null;
@@ -9,6 +18,7 @@ export type ResourceStateSummary = {
   num_delayed_flights: number;
   total_incremental_delay_minutes: number;
   total_cumulative_delay_minutes: number;
+  cumulative_delay_histogram?: ResourceStateDelayHistogram | null;
   is_selected: boolean;
   is_head: boolean;
   is_state_zero: boolean;
@@ -29,6 +39,7 @@ export type ResourceStateHistoryResponse = {
   head_state_id: string | null;
   num_states: number;
   state_history_generation: number;
+  delay_histogram_bins?: ResourceStateDelayHistogramBin[] | null;
   states: ResourceStateDetail[];
 };
 
@@ -39,6 +50,7 @@ export type ResourceStateSyncPayload = {
   stateZeroId: string | null;
   numStates: number;
   stateHistoryGeneration: number;
+  delayHistogramBins: ResourceStateDelayHistogramBin[];
   states: ResourceStateSummary[];
   selectedCumulativeDelaysMin: Record<string, number>;
 };
@@ -57,6 +69,7 @@ type ResourceContextLike = {
   state_zero_id?: string | null;
   num_states?: number | null;
   state_history_generation?: number | null;
+  delay_histogram_bins?: ResourceStateDelayHistogramBin[] | null;
   states?: ResourceStateSummary[] | null;
 };
 
@@ -76,6 +89,55 @@ function normalizeResourceDateValue(value: unknown): string | null {
   return normalized || null;
 }
 
+function cloneDelayHistogram(value: unknown): ResourceStateDelayHistogram {
+  if (!value || typeof value !== "object") return {};
+
+  const normalized: ResourceStateDelayHistogram = {};
+  for (const [rawKey, rawCount] of Object.entries(value as Record<string, unknown>)) {
+    const key = String(rawKey ?? "").trim();
+    if (!key) continue;
+
+    normalized[key] = Math.max(0, toFiniteInteger(rawCount));
+  }
+  return normalized;
+}
+
+export function cloneResourceStateDelayHistogramBin(
+  bin: ResourceStateDelayHistogramBin,
+): ResourceStateDelayHistogramBin {
+  const key = String(bin?.key ?? "").trim();
+  const label = String(bin?.label ?? key).trim() || key;
+  const rawMaxExclusive = bin?.max_exclusive;
+  const maxExclusive =
+    rawMaxExclusive == null ? null : Number(rawMaxExclusive);
+
+  return {
+    key,
+    label,
+    min_inclusive: Math.max(0, toFiniteInteger(bin?.min_inclusive)),
+    max_exclusive:
+      maxExclusive !== null && Number.isFinite(maxExclusive)
+        ? Math.trunc(maxExclusive)
+        : null,
+  };
+}
+
+export function normalizeResourceStateDelayHistogramBins(
+  value: unknown,
+): ResourceStateDelayHistogramBin[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized: ResourceStateDelayHistogramBin[] = [];
+  for (const item of value) {
+    const candidate = cloneResourceStateDelayHistogramBin(
+      (item ?? {}) as ResourceStateDelayHistogramBin,
+    );
+    if (!candidate.key) continue;
+    normalized.push(candidate);
+  }
+  return normalized;
+}
+
 export function cloneResourceStateSummary(summary: ResourceStateSummary): ResourceStateSummary {
   return {
     state_id: String(summary?.state_id ?? ""),
@@ -86,6 +148,7 @@ export function cloneResourceStateSummary(summary: ResourceStateSummary): Resour
     num_delayed_flights: Math.max(0, toFiniteInteger(summary?.num_delayed_flights)),
     total_incremental_delay_minutes: Math.max(0, toFiniteInteger(summary?.total_incremental_delay_minutes)),
     total_cumulative_delay_minutes: Math.max(0, toFiniteInteger(summary?.total_cumulative_delay_minutes)),
+    cumulative_delay_histogram: cloneDelayHistogram(summary?.cumulative_delay_histogram),
     is_selected: Boolean(summary?.is_selected),
     is_head: Boolean(summary?.is_head),
     is_state_zero: Boolean(summary?.is_state_zero),
@@ -111,13 +174,44 @@ function toSummary(detail: ResourceStateDetail): ResourceStateSummary {
   return cloneResourceStateSummary(detail);
 }
 
+function mergeResourceStateSummary(
+  summary: ResourceStateSummary,
+  historyState: ResourceStateDetail | null | undefined,
+): ResourceStateSummary {
+  return cloneResourceStateSummary({
+    ...(historyState ?? {}),
+    ...summary,
+    cumulative_delay_histogram:
+      summary?.cumulative_delay_histogram ?? historyState?.cumulative_delay_histogram ?? {},
+  });
+}
+
 export function buildResourceStateSyncPayload(
   context: ResourceContextLike | null | undefined,
   history: ResourceStateHistoryResponse | null | undefined,
 ): ResourceStateSyncPayload {
   const historyStates = Array.isArray(history?.states) ? history.states : [];
   const contextStates = Array.isArray(context?.states) ? context.states : [];
-  const states = (contextStates.length > 0 ? contextStates : historyStates.map(toSummary)).map(cloneResourceStateSummary);
+  const historyStateById = new Map(
+    historyStates.map((state) => [String(state?.state_id ?? ""), state] as const),
+  );
+  const states =
+    contextStates.length > 0
+      ? [
+          ...contextStates.map((state) =>
+            mergeResourceStateSummary(
+              state,
+              historyStateById.get(String(state?.state_id ?? "")),
+            ),
+          ),
+          ...historyStates
+            .filter((state) => {
+              const stateId = String(state?.state_id ?? "");
+              return stateId && !contextStates.some((candidate) => candidate.state_id === stateId);
+            })
+            .map(toSummary),
+        ]
+      : historyStates.map(toSummary);
 
   const selectedStateId =
     context?.selected_state_id ??
@@ -153,6 +247,9 @@ export function buildResourceStateSyncPayload(
     stateHistoryGeneration: Math.max(
       toFiniteInteger(context?.state_history_generation),
       toFiniteInteger(history?.state_history_generation),
+    ),
+    delayHistogramBins: normalizeResourceStateDelayHistogramBins(
+      context?.delay_histogram_bins ?? history?.delay_histogram_bins,
     ),
     states,
     selectedCumulativeDelaysMin: normalizeDelayMinutesMap(selectedState?.cumulative_delays_min),

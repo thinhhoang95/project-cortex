@@ -56,6 +56,10 @@ describe("resourceStates", () => {
         state_zero_id: "state-0000",
         num_states: 3,
         state_history_generation: 4,
+        delay_histogram_bins: [
+          { key: "0-15", label: "0-15", min_inclusive: 0, max_exclusive: 15 },
+          { key: "15-30", label: "15-30", min_inclusive: 15, max_exclusive: 30 },
+        ],
         states: [
           {
             state_id: "state-0000",
@@ -66,6 +70,10 @@ describe("resourceStates", () => {
             num_delayed_flights: 0,
             total_incremental_delay_minutes: 0,
             total_cumulative_delay_minutes: 0,
+            cumulative_delay_histogram: {
+              "0-15": 0,
+              "15-30": 0,
+            },
             is_selected: false,
             is_head: false,
             is_state_zero: true,
@@ -79,6 +87,7 @@ describe("resourceStates", () => {
             num_delayed_flights: 4,
             total_incremental_delay_minutes: 15,
             total_cumulative_delay_minutes: 49,
+            cumulative_delay_histogram: undefined,
             is_selected: true,
             is_head: true,
             is_state_zero: false,
@@ -92,6 +101,9 @@ describe("resourceStates", () => {
         head_state_id: "state-0002",
         num_states: 3,
         state_history_generation: 4,
+        delay_histogram_bins: [
+          { key: "15-30", label: "15-30", min_inclusive: 15, max_exclusive: 30 },
+        ],
         states: [
           {
             state_id: "state-0002",
@@ -109,17 +121,29 @@ describe("resourceStates", () => {
               FLIGHT_001: 12,
               FLIGHT_002: 12,
             },
+            cumulative_delay_histogram: {
+              "0-15": 1,
+              "15-30": 2,
+            },
           },
         ],
       },
     );
 
     expect(payload.selectedStateId).toBe("state-0002");
+    expect(payload.delayHistogramBins).toEqual([
+      { key: "0-15", label: "0-15", min_inclusive: 0, max_exclusive: 15 },
+      { key: "15-30", label: "15-30", min_inclusive: 15, max_exclusive: 30 },
+    ]);
     expect(payload.selectedCumulativeDelaysMin).toEqual({
       FLIGHT_001: 12,
       FLIGHT_002: 12,
     });
     expect(payload.states).toHaveLength(2);
+    expect(payload.states[1]?.cumulative_delay_histogram).toEqual({
+      "0-15": 1,
+      "15-30": 2,
+    });
   });
 
   it("rejects resource-state bundles for another date", () => {
