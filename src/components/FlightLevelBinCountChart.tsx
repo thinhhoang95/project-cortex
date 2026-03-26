@@ -13,12 +13,16 @@ import {
 } from "recharts";
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
+import { createLatestOnlyAsyncQueue } from "@/lib/latestOnlyAsyncQueue";
 import {
   aggregateFlightLevelBins,
   filterFlightLevelBinsToWindow,
   type AggregatedFlightLevelBin,
+  type FlightLevelBinPreviewSegment,
   type FlightLevelBinSizeFeet,
   type FlightLevelCountsPayload,
+  mergeFlightLevelBinPreviewSegments,
+  normalizeFlightLevelBinPreviewSegments,
 } from "@/lib/flightLevelBinCounts";
 
 const MODE_OPTIONS: Array<{ label: string; value: FlightLevelBinSizeFeet }> = [
@@ -44,6 +48,54 @@ export function buildFlightLevelPreviewCacheKey(args: {
     args.startFl,
     args.endFl,
   ].join("|");
+}
+
+export function deriveNextFlightLevelSelectedBinKeys(args: {
+  currentKeys: string[];
+  clickedKey: string;
+  multiselect: boolean;
+}): string[] {
+  const clickedKey = String(args.clickedKey ?? "").trim();
+  if (!clickedKey) return args.currentKeys;
+  if (!args.multiselect) {
+    return [clickedKey];
+  }
+  return args.currentKeys.includes(clickedKey)
+    ? args.currentKeys
+    : [...args.currentKeys, clickedKey];
+}
+
+type PreviewRequest = {
+  cacheKey: string;
+  trafficVolumeId: string;
+  refTimeStr: string;
+  durationMin: number;
+  startFl: number;
+  endFl: number;
+};
+
+type PreviewIntent = {
+  token: string;
+  requests: PreviewRequest[];
+};
+
+type ModifierAwareEvent = {
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  nativeEvent?: {
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+  };
+};
+
+function isMultiSelectEvent(event: ModifierAwareEvent | null | undefined): boolean {
+  if (!event) return false;
+  return Boolean(
+    event.ctrlKey ||
+    event.metaKey ||
+    event.nativeEvent?.ctrlKey ||
+    event.nativeEvent?.metaKey,
+  );
 }
 
 function FlightLevelTooltip({
@@ -80,11 +132,14 @@ export default function FlightLevelBinCountChart({
   const [binSizeFeet, setBinSizeFeet] = useState<FlightLevelBinSizeFeet>(1000);
   const selectId = useId();
   const resourceStateEpoch = useSimStore((state) => state.resourceStateEpoch);
-  const setFlightLinePreviewFlightIds = useSimStore((state) => state.setFlightLinePreviewFlightIds);
-  const previewCacheRef = useRef<Map<string, string[]>>(new Map());
+  const setFlightLevelBinPreviewSegments = useSimStore((state) => state.setFlightLevelBinPreviewSegments);
+  const clearFlightLevelBinPreviewSegments = useSimStore((state) => state.clearFlightLevelBinPreviewSegments);
+  const previewCacheRef = useRef<Map<string, FlightLevelBinPreviewSegment[]>>(new Map());
   const hoverRequestSeq = useRef(0);
   const activePreviewKeyRef = useRef<string | null>(null);
+  const previewRequestQueueRef = useRef<ReturnType<typeof createLatestOnlyAsyncQueue<PreviewIntent>> | null>(null);
   const [hoveredBinKey, setHoveredBinKey] = useState<string | null>(null);
+  const [selectedBinKeys, setSelectedBinKeys] = useState<string[]>([]);
 
   const chartData = useMemo(() => {
     if (!data?.bins?.length) return [];
@@ -108,6 +163,7 @@ export default function FlightLevelBinCountChart({
   }, [data, binSizeFeet, filterToWindow, windowStartSeconds, windowSeconds]);
 
   const chartHeight = Math.max(240, chartData.length * 16);
+  const selectedBinKeySet = useMemo(() => new Set(selectedBinKeys), [selectedBinKeys]);
   const previewWindow = useMemo(() => {
     if (!trafficVolumeId) return null;
     if (
@@ -132,13 +188,69 @@ export default function FlightLevelBinCountChart({
   const clearPreview = useCallback(() => {
     activePreviewKeyRef.current = null;
     hoverRequestSeq.current += 1;
+    previewRequestQueueRef.current?.clear();
     setHoveredBinKey(null);
-    setFlightLinePreviewFlightIds(new Set());
-  }, [setFlightLinePreviewFlightIds]);
+    clearFlightLevelBinPreviewSegments();
+  }, [clearFlightLevelBinPreviewSegments]);
+
+  const processPreviewRequest = useCallback(async (intent: PreviewIntent) => {
+    const reqId = ++hoverRequestSeq.current;
+    const segmentGroups: FlightLevelBinPreviewSegment[][] = [];
+
+    for (const request of intent.requests) {
+      let previewSegments = previewCacheRef.current.get(request.cacheKey);
+
+      if (!previewSegments) {
+        try {
+          const params = new URLSearchParams({
+            traffic_volume_id: request.trafficVolumeId,
+            ref_time_str: request.refTimeStr,
+            start_fl: String(request.startFl),
+            end_fl: String(request.endFl),
+            duration_min: String(request.durationMin),
+          });
+          const response = await authFetch(`/api/tv_flight_level_bin_flights?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch flight preview (${response.status})`);
+          }
+
+          const payload = await response.json().catch(() => ({}));
+          previewSegments = normalizeFlightLevelBinPreviewSegments(payload);
+          previewCacheRef.current.set(request.cacheKey, previewSegments);
+        } catch {
+          if (reqId !== hoverRequestSeq.current || activePreviewKeyRef.current !== intent.token) return;
+          continue;
+        }
+      }
+
+      segmentGroups.push(previewSegments);
+      if (reqId !== hoverRequestSeq.current || activePreviewKeyRef.current !== intent.token) return;
+    }
+
+    if (reqId !== hoverRequestSeq.current || activePreviewKeyRef.current !== intent.token) return;
+    const mergedSegments = mergeFlightLevelBinPreviewSegments(segmentGroups);
+    if (mergedSegments.length > 0) {
+      setFlightLevelBinPreviewSegments(mergedSegments);
+    } else {
+      clearFlightLevelBinPreviewSegments();
+    }
+  }, [clearFlightLevelBinPreviewSegments, setFlightLevelBinPreviewSegments]);
+
+  useEffect(() => {
+    const queue = createLatestOnlyAsyncQueue(processPreviewRequest);
+    previewRequestQueueRef.current = queue;
+    return () => {
+      if (previewRequestQueueRef.current === queue) {
+        previewRequestQueueRef.current = null;
+      }
+      queue.dispose();
+    };
+  }, [processPreviewRequest]);
 
   useEffect(() => clearPreview, [clearPreview]);
   useEffect(() => {
     previewCacheRef.current.clear();
+    setSelectedBinKeys([]);
     clearPreview();
   }, [
     binSizeFeet,
@@ -149,69 +261,121 @@ export default function FlightLevelBinCountChart({
     clearPreview,
   ]);
 
-  const previewBin = useCallback(async (row: AggregatedFlightLevelBin | null | undefined) => {
+  const buildPreviewRequest = useCallback((row: AggregatedFlightLevelBin | null | undefined): PreviewRequest | null => {
     if (!row || !trafficVolumeId || !previewWindow || row.count <= 0) {
-      clearPreview();
-      return;
+      return null;
     }
 
-    const cacheKey = buildFlightLevelPreviewCacheKey({
-      resourceStateEpoch,
+    return {
+      cacheKey: buildFlightLevelPreviewCacheKey({
+        resourceStateEpoch,
+        trafficVolumeId,
+        refTimeStr: previewWindow.refTimeStr,
+        durationMin: previewWindow.durationMin,
+        startFl: row.startFl,
+        endFl: row.endFl,
+      }),
       trafficVolumeId,
       refTimeStr: previewWindow.refTimeStr,
       durationMin: previewWindow.durationMin,
       startFl: row.startFl,
       endFl: row.endFl,
-    });
+    };
+  }, [previewWindow, resourceStateEpoch, trafficVolumeId]);
 
-    activePreviewKeyRef.current = cacheKey;
-    setHoveredBinKey(row.key);
+  const activatePreviewRequests = useCallback((requests: PreviewRequest[], token: string) => {
+    activePreviewKeyRef.current = token;
+    previewRequestQueueRef.current?.clear();
 
-    const cachedIds = previewCacheRef.current.get(cacheKey);
-    if (cachedIds) {
-      setFlightLinePreviewFlightIds(new Set(cachedIds));
+    const cachedSegmentGroups = requests
+      .map((request) => previewCacheRef.current.get(request.cacheKey))
+      .filter((segments): segments is FlightLevelBinPreviewSegment[] => Array.isArray(segments));
+    const cachedSegments = mergeFlightLevelBinPreviewSegments(cachedSegmentGroups);
+
+    if (cachedSegments.length > 0) {
+      setFlightLevelBinPreviewSegments(cachedSegments);
+    } else {
+      clearFlightLevelBinPreviewSegments();
+    }
+
+    const missingRequests = requests.filter((request) => !previewCacheRef.current.has(request.cacheKey));
+    if (missingRequests.length > 0) {
+      previewRequestQueueRef.current?.enqueue({
+        token,
+        requests,
+      });
+    }
+  }, [clearFlightLevelBinPreviewSegments, setFlightLevelBinPreviewSegments]);
+
+  const previewBin = useCallback((row: AggregatedFlightLevelBin | null | undefined) => {
+    const request = buildPreviewRequest(row);
+    if (!request) {
+      clearPreview();
       return;
     }
 
-    setFlightLinePreviewFlightIds(new Set());
-    const reqId = ++hoverRequestSeq.current;
+    setHoveredBinKey(row?.key ?? null);
+    activatePreviewRequests([request], request.cacheKey);
+  }, [activatePreviewRequests, buildPreviewRequest, clearPreview]);
 
-    try {
-      const params = new URLSearchParams({
-        traffic_volume_id: trafficVolumeId,
-        ref_time_str: previewWindow.refTimeStr,
-        start_fl: String(row.startFl),
-        end_fl: String(row.endFl),
-        duration_min: String(previewWindow.durationMin),
-      });
-      const response = await authFetch(`/api/tv_flight_level_bin_flights?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch flight preview (${response.status})`);
+  useEffect(() => {
+    if (selectedBinKeys.length === 0) return;
+
+    const selectedRows = selectedBinKeys
+      .map((key) => chartData.find((row) => row.key === key) ?? null)
+      .filter((row): row is AggregatedFlightLevelBin => row !== null);
+
+    if (selectedRows.length !== selectedBinKeys.length) {
+      const normalizedKeys = selectedRows.map((row) => row.key);
+      setSelectedBinKeys(normalizedKeys);
+      if (normalizedKeys.length === 0) {
+        clearPreview();
+        return;
       }
-
-      const payload = await response.json().catch(() => ({}));
-      const flightIds = Array.isArray(payload?.flight_ids)
-        ? payload.flight_ids.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
-        : [];
-
-      previewCacheRef.current.set(cacheKey, flightIds);
-      if (reqId !== hoverRequestSeq.current || activePreviewKeyRef.current !== cacheKey) return;
-      setFlightLinePreviewFlightIds(new Set(flightIds));
-    } catch {
-      if (reqId !== hoverRequestSeq.current || activePreviewKeyRef.current !== cacheKey) return;
-      setFlightLinePreviewFlightIds(new Set());
     }
-  }, [
-    clearPreview,
-    previewWindow,
-    resourceStateEpoch,
-    setFlightLinePreviewFlightIds,
-    trafficVolumeId,
-  ]);
+
+    const requests = selectedRows
+      .map((row) => buildPreviewRequest(row))
+      .filter((request): request is PreviewRequest => request !== null);
+
+    if (requests.length === 0) {
+      clearPreview();
+      return;
+    }
+
+    setHoveredBinKey(null);
+    activatePreviewRequests(
+      requests,
+      requests.map((request) => request.cacheKey).join("||"),
+    );
+  }, [activatePreviewRequests, buildPreviewRequest, chartData, clearPreview, selectedBinKeys]);
+
+  const resetSelection = useCallback(() => {
+    setSelectedBinKeys([]);
+    clearPreview();
+  }, [clearPreview]);
 
   const handleBarEnter = useCallback((entry: { payload?: AggregatedFlightLevelBin } | null | undefined) => {
-    void previewBin(entry?.payload);
-  }, [previewBin]);
+    if (selectedBinKeys.length > 0) return;
+    previewBin(entry?.payload);
+  }, [previewBin, selectedBinKeys.length]);
+
+  const handleBarClick = useCallback((
+    entry: { payload?: AggregatedFlightLevelBin } | null | undefined,
+    _index: number,
+    event: ModifierAwareEvent | undefined,
+  ) => {
+    const row = entry?.payload;
+    if (!row || row.count <= 0) return;
+
+    setSelectedBinKeys((currentKeys) =>
+      deriveNextFlightLevelSelectedBinKeys({
+        currentKeys,
+        clickedKey: row.key,
+        multiselect: isMultiSelectEvent(event),
+      }),
+    );
+  }, []);
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -243,7 +407,11 @@ export default function FlightLevelBinCountChart({
                 layout="vertical"
                 margin={{ top: 0, right: 16, left: 12, bottom: 0 }}
                 barCategoryGap={2}
-                onMouseLeave={clearPreview}
+                onMouseLeave={() => {
+                  if (selectedBinKeys.length === 0) {
+                    clearPreview();
+                  }
+                }}
               >
                 <CartesianGrid stroke="rgba(255,255,255,0.08)" horizontal={false} />
                 <XAxis
@@ -270,11 +438,19 @@ export default function FlightLevelBinCountChart({
                   isAnimationActive={false}
                   barSize={12}
                   onMouseEnter={handleBarEnter}
+                  onClick={handleBarClick}
+                  style={{ cursor: "pointer" }}
                 >
                   {chartData.map((row) => (
                     <Cell
                       key={row.key}
-                      fill={hoveredBinKey === row.key ? "#67e8f9" : "#38bdf8"}
+                      fill={
+                        selectedBinKeySet.has(row.key)
+                          ? "#22c55e"
+                          : hoveredBinKey === row.key
+                            ? "#67e8f9"
+                            : "#38bdf8"
+                      }
                     />
                   ))}
                 </Bar>
@@ -287,6 +463,22 @@ export default function FlightLevelBinCountChart({
           No flight-level count data is available for the selected traffic volume.
         </div>
       )}
+
+      <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+        <div className="text-white/60">
+          {selectedBinKeys.length > 0
+            ? `${selectedBinKeys.length} bin${selectedBinKeys.length === 1 ? "" : "s"} selected`
+            : "Hover to preview segments. Ctrl-click to union bins."}
+        </div>
+        <button
+          type="button"
+          onClick={resetSelection}
+          disabled={selectedBinKeys.length === 0}
+          className="rounded-md border border-white/15 bg-white/5 px-2.5 py-1.5 text-white/85 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Reset
+        </button>
+      </div>
     </div>
   );
 }

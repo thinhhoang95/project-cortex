@@ -12,6 +12,32 @@ export interface FlightLevelCountSegment {
   count: number;
 }
 
+export interface FlightLevelBinPreviewSegment {
+  previewSegmentId: string;
+  flightId: string;
+  coordinates: [number, number][];
+  flightLevelLabel: string;
+}
+
+export interface FlightLevelBinPreviewResponse {
+  flight_ids?: string[];
+  segments?: Array<{
+    preview_segment_id?: string;
+    flight_id?: string;
+    coordinates?: unknown;
+    flight_level_label?: string;
+  }>;
+  metadata?: {
+    traffic_volume_id?: string;
+    ref_time_str?: string;
+    duration_min?: number;
+    start_fl?: number;
+    end_fl?: number;
+    flight_count?: number;
+    segment_count?: number;
+  };
+}
+
 export interface FlightLevelCountsMetadata {
   unit?: string;
   max_fl?: number;
@@ -72,6 +98,65 @@ function parseClockTimeToSeconds(value: string): number | null {
     return null;
   }
   return hours * 3600 + minutes * 60 + seconds;
+}
+
+function normalizePreviewCoordinate(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const lon = Number(value[0]);
+  const lat = Number(value[1]);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  return [lon, lat];
+}
+
+export function normalizeFlightLevelBinPreviewSegments(
+  payload: unknown,
+): FlightLevelBinPreviewSegment[] {
+  const rawSegments = Array.isArray((payload as FlightLevelBinPreviewResponse | null)?.segments)
+    ? (payload as FlightLevelBinPreviewResponse).segments ?? []
+    : [];
+  const out: FlightLevelBinPreviewSegment[] = [];
+  const seen = new Set<string>();
+
+  for (const rawSegment of rawSegments) {
+    const previewSegmentId = String(rawSegment?.preview_segment_id ?? "").trim();
+    const flightId = String(rawSegment?.flight_id ?? "").trim();
+    const coordinates = Array.isArray(rawSegment?.coordinates)
+      ? rawSegment.coordinates
+          .map((value) => normalizePreviewCoordinate(value))
+          .filter((value): value is [number, number] => Array.isArray(value))
+      : [];
+
+    if (!previewSegmentId || !flightId || coordinates.length < 2 || seen.has(previewSegmentId)) {
+      continue;
+    }
+
+    seen.add(previewSegmentId);
+    out.push({
+      previewSegmentId,
+      flightId,
+      coordinates,
+      flightLevelLabel: String(rawSegment?.flight_level_label ?? "").trim(),
+    });
+  }
+
+  return out;
+}
+
+export function mergeFlightLevelBinPreviewSegments(
+  segmentGroups: Iterable<FlightLevelBinPreviewSegment[]>,
+): FlightLevelBinPreviewSegment[] {
+  const out: FlightLevelBinPreviewSegment[] = [];
+  const seen = new Set<string>();
+
+  for (const segments of segmentGroups) {
+    for (const segment of segments) {
+      if (!segment?.previewSegmentId || seen.has(segment.previewSegmentId)) continue;
+      seen.add(segment.previewSegmentId);
+      out.push(segment);
+    }
+  }
+
+  return out;
 }
 
 function expandDailyInterval(startSeconds: number, endSeconds: number): Array<[number, number]> {

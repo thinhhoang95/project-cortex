@@ -10,6 +10,7 @@ import { getResourcePathsForDate } from "@/lib/dataPaths";
 import {
   setFlightLineLabelFilters,
 } from "@/lib/flightLineLabels";
+import { syncFlightLevelBinPreviewLayer } from "@/lib/flightLevelBinPreviewLayer";
 import { syncFlightLevelLabelLayer } from "@/lib/flightLineLabelLayer";
 import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
@@ -50,7 +51,7 @@ export default function MapCanvas() {
   const rafRef = useRef<number | undefined>(undefined);
   const tvSourcesRef = useRef<AirspaceSources | null>(null);
   const lastTs = useRef<number>(performance.now());
-  const { t, resourceDate, weatherOverlay, tick, flights, showFlightLineLabels, flightLineLabelMode, showCallsigns, showWaypoints, showTrafficVolumes, setBaselineFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedTrafficVolumes, toggleSelectedTrafficVolumeWithMode, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute, resourceStateEpoch, glanceHorizonMinutes } = useSimStore();
+  const { t, resourceDate, weatherOverlay, tick, flights, showFlightLineLabels, flightLineLabelMode, showCallsigns, showWaypoints, showTrafficVolumes, setBaselineFlights, flLowerBound, flUpperBound, showHotspots, hotspots, getActiveHotspots, flowPreviewFlightId, flightLevelBinPreviewSegments, playing, focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedTrafficVolumes, toggleSelectedTrafficVolumeWithMode, setSelectedFlightForAnalysis, selectedFlightForAnalysis, alternativeRoutes, isAlternativeRoutesPanelOpen, hoveredAlternativeRoute, resourceStateEpoch, glanceHorizonMinutes } = useSimStore();
   const lastUpdateRef = useRef<number>(performance.now());
 
   const theme = useThemeStore((state) => state.theme);
@@ -394,7 +395,7 @@ export default function MapCanvas() {
   useEffect(() => { if (!playing) updatePlanePositions(mapRef.current); }, [t, playing]);
 
   // When a single-flight preview is toggled via hover, update filters immediately
-  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId]);
+  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId, flightLevelBinPreviewSegments]);
 
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume]);
@@ -986,11 +987,12 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     focusFlightIds: sim.focusFlightIds,
     flowPreviewFlightId: sim.flowPreviewFlightId,
   });
+  const hasFlightLevelBinPreview = sim.flightLevelBinPreviewSegments.length > 0;
 
   let filterExpr: any;
-  if (lineIdsToShow.length === 0) {
+  if (hasFlightLevelBinPreview || lineIdsToShow.length === 0) {
     // Always-false filter when nothing should be shown
-    filterExpr = ["==", 1, 0];
+    filterExpr = ["==", ["to-string", ["get", "flightId"]], "__no_match__"];
   } else {
     // Robust membership check for a dynamic list of ids
     filterExpr = [
@@ -1005,18 +1007,29 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     syncFlightLevelLabelLayer({
       map,
       tracks,
-      visibleFlightIds: lineIdsToShow,
+      visibleFlightIds: hasFlightLevelBinPreview ? [] : lineIdsToShow,
       showFlightLineLabels: sim.showFlightLineLabels,
       flightLineLabelMode: sim.flightLineLabelMode,
     });
     setFlightLineLabelFilters(map, filterExpr);
     if (map.getLayer("plane-icons")) map.setFilter("plane-icons", filterExpr as any);
     const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId;
-    const lineOpacity = sim.flowPreviewFlightId ? 0.8 : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
+    const lineOpacity = hasFlightLevelBinPreview
+      ? 0
+      : sim.flowPreviewFlightId
+        ? 0.8
+        : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
       (map as any).__prevLineOpacity = lineOpacity;
     }
   }
+
+  syncFlightLevelBinPreviewLayer({
+    map,
+    segments: sim.flightLevelBinPreviewSegments,
+    showFlightLineLabels: sim.showFlightLineLabels,
+    flightLineLabelMode: sim.flightLineLabelMode,
+  });
 }

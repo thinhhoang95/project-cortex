@@ -10,6 +10,7 @@ import { getResourcePathsForDate } from "@/lib/dataPaths";
 import {
   setFlightLineLabelFilters,
 } from "@/lib/flightLineLabels";
+import { syncFlightLevelBinPreviewLayer } from "@/lib/flightLevelBinPreviewLayer";
 import { syncFlightLevelLabelLayer } from "@/lib/flightLineLabelLayer";
 import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
@@ -97,6 +98,7 @@ export default function MapCanvas() {
     getActiveHotspots,
     flowPreviewFlightId,
     flightLinePreviewFlightIds,
+    flightLevelBinPreviewSegments,
     playing,
     focusMode,
     focusFlightIds,
@@ -582,7 +584,9 @@ export default function MapCanvas() {
   useEffect(() => { if (!playing) updatePlanePositions(mapRef.current); }, [t, playing]);
 
   // When a single-flight preview is toggled via hover, update filters immediately
-  useEffect(() => { updatePlanePositions(mapRef.current); }, [flowPreviewFlightId, flightLinePreviewFlightIds]);
+  useEffect(() => {
+    updatePlanePositions(mapRef.current);
+  }, [flowPreviewFlightId, flightLinePreviewFlightIds, flightLevelBinPreviewSegments]);
 
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedCollapsedSector]);
@@ -1329,10 +1333,11 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
     flowPreviewFlightId: sim.flowPreviewFlightId,
   });
+  const hasFlightLevelBinPreview = sim.flightLevelBinPreviewSegments.length > 0;
   const hasFlightLinePreview = sim.flightLinePreviewFlightIds.size > 0;
 
   let filterExpr: any;
-  if (lineIdsToShow.length === 0) {
+  if (hasFlightLevelBinPreview || lineIdsToShow.length === 0) {
     // Use a no-match predicate instead of a constant false expression for MapLibre filter compatibility.
     filterExpr = ["==", ["to-string", ["get", "flightId"]], "__no_match__"];
   } else {
@@ -1349,7 +1354,7 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     syncFlightLevelLabelLayer({
       map,
       tracks,
-      visibleFlightIds: lineIdsToShow,
+      visibleFlightIds: hasFlightLevelBinPreview ? [] : lineIdsToShow,
       showFlightLineLabels: sim.showFlightLineLabels,
       flightLineLabelMode: sim.flightLineLabelMode,
     });
@@ -1362,7 +1367,9 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       !!sim.flowPreviewFlightId ||
       hasFlightLinePreview;
     const lineOpacity =
-      sim.flowPreviewFlightId || hasFlightLinePreview
+      hasFlightLevelBinPreview
+        ? 0
+        : sim.flowPreviewFlightId || hasFlightLinePreview
         ? 0.8
         : ((sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.1) : 0);
     const prevOpacity = (map as any).__prevLineOpacity;
@@ -1371,6 +1378,13 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       (map as any).__prevLineOpacity = lineOpacity;
     }
   }
+
+  syncFlightLevelBinPreviewLayer({
+    map,
+    segments: sim.flightLevelBinPreviewSegments,
+    showFlightLineLabels: sim.showFlightLineLabels,
+    flightLineLabelMode: sim.flightLineLabelMode,
+  });
 }
 
 async function fetchAndApplySlack(

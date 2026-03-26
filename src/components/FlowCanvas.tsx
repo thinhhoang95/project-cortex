@@ -9,6 +9,7 @@ import { getResourcePathsForDate } from "@/lib/dataPaths";
 import {
   setFlightLineLabelFilters,
 } from "@/lib/flightLineLabels";
+import { syncFlightLevelBinPreviewLayer } from "@/lib/flightLevelBinPreviewLayer";
 import { syncFlightLevelLabelLayer } from "@/lib/flightLineLabelLayer";
 import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
@@ -93,6 +94,7 @@ export default function FlowCanvas() {
     flowPreviewGroupId,
     flowPreviewFlightId,
     flightLinePreviewFlightIds,
+    flightLevelBinPreviewSegments,
     regulationCatcherActive,
     regulationCatcherMode,
     cancelRegulationCatcher,
@@ -561,7 +563,7 @@ export default function FlowCanvas() {
 
   // When a single-flight or group preview is toggled via hover, update filters immediately
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewFlightId]);
-  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flightLinePreviewFlightIds]);
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flightLinePreviewFlightIds, flightLevelBinPreviewSegments]);
 
   // Also react to group preview changes from FlowRegulationPanel header hover
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowPreviewGroupId]);
@@ -1030,9 +1032,10 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     regulationPreviewActive: sim.regulationPreviewActive,
     regulationTargetFlightIds: sim.regulationTargetFlightIds,
   });
+  const hasFlightLevelBinPreview = sim.flightLevelBinPreviewSegments.length > 0;
 
   let filterExpr: any;
-  if (lineIdsToShow.length === 0) {
+  if (hasFlightLevelBinPreview || lineIdsToShow.length === 0) {
     filterExpr = ["==", ["to-string", ["get", "flightId"]], "__no_match__"];
   } else {
     filterExpr = [
@@ -1047,14 +1050,18 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     syncFlightLevelLabelLayer({
       map,
       tracks,
-      visibleFlightIds: lineIdsToShow,
+      visibleFlightIds: hasFlightLevelBinPreview ? [] : lineIdsToShow,
       showFlightLineLabels: sim.showFlightLineLabels,
       flightLineLabelMode: sim.flightLineLabelMode,
     });
     const hasFlightLinePreview = sim.flightLinePreviewFlightIds.size > 0;
     const inFocusContext = sim.focusMode || !!sim.selectedTrafficVolume || !!sim.flowPreviewFlightId || hasFlightLinePreview;
     const baseOpacity = (sim.showFlightLines || inFocusContext) ? (sim.focusMode ? 0.8 : 0.15) : 0;
-    const lineOpacity = (sim.flowPreviewFlightId || hasFlightLinePreview) ? 0.8 : (sim.flowViewEnabled ? 0.8 : baseOpacity);
+    const lineOpacity = hasFlightLevelBinPreview
+      ? 0
+      : (sim.flowPreviewFlightId || hasFlightLinePreview)
+        ? 0.8
+        : (sim.flowViewEnabled ? 0.8 : baseOpacity);
     const prevOpacity = (map as any).__prevLineOpacity;
     if (prevOpacity !== lineOpacity) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
@@ -1062,6 +1069,12 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     }
   }
   setFlightLineLabelFilters(map, filterExpr);
+  syncFlightLevelBinPreviewLayer({
+    map,
+    segments: sim.flightLevelBinPreviewSegments,
+    showFlightLineLabels: sim.showFlightLineLabels,
+    flightLineLabelMode: sim.flightLineLabelMode,
+  });
 }
 
 // (Regulation highlight removed in FlowCanvas)

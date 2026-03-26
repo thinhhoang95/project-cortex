@@ -4,7 +4,9 @@ import {
   aggregateFlightLevelBins,
   buildFlightLevelBinLabel,
   filterFlightLevelBinsToWindow,
+  mergeFlightLevelBinPreviewSegments,
   type FlightLevelCountBin,
+  normalizeFlightLevelBinPreviewSegments,
 } from "./flightLevelBinCounts";
 
 const BASE_BINS: FlightLevelCountBin[] = [
@@ -108,5 +110,81 @@ describe("flightLevelBinCounts", () => {
     });
 
     expect(focused.map((bin) => bin.count)).toEqual([2, 2]);
+  });
+
+  it("normalizes exact preview segments from the hover API payload", () => {
+    expect(
+      normalizeFlightLevelBinPreviewSegments({
+        segments: [
+          {
+            preview_segment_id: "F1:3000000:4200000:0",
+            flight_id: "F1",
+            coordinates: [[4.5, 50.8], [4.7, 50.9], [4.9, 51]],
+            flight_level_label: "330-360",
+          },
+          {
+            preview_segment_id: "F1:3000000:4200000:0",
+            flight_id: "F1",
+            coordinates: [[0, 0], [1, 1]],
+            flight_level_label: "ignored duplicate",
+          },
+          {
+            preview_segment_id: "invalid",
+            flight_id: "F2",
+            coordinates: [[5.1, Number.NaN]],
+            flight_level_label: "bad geometry",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        previewSegmentId: "F1:3000000:4200000:0",
+        flightId: "F1",
+        coordinates: [[4.5, 50.8], [4.7, 50.9], [4.9, 51]],
+        flightLevelLabel: "330-360",
+      },
+    ]);
+  });
+
+  it("merges preview segments by preview-segment id without duplicates", () => {
+    expect(
+      mergeFlightLevelBinPreviewSegments([
+        [
+          {
+            previewSegmentId: "A",
+            flightId: "F1",
+            coordinates: [[1, 2], [3, 4]],
+            flightLevelLabel: "330-360",
+          },
+        ],
+        [
+          {
+            previewSegmentId: "A",
+            flightId: "F1",
+            coordinates: [[1, 2], [3, 4]],
+            flightLevelLabel: "330-360",
+          },
+          {
+            previewSegmentId: "B",
+            flightId: "F2",
+            coordinates: [[5, 6], [7, 8]],
+            flightLevelLabel: "360-390",
+          },
+        ],
+      ]),
+    ).toEqual([
+      {
+        previewSegmentId: "A",
+        flightId: "F1",
+        coordinates: [[1, 2], [3, 4]],
+        flightLevelLabel: "330-360",
+      },
+      {
+        previewSegmentId: "B",
+        flightId: "F2",
+        coordinates: [[5, 6], [7, 8]],
+        flightLevelLabel: "360-390",
+      },
+    ]);
   });
 });

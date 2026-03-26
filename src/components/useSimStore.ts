@@ -22,6 +22,7 @@ import {
   type TrafficVolumeSelectionMode,
 } from "@/lib/multiTrafficVolumeSelection";
 import type { FlightLineLabelMode } from "@/lib/flightLineLabels";
+import type { FlightLevelBinPreviewSegment } from "@/lib/flightLevelBinCounts";
 import {
   collectAllProposalFlights,
   collectProposalFlights,
@@ -184,6 +185,7 @@ type State = {
   flowPreviewGroupId: string | null;
   flowPreviewFlightId: string | null;
   flightLinePreviewFlightIds: Set<string>;
+  flightLevelBinPreviewSegments: FlightLevelBinPreviewSegment[];
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationPreviewActive: boolean;
@@ -298,6 +300,8 @@ type State = {
   setFlowPreviewGroupId: (groupId: string | null) => void;
   setFlowPreviewFlightId: (flightId: string | null) => void;
   setFlightLinePreviewFlightIds: (flightIds: Set<string>) => void;
+  setFlightLevelBinPreviewSegments: (segments: FlightLevelBinPreviewSegment[]) => void;
+  clearFlightLevelBinPreviewSegments: () => void;
   setFlowColorByCommunity: (m: Record<string, string> | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
@@ -464,6 +468,7 @@ const defaultState: Pick<State,
   | 'flowPreviewGroupId'
   | 'flowPreviewFlightId'
   | 'flightLinePreviewFlightIds'
+  | 'flightLevelBinPreviewSegments'
   | 'regulationTargetFlightIds'
   | 'regulationPreviewActive'
   | 'regulationVisibleFlightIds'
@@ -580,6 +585,7 @@ const defaultState: Pick<State,
   flowPreviewGroupId: null,
   flowPreviewFlightId: null,
   flightLinePreviewFlightIds: new Set<string>(),
+  flightLevelBinPreviewSegments: [],
   regulationTargetFlightIds: new Set<string>(),
   regulationPreviewActive: false,
   regulationVisibleFlightIds: [],
@@ -764,6 +770,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       regulationVisibleFlightIds: [],
       regulationListedFlightIds: [],
       regulationEditPayload: null,
+      flightLinePreviewFlightIds: new Set<string>(),
+      flightLevelBinPreviewSegments: [] as FlightLevelBinPreviewSegment[],
       flights,
       range: nextRange,
       t: clampTimeToRange(state.t, nextRange),
@@ -828,6 +836,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       flowPreviewGroupId: invalidateServerDerivedState ? null : state.flowPreviewGroupId,
       flowPreviewFlightId: invalidateServerDerivedState ? null : state.flowPreviewFlightId,
       flightLinePreviewFlightIds: invalidateServerDerivedState ? new Set<string>() : state.flightLinePreviewFlightIds,
+      flightLevelBinPreviewSegments: invalidateServerDerivedState ? [] : state.flightLevelBinPreviewSegments,
       rerouteImpactResult: invalidateServerDerivedState ? null : state.rerouteImpactResult,
       isRerouteImpactResultsOpen: invalidateServerDerivedState ? false : state.isRerouteImpactResultsOpen,
       rerouteImpactScenarioSignature: invalidateServerDerivedState ? null : state.rerouteImpactScenarioSignature,
@@ -1165,6 +1174,8 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setFlowPreviewGroupId: (groupId) => set({ flowPreviewGroupId: groupId }),
   setFlowPreviewFlightId: (flightId) => set({ flowPreviewFlightId: flightId }),
   setFlightLinePreviewFlightIds: (flightIds) => set({ flightLinePreviewFlightIds: flightIds }),
+  setFlightLevelBinPreviewSegments: (segments) => set({ flightLevelBinPreviewSegments: segments }),
+  clearFlightLevelBinPreviewSegments: () => set({ flightLevelBinPreviewSegments: [] }),
   setFlowColorByCommunity: (m) => set({ flowColorByCommunity: m }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   setRegulationListedFlightIds: (ids) => set({ regulationListedFlightIds: ids }),
