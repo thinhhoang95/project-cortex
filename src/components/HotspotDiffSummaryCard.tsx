@@ -7,6 +7,7 @@ import {
   buildHotspotDiffCategories,
   type HotspotDiffCategoryEntry,
   type HotspotDiffCategoryKey,
+  type HotspotVisibleRange,
 } from "@/lib/hotspotDiffs";
 import type { WithHotspotDiffs } from "@/lib/models";
 
@@ -50,7 +51,7 @@ const CATEGORY_CONFIG: CategoryConfig[] = [
   {
     key: "changed",
     title: "Changed hotspot patterns",
-    description: "TVs that both gain and relieve hotspot bins here. This is inferred.",
+    description: "TVs that both gain and relieve hotspot bins here.",
     panelClassName: "border-sky-300/20 bg-sky-500/10",
     badgeClassName: "border-sky-300/30 bg-sky-500/15 text-sky-100",
     emptyLabel: "No shifted hotspot patterns in this window.",
@@ -75,6 +76,44 @@ function formatSegmentPill(value: number): string {
   return abs === 1 ? "1 seg" : `${abs} segs`;
 }
 
+function formatVisibleRanges(
+  ranges: HotspotVisibleRange[],
+  maxVisible = 2,
+): string | null {
+  if (!Array.isArray(ranges) || ranges.length === 0) return null;
+  const displayed = ranges.slice(0, maxVisible).map((range) => range.label);
+  const hiddenCount = Math.max(0, ranges.length - displayed.length);
+  if (hiddenCount <= 0) return displayed.join(", ");
+  return `${displayed.join(", ")} + ${hiddenCount} more`;
+}
+
+function renderSecondaryMeta({
+  binCount,
+  segmentCount,
+  variant,
+}: {
+  binCount: number;
+  segmentCount: number;
+  variant: "new" | "extinguished";
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 text-[11px]">
+      <span
+        className={`rounded-full border bg-black/20 px-2 py-0.5 ${
+          variant === "new"
+            ? "border-rose-300/20 text-rose-100"
+            : "border-emerald-300/20 text-emerald-100"
+        }`}
+      >
+        {formatBinPill(binCount, variant)}
+      </span>
+      <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-white/75">
+        {formatSegmentPill(segmentCount)}
+      </span>
+    </div>
+  );
+}
+
 function HotspotSummaryRow({
   category,
   entry,
@@ -84,6 +123,9 @@ function HotspotSummaryRow({
   entry: HotspotDiffCategoryEntry;
   onRevealTv?: (tvId: string) => void;
 }) {
+  const newRangeText = formatVisibleRanges(entry.new_ranges);
+  const extinguishRangeText = formatVisibleRanges(entry.extinguished_ranges);
+
   const content = (
     <>
       <div className="min-w-0">
@@ -95,41 +137,64 @@ function HotspotSummaryRow({
             {entry.traffic_volume_id}
           </span>
         </TrafficVolumeInfoTooltip>
+        <div className="mt-1.5 space-y-1">
+          {category === "new" ? (
+            newRangeText ? (
+              <div className="text-xs text-white/80">{newRangeText}</div>
+            ) : (
+              <div className="text-xs text-white/55">
+                {formatBinPill(entry.new_hotspot_bin_count, "new")}
+              </div>
+            )
+          ) : null}
+          {category === "extinguished" ? (
+            extinguishRangeText ? (
+              <div className="text-xs text-white/80">{extinguishRangeText}</div>
+            ) : (
+              <div className="text-xs text-white/55">
+                {formatBinPill(entry.extinguished_hotspot_bin_count, "extinguished")}
+              </div>
+            )
+          ) : null}
+          {category === "changed" ? (
+            <>
+              <div className="text-xs text-white/80">
+                <span className="mr-1 text-sky-200/85">New:</span>
+                {newRangeText || formatBinPill(entry.new_hotspot_bin_count, "new")}
+              </div>
+              <div className="text-xs text-white/70">
+                <span className="mr-1 text-white/55">Relieved:</span>
+                {extinguishRangeText || formatBinPill(entry.extinguished_hotspot_bin_count, "extinguished")}
+              </div>
+            </>
+          ) : null}
+        </div>
       </div>
-      <div className="flex flex-wrap justify-end gap-1.5 text-[11px]">
+      <div className="flex flex-wrap justify-end gap-1.5 text-[11px] self-start">
         {category === "new" ? (
-          <>
-            <span className="rounded-full border border-rose-300/20 bg-black/20 px-2 py-0.5 text-rose-100">
-              {formatBinPill(entry.new_hotspot_bin_count, "new")}
-            </span>
-            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-white/75">
-              {formatSegmentPill(entry.new_hotspot_segment_count)}
-            </span>
-          </>
+          renderSecondaryMeta({
+            binCount: entry.new_hotspot_bin_count,
+            segmentCount: entry.new_hotspot_segment_count,
+            variant: "new",
+          })
         ) : null}
         {category === "extinguished" ? (
-          <>
-            <span className="rounded-full border border-emerald-300/20 bg-black/20 px-2 py-0.5 text-emerald-100">
-              {formatBinPill(entry.extinguished_hotspot_bin_count, "extinguished")}
-            </span>
-            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-white/75">
-              {formatSegmentPill(entry.extinguished_hotspot_segment_count)}
-            </span>
-          </>
+          renderSecondaryMeta({
+            binCount: entry.extinguished_hotspot_bin_count,
+            segmentCount: entry.extinguished_hotspot_segment_count,
+            variant: "extinguished",
+          })
         ) : null}
         {category === "changed" ? (
           <>
             <span className="rounded-full border border-sky-300/20 bg-black/20 px-2 py-0.5 text-sky-100">
               {formatBinPill(entry.new_hotspot_bin_count, "new")}
             </span>
-            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-white/80">
+            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-white/75">
               {formatBinPill(entry.extinguished_hotspot_bin_count, "extinguished")}
             </span>
             <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-white/75">
-              {formatSegmentPill(
-                entry.new_hotspot_segment_count +
-                  entry.extinguished_hotspot_segment_count,
-              )}
+              {formatSegmentPill(entry.new_hotspot_segment_count + entry.extinguished_hotspot_segment_count)}
             </span>
           </>
         ) : null}
@@ -139,7 +204,7 @@ function HotspotSummaryRow({
 
   if (typeof onRevealTv !== "function") {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/15 px-3 py-2">
+      <div className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-black/15 px-3 py-2">
         {content}
       </div>
     );
@@ -148,7 +213,7 @@ function HotspotSummaryRow({
   return (
     <button
       type="button"
-      className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-left transition-colors hover:border-white/20 hover:bg-black/25"
+      className="flex w-full items-start justify-between gap-3 rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-left transition-colors hover:border-white/20 hover:bg-black/25"
       onClick={() => onRevealTv(entry.traffic_volume_id)}
     >
       {content}
@@ -191,7 +256,7 @@ const CategorySection = memo(function CategorySection({
         </span>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {displayed.length > 0 ? (
           displayed.map((entry) => (
             <HotspotSummaryRow

@@ -20,9 +20,18 @@ export type HotspotDiffsData = {
 
 export type HotspotDiffCategoryKey = "new" | "extinguished" | "changed";
 
+export type HotspotVisibleRange = {
+  start_bin: number;
+  end_bin: number;
+  bin_count: number;
+  label: string;
+};
+
 export type HotspotDiffCategoryEntry = HotspotChangeSummary & {
   sort_score: number;
   sort_index: number;
+  new_ranges: HotspotVisibleRange[];
+  extinguished_ranges: HotspotVisibleRange[];
 };
 
 export type HotspotDiffCategorySet = {
@@ -140,6 +149,60 @@ function computeIntersectingBinCount(
   const end = Math.min(windowEndIndex, Math.trunc(toFiniteNumber(segment.end_bin)));
   if (end < start) return 0;
   return end - start + 1;
+}
+
+function formatRangeBoundary(totalMinutes: number): string {
+  const rounded = Math.max(0, Math.floor(totalMinutes));
+  if (rounded >= 24 * 60) return "24:00";
+  return minutesToHHMM(rounded);
+}
+
+function buildVisibleRangeLabel(
+  startBin: number,
+  endBin: number,
+  timeBinMinutes: number,
+): string {
+  const safeBinMinutes = Math.max(1, Math.trunc(toFiniteNumber(timeBinMinutes, 15)));
+  const startMinutes = startBin * safeBinMinutes;
+  const endMinutes = (endBin + 1) * safeBinMinutes;
+  return `${formatRangeBoundary(startMinutes)}-${formatRangeBoundary(endMinutes)}`;
+}
+
+function clipSegmentToWindow(
+  segment: HotspotSegment,
+  windowStartIndex: number,
+  windowEndIndex: number,
+): HotspotVisibleRange | null {
+  const start = Math.max(windowStartIndex, Math.trunc(toFiniteNumber(segment.start_bin)));
+  const end = Math.min(windowEndIndex, Math.trunc(toFiniteNumber(segment.end_bin)));
+  if (end < start) return null;
+  return {
+    start_bin: start,
+    end_bin: end,
+    bin_count: end - start + 1,
+    label: buildVisibleRangeLabel(start, end, segment.time_bin_minutes),
+  };
+}
+
+function collectVisibleRangesByTv(
+  segments: HotspotSegment[],
+  windowStartIndex: number,
+  windowEndIndex: number,
+): Map<string, HotspotVisibleRange[]> {
+  const byTv = new Map<string, HotspotVisibleRange[]>();
+  for (const segment of segments) {
+    const tvId = normalizeTrafficVolumeId(segment.traffic_volume_id);
+    if (!tvId) continue;
+    const visibleRange = clipSegmentToWindow(segment, windowStartIndex, windowEndIndex);
+    if (!visibleRange) continue;
+    const existing = byTv.get(tvId);
+    if (existing) {
+      existing.push(visibleRange);
+    } else {
+      byTv.set(tvId, [visibleRange]);
+    }
+  }
+  return byTv;
 }
 
 function accumulateSegmentWindowCounts(
@@ -267,6 +330,21 @@ export function buildHotspotDiffCategories(options: {
     viewFrom,
     viewTo,
   });
+  const windowRange = getOccupancyWindowRange(
+    hhmmToMinutesSafe(viewFrom),
+    hhmmToMinutesSafe(viewTo),
+    Math.max(1, Math.trunc(toFiniteNumber(binMinutes, 15))),
+  );
+  const newRangesByTv = collectVisibleRangesByTv(
+    normalized.new_hotspots,
+    windowRange.startIndex,
+    windowRange.endIndex,
+  );
+  const extinguishRangesByTv = collectVisibleRangesByTv(
+    normalized.extinguished_hotspots,
+    windowRange.startIndex,
+    windowRange.endIndex,
+  );
   const orderIndex = buildTvOrderIndex({
     tvOrder,
     summary,
@@ -277,6 +355,8 @@ export function buildHotspotDiffCategories(options: {
     ...entry,
     sort_score: 0,
     sort_index: orderIndex.get(entry.traffic_volume_id) ?? Number.MAX_SAFE_INTEGER,
+    new_ranges: newRangesByTv.get(entry.traffic_volume_id) || [],
+    extinguished_ranges: extinguishRangesByTv.get(entry.traffic_volume_id) || [],
   });
 
   const stableSort = (

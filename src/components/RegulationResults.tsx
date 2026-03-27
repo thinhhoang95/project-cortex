@@ -982,7 +982,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
 
   return (
     <>
-      <ModalDialog open={open} onClose={onClose} title="Simulation Results" description="Post-regulation occupancy, delay stats, and per-flight details">
+      <ModalDialog open={open} onClose={onClose} title="Simulation Results" description="Post-regulation occupancy, delay stats, and per-flight details" width="w-[calc(100vw-3rem)]" height="h-[calc(100vh-3rem)]">
         <div className="p-6 space-y-6">
         {/* Delay stats */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-4">

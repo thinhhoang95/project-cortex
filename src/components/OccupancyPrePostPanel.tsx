@@ -464,7 +464,7 @@ function OccupancyPrePostPanelInner({
       )}
 
       {/* Grid of per-TV charts */}
-      <div className="grid grid-cols-1 gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {displayTvs.map((tv) => {
           const isPinned = pinnedSet.has(tv);
           const rows = rowsByDisplayedTv.get(tv) ?? EMPTY_ROWS;
