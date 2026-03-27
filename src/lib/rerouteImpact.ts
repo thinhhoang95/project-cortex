@@ -1,4 +1,9 @@
 import { authFetch } from "@/lib/auth";
+import {
+  computeHotspotDiffsFromRollingCounts,
+  normalizeHotspotDiffs,
+} from "@/lib/hotspotDiffs";
+import type { WithHotspotDiffs } from "@/lib/models";
 import type { Point2D, RerouteFunnel, RerouteObstacle } from "@/lib/rerouteGeometry";
 
 export type RerouteImpactCommittedMoveLike = {
@@ -98,7 +103,7 @@ export type RerouteImpactDiagnosticsFlight = {
 
 export type RerouteImpactSeriesByTv = Record<string, number[]>;
 
-export type RerouteImpactResponse = {
+export type RerouteImpactResponse = WithHotspotDiffs & {
   resource_date: string | null;
   time_bin_minutes: number;
   num_bins: number;
@@ -482,6 +487,13 @@ export function mergeGroupedRerouteImpactResponses(
     Object.keys(diagnosticsFlightsObject).length,
   );
   const tvIdsOrder = recomputeTvIdsOrder(mergedRawDelta, preferredTvOrder);
+  const mergedHotspotDiffs = computeHotspotDiffsFromRollingCounts({
+    preCounts: mergedRollingPre,
+    postCounts: mergedRollingPost,
+    capacity: mergedCapacity,
+    tvOrder: tvIdsOrder,
+    binMinutes: toFiniteInteger(first.time_bin_minutes, "time_bin_minutes"),
+  });
 
   const mergedResponse: RerouteImpactResponse = {
     resource_date: first.resource_date ?? null,
@@ -542,6 +554,7 @@ export function mergeGroupedRerouteImpactResponses(
       },
       flights: diagnosticsFlightsObject,
     },
+    ...normalizeHotspotDiffs(mergedHotspotDiffs),
   };
 
   if (detouredIncluded || mergedDetouredFlights.size > 0) {

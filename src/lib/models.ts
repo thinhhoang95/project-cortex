@@ -128,7 +128,39 @@ export interface RegulationPlanPreFlightContextEntry {
   tv_arrival_time: string | null;
 }
 
-export interface RegulationPlanSimulationResponse {
+export interface HotspotSegment {
+  traffic_volume_id: string;
+  start_bin: number;
+  end_bin: number;
+  start_label: string;
+  end_label: string;
+  time_bin_minutes: number;
+  window_minutes: number;
+  max_excess: number;
+  sum_excess: number;
+  peak_rolling_count: number;
+  capacity_stats: {
+    min: number;
+    max: number;
+  };
+}
+
+export interface HotspotChangeSummary {
+  traffic_volume_id: string;
+  new_hotspot_bin_count: number;
+  extinguished_hotspot_bin_count: number;
+  net_hotspot_bin_delta: number;
+  new_hotspot_segment_count: number;
+  extinguished_hotspot_segment_count: number;
+}
+
+export interface WithHotspotDiffs {
+  new_hotspots?: HotspotSegment[];
+  extinguished_hotspots?: HotspotSegment[];
+  hotspot_change_summary?: HotspotChangeSummary[];
+}
+
+export interface RegulationPlanSimulationResponse extends WithHotspotDiffs {
   delays_by_flight: Record<string, number>;
   per_acc_attrib?: RegulationPlanPerAccAttrib;
   pre_flight_context?: Record<string, RegulationPlanPreFlightContextEntry>;
@@ -201,7 +233,7 @@ export interface AutomaticRateAdjustmentResponse {
 // Shared occupancy types
 export type OccupancySeriesByTv = Record<string, number[]>;
 
-export interface PrePostOccupancyData {
+export interface PrePostOccupancyData extends WithHotspotDiffs {
   time_bin_minutes: number;
   pre_counts?: OccupancySeriesByTv;
   post_counts: OccupancySeriesByTv;

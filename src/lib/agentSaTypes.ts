@@ -1,4 +1,4 @@
-import type { RegulationPlanPerAccAttrib } from "@/lib/models";
+import type { RegulationPlanPerAccAttrib, WithHotspotDiffs } from "@/lib/models";
 
 export type SaObjectiveHistorySeries = "best" | "current";
 
@@ -109,7 +109,7 @@ export interface SaPosthocAnalysisResponse {
   metadata?: Record<string, unknown>;
 }
 
-export interface SaPosthocOccupancyPrePost {
+export interface SaPosthocOccupancyPrePost extends WithHotspotDiffs {
   time_bin_minutes: number;
   num_bins?: number;
   tv_ids_order?: string[];

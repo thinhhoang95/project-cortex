@@ -3,7 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Line } from "recharts";
 import { binIndexToRangeLabel, hhmmToMinutesSafe } from "@/lib/time";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
-import type { OccupancySeriesByTv } from "@/lib/models";
+import type { OccupancySeriesByTv, WithHotspotDiffs } from "@/lib/models";
 import {
   computeOccupancyWindowStatsByTv,
   getOccupancyWindowRange,
@@ -15,6 +15,7 @@ import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import ShimmeringText from "@/components/ShimmeringText";
+import HotspotDiffSummaryCard from "@/components/HotspotDiffSummaryCard";
 
 const PAGE_SIZE = 20;
 export type OccupancyPrePostSortMode = OccupancyWindowSortMode;
@@ -23,6 +24,7 @@ export interface OccupancyPrePostPanelProps {
   postCounts: OccupancySeriesByTv;
   preCounts?: OccupancySeriesByTv;
   capacity?: OccupancySeriesByTv;
+  hotspotDiffs?: Partial<WithHotspotDiffs> | null;
   tvOrder?: string[];
   binMinutes: number;
   viewFrom: string;
@@ -60,6 +62,7 @@ interface TvChartCardProps {
   tv: string;
   rows: TvRowPoint[];
   isPinned: boolean;
+  isFocused: boolean;
   compact?: boolean;
   binMinutes: number;
   showLabels: boolean;
@@ -70,7 +73,7 @@ interface TvChartCardProps {
 }
 
 const TvChartCard = memo(function TvChartCard({
-  tv, rows, isPinned, compact, binMinutes, showLabels, viewFrom, viewTo, hasPreSeries, hasPostSeries,
+  tv, rows, isPinned, isFocused, compact, binMinutes, showLabels, viewFrom, viewTo, hasPreSeries, hasPostSeries,
 }: TvChartCardProps) {
   const hasData = rows.length > 0;
   const preSegments = useMemo(() => buildOverloadSegments(rows, binMinutes, tv, 'pre'), [rows, binMinutes, tv]);
@@ -82,7 +85,7 @@ const TvChartCard = memo(function TvChartCard({
         isPinned
           ? "border-emerald-300/60 bg-emerald-500/10 shadow-[0_16px_32px_-28px_rgba(16,185,129,0.6)]"
           : "border-white/10 bg-white/5"
-      }`}
+      } ${isFocused ? "ring-2 ring-sky-300/45 shadow-[0_0_0_1px_rgba(125,211,252,0.2),0_18px_38px_-26px_rgba(56,189,248,0.85)]" : ""}`}
     >
       <div className="flex items-center justify-between mb-2 gap-2">
         <div className="text-sm font-semibold text-white/90 truncate">
@@ -167,6 +170,7 @@ function OccupancyPrePostPanelInner({
   postCounts,
   preCounts,
   capacity,
+  hotspotDiffs,
   tvOrder,
   binMinutes,
   viewFrom,
@@ -315,6 +319,9 @@ function OccupancyPrePostPanelInner({
   const unpinnedCount = unpinnedTvs.length;
 
   const [visibleNonPinnedCount, setVisibleNonPinnedCount] = useState<number>(initialLimit);
+  const [pendingRevealTvId, setPendingRevealTvId] = useState<string | null>(null);
+  const [focusedTvId, setFocusedTvId] = useState<string | null>(null);
+  const tvCardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   useEffect(() => {
     setVisibleNonPinnedCount((current) => {
@@ -349,6 +356,39 @@ function OccupancyPrePostPanelInner({
       );
     }
   };
+
+  const handleRevealTv = (tvId: string) => {
+    const normalized = String(tvId ?? "").trim();
+    if (!normalized) return;
+    const unpinnedIndex = unpinnedTvs.indexOf(normalized);
+    if (unpinnedIndex >= 0) {
+      setVisibleNonPinnedCount((current) =>
+        Math.max(current, Math.min(unpinnedCount, unpinnedIndex + 1)),
+      );
+    }
+    setPendingRevealTvId(normalized);
+  };
+
+  useEffect(() => {
+    if (!pendingRevealTvId) return;
+    if (!displayTvs.includes(pendingRevealTvId)) return;
+    const element = tvCardRefs.current.get(pendingRevealTvId);
+    if (!element) return;
+    const rafId = window.requestAnimationFrame(() => {
+      element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setFocusedTvId(pendingRevealTvId);
+      setPendingRevealTvId(null);
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [displayTvs, pendingRevealTvId]);
+
+  useEffect(() => {
+    if (!focusedTvId) return;
+    const timeoutId = window.setTimeout(() => {
+      setFocusedTvId((current) => (current === focusedTvId ? null : current));
+    }, 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [focusedTvId]);
 
   const isLoading = Boolean(loading) || internalLoading;
   const err = error || internalError || null;
@@ -401,6 +441,17 @@ function OccupancyPrePostPanelInner({
         />
       )}
 
+      {hotspotDiffs ? (
+        <HotspotDiffSummaryCard
+          hotspotDiffs={hotspotDiffs}
+          tvOrder={tvOrder && tvOrder.length > 0 ? tvOrder : UNION_TVS}
+          binMinutes={binMinutes}
+          viewFrom={viewFrom}
+          viewTo={viewTo}
+          onRevealTv={handleRevealTv}
+        />
+      ) : null}
+
       {showReliefMap && (
         <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
           <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">{reliefMapTitle}</div>
@@ -421,19 +472,30 @@ function OccupancyPrePostPanelInner({
           const hasPreSeries = Boolean(stats?.hasPreSeries);
           const hasPostSeries = Boolean(stats?.hasPostSeries);
           return (
-            <TvChartCard
+            <div
               key={tv}
-              tv={tv}
-              rows={rows}
-              isPinned={isPinned}
-              compact={compact}
-              binMinutes={binMinutes}
-              showLabels={showLabels}
-              viewFrom={viewFrom}
-              viewTo={viewTo}
-              hasPreSeries={hasPreSeries}
-              hasPostSeries={hasPostSeries}
-            />
+              ref={(element) => {
+                if (element) {
+                  tvCardRefs.current.set(tv, element);
+                } else {
+                  tvCardRefs.current.delete(tv);
+                }
+              }}
+            >
+              <TvChartCard
+                tv={tv}
+                rows={rows}
+                isPinned={isPinned}
+                isFocused={focusedTvId === tv}
+                compact={compact}
+                binMinutes={binMinutes}
+                showLabels={showLabels}
+                viewFrom={viewFrom}
+                viewTo={viewTo}
+                hasPreSeries={hasPreSeries}
+                hasPostSeries={hasPostSeries}
+              />
+            </div>
           );
         })}
       </div>
@@ -456,6 +518,7 @@ const OccupancyPrePostPanel = memo(OccupancyPrePostPanelInner, (prev, next) =>
   prev.postCounts === next.postCounts &&
   prev.preCounts === next.preCounts &&
   prev.capacity === next.capacity &&
+  prev.hotspotDiffs === next.hotspotDiffs &&
   prev.tvOrder === next.tvOrder &&
   prev.pinnedTvIds === next.pinnedTvIds &&
   prev.sortMode === next.sortMode &&

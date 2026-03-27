@@ -2243,6 +2243,7 @@ function FlowEvaluationPageContent() {
                 postCounts={occAllPostCountsForView}
                 preCounts={occAllPreCountsForView}
                 capacity={occAllCapacityForView}
+                hotspotDiffs={occAllState.data}
                 tvOrder={occAllTvOrderForView}
                 binMinutes={minutesPerBin}
                 viewFrom={viewFrom}

@@ -1,6 +1,10 @@
-import type { RegulationPlanPerAccAttrib } from "@/lib/models";
+import type { RegulationPlanPerAccAttrib, WithHotspotDiffs } from "@/lib/models";
+import {
+  cloneHotspotChangeSummary,
+  cloneHotspotSegments,
+} from "@/lib/hotspotDiffs";
 
-export type AutorateOccupancyResponse = {
+export type AutorateOccupancyResponse = WithHotspotDiffs & {
   time_bin_minutes: number;
   num_bins?: number;
   tv_ids_order?: string[];
@@ -38,6 +42,9 @@ export function cloneAutorateOccupancyResponse(
         }
       : undefined,
     capacity: cloneSeriesMap(data.capacity),
+    new_hotspots: cloneHotspotSegments(data.new_hotspots),
+    extinguished_hotspots: cloneHotspotSegments(data.extinguished_hotspots),
+    hotspot_change_summary: cloneHotspotChangeSummary(data.hotspot_change_summary),
   };
   return clone;
 }

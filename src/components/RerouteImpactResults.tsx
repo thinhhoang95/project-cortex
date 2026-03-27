@@ -207,6 +207,7 @@ export default function RerouteImpactResults({
                 postCounts={result.rolling_hour?.post_counts || {}}
                 preCounts={result.rolling_hour?.pre_counts || {}}
                 capacity={result.capacity}
+                hotspotDiffs={result}
                 tvOrder={result.tv_ids_order || []}
                 binMinutes={result.time_bin_minutes}
                 viewFrom={viewFrom}

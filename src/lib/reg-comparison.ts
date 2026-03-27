@@ -1,5 +1,9 @@
 import { RegulationPlanSimulationResponse, RegulationPlanDelayStats } from "@/lib/models";
 import {
+  cloneHotspotChangeSummary,
+  cloneHotspotSegments,
+} from "@/lib/hotspotDiffs";
+import {
   sanitizeStoredPerAccAttribs,
   type StoredPerAccAttribByMode,
 } from "@/lib/perAccComparison";
@@ -15,6 +19,9 @@ export interface RegulationAggregatedRolling {
   post_counts: Record<string, number[]>;
   capacity?: Record<string, number[]>;
   tv_ids_order?: string[];
+  new_hotspots?: RegulationPlanSimulationResponse["new_hotspots"];
+  extinguished_hotspots?: RegulationPlanSimulationResponse["extinguished_hotspots"];
+  hotspot_change_summary?: RegulationPlanSimulationResponse["hotspot_change_summary"];
   timeLabels?: string[];
 }
 
@@ -153,6 +160,9 @@ export function createRegulationSnapshot(params: {
   if (Object.keys(preCounts).length > 0) aggregatedRolling.pre_counts = preCounts;
   if (Object.keys(capacity).length > 0) aggregatedRolling.capacity = capacity;
   if (tvOrder.length > 0) aggregatedRolling.tv_ids_order = tvOrder;
+  aggregatedRolling.new_hotspots = cloneHotspotSegments(result.new_hotspots);
+  aggregatedRolling.extinguished_hotspots = cloneHotspotSegments(result.extinguished_hotspots);
+  aggregatedRolling.hotspot_change_summary = cloneHotspotChangeSummary(result.hotspot_change_summary);
 
   const delayStats: RegulationPlanDelayStats = {};
   const rawDelayStats = result.delay_stats ?? ({} as RegulationPlanDelayStats);
@@ -237,6 +247,9 @@ function readRegSnapshotsFromStorage(): RegulationSnapshot[] {
           pre_counts: aggregated.pre_counts && typeof aggregated.pre_counts === "object" ? { ...aggregated.pre_counts } : undefined,
           capacity: aggregated.capacity && typeof aggregated.capacity === "object" ? { ...aggregated.capacity } : undefined,
           tv_ids_order: Array.isArray(aggregated.tv_ids_order) ? [...aggregated.tv_ids_order] : undefined,
+          new_hotspots: cloneHotspotSegments(aggregated.new_hotspots),
+          extinguished_hotspots: cloneHotspotSegments(aggregated.extinguished_hotspots),
+          hotspot_change_summary: cloneHotspotChangeSummary(aggregated.hotspot_change_summary),
           timeLabels: Array.isArray(aggregated.timeLabels) ? [...aggregated.timeLabels] : undefined,
         };
         const sanitizedObjective = sanitizeObjective((item as any).objective);
@@ -373,6 +386,9 @@ export function importRegSnapshots(raw: string): RegulationSnapshot[] {
           pre_counts: aggregated.pre_counts && typeof aggregated.pre_counts === "object" ? { ...aggregated.pre_counts } : undefined,
           capacity: aggregated.capacity && typeof aggregated.capacity === "object" ? { ...aggregated.capacity } : undefined,
           tv_ids_order: Array.isArray(aggregated.tv_ids_order) ? [...aggregated.tv_ids_order] : undefined,
+          new_hotspots: cloneHotspotSegments(aggregated.new_hotspots),
+          extinguished_hotspots: cloneHotspotSegments(aggregated.extinguished_hotspots),
+          hotspot_change_summary: cloneHotspotChangeSummary(aggregated.hotspot_change_summary),
           timeLabels: Array.isArray(aggregated.timeLabels) ? [...aggregated.timeLabels] : undefined,
         },
         objective: sanitizedObjective,

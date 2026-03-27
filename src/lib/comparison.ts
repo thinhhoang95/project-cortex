@@ -2,6 +2,10 @@ import { AutomaticRateAdjustmentResponse, BaseEvaluationResponse } from "@/lib/m
 import { AutorateOccupancyResponse, cloneAutorateOccupancyResponse } from "@/lib/autorate";
 import { FlowInputPayload, sanitizeFlowInputPayload } from "@/lib/flow-input";
 import {
+  cloneHotspotChangeSummary,
+  cloneHotspotSegments,
+} from "@/lib/hotspotDiffs";
+import {
   sanitizeStoredPerAccAttribs,
   type StoredPerAccAttribByMode,
 } from "@/lib/perAccComparison";
@@ -40,7 +44,17 @@ export interface SnapshotFlowOutcome {
 }
 
 export interface SnapshotAggregatedOccupancy
-  extends Pick<AutorateOccupancyResponse, "time_bin_minutes" | "pre_counts" | "post_counts" | "capacity" | "tv_ids_order"> {
+  extends Pick<
+    AutorateOccupancyResponse,
+    | "time_bin_minutes"
+    | "pre_counts"
+    | "post_counts"
+    | "capacity"
+    | "tv_ids_order"
+    | "new_hotspots"
+    | "extinguished_hotspots"
+    | "hotspot_change_summary"
+  > {
   timeLabels?: string[];
 }
 
@@ -129,6 +143,9 @@ export function createSolutionSnapshot(params: CreateSnapshotParams): SolutionSn
       post_counts: clone.post_counts,
       capacity: clone.capacity,
       tv_ids_order: clone.tv_ids_order,
+      new_hotspots: cloneHotspotSegments(clone.new_hotspots),
+      extinguished_hotspots: cloneHotspotSegments(clone.extinguished_hotspots),
+      hotspot_change_summary: cloneHotspotChangeSummary(clone.hotspot_change_summary),
       timeLabels: clone.timebins?.labels ? [...clone.timebins.labels] : undefined,
     };
   })();
@@ -237,6 +254,14 @@ function readSnapshotsFromStorage(): SolutionSnapshot[] {
           item?.perAccAttribByMode,
           item?.aggregatedOccupancy?.per_acc_attrib ?? item?.per_acc_attrib,
         ),
+        aggregatedOccupancy: item?.aggregatedOccupancy
+          ? {
+              ...item.aggregatedOccupancy,
+              new_hotspots: cloneHotspotSegments(item.aggregatedOccupancy.new_hotspots),
+              extinguished_hotspots: cloneHotspotSegments(item.aggregatedOccupancy.extinguished_hotspots),
+              hotspot_change_summary: cloneHotspotChangeSummary(item.aggregatedOccupancy.hotspot_change_summary),
+            }
+          : item?.aggregatedOccupancy,
       }))
       .filter((item) => item && item.id);
   } catch (err) {
@@ -350,10 +375,19 @@ export function importSnapshots(raw: string): SolutionSnapshot[] {
       if (!item || typeof item !== "object") return null;
       const { id, createdAt, description } = item;
       if (!id || !description) return null;
+      const aggregated = item.aggregatedOccupancy || {};
       return {
         ...item,
         version: typeof item.version === "number" ? item.version : SNAPSHOT_VERSION,
         createdAt: createdAt || new Date().toISOString(),
+        aggregatedOccupancy: item.aggregatedOccupancy
+          ? {
+              ...aggregated,
+              new_hotspots: cloneHotspotSegments(aggregated.new_hotspots),
+              extinguished_hotspots: cloneHotspotSegments(aggregated.extinguished_hotspots),
+              hotspot_change_summary: cloneHotspotChangeSummary(aggregated.hotspot_change_summary),
+            }
+          : item.aggregatedOccupancy,
       } as SolutionSnapshot;
     })
     .filter(Boolean) as SolutionSnapshot[];

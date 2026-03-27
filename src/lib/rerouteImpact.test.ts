@@ -370,6 +370,119 @@ describe("rerouteImpact", () => {
     ).toThrow("Capacity mismatch");
   });
 
+  it("recomputes hotspot deltas from merged rolling-hour counts", () => {
+    const groups: RerouteImpactScenarioGroup[] = [
+      {
+        signature: "A",
+        flightIds: ["F1"],
+        polygonIds: ["MOVE-A:OBS-1"],
+        requestBody: {
+          flight_ids: ["F1"],
+          barred_polygons: { type: "FeatureCollection", features: [] },
+          include_capacity: true,
+          include_detoured_segments: true,
+        },
+      },
+      {
+        signature: "B",
+        flightIds: ["F2"],
+        polygonIds: ["MOVE-B:OBS-1"],
+        requestBody: {
+          flight_ids: ["F2"],
+          barred_polygons: { type: "FeatureCollection", features: [] },
+          include_capacity: true,
+          include_detoured_segments: true,
+        },
+      },
+    ];
+
+    const merged = mergeGroupedRerouteImpactResponses(groups, [
+      makeResponse({
+        flight_ids: ["F1"],
+        tv_ids_order: ["TV_A"],
+        rolling_hour: {
+          pre_counts: { TV_A: [1, 0] },
+          post_counts: { TV_A: [3, 0] },
+          delta_counts: { TV_A: [2, 0] },
+        },
+        capacity: {
+          TV_A: [2, 2],
+        },
+      }),
+      makeResponse({
+        flight_ids: ["F2"],
+        tv_ids_order: ["TV_A"],
+        rolling_hour: {
+          pre_counts: { TV_A: [0, 3] },
+          post_counts: { TV_A: [0, 0] },
+          delta_counts: { TV_A: [0, -3] },
+        },
+        capacity: {
+          TV_A: [2, 2],
+        },
+        diagnostics: {
+          summary: {
+            requested_flight_count: 1,
+            found_flight_count: 1,
+            missing_flight_ids: [],
+            processed_flight_count: 1,
+            rerouted_flight_count: 0,
+            unchanged_flight_count: 1,
+            skipped_flight_count: 0,
+            requested_polygon_count: 1,
+            changed_tv_count: 1,
+          },
+          flights: {
+            F2: {
+              status: "unchanged",
+              blocked_interval_count: 0,
+              polygons_touched: ["MOVE-B:OBS-1"],
+            },
+          },
+        },
+        detoured_segments: {
+          included: true,
+          flight_count: 1,
+          rerouted_flight_count: 0,
+          flights: {
+            F2: {
+              status: "unchanged",
+              interval_count: 0,
+              intervals: [],
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(merged.rolling_hour.pre_counts.TV_A).toEqual([1, 3]);
+    expect(merged.rolling_hour.post_counts.TV_A).toEqual([3, 0]);
+    expect(merged.new_hotspots).toEqual([
+      expect.objectContaining({
+        traffic_volume_id: "TV_A",
+        start_bin: 0,
+        end_bin: 0,
+      }),
+    ]);
+    expect(merged.extinguished_hotspots).toEqual([
+      expect.objectContaining({
+        traffic_volume_id: "TV_A",
+        start_bin: 1,
+        end_bin: 1,
+      }),
+    ]);
+    expect(merged.hotspot_change_summary).toEqual([
+      {
+        traffic_volume_id: "TV_A",
+        new_hotspot_bin_count: 1,
+        extinguished_hotspot_bin_count: 1,
+        net_hotspot_bin_delta: 0,
+        new_hotspot_segment_count: 1,
+        extinguished_hotspot_segment_count: 1,
+      },
+    ]);
+  });
+
   it("extracts overlay features only from valid simulated detour paths", () => {
     const features = extractRerouteImpactOverlayFeatures(
       makeResponse({

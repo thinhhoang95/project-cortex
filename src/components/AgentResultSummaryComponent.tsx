@@ -25,10 +25,12 @@ import ShimmeringText from '@/components/ShimmeringText';
 import { useSimStore } from '@/components/useSimStore';
 import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
 import type {
+  HotspotSegment,
   OccupancySeriesByTv,
   RegulationPlanPerAccAttrib,
   RegulationPlanPerAccAttribMode,
   Trajectory,
+  WithHotspotDiffs,
 } from '@/lib/models';
 import { authFetch } from '@/lib/auth';
 import type { AgentRunRef, AgentSolListRun } from '@/lib/agentRuns';
@@ -137,10 +139,8 @@ interface AgentSolDetailsResponse {
   metadata?: Record<string, unknown>;
 }
 
-interface AgentSolutionHotspotSegment {
-  start_label?: string;
+interface AgentSolutionHotspotSegment extends HotspotSegment {
   startLabel?: string;
-  end_label?: string;
   endLabel?: string;
   [key: string]: unknown;
 }
@@ -161,7 +161,7 @@ interface AgentSolutionFlightDelay {
   [key: string]: unknown;
 }
 
-interface AgentSolutionPrePost {
+interface AgentSolutionPrePost extends WithHotspotDiffs {
   post_counts?: Record<string, number[]>;
   pre_counts?: Record<string, number[]>;
   capacity?: Record<string, number[]>;
@@ -2613,6 +2613,7 @@ export default function AgentResultSummaryComponent({
                         postCounts={detailsData?.pre_post?.post_counts ?? EMPTY_OCC}
                         preCounts={detailsData?.pre_post?.pre_counts ?? undefined}
                         capacity={filteredCapacityCounts}
+                        hotspotDiffs={detailsData?.pre_post ?? null}
                         tvOrder={detailsData?.pre_post?.tv_ids_order ?? undefined}
                         binMinutes={binMinutes}
                         viewFrom={viewFrom}

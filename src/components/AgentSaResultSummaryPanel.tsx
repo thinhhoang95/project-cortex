@@ -1008,6 +1008,7 @@ export default function AgentSaResultSummaryPanel({
 	                postCounts={occupancyData?.pre_post?.post_counts ?? {}}
 	                preCounts={occupancyData?.pre_post?.pre_counts ?? {}}
 	                capacity={occupancyData?.pre_post?.capacity ?? undefined}
+	                hotspotDiffs={occupancyData?.pre_post ?? null}
 	                tvOrder={occupancyData?.pre_post?.tv_ids_order ?? undefined}
 	                binMinutes={occupancyBinMinutes}
 	                viewFrom={deferredViewFrom}

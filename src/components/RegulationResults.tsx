@@ -1277,6 +1277,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                 postCounts={postCounts}
                 preCounts={preCounts}
                 capacity={Object.keys(capacity).length > 0 ? capacity : undefined}
+                hotspotDiffs={result}
                 tvOrder={tvOrder}
                 binMinutes={binMinutes}
                 viewFrom={viewFrom}
