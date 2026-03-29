@@ -27,29 +27,25 @@ export default function ShimmeringText({ text, className = "", disabled = false,
 
   return (
     <div className={`relative inline-block font-bold ${className}`}>
-      <span className={`shiny-text ${disabled ? 'disabled' : ''}`}>
+      <span
+        className="shiny-text"
+        style={{
+          color: textColor,
+          WebkitTextFillColor: webkitTextFillColor,
+          background: gradient,
+          backgroundSize: "200% 100%",
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          display: "inline-block",
+          animation: disabled ? "none" : "shiny-text-shine 1.8s linear infinite",
+        }}
+      >
         {text}
       </span>
-      <style jsx>{`
-        .shiny-text {
-          color: ${textColor};
-          -webkit-text-fill-color: ${webkitTextFillColor};
-          background: ${gradient};
-          background-size: 200% 100%;
-          -webkit-background-clip: text;
-          background-clip: text;
-          display: inline-block;
-          animation: shine 1.8s linear infinite;
-          
-        }
-
-        @keyframes shine {
+      <style>{`
+        @keyframes shiny-text-shine {
           0%   { background-position: 100% 50%; }
           100% { background-position: -100% 50%; }
-        }
-
-        .shiny-text.disabled {
-          animation: none;
         }
       `}</style>
     </div>

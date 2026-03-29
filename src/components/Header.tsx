@@ -39,6 +39,7 @@ export default function Header() {
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [showSystemCredits, setShowSystemCredits] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showRegulationDropdown, setShowRegulationDropdown] = useState(false);
 
   const router = useRouter();
   const {
@@ -264,20 +265,43 @@ export default function Header() {
               <Link href="/predictions" className={`${pathname === '/predictions' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
                 Prediction
               </Link>
-              <Link href="/regulations" className={`${pathname === '/regulations' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
-                Regulation
-              </Link>
-
-              {/* Always-visible links on xl+; hidden on smaller screens */}
-              <Link href="/reroute" className={`hidden xl:flex ${pathname === '/reroute' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors items-center gap-1.5 whitespace-nowrap`}>
-                <span>Reroute</span>
+              <Link href="/rad-preview" className={`hidden xl:flex ${pathname === '/rad-preview' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors items-center gap-1.5 whitespace-nowrap`}>
+                <span>Dynamic RAD</span>
                 <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
                   New
                 </span>
               </Link>
-              <Link href="/flows" className={`hidden xl:inline ${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
-                DeepFlow
+
+              {/* Always-visible links on xl+; hidden on smaller screens */}
+              <Link href="/reroute" className={`hidden xl:inline ${pathname === '/reroute' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
+                Reroute
               </Link>
+              <div className="hidden xl:block relative">
+                <button
+                  onClick={() => setShowRegulationDropdown(!showRegulationDropdown)}
+                  className={`${pathname === '/regulations' || pathname?.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}
+                >
+                  Regulation
+                </button>
+                {showRegulationDropdown && (
+                  <div className="absolute left-0 top-full mt-2 w-48 glass-menu rounded-lg shadow-xl z-[2100]">
+                    <Link
+                      href="/regulations"
+                      onClick={() => setShowRegulationDropdown(false)}
+                      className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                    >
+                      Regulation Design
+                    </Link>
+                    <Link
+                      href="/flows"
+                      onClick={() => setShowRegulationDropdown(false)}
+                      className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                    >
+                      DeepFlow
+                    </Link>
+                  </div>
+                )}
+              </div>
               <div className="hidden xl:block relative">
                 <button
                   onClick={() => setShowAnalyticsDropdown(!showAnalyticsDropdown)}
@@ -326,14 +350,30 @@ export default function Header() {
                 {showMoreMenu && (
                   <div className="absolute left-0 top-full mt-2 w-48 glass-menu rounded-lg shadow-xl z-[2100]">
                     <Link
-                      href="/reroute"
+                      href="/rad-preview"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`flex items-center gap-2 w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/reroute' ? 'text-blue-300' : ''}`}
+                      className={`flex items-center gap-2 w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/rad-preview' ? 'text-blue-300' : ''}`}
                     >
-                      Reroute
+                      Dynamic RAD
                       <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
                         New
                       </span>
+                    </Link>
+                    <Link
+                      href="/reroute"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/reroute' ? 'text-blue-300' : ''}`}
+                    >
+                      Reroute
+                    </Link>
+                    <div className="mx-4 my-1 glass-menu-divider" />
+                    <p className="px-4 pt-1 pb-0.5 text-xs text-[var(--menu-text-muted)] uppercase tracking-wide">Regulation</p>
+                    <Link
+                      href="/regulations"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/regulations' ? 'text-blue-300' : ''}`}
+                    >
+                      Regulation Design
                     </Link>
                     <Link
                       href="/flows"
