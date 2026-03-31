@@ -40,6 +40,7 @@ export default function Header() {
   const [showSystemCredits, setShowSystemCredits] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showRegulationDropdown, setShowRegulationDropdown] = useState(false);
+  const [showDynamicRadDropdown, setShowDynamicRadDropdown] = useState(false);
 
   const router = useRouter();
   const {
@@ -60,6 +61,20 @@ export default function Header() {
   } = useSimStore();
   const { theme, toggleTheme } = useThemeStore();
   const pathname = usePathname();
+  const dynamicRadActive = pathname === '/rad-preview' || pathname === '/complexity';
+  const regulationActive = pathname === '/regulations' || pathname?.startsWith('/flows');
+  const analyticsActive =
+    pathname?.includes('/original_count') ||
+    pathname?.includes('/flow-evaluation') ||
+    pathname?.includes('/regulation-comparison') ||
+    pathname?.includes('/solution-comparison');
+  const menuItemClass = (active: boolean, withFlex = false) =>
+    `${withFlex ? 'flex items-center gap-2 ' : ''}w-full px-4 py-3 text-left text-sm rounded-lg transition-colors ${
+      active
+        ? 'text-blue-700 hover:bg-[var(--menu-hover-bg)]'
+        : 'hover:bg-[var(--menu-hover-bg)]'
+    }`;
+  const restrictTrafficVolumeSearch = pathname === '/complexity';
   const supportsMultiTrafficVolumeSelection =
     pathname === '/' ||
     pathname === '/flows' ||
@@ -114,9 +129,11 @@ export default function Header() {
     );
 
     // Search for traffic volumes by ID (exact match, case insensitive)
-    const matchingTrafficVolumes = trafficVolumes.filter(volume =>
-      volume.properties?.traffic_volume_id?.toLowerCase() === searchQuery.toLowerCase()
-    );
+    const matchingTrafficVolumes = restrictTrafficVolumeSearch
+      ? []
+      : trafficVolumes.filter(volume =>
+          volume.properties?.traffic_volume_id?.toLowerCase() === searchQuery.toLowerCase()
+        );
 
     // Search for collapsed sectors by ID (exact match, case insensitive)
     const matchingCollapsedSectors = collapsedSectors.filter(sector =>
@@ -265,12 +282,35 @@ export default function Header() {
               <Link href="/predictions" className={`${pathname === '/predictions' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
                 Prediction
               </Link>
-              <Link href="/rad-preview" className={`hidden xl:flex ${pathname === '/rad-preview' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors items-center gap-1.5 whitespace-nowrap`}>
-                <span>Dynamic RAD</span>
-                <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
-                  New
-                </span>
-              </Link>
+              <div className="hidden xl:block relative">
+                <button
+                  onClick={() => setShowDynamicRadDropdown(!showDynamicRadDropdown)}
+                  className={`flex items-center gap-1.5 whitespace-nowrap ${dynamicRadActive ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors`}
+                >
+                  <span>Dynamic RAD</span>
+                  <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
+                    New
+                  </span>
+                </button>
+                {showDynamicRadDropdown && (
+                  <div className="absolute left-0 top-full mt-2 w-52 glass-menu rounded-lg shadow-xl z-[2100]">
+                    <Link
+                      href="/rad-preview"
+                      onClick={() => setShowDynamicRadDropdown(false)}
+                      className={menuItemClass(pathname === '/rad-preview', true)}
+                    >
+                      RAD Library
+                    </Link>
+                    <Link
+                      href="/complexity"
+                      onClick={() => setShowDynamicRadDropdown(false)}
+                      className={menuItemClass(pathname === '/complexity', true)}
+                    >
+                      Complexity
+                    </Link>
+                  </div>
+                )}
+              </div>
 
               {/* Always-visible links on xl+; hidden on smaller screens */}
               <Link href="/reroute" className={`hidden xl:inline ${pathname === '/reroute' ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}>
@@ -279,7 +319,7 @@ export default function Header() {
               <div className="hidden xl:block relative">
                 <button
                   onClick={() => setShowRegulationDropdown(!showRegulationDropdown)}
-                  className={`${pathname === '/regulations' || pathname?.startsWith('/flows') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}
+                  className={`${regulationActive ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}
                 >
                   Regulation
                 </button>
@@ -288,14 +328,14 @@ export default function Header() {
                     <Link
                       href="/regulations"
                       onClick={() => setShowRegulationDropdown(false)}
-                      className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                      className={menuItemClass(pathname === '/regulations')}
                     >
                       Regulation Design
                     </Link>
                     <Link
                       href="/flows"
                       onClick={() => setShowRegulationDropdown(false)}
-                      className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                      className={menuItemClass(Boolean(pathname?.startsWith('/flows')))}
                     >
                       DeepFlow
                     </Link>
@@ -305,7 +345,7 @@ export default function Header() {
               <div className="hidden xl:block relative">
                 <button
                   onClick={() => setShowAnalyticsDropdown(!showAnalyticsDropdown)}
-                  className={`${pathname?.includes('/original_count') || pathname?.includes('/flow-evaluation') || pathname?.includes('/regulation-comparison') || pathname?.includes('/solution-comparison') ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}
+                  className={`${analyticsActive ? 'text-blue-300' : 'text-white/80'} hover:text-white transition-colors whitespace-nowrap`}
                 >
                   Analytics
                 </button>
@@ -314,21 +354,21 @@ export default function Header() {
                     <Link
                       href="/original_count"
                       onClick={() => setShowAnalyticsDropdown(false)}
-                      className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                      className={menuItemClass(Boolean(pathname?.includes('/original_count')))}
                     >
                       Current Occupancy
                     </Link>
                     <Link
                       href="/regulation-comparison"
                       onClick={() => setShowAnalyticsDropdown(false)}
-                      className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                      className={menuItemClass(Boolean(pathname?.includes('/regulation-comparison')))}
                     >
                       Compare Regulations Plans
                     </Link>
                     <Link
                       href="/solution-comparison"
                       onClick={() => setShowAnalyticsDropdown(false)}
-                      className="block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)]"
+                      className={menuItemClass(Boolean(pathname?.includes('/solution-comparison')))}
                     >
                       Compare DeepFlow Plans
                     </Link>
@@ -349,20 +389,28 @@ export default function Header() {
                 </button>
                 {showMoreMenu && (
                   <div className="absolute left-0 top-full mt-2 w-48 glass-menu rounded-lg shadow-xl z-[2100]">
+                    <p className="px-4 pt-1 pb-0.5 text-xs text-[var(--menu-text-muted)] uppercase tracking-wide">Dynamic RAD</p>
                     <Link
                       href="/rad-preview"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`flex items-center gap-2 w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/rad-preview' ? 'text-blue-300' : ''}`}
+                      className={menuItemClass(pathname === '/rad-preview', true)}
                     >
-                      Dynamic RAD
+                      RAD Library
                       <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
                         New
                       </span>
                     </Link>
                     <Link
+                      href="/complexity"
+                      onClick={() => setShowMoreMenu(false)}
+                      className={menuItemClass(pathname === '/complexity')}
+                    >
+                      Complexity
+                    </Link>
+                    <Link
                       href="/reroute"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/reroute' ? 'text-blue-300' : ''}`}
+                      className={menuItemClass(pathname === '/reroute')}
                     >
                       Reroute
                     </Link>
@@ -371,14 +419,14 @@ export default function Header() {
                     <Link
                       href="/regulations"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname === '/regulations' ? 'text-blue-300' : ''}`}
+                      className={menuItemClass(pathname === '/regulations')}
                     >
                       Regulation Design
                     </Link>
                     <Link
                       href="/flows"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname && pathname.startsWith('/flows') ? 'text-blue-300' : ''}`}
+                      className={menuItemClass(Boolean(pathname?.startsWith('/flows')))}
                     >
                       DeepFlow
                     </Link>
@@ -387,21 +435,21 @@ export default function Header() {
                     <Link
                       href="/original_count"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname?.includes('/original_count') ? 'text-blue-300' : ''}`}
+                      className={menuItemClass(Boolean(pathname?.includes('/original_count')))}
                     >
                       Current Occupancy
                     </Link>
                     <Link
                       href="/regulation-comparison"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname?.includes('/regulation-comparison') ? 'text-blue-300' : ''}`}
+                      className={menuItemClass(Boolean(pathname?.includes('/regulation-comparison')))}
                     >
                       Compare Regulations Plans
                     </Link>
                     <Link
                       href="/solution-comparison"
                       onClick={() => setShowMoreMenu(false)}
-                      className={`block w-full px-4 py-3 text-left text-sm rounded-lg transition-colors hover:bg-[var(--menu-hover-bg)] ${pathname?.includes('/solution-comparison') ? 'text-blue-300' : ''}`}
+                      className={menuItemClass(Boolean(pathname?.includes('/solution-comparison')))}
                     >
                       Compare DeepFlow Plans
                     </Link>
@@ -534,7 +582,7 @@ export default function Header() {
                     </div>
                   ) : (
                     <div className="py-4 px-4 text-sm text-[var(--menu-text-muted)]">
-                      No flights, traffic volumes, or collapsed sectors found matching &ldquo;{searchQuery}&rdquo;
+                      No {restrictTrafficVolumeSearch ? "flights or collapsed sectors" : "flights, traffic volumes, or collapsed sectors"} found matching &ldquo;{searchQuery}&rdquo;
                     </div>
                   )}
                 </div>

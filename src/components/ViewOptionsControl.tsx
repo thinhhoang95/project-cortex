@@ -6,6 +6,10 @@ import FlightLineLabelPopover from "@/components/FlightLineLabelPopover";
 import ResourceDateSelectorPanel from "@/components/ResourceDateSelectorPanel";
 import ShimmeringText from "@/components/ShimmeringText";
 import TimeScrubberPopover from "@/components/TimeScrubberPopover";
+import {
+  getBottomControlsAnchorStyle,
+  useBottomControlsAutoPosition,
+} from "@/components/useBottomControlsAutoPosition";
 import { useSimStore } from "@/components/useSimStore";
 import { resolveFlightLineLabelSelection } from "@/lib/flightLineLabels";
 import { getDateDisplayParts } from "@/lib/resourceDates";
@@ -16,12 +20,14 @@ type ViewOptionsControlProps = {
   embedded?: boolean;
   className?: string;
   showAirspaceDisplayToggle?: boolean;
+  lockedAirspaceDisplayMode?: "tv" | "es";
 };
 
 export default function ViewOptionsControl({
   embedded = false,
   className,
   showAirspaceDisplayToggle = false,
+  lockedAirspaceDisplayMode,
 }: ViewOptionsControlProps) {
   const {
     t,
@@ -59,6 +65,7 @@ export default function ViewOptionsControl({
   const [showFlightLineLabelPopover, setShowFlightLineLabelPopover] = useState(false);
   const timeButtonRef = useRef<HTMLButtonElement | null>(null);
   const flightLineLabelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const { anchorRef, offsetX } = useBottomControlsAutoPosition(!embedded);
 
   const [localT, setLocalT] = useState(t);
   // Sync local state if global state changes (e.g., from playback)
@@ -75,6 +82,13 @@ export default function ViewOptionsControl({
       setShowFlightLineLabelPopover(false);
     }
   }, [minimized]);
+
+  useEffect(() => {
+    if (!lockedAirspaceDisplayMode) return;
+    if (airspaceDisplayMode !== lockedAirspaceDisplayMode) {
+      setAirspaceDisplayMode(lockedAirspaceDisplayMode);
+    }
+  }, [airspaceDisplayMode, lockedAirspaceDisplayMode, setAirspaceDisplayMode]);
 
   const handleFlightLineLabelModeSelect = (selectedMode: "callsign" | "flightLevel") => {
     const { nextMode, nextShowFlightLineLabels } = resolveFlightLineLabelSelection(
@@ -265,18 +279,41 @@ export default function ViewOptionsControl({
             </svg>
           </IconToggle>
 
-          {showAirspaceDisplayToggle && (
+          {(showAirspaceDisplayToggle || lockedAirspaceDisplayMode) && (
             <button
               type="button"
-              title={airspaceDisplayMode === "tv" ? "Switch to Collapsed Sectors" : "Switch to Traffic Volumes"}
-              aria-label={airspaceDisplayMode === "tv" ? "Switch to Collapsed Sectors" : "Switch to Traffic Volumes"}
-              onClick={() => setAirspaceDisplayMode(airspaceDisplayMode === "tv" ? "es" : "tv")}
+              title={
+                lockedAirspaceDisplayMode
+                  ? lockedAirspaceDisplayMode === "es"
+                    ? "Locked to Collapsed Sectors"
+                    : "Locked to Traffic Volumes"
+                  : airspaceDisplayMode === "tv"
+                    ? "Switch to Collapsed Sectors"
+                    : "Switch to Traffic Volumes"
+              }
+              aria-label={
+                lockedAirspaceDisplayMode
+                  ? lockedAirspaceDisplayMode === "es"
+                    ? "Locked to Collapsed Sectors"
+                    : "Locked to Traffic Volumes"
+                  : airspaceDisplayMode === "tv"
+                    ? "Switch to Collapsed Sectors"
+                    : "Switch to Traffic Volumes"
+              }
+              onClick={() => {
+                if (lockedAirspaceDisplayMode) return;
+                setAirspaceDisplayMode(airspaceDisplayMode === "tv" ? "es" : "tv");
+              }}
+              disabled={!!lockedAirspaceDisplayMode}
               className={
                 `h-10 px-3 rounded-full text-xs font-semibold tracking-wide transition-colors ` +
-                (airspaceDisplayMode === "es" ? "text-blue-400" : "text-white/80 hover:text-white")
+                ((lockedAirspaceDisplayMode ?? airspaceDisplayMode) === "es"
+                  ? "text-blue-400"
+                  : "text-white/80 hover:text-white") +
+                (lockedAirspaceDisplayMode ? " cursor-default opacity-80" : "")
               }
             >
-              {airspaceDisplayMode === "tv" ? "TV" : "CS"}
+              {(lockedAirspaceDisplayMode ?? airspaceDisplayMode) === "tv" ? "TV" : "CS"}
             </button>
           )}
         </div>
@@ -337,7 +374,11 @@ export default function ViewOptionsControl({
         onClose={() => setShowDateSelector(false)}
         onComplete={() => setShowDateSelector(false)}
       />
-      <div className="fixed left-1/2 bottom-0 -translate-x-1/2 z-40 pointer-events-none">
+      <div
+        ref={anchorRef}
+        className="fixed left-1/2 bottom-0 z-40 pointer-events-none"
+        style={getBottomControlsAnchorStyle(offsetX)}
+      >
         <div
           className={`transform transition-all duration-300 ease-in-out ${minimized
               ? "translate-y-full opacity-0 pointer-events-none"
