@@ -324,7 +324,7 @@ export default function Header() {
                   Regulation
                 </button>
                 {showRegulationDropdown && (
-                  <div className="absolute left-0 top-full mt-2 w-48 glass-menu rounded-lg shadow-xl z-[2100]">
+                  <div className="absolute left-0 top-full mt-2 flex w-48 flex-col glass-menu rounded-lg shadow-xl z-[2100]">
                     <Link
                       href="/regulations"
                       onClick={() => setShowRegulationDropdown(false)}
@@ -337,7 +337,7 @@ export default function Header() {
                       onClick={() => setShowRegulationDropdown(false)}
                       className={menuItemClass(Boolean(pathname?.startsWith('/flows')))}
                     >
-                      DeepFlow
+                      Regulation Rate Tuning
                     </Link>
                   </div>
                 )}
@@ -388,7 +388,7 @@ export default function Header() {
                   </svg>
                 </button>
                 {showMoreMenu && (
-                  <div className="absolute left-0 top-full mt-2 w-48 glass-menu rounded-lg shadow-xl z-[2100]">
+                  <div className="absolute left-0 top-full mt-2 flex w-48 flex-col glass-menu rounded-lg shadow-xl z-[2100]">
                     <p className="px-4 pt-1 pb-0.5 text-xs text-[var(--menu-text-muted)] uppercase tracking-wide">Dynamic RAD</p>
                     <Link
                       href="/rad-preview"

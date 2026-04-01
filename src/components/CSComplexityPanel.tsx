@@ -30,6 +30,7 @@ import {
   type ComplexitySuiteResponse,
   type ComplexityTraceResponse,
 } from "@/lib/csComplexity";
+import { formatSecondsToHHMMSS } from "@/lib/time";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 
 type OrderedSectorFlightsData = {
@@ -148,6 +149,9 @@ export default function CSComplexityPanel({
     [selectedMetric, traceData?.snapshots],
   );
   const showHistoryChart = interestWindowLength !== "2m";
+  const forwardWindowLabel = `${formatSecondsToHHMMSS(t)}-${formatSecondsToHHMMSS(
+    Math.min(24 * 60 * 60 - 1, t + getInterestWindowSeconds(interestWindowLength)),
+  )}`;
 
   const filteredFlightIds = useMemo(() => {
     if (!sectorFlightsData) return new Set<string>();
@@ -193,16 +197,14 @@ export default function CSComplexityPanel({
       <div className="flex items-center justify-between p-4 border-b border-white/20">
         <div>
           <h2 className="font-semibold">Collapsed Sector Complexity</h2>
-          <p className="text-xs text-white/65">Forward window from the current scrubber time</p>
+          <p className="text-xs text-white/65">{forwardWindowLabel}</p>
         </div>
         <PanelCloseButton onClick={onClear} title="Close complexity panel" />
       </div>
 
       <div className="p-4 space-y-4">
         {!selectedCollapsedSector ? (
-          <div className="text-center py-10 opacity-75">
-            <p className="text-sm">Click on a collapsed sector to view dynamic density complexity.</p>
-          </div>
+          <div className="py-2" />
         ) : (
           <>
             <div className="flex items-start justify-between gap-4 border-b border-white/15 pb-4">
@@ -310,7 +312,7 @@ export default function CSComplexityPanel({
                   <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-3">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="text-sm font-medium">{COMPLEXITY_METRIC_META[selectedMetric].label} History</h3>
+                        <h3 className="text-sm font-medium">Density Evolution</h3>
                         <p className="text-xs text-white/65">
                           {currentSnapshot ? currentSnapshot.sample_end_time : "No snapshots returned"}
                         </p>
@@ -349,6 +351,7 @@ export default function CSComplexityPanel({
                             dataKey={selectedMetric}
                             stroke={COMPLEXITY_METRIC_META[selectedMetric].color}
                             strokeWidth={2.5}
+                            isAnimationActive={false}
                             dot={{ r: 2.5 }}
                             activeDot={{ r: 4 }}
                           />
@@ -358,37 +361,6 @@ export default function CSComplexityPanel({
                   </div>
                 )}
 
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <h3 className="text-sm font-medium">Map Trace Metric</h3>
-                    <div className="text-right text-xs text-white/65">
-                      <p>{traceLoading ? "Loading map trace..." : traceSummary ?? "No trace records"}</p>
-                      {mergedTraceEnvelope?.truncated && <p>Trace records truncated by the backend limit.</p>}
-                      {traceError && <p className="text-red-200">{traceError}</p>}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {COMPLEXITY_METRIC_IDS.map((metricId) => (
-                      <label
-                        key={metricId}
-                        className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer transition-colors ${
-                          selectedMetric === metricId
-                            ? "border-white/35 bg-white/15"
-                            : "border-white/10 bg-white/5 hover:bg-white/10"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="complexity-metric"
-                          checked={selectedMetric === metricId}
-                          onChange={() => onSelectedMetricChange(metricId)}
-                          className="h-3.5 w-3.5"
-                        />
-                        <span className="text-sm">{getComplexityMetricSelectionLabel(metricId)}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
               </>
             )}
           </>

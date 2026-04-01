@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import CSComplexityPanel from "@/components/CSComplexityPanel";
+import CSComplexityFlightListLeftPanel from "@/components/CSComplexityFlightListLeftPanel";
 import ComplexityBottomControls from "@/components/ComplexityBottomControls";
 import ComplexityCanvas from "@/components/ComplexityCanvas";
 import Header from "@/components/Header";
@@ -59,6 +60,7 @@ export default function ComplexityPage() {
   const [traceData, setTraceData] = useState<ComplexityTraceResponse | null>(null);
   const [traceLoading, setTraceLoading] = useState(false);
   const [traceError, setTraceError] = useState<string | null>(null);
+  const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
   const [panelVisible, setPanelVisible] = useState(false);
 
@@ -94,6 +96,7 @@ export default function ComplexityPage() {
   useEffect(() => {
     if (selectedCollapsedSector) {
       setPanelVisible(true);
+      setLeftPanelsMinimized(false);
       setRightPanelsMinimized(false);
     }
   }, [selectedCollapsedSector]);
@@ -238,11 +241,31 @@ export default function ComplexityPage() {
       {panelVisible && (
         <>
           <SidePanelToggleButton
+            side="left"
+            minimized={leftPanelsMinimized}
+            onToggle={() => setLeftPanelsMinimized((current) => !current)}
+            panelGroupLabel="complexity flight list"
+          />
+          <SidePanelToggleButton
             side="right"
             minimized={rightPanelsMinimized}
             onToggle={() => setRightPanelsMinimized((current) => !current)}
             panelGroupLabel="complexity panels"
           />
+          <div
+            data-bottom-controls-blocker="left"
+            style={{ transform: leftPanelsMinimized ? "translateX(calc(-100% - 1.5rem))" : "none" }}
+            className={`absolute top-0 left-4 z-40 w-[360px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none transition-all duration-300 ease-in-out ${
+              leftPanelsMinimized ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            <div className="pointer-events-auto">
+              <CSComplexityFlightListLeftPanel
+                embedded
+                interestWindowLength={interestWindowLength}
+              />
+            </div>
+          </div>
           <div
             data-bottom-controls-blocker="right"
             style={{ transform: rightPanelsMinimized ? "translateX(calc(100% + 1.5rem))" : "none" }}
@@ -267,12 +290,6 @@ export default function ComplexityPage() {
             </div>
           </div>
         </>
-      )}
-
-      {!panelVisible && !selectedCollapsedSector && (
-        <div className="absolute top-20 right-4 z-30 max-w-sm rounded-2xl border border-white/15 bg-slate-950/55 px-4 py-3 text-sm text-white/80 shadow-xl backdrop-blur-md">
-          Select a collapsed sector on the map to inspect its dynamic density complexity.
-        </div>
       )}
 
       <ComplexityBottomControls />
