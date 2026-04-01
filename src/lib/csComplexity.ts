@@ -15,6 +15,8 @@ export const COMPLEXITY_METRIC_IDS = [
   "cp70_proxy",
 ] as const;
 export const COMPLEXITY_INTEREST_WINDOWS = ["2m", "15m", "30m", "45m", "1h", "2h", "4h", "6h"] as const;
+export const COMPLEXITY_CONTEXT_BIN_MINUTES = 30;
+export const COMPLEXITY_CONTEXT_BIN_SECONDS = COMPLEXITY_CONTEXT_BIN_MINUTES * 60;
 
 export type ComplexityMetricId = (typeof COMPLEXITY_METRIC_IDS)[number];
 export type ComplexityInterestWindow = (typeof COMPLEXITY_INTEREST_WINDOWS)[number];
@@ -193,6 +195,79 @@ export interface ComplexityTraceResponse {
   metadata?: Record<string, unknown>;
 }
 
+export interface ComplexityContextDistribution {
+  mode_count?: number | null;
+  weights?: number[] | null;
+  means?: number[] | null;
+  variances?: number[] | null;
+  source_date_count?: number | null;
+  source_sample_count?: number | null;
+  approximation?: string | null;
+}
+
+export interface ComplexityContextSpatialDistribution {
+  weights?: number[] | null;
+  mean_lon?: number[] | null;
+  mean_lat?: number[] | null;
+  cov_xx?: number[] | null;
+  cov_xy?: number[] | null;
+  cov_yy?: number[] | null;
+  mode_count?: number | null;
+  event_count?: number | null;
+}
+
+export interface ComplexityContextMetric {
+  observed_value?: number | null;
+  distribution_available?: boolean | null;
+  expected_mean?: number | null;
+  upper_tail_probability?: number | null;
+  distribution?: ComplexityContextDistribution | null;
+  spatial_distribution?: ComplexityContextSpatialDistribution | null;
+  spatial_weights?: number[] | null;
+  spatial_mean_lon?: number[] | null;
+  spatial_mean_lat?: number[] | null;
+  spatial_cov_xx?: number[] | null;
+  spatial_cov_xy?: number[] | null;
+  spatial_cov_yy?: number[] | null;
+  spatial_mode_count?: number | null;
+  spatial_event_count?: number | null;
+}
+
+export interface ComplexityContextSpatialMetric {
+  distribution_available?: boolean | null;
+  point_count?: number | null;
+  event_count?: number | null;
+  distribution?: ComplexityContextSpatialDistribution | null;
+}
+
+export interface ComplexityContextEntryExitSpatial {
+  entry?: ComplexityContextSpatialMetric | null;
+  exit?: ComplexityContextSpatialMetric | null;
+}
+
+export interface ComplexityContextSlot {
+  slot_index: number;
+  slot_start_s: number;
+  slot_start_time: string;
+  slot_end_s: number;
+  slot_end_time: string;
+  time_bin?: string | null;
+  observed_sample_count?: number | null;
+  metrics: Partial<Record<ComplexityMetricId, ComplexityContextMetric>>;
+  entry_exit_spatial?: ComplexityContextEntryExitSpatial | null;
+  event_spatial?: Partial<Record<ComplexityMetricId, ComplexityContextSpatialMetric>> | null;
+}
+
+export interface ComplexityContextResponse {
+  collapsed_sector_id: string;
+  date: string;
+  time_range: ComplexityTimeRange;
+  requested_metrics?: ComplexityMetricId[];
+  context_bin_minutes?: number | null;
+  slots: ComplexityContextSlot[];
+  metadata?: Record<string, unknown>;
+}
+
 export type ComplexityChartRow = {
   sampleEndSeconds: number;
   sampleEndTime: string;
@@ -203,6 +278,29 @@ export interface ComplexityOverlayCollections {
   points: GeoJSON.FeatureCollection<GeoJSON.Point>;
   labels: GeoJSON.FeatureCollection<GeoJSON.Point>;
 }
+
+export type ComplexityDensityBand = "transparent" | "yellow" | "orange" | "red";
+
+export interface ComplexityDensitySample {
+  x: number;
+  density: number;
+  normalizedDensity: number;
+  band: ComplexityDensityBand;
+}
+
+export interface ComplexityDensityRulerModel {
+  domainMin: number;
+  domainMax: number;
+  samples: ComplexityDensitySample[];
+  distributionAvailable: boolean;
+  observedValue: number | null;
+  expectedMean: number | null;
+  observedRatio: number | null;
+  expectedMeanRatio: number | null;
+  upperTailProbability: number | null;
+}
+
+export type ComplexityContextSpatialSource = ComplexityContextMetric | ComplexityContextSpatialMetric;
 
 function clampSecondsToDay(totalSeconds: number): number {
   const value = Math.max(0, Math.floor(Number.isFinite(totalSeconds) ? totalSeconds : 0));
@@ -225,6 +323,23 @@ function normalizeNonNegativeInteger(value: number | null | undefined): number |
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function normalizeNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeNumberArray(values: unknown): number[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+}
+
+function clampRatio(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }
 
 function normalizeDegrees(value: number | null | undefined): number {
@@ -587,6 +702,17 @@ export function buildForwardTimeRange(startSeconds: number, windowLength: string
   return `${formatSecondsToHHMMSS(safeStart)}-${formatSecondsToHHMMSS(safeEnd)}`;
 }
 
+export function getComplexityContextSlotStartSeconds(referenceSeconds: number): number {
+  const safeReference = clampSecondsToDay(referenceSeconds);
+  return Math.floor(safeReference / COMPLEXITY_CONTEXT_BIN_SECONDS) * COMPLEXITY_CONTEXT_BIN_SECONDS;
+}
+
+export function buildCollapsedSectorDdContextTimeRange(referenceSeconds: number): string {
+  const slotStart = getComplexityContextSlotStartSeconds(referenceSeconds);
+  const slotEnd = clampSecondsToDay(slotStart + COMPLEXITY_CONTEXT_BIN_SECONDS);
+  return `${formatSecondsToHHMMSS(slotStart)}-${formatSecondsToHHMMSS(slotEnd)}`;
+}
+
 export function buildCollapsedSectorDdSuitePath(params: {
   collapsedSectorId: string;
   timeRange: string;
@@ -601,6 +727,24 @@ export function buildCollapsedSectorDdSuitePath(params: {
     query.set("sample_seconds", String(sampleSeconds));
   }
   return `/api/collapsed_sector_dd_suite?${query.toString()}`;
+}
+
+export function buildCollapsedSectorDdContextPath(params: {
+  collapsedSectorId: string;
+  timeRange: string;
+  metrics?: ComplexityMetricId[];
+}): string {
+  const query = new URLSearchParams({
+    collapsed_sector_id: String(params.collapsedSectorId ?? "").trim(),
+    time_range: String(params.timeRange ?? "").trim(),
+  });
+  const metrics = Array.from(
+    new Set((params.metrics ?? []).map((metric) => String(metric).trim()).filter(Boolean)),
+  );
+  if (metrics.length > 0) {
+    query.set("metrics", metrics.join(","));
+  }
+  return `/api/collapsed_sector_dd_context?${query.toString()}`;
 }
 
 export function buildCollapsedSectorDdTracePath(params: {
@@ -799,4 +943,433 @@ export function buildComplexityOverlayCollections(params: {
   }
 
   return collections;
+}
+
+export function getComplexityContextSlot(
+  slots: ComplexityContextSlot[] | null | undefined,
+  referenceSeconds: number,
+): ComplexityContextSlot | null {
+  if (!slots || slots.length === 0) return null;
+  const safeReference = clampSecondsToDay(referenceSeconds);
+  const containingSlot =
+    slots.find(
+      (slot) =>
+        Number(slot?.slot_start_s) <= safeReference && safeReference < Number(slot?.slot_end_s),
+    ) ?? null;
+  if (containingSlot) return containingSlot;
+
+  const targetStart = getComplexityContextSlotStartSeconds(referenceSeconds);
+  let closest = slots[0];
+  let smallestDistance = Math.abs(Number(closest?.slot_start_s) - targetStart);
+  for (let index = 1; index < slots.length; index += 1) {
+    const candidate = slots[index];
+    const candidateDistance = Math.abs(Number(candidate?.slot_start_s) - targetStart);
+    if (candidateDistance < smallestDistance) {
+      closest = candidate;
+      smallestDistance = candidateDistance;
+    }
+  }
+  return closest;
+}
+
+export function getComplexityMetricSpatialContext(
+  slot: ComplexityContextSlot | null | undefined,
+  metricId: ComplexityMetricId,
+): ComplexityContextSpatialSource | null {
+  if (!slot || metricId === "td") return null;
+  return slot.event_spatial?.[metricId] ?? slot.metrics?.[metricId] ?? null;
+}
+
+function mapDensityBand(normalizedDensity: number): ComplexityDensityBand {
+  if (!Number.isFinite(normalizedDensity) || normalizedDensity < 0.25) return "transparent";
+  if (normalizedDensity < 0.5) return "yellow";
+  if (normalizedDensity < 0.8) return "orange";
+  return "red";
+}
+
+function gaussianDensity(value: number, mean: number, variance: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(mean) || !Number.isFinite(variance) || variance <= 0) {
+    return 0;
+  }
+  const sigma = Math.sqrt(variance);
+  const coefficient = 1 / (sigma * Math.sqrt(2 * Math.PI));
+  const exponent = -((value - mean) ** 2) / (2 * variance);
+  return coefficient * Math.exp(exponent);
+}
+
+function safeDistributionModeCount(distribution: ComplexityContextDistribution | null | undefined): number {
+  if (!distribution) return 0;
+  const lengths = [
+    normalizeNumberArray(distribution.weights).length,
+    normalizeNumberArray(distribution.means).length,
+    normalizeNumberArray(distribution.variances).length,
+  ];
+  return Math.max(0, ...lengths);
+}
+
+function getDistributionArrays(
+  distribution: ComplexityContextDistribution | null | undefined,
+): { weights: number[]; means: number[]; variances: number[]; modeCount: number } {
+  const weights = normalizeNumberArray(distribution?.weights);
+  const means = normalizeNumberArray(distribution?.means);
+  const variances = normalizeNumberArray(distribution?.variances).map((value) => Math.max(value, 1e-6));
+  const declaredModeCount =
+    normalizePositiveInteger(Number(distribution?.mode_count ?? 0)) ?? safeDistributionModeCount(distribution);
+  const modeCount = Math.min(declaredModeCount, weights.length, means.length, variances.length);
+
+  if (!Number.isFinite(modeCount) || modeCount <= 0) {
+    return { weights: [], means: [], variances: [], modeCount: 0 };
+  }
+
+  return {
+    weights: weights.slice(0, modeCount),
+    means: means.slice(0, modeCount),
+    variances: variances.slice(0, modeCount),
+    modeCount,
+  };
+}
+
+export function buildComplexityContextDensityRulerModel(
+  metricContext: ComplexityContextMetric | null | undefined,
+  sampleCount = 120,
+): ComplexityDensityRulerModel | null {
+  const observedValue = normalizeNumber(metricContext?.observed_value);
+  const expectedMean = normalizeNumber(metricContext?.expected_mean);
+  const upperTailProbability = normalizeNumber(metricContext?.upper_tail_probability);
+  const distributionAvailable = Boolean(metricContext?.distribution_available);
+  const distribution = metricContext?.distribution ?? null;
+  const { weights, means, variances, modeCount } = getDistributionArrays(distribution);
+
+  if (modeCount <= 0) {
+    const fallbackValues = [observedValue, expectedMean].filter((value): value is number => value !== null);
+    if (fallbackValues.length === 0) return null;
+    const fallbackMin = Math.min(...fallbackValues);
+    const fallbackMax = Math.max(...fallbackValues);
+    const padding = Math.max(1, (fallbackMax - fallbackMin || 1) * 0.12);
+    const domainMin = fallbackMin - padding;
+    const domainMax = fallbackMax + padding;
+    const span = Math.max(1e-6, domainMax - domainMin);
+    return {
+      domainMin,
+      domainMax,
+      samples: [],
+      distributionAvailable: false,
+      observedValue,
+      expectedMean,
+      observedRatio: observedValue === null ? null : clampRatio((observedValue - domainMin) / span),
+      expectedMeanRatio: expectedMean === null ? null : clampRatio((expectedMean - domainMin) / span),
+      upperTailProbability,
+    };
+  }
+
+  const domainCandidates: number[] = [];
+  for (let index = 0; index < modeCount; index += 1) {
+    const sigma = Math.sqrt(Math.max(variances[index], 1e-6));
+    domainCandidates.push(means[index] - sigma * 3, means[index] + sigma * 3);
+  }
+  if (observedValue !== null) domainCandidates.push(observedValue);
+  if (expectedMean !== null) domainCandidates.push(expectedMean);
+  const rawMin = Math.min(...domainCandidates);
+  const rawMax = Math.max(...domainCandidates);
+  const padding = Math.max(1, (rawMax - rawMin || 1) * 0.06);
+  const domainMin = rawMin - padding;
+  const domainMax = rawMax + padding;
+  const span = Math.max(1e-6, domainMax - domainMin);
+  const safeSampleCount = Math.max(32, Math.floor(Number.isFinite(sampleCount) ? sampleCount : 120));
+
+  const densities: number[] = [];
+  for (let index = 0; index < safeSampleCount; index += 1) {
+    const ratio = safeSampleCount <= 1 ? 0 : index / (safeSampleCount - 1);
+    const x = domainMin + span * ratio;
+    let density = 0;
+    for (let modeIndex = 0; modeIndex < modeCount; modeIndex += 1) {
+      density += weights[modeIndex] * gaussianDensity(x, means[modeIndex], variances[modeIndex]);
+    }
+    densities.push(density);
+  }
+
+  const maxDensity = Math.max(...densities, 0);
+  const samples: ComplexityDensitySample[] = densities.map((density, index) => {
+    const ratio = safeSampleCount <= 1 ? 0 : index / (safeSampleCount - 1);
+    const x = domainMin + span * ratio;
+    const normalizedDensity = maxDensity > 0 ? density / maxDensity : 0;
+    return {
+      x,
+      density,
+      normalizedDensity,
+      band: mapDensityBand(normalizedDensity),
+    };
+  });
+
+  return {
+    domainMin,
+    domainMax,
+    samples,
+    distributionAvailable,
+    observedValue,
+    expectedMean,
+    observedRatio: observedValue === null ? null : clampRatio((observedValue - domainMin) / span),
+    expectedMeanRatio: expectedMean === null ? null : clampRatio((expectedMean - domainMin) / span),
+    upperTailProbability,
+  };
+}
+
+type ComplexitySpatialMode = {
+  weight: number;
+  meanLon: number;
+  meanLat: number;
+  covXx: number;
+  covXy: number;
+  covYy: number;
+};
+
+function isLegacyMetricSpatialContext(
+  spatialContext: ComplexityContextSpatialSource | null | undefined,
+): spatialContext is ComplexityContextMetric {
+  if (!spatialContext || typeof spatialContext !== "object") return false;
+  return (
+    "spatial_distribution" in spatialContext ||
+    "spatial_weights" in spatialContext ||
+    "spatial_mean_lon" in spatialContext ||
+    "spatial_mean_lat" in spatialContext ||
+    "spatial_cov_xx" in spatialContext ||
+    "spatial_cov_xy" in spatialContext ||
+    "spatial_cov_yy" in spatialContext
+  );
+}
+
+function getComplexitySpatialModes(
+  spatialContext: ComplexityContextSpatialSource | null | undefined,
+): ComplexitySpatialMode[] {
+  if (!spatialContext) return [];
+  if (
+    !isLegacyMetricSpatialContext(spatialContext) &&
+    spatialContext.distribution_available === false
+  ) {
+    return [];
+  }
+
+  const spatialDistribution = isLegacyMetricSpatialContext(spatialContext)
+    ? spatialContext.spatial_distribution ?? null
+    : spatialContext.distribution ?? null;
+  const weights = normalizeNumberArray(
+    isLegacyMetricSpatialContext(spatialContext)
+      ? spatialContext.spatial_weights ?? spatialDistribution?.weights
+      : spatialDistribution?.weights,
+  );
+  const meanLon = normalizeNumberArray(
+    isLegacyMetricSpatialContext(spatialContext)
+      ? spatialContext.spatial_mean_lon ?? spatialDistribution?.mean_lon
+      : spatialDistribution?.mean_lon,
+  );
+  const meanLat = normalizeNumberArray(
+    isLegacyMetricSpatialContext(spatialContext)
+      ? spatialContext.spatial_mean_lat ?? spatialDistribution?.mean_lat
+      : spatialDistribution?.mean_lat,
+  );
+  const covXx = normalizeNumberArray(
+    isLegacyMetricSpatialContext(spatialContext)
+      ? spatialContext.spatial_cov_xx ?? spatialDistribution?.cov_xx
+      : spatialDistribution?.cov_xx,
+  );
+  const covXy = normalizeNumberArray(
+    isLegacyMetricSpatialContext(spatialContext)
+      ? spatialContext.spatial_cov_xy ?? spatialDistribution?.cov_xy
+      : spatialDistribution?.cov_xy,
+  );
+  const covYy = normalizeNumberArray(
+    isLegacyMetricSpatialContext(spatialContext)
+      ? spatialContext.spatial_cov_yy ?? spatialDistribution?.cov_yy
+      : spatialDistribution?.cov_yy,
+  );
+  const declaredModeCount =
+    normalizePositiveInteger(
+      Number(
+        isLegacyMetricSpatialContext(spatialContext)
+          ? spatialContext.spatial_mode_count ?? spatialDistribution?.mode_count ?? 0
+          : spatialDistribution?.mode_count ?? 0,
+      ),
+    ) ??
+    Math.max(weights.length, meanLon.length, meanLat.length, covXx.length, covXy.length, covYy.length);
+  const modeCount = Math.min(
+    declaredModeCount,
+    weights.length,
+    meanLon.length,
+    meanLat.length,
+    covXx.length,
+    covXy.length,
+    covYy.length,
+  );
+
+  if (!Number.isFinite(modeCount) || modeCount <= 0) return [];
+
+  const modes: ComplexitySpatialMode[] = [];
+  for (let index = 0; index < modeCount; index += 1) {
+    const weight = weights[index];
+    const nextMode = {
+      weight,
+      meanLon: meanLon[index],
+      meanLat: meanLat[index],
+      covXx: covXx[index],
+      covXy: covXy[index],
+      covYy: covYy[index],
+    };
+    if (
+      !Number.isFinite(nextMode.weight) ||
+      !Number.isFinite(nextMode.meanLon) ||
+      !Number.isFinite(nextMode.meanLat) ||
+      !Number.isFinite(nextMode.covXx) ||
+      !Number.isFinite(nextMode.covXy) ||
+      !Number.isFinite(nextMode.covYy)
+    ) {
+      continue;
+    }
+    modes.push(nextMode);
+  }
+
+  return modes;
+}
+
+export function hasComplexityContextSpatialData(
+  metricId: ComplexityMetricId,
+  spatialContext: ComplexityContextSpatialSource | null | undefined,
+): boolean {
+  if (metricId === "td") return false;
+  return getComplexitySpatialModes(spatialContext).length > 0;
+}
+
+function getEllipseAxesFromCovariance(
+  covXx: number,
+  covXy: number,
+  covYy: number,
+): { majorAxis: number; minorAxis: number; angleRad: number } | null {
+  const trace = covXx + covYy;
+  const determinant = covXx * covYy - covXy * covXy;
+  const discriminant = Math.sqrt(Math.max(0, trace * trace * 0.25 - determinant));
+  const lambda1 = Math.max(0, trace * 0.5 + discriminant);
+  const lambda2 = Math.max(0, trace * 0.5 - discriminant);
+  if (lambda1 <= 0 && lambda2 <= 0) return null;
+  return {
+    majorAxis: Math.sqrt(Math.max(lambda1, 1e-10)),
+    minorAxis: Math.sqrt(Math.max(lambda2, 1e-10)),
+    angleRad: 0.5 * Math.atan2(2 * covXy, covXx - covYy),
+  };
+}
+
+function buildGaussianEllipseRing(
+  mode: ComplexitySpatialMode,
+  relativeDensityLevel: number,
+  vertexCount = 72,
+): [number, number][] | null {
+  const axes = getEllipseAxesFromCovariance(mode.covXx, mode.covXy, mode.covYy);
+  if (!axes) return null;
+
+  const safeLevel = Math.max(1e-6, Math.min(0.999999, relativeDensityLevel));
+  const contourRadius = Math.sqrt(-2 * Math.log(safeLevel));
+  const major = axes.majorAxis * contourRadius;
+  const minor = axes.minorAxis * contourRadius;
+  const ring: [number, number][] = [];
+
+  for (let index = 0; index < vertexCount; index += 1) {
+    const theta = (Math.PI * 2 * index) / vertexCount;
+    const localX = major * Math.cos(theta);
+    const localY = minor * Math.sin(theta);
+    const rotatedX = localX * Math.cos(axes.angleRad) - localY * Math.sin(axes.angleRad);
+    const rotatedY = localX * Math.sin(axes.angleRad) + localY * Math.cos(axes.angleRad);
+    ring.push([mode.meanLon + rotatedX, mode.meanLat + rotatedY]);
+  }
+
+  if (ring.length === 0) return null;
+  ring.push(ring[0]);
+  return ring;
+}
+
+function toPolygonOrMultiPolygonFeature(
+  feature: GeoJSON.Feature | null | undefined,
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null {
+  const geometry = feature?.geometry;
+  if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) {
+    return null;
+  }
+  return {
+    type: "Feature",
+    geometry: geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon,
+    properties: { ...(feature?.properties ?? {}) },
+  };
+}
+
+function emptyComplexitySpatialOverlayCollection(): GeoJSON.FeatureCollection<
+  GeoJSON.Polygon | GeoJSON.MultiPolygon
+> {
+  return { type: "FeatureCollection", features: [] };
+}
+
+const COMPLEXITY_SPATIAL_BANDS: Array<{
+  relativeDensityLevel: number;
+  color: string;
+  opacityBase: number;
+  rank: number;
+}> = [
+  { relativeDensityLevel: 0.25, color: "#facc15", opacityBase: 0.12, rank: 1 },
+  { relativeDensityLevel: 0.5, color: "#f97316", opacityBase: 0.18, rank: 2 },
+  { relativeDensityLevel: 0.8, color: "#ef4444", opacityBase: 0.24, rank: 3 },
+];
+
+export function buildComplexityContextSpatialOverlayFeatures(params: {
+  metricId: ComplexityMetricId;
+  spatialContext: ComplexityContextSpatialSource | null | undefined;
+  sectorFeature: GeoJSON.Feature | null | undefined;
+}): GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon> {
+  const { metricId, spatialContext, sectorFeature } = params;
+  const sectorPolygon = toPolygonOrMultiPolygonFeature(sectorFeature);
+  if (metricId === "td" || !sectorPolygon) {
+    return emptyComplexitySpatialOverlayCollection();
+  }
+
+  const modes = getComplexitySpatialModes(spatialContext);
+  if (modes.length === 0) {
+    return emptyComplexitySpatialOverlayCollection();
+  }
+
+  const maxWeight = Math.max(...modes.map((mode) => Math.max(0, mode.weight)), 0);
+  const features: Array<GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>> = [];
+
+  for (let modeIndex = 0; modeIndex < modes.length; modeIndex += 1) {
+    const mode = modes[modeIndex];
+    const normalizedWeight = maxWeight > 0 ? clampRatio(mode.weight / maxWeight) : 0.5;
+    for (const band of COMPLEXITY_SPATIAL_BANDS) {
+      const ring = buildGaussianEllipseRing(mode, band.relativeDensityLevel);
+      if (!ring) continue;
+
+      const ellipseFeature = turf.polygon([ring]);
+      const clipped = turf.intersect(
+        turf.featureCollection([sectorPolygon, ellipseFeature]),
+        {
+          properties: {
+            fillColor: band.color,
+            fillOpacity: Number((band.opacityBase + normalizedWeight * 0.22).toFixed(4)),
+            lineColor: band.color,
+            lineOpacity: Number((0.14 + normalizedWeight * 0.2).toFixed(4)),
+            bandRank: band.rank,
+            relativeDensityLevel: band.relativeDensityLevel,
+            modeIndex,
+            modeWeight: mode.weight,
+            metricId,
+          },
+        },
+      ) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null;
+
+      if (!clipped) continue;
+      features.push(clipped);
+    }
+  }
+
+  features.sort((left, right) => {
+    const leftRank = Number(left.properties?.bandRank ?? 0);
+    const rightRank = Number(right.properties?.bandRank ?? 0);
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return Number(left.properties?.modeIndex ?? 0) - Number(right.properties?.modeIndex ?? 0);
+  });
+
+  return { type: "FeatureCollection", features };
 }

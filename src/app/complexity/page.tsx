@@ -12,12 +12,16 @@ import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
 import {
+  COMPLEXITY_METRIC_IDS,
+  buildCollapsedSectorDdContextPath,
+  buildCollapsedSectorDdContextTimeRange,
   buildCollapsedSectorDdSuitePath,
   buildCollapsedSectorDdTracePath,
   buildComplexityOverlayCollections,
   buildForwardTimeRange,
   createEmptyComplexityOverlayCollections,
   mergeTraceEnvelopes,
+  type ComplexityContextResponse,
   type ComplexityMetricId,
   type ComplexitySuiteResponse,
   type ComplexityTraceResponse,
@@ -58,20 +62,26 @@ export default function ComplexityPage() {
   const [suiteLoading, setSuiteLoading] = useState(false);
   const [suiteError, setSuiteError] = useState<string | null>(null);
   const [traceData, setTraceData] = useState<ComplexityTraceResponse | null>(null);
-  const [traceLoading, setTraceLoading] = useState(false);
-  const [traceError, setTraceError] = useState<string | null>(null);
+  const [, setTraceLoading] = useState(false);
+  const [, setTraceError] = useState<string | null>(null);
+  const [contextData, setContextData] = useState<ComplexityContextResponse | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [showContextMapOverlay, setShowContextMapOverlay] = useState(true);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
   const [panelVisible, setPanelVisible] = useState(false);
 
   const suiteRequestSeq = useRef(0);
   const traceRequestSeq = useRef(0);
+  const contextRequestSeq = useRef(0);
   const { hydrated, ready, user } = useResourceDateGuard();
 
   const timeRange = useMemo(
     () => buildForwardTimeRange(t, interestWindowLength),
     [interestWindowLength, t],
   );
+  const contextTimeRange = useMemo(() => buildCollapsedSectorDdContextTimeRange(t), [t]);
 
   useEffect(() => {
     setFocusMode(false);
@@ -109,6 +119,9 @@ export default function ComplexityPage() {
       setTraceData(null);
       setTraceError(null);
       setTraceLoading(false);
+      setContextData(null);
+      setContextError(null);
+      setContextLoading(false);
       return;
     }
 
@@ -200,6 +213,53 @@ export default function ComplexityPage() {
     };
   }, [resourceStateEpoch, selectedCollapsedSector, selectedMetric, timeRange]);
 
+  useEffect(() => {
+    if (!selectedCollapsedSector) {
+      setContextData(null);
+      setContextError(null);
+      setContextLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const requestId = ++contextRequestSeq.current;
+    setContextData(null);
+    setContextLoading(true);
+    setContextError(null);
+
+    authFetch(
+      buildCollapsedSectorDdContextPath({
+        collapsedSectorId: selectedCollapsedSector,
+        timeRange: contextTimeRange,
+        metrics: [...COMPLEXITY_METRIC_IDS],
+      }),
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(extractErrorMessage(payload, "Failed to fetch collapsed sector DD context"));
+        }
+        return response.json() as Promise<ComplexityContextResponse>;
+      })
+      .then((payload) => {
+        if (cancelled || requestId !== contextRequestSeq.current) return;
+        setContextData(payload);
+      })
+      .catch((error) => {
+        if (cancelled || requestId !== contextRequestSeq.current) return;
+        setContextData(null);
+        setContextError(error instanceof Error ? error.message : "Failed to fetch collapsed sector DD context");
+      })
+      .finally(() => {
+        if (cancelled || requestId !== contextRequestSeq.current) return;
+        setContextLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contextTimeRange, resourceStateEpoch, selectedCollapsedSector]);
+
   const mergedTraceEnvelope = useMemo(
     () => mergeTraceEnvelopes(traceData?.snapshots, selectedMetric),
     [selectedMetric, traceData?.snapshots],
@@ -225,8 +285,12 @@ export default function ComplexityPage() {
     setFocusFlightIds(new Set<string>());
     setSuiteData(null);
     setTraceData(null);
+    setContextData(null);
     setSuiteError(null);
+    setTraceLoading(false);
     setTraceError(null);
+    setContextLoading(false);
+    setContextError(null);
   };
 
   if (!hydrated || !ready || !user) {
@@ -236,7 +300,12 @@ export default function ComplexityPage() {
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-900 relative">
       <Header />
-      <ComplexityCanvas overlay={overlay} />
+      <ComplexityCanvas
+        overlay={overlay}
+        contextData={contextData}
+        contextMetricId={selectedMetric}
+        showContextOverlay={showContextMapOverlay}
+      />
 
       {panelVisible && (
         <>
@@ -274,19 +343,21 @@ export default function ComplexityPage() {
             }`}
           >
             <div className="pointer-events-auto">
-              <CSComplexityPanel
-                interestWindowLength={interestWindowLength}
-                onInterestWindowLengthChange={setInterestWindowLength}
-                selectedMetric={selectedMetric}
-                onSelectedMetricChange={setSelectedMetric}
-                suiteData={suiteData}
-                suiteLoading={suiteLoading}
-                suiteError={suiteError}
-                traceData={traceData}
-                traceLoading={traceLoading}
-                traceError={traceError}
-                onClear={handleClear}
-              />
+            <CSComplexityPanel
+              interestWindowLength={interestWindowLength}
+              onInterestWindowLengthChange={setInterestWindowLength}
+              selectedMetric={selectedMetric}
+              onSelectedMetricChange={setSelectedMetric}
+              suiteData={suiteData}
+              suiteLoading={suiteLoading}
+              suiteError={suiteError}
+              contextData={contextData}
+              contextLoading={contextLoading}
+              contextError={contextError}
+              showContextMapOverlay={showContextMapOverlay}
+              onShowContextMapOverlayChange={setShowContextMapOverlay}
+              onClear={handleClear}
+            />
             </div>
           </div>
         </>

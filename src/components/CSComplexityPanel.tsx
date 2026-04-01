@@ -12,23 +12,26 @@ import {
   YAxis,
 } from "recharts";
 
+import ComplexityDensityRuler from "@/components/ComplexityDensityRuler";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import ShimmeringText from "@/components/ShimmeringText";
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
 import {
+  buildComplexityContextDensityRulerModel,
   buildComplexityChartRows,
   COMPLEXITY_INTEREST_WINDOWS,
   COMPLEXITY_METRIC_IDS,
   COMPLEXITY_METRIC_META,
-  getComplexityMetricSelectionLabel,
+  getComplexityMetricSpatialContext,
+  getComplexityContextSlot,
   getClosestSnapshot,
   getInterestWindowSeconds,
-  mergeTraceEnvelopes,
+  hasComplexityContextSpatialData,
   sumMetricCounts,
+  type ComplexityContextResponse,
   type ComplexityMetricId,
   type ComplexitySuiteResponse,
-  type ComplexityTraceResponse,
 } from "@/lib/csComplexity";
 import { formatSecondsToHHMMSS } from "@/lib/time";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
@@ -55,11 +58,44 @@ type CSComplexityPanelProps = {
   suiteData: ComplexitySuiteResponse | null;
   suiteLoading: boolean;
   suiteError: string | null;
-  traceData: ComplexityTraceResponse | null;
-  traceLoading: boolean;
-  traceError: string | null;
+  contextData: ComplexityContextResponse | null;
+  contextLoading: boolean;
+  contextError: string | null;
+  showContextMapOverlay: boolean;
+  onShowContextMapOverlayChange: (value: boolean) => void;
   onClear: () => void;
 };
+
+function formatContextNumber(value: number | null | undefined): string {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return "—";
+  if (Math.abs(next) >= 100 || Number.isInteger(next)) return String(Math.round(next));
+  return next.toFixed(1);
+}
+
+function formatTailProbability(value: number | null | undefined): string {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return "—";
+  if (next < 0.001) return "<0.001";
+  return next.toFixed(3);
+}
+
+function tailProbabilityTone(value: number | null | undefined): string {
+  const next = Number(value);
+  if (!Number.isFinite(next)) {
+    return "border-white/10 bg-white/5 text-white/55";
+  }
+  if (next <= 0.05) {
+    return "border-red-400/40 bg-red-500/15 text-red-100";
+  }
+  if (next <= 0.1) {
+    return "border-orange-400/40 bg-orange-500/15 text-orange-100";
+  }
+  if (next <= 0.2) {
+    return "border-yellow-300/40 bg-yellow-400/15 text-yellow-100";
+  }
+  return "border-white/10 bg-white/5 text-white/70";
+}
 
 function formatTimeForAPI(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -77,9 +113,11 @@ export default function CSComplexityPanel({
   suiteData,
   suiteLoading,
   suiteError,
-  traceData,
-  traceLoading,
-  traceError,
+  contextData,
+  contextLoading,
+  contextError,
+  showContextMapOverlay,
+  onShowContextMapOverlayChange,
   onClear,
 }: CSComplexityPanelProps) {
   const {
@@ -144,14 +182,35 @@ export default function CSComplexityPanel({
     () => getClosestSnapshot(suiteData?.snapshots, t),
     [suiteData?.snapshots, t],
   );
-  const mergedTraceEnvelope = useMemo(
-    () => mergeTraceEnvelopes(traceData?.snapshots, selectedMetric),
-    [selectedMetric, traceData?.snapshots],
-  );
   const showHistoryChart = interestWindowLength !== "2m";
   const forwardWindowLabel = `${formatSecondsToHHMMSS(t)}-${formatSecondsToHHMMSS(
     Math.min(24 * 60 * 60 - 1, t + getInterestWindowSeconds(interestWindowLength)),
   )}`;
+  const contextSlot = useMemo(() => getComplexityContextSlot(contextData?.slots, t), [contextData?.slots, t]);
+  const contextSlotLabel = useMemo(() => {
+    if (typeof contextSlot?.time_bin === "string" && contextSlot.time_bin.trim()) {
+      return contextSlot.time_bin;
+    }
+    if (!contextSlot) return null;
+    return `${contextSlot.slot_start_time}-${contextSlot.slot_end_time}`;
+  }, [contextSlot]);
+  const selectedMetricSpatialContext = getComplexityMetricSpatialContext(contextSlot, selectedMetric);
+  const selectedMetricHasSpatialContext = hasComplexityContextSpatialData(
+    selectedMetric,
+    selectedMetricSpatialContext,
+  );
+  const contextRows = useMemo(
+    () =>
+      COMPLEXITY_METRIC_IDS.map((metricId) => {
+        const contextMetric = contextSlot?.metrics?.[metricId] ?? null;
+        return {
+          metricId,
+          contextMetric,
+          rulerModel: buildComplexityContextDensityRulerModel(contextMetric),
+        };
+      }),
+    [contextSlot],
+  );
 
   const filteredFlightIds = useMemo(() => {
     if (!sectorFlightsData) return new Set<string>();
@@ -187,10 +246,107 @@ export default function CSComplexityPanel({
     selectedCollapsedSectorData?.properties?.max_fl,
   );
 
-  const traceSummary =
-    mergedTraceEnvelope && typeof mergedTraceEnvelope.returned_record_count === "number"
-      ? `${mergedTraceEnvelope.returned_record_count} record${mergedTraceEnvelope.returned_record_count === 1 ? "" : "s"}`
-      : null;
+  const renderContextSection = () => (
+    <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium">Best Knowledge Context</h3>
+          </div>
+          <p className="text-xs text-white/65">
+            {contextSlotLabel ? `Current slot ${contextSlotLabel}` : "Current 30-minute slot"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onShowContextMapOverlayChange(!showContextMapOverlay)}
+          className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+            showContextMapOverlay
+              ? "border-red-300/35 bg-red-500/15 text-red-50"
+              : "border-white/15 bg-white/5 text-white/70 hover:bg-white/10"
+          }`}
+        >
+          2D Map {showContextMapOverlay ? "On" : "Off"}
+        </button>
+      </div>
+
+      <p className="text-xs text-white/55">
+        Marker shows the current 30-minute observed value.
+      </p>
+
+      {showContextMapOverlay && selectedMetric === "td" && (
+        <p className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/65">
+          2D spatial best knowledge is unavailable for Traffic Density.
+        </p>
+      )}
+
+      {showContextMapOverlay &&
+        selectedMetric !== "td" &&
+        Boolean(contextSlot) &&
+        !selectedMetricHasSpatialContext &&
+        !contextLoading &&
+        !contextError && (
+        <p className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/65">
+          2D spatial context is unavailable for {COMPLEXITY_METRIC_META[selectedMetric].label} in this slot.
+        </p>
+      )}
+
+      {contextLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/25 border-t-white" />
+          <ShimmeringText text="Loading best-knowledge context..." className="ml-2 text-sm opacity-80 font-normal" />
+        </div>
+      ) : contextError ? (
+        <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4">
+          <p className="text-sm text-red-200">{contextError}</p>
+        </div>
+      ) : !contextSlot ? (
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-xs text-white/65">
+          No best-knowledge context was returned for the current 30-minute slot.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {contextRows.map(({ metricId, contextMetric, rulerModel }) => {
+            const meta = COMPLEXITY_METRIC_META[metricId];
+            const isActive = metricId === selectedMetric;
+            const showRuler =
+              Boolean(contextMetric?.distribution_available) &&
+              Boolean(rulerModel) &&
+              (rulerModel?.samples.length ?? 0) > 0;
+            return (
+              <div
+                key={metricId}
+                className={`rounded-xl border px-3 py-2 ${
+                  isActive ? "border-white/25 bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]" : "border-white/10 bg-white/4"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{meta.label}</p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${tailProbabilityTone(
+                      contextMetric?.upper_tail_probability,
+                    )}`}
+                  >
+                    p↑ {formatTailProbability(contextMetric?.upper_tail_probability)}
+                  </span>
+                </div>
+
+                {showRuler ? (
+                  <ComplexityDensityRuler model={rulerModel} active={isActive} className="mt-2" />
+                ) : (
+                  <div className="mt-3 rounded-lg border border-dashed border-white/12 bg-white/4 px-3 py-3 text-xs text-white/55">
+                    No best-knowledge comparison is available for this metric in this slot.
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white flex flex-col">
@@ -308,6 +464,8 @@ export default function CSComplexityPanel({
                   })}
                 </div>
 
+                {renderContextSection()}
+
                 {showHistoryChart && (
                   <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-3">
                     <div className="flex items-start justify-between gap-4">
@@ -360,9 +518,10 @@ export default function CSComplexityPanel({
                     </div>
                   </div>
                 )}
-
               </>
             )}
+
+            {(suiteLoading || suiteError) && renderContextSection()}
           </>
         )}
       </div>

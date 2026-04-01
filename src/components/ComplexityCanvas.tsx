@@ -16,7 +16,18 @@ import {
   normalizeCollapsedSectors,
 } from "@/lib/airspaceDisplay";
 import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
-import type { ComplexityOverlayCollections } from "@/lib/csComplexity";
+import {
+  buildComplexityContextSpatialOverlayFeatures,
+  getComplexityContextSlot,
+  getComplexityMetricSpatialContext,
+  type ComplexityContextResponse,
+  type ComplexityMetricId,
+  type ComplexityOverlayCollections,
+} from "@/lib/csComplexity";
+import {
+  clearComplexityContextLayers,
+  syncComplexityContextLayers,
+} from "@/lib/csComplexityContextLayer";
 import {
   clearComplexityTraceLayers,
   syncComplexityTraceLayers,
@@ -46,10 +57,34 @@ import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/
 
 type ComplexityCanvasProps = {
   overlay: ComplexityOverlayCollections;
+  contextData: ComplexityContextResponse | null;
+  contextMetricId: ComplexityMetricId;
+  showContextOverlay: boolean;
 };
 
 function emptyFeatureCollection(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
+}
+
+function getSelectedCollapsedSectorPolygonFeature(
+  map: maplibregl.Map,
+  trafficVolumeId: string | null,
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null {
+  if (!trafficVolumeId) return null;
+  const sectors = (map as maplibregl.Map & { __sectors?: GeoJSON.FeatureCollection }).__sectors;
+  const feature = sectors?.features.find((candidate) => {
+    const candidateId = String(candidate?.properties?.traffic_volume_id ?? "").trim();
+    return candidateId === trafficVolumeId;
+  });
+  if (!feature?.geometry) return null;
+  if (feature.geometry.type !== "Polygon" && feature.geometry.type !== "MultiPolygon") {
+    return null;
+  }
+  return {
+    type: "Feature",
+    geometry: feature.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon,
+    properties: { ...(feature.properties ?? {}) },
+  };
 }
 
 async function loadImage(map: maplibregl.Map, url: string) {
@@ -186,7 +221,12 @@ function updatePlanePositions(map: maplibregl.Map | null) {
   }
 }
 
-export default function ComplexityCanvas({ overlay }: ComplexityCanvasProps) {
+export default function ComplexityCanvas({
+  overlay,
+  contextData,
+  contextMetricId,
+  showContextOverlay,
+}: ComplexityCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
@@ -483,6 +523,7 @@ export default function ComplexityCanvas({ overlay }: ComplexityCanvasProps) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = undefined;
       }
+      clearComplexityContextLayers(map);
       clearComplexityTraceLayers(map);
       map.remove();
       mapRef.current = null;
@@ -632,6 +673,7 @@ export default function ComplexityCanvas({ overlay }: ComplexityCanvasProps) {
     if (!map) return;
 
     const apply = () => {
+      if (baseDataLoading || !map.getSource("flight-lines")) return;
       if (!selectedCollapsedSector) {
         clearComplexityTraceLayers(map);
         return;
@@ -659,7 +701,57 @@ export default function ComplexityCanvas({ overlay }: ComplexityCanvasProps) {
         // no-op
       }
     };
-  }, [overlay, selectedCollapsedSector]);
+  }, [baseDataLoading, overlay, selectedCollapsedSector]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      if (baseDataLoading || !map.getSource("sectors")) return;
+      if (!selectedCollapsedSector || !showContextOverlay || contextMetricId === "td" || !contextData) {
+        clearComplexityContextLayers(map);
+        return;
+      }
+
+      const contextSlot = getComplexityContextSlot(contextData.slots, t);
+      const spatialContext = getComplexityMetricSpatialContext(contextSlot, contextMetricId);
+      const sectorPolygon = getSelectedCollapsedSectorPolygonFeature(map, selectedCollapsedSector);
+      const spatialOverlay = buildComplexityContextSpatialOverlayFeatures({
+        metricId: contextMetricId,
+        spatialContext,
+        sectorFeature: sectorPolygon,
+      });
+
+      if (spatialOverlay.features.length === 0) {
+        clearComplexityContextLayers(map);
+        return;
+      }
+
+      syncComplexityContextLayers(map, spatialOverlay);
+    };
+
+    if (map.isStyleLoaded()) {
+      apply();
+      return;
+    }
+
+    let cancelled = false;
+    const waitForReady = () => {
+      if (!map.isStyleLoaded()) return;
+      map.off("render", waitForReady);
+      if (!cancelled) apply();
+    };
+    map.on("render", waitForReady);
+    return () => {
+      cancelled = true;
+      try {
+        map.off("render", waitForReady);
+      } catch {
+        // no-op
+      }
+    };
+  }, [baseDataLoading, contextData, contextMetricId, selectedCollapsedSector, showContextOverlay, t]);
 
   useEffect(() => {
     const map = mapRef.current;
