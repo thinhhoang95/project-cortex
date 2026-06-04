@@ -33,6 +33,11 @@ import {
   formatTrafficVolumeSelectionExpression,
   getEffectiveTrafficVolumeSelectionClauses,
 } from "@/lib/multiTrafficVolumeSelection";
+import {
+  buildFlowGroupMetadata,
+  deriveMembershipsFromGroups,
+  derivePrimaryCommunitiesFromMemberships,
+} from "@/lib/flowExtractor";
 
 type FlowAirspaceViewProps = { embedded?: boolean };
 const MAX_VISIBLE = 20;
@@ -133,8 +138,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     proposalLoading,
     // Flow view state/actions
     flowViewEnabled,
-    flowThreshold,
-    flowResolution,
+    flowMinFlights,
+    flowMaxFlows,
     setFlowViewEnabled,
     setFlowCommunities,
     setFlowLoading,
@@ -972,39 +977,46 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   // Flow Control: request community assignments for visible arrivals
   async function requestFlowExtraction() {
     if (!primaryTvId) return;
-    const ids = Array.from(new Set((Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : []).map((id) => String(id)).filter(Boolean)));
-    if (ids.length === 0) {
-      setFlowCommunities(null, null);
-      setFlowPreviewGroupId(null);
-      setFlowPreviewFlightId(null);
-      setFlowError(isMultiTv
-        ? 'No flights match the current TV selection.'
-        : 'No flights available to extract flows.');
-      return;
-    }
     setFlowLoading(true);
     setFlowError(null);
     try {
       const ref = formatTimeForAPI(t);
+      const [from, to] = regulationTimeWindow;
+      const windowMinutes = Number.isFinite(from) && Number.isFinite(to) && to > from
+        ? Math.max(1, Math.round((to - from) / 60))
+        : 60;
       const params = new URLSearchParams({
         traffic_volume_id: String(primaryTvId),
         ref_time_str: String(ref),
-        threshold: String(flowThreshold),
-        resolution: String(flowResolution),
-        flight_ids: ids.join(',')
+        window_minutes: String(windowMinutes),
+        min_flights: String(flowMinFlights),
       });
+      if (flowMaxFlows != null) params.set('vpf_max_flows', String(flowMaxFlows));
       const res = await authFetch(`/api/flow_extraction?${params.toString()}`);
-      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      if (!res.ok) throw new Error(await res.text().catch(() => `Failed: ${res.status}`));
       const data = await res.json();
-      // Expect data.communities: { flightId: communityId }, data.groups: { comId: [flightIds] }
-      if (data && data.communities) {
-        setFlowCommunities(data.communities, data.groups || null);
+      const groups = data?.groups && typeof data.groups === "object" ? data.groups : null;
+      if (groups && Object.keys(groups).length > 0) {
+        const groupMetadata = Object.fromEntries(
+          (data.flows || []).map((flow: any) => [
+            String(flow?.flow_id),
+            buildFlowGroupMetadata(flow?.extractor_metadata, data?.extractor_metadata),
+          ])
+        );
+        const memberships = data.memberships ?? deriveMembershipsFromGroups(groups);
+        const communities = data.communities ?? derivePrimaryCommunitiesFromMemberships(memberships);
+        setFlowCommunities(communities, groups, undefined, memberships, groupMetadata, data.extractor_metadata ?? null);
         setFlowViewEnabled(true);
       } else {
         setFlowCommunities(null, null);
         setFlowPreviewGroupId(null);
         setFlowPreviewFlightId(null);
-        setFlowError('Flow extraction returned no communities.');
+        const reason = String(data?.extractor_metadata?.reason ?? "").trim();
+        setFlowError(reason === "no_primary_flights"
+          ? "No primary flights found in the selected VPF window."
+          : reason === "empty_primary_window"
+            ? "Choose a non-empty time window for VPF extraction."
+            : "Flow extraction returned no candidate groups.");
       }
     } catch (e: any) {
       setFlowCommunities(null, null);
@@ -1021,7 +1033,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     if (!flowViewEnabled) return;
     requestFlowExtraction();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowThreshold, flowResolution, selectedTvKey, t, regulationListedFlightIds]);
+  }, [flowMinFlights, flowMaxFlows, selectedTvKey, t, regulationTimeWindow]);
 
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
   useEffect(() => {
@@ -1119,8 +1131,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 await fetchRegulationProposals({
                   trafficVolumeId: String(primaryTvId),
                   timeWindow: toTimeWindow(fromHHMM, toHHMM),
-                  threshold: flowThreshold,
-                  resolution: flowResolution,
+                  minFlights: flowMinFlights,
+                  vpfMaxFlows: flowMaxFlows,
                 });
               }}
               disabled={proposalLoading || selectedTvIds.length > 1}

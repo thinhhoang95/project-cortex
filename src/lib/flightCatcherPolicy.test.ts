@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   applyCatcherToRegulationTargets,
   applyCatcherToRerouteState,
+  buildFlowLineColorExpression,
   deriveVisibleFlightLineIds,
   filterCapturedToGate,
   freezeGateSnapshot,
+  FLOW_LINE_DEFAULT_COLOR,
 } from "./flightCatcherPolicy";
 
 describe("freezeGateSnapshot", () => {
@@ -142,5 +144,52 @@ describe("deriveVisibleFlightLineIds", () => {
       focusFlightIds: ["A", "D"],
     });
     expect(visibleFromFocus).toEqual(["A", "D"]);
+  });
+});
+
+describe("buildFlowLineColorExpression", () => {
+  it("uses the active preview group's color for overlapping VPF group flights", () => {
+    const expression = buildFlowLineColorExpression({
+      flowViewEnabled: true,
+      flowPreviewGroupId: "1",
+      flowGroups: {
+        "0": ["F1", "F2"],
+        "1": ["F1", "F3"],
+      },
+      flowColorByCommunity: {
+        "0": "#ef4444",
+        "1": "#22c55e",
+      },
+    });
+
+    expect(expression).toEqual([
+      "case",
+      ["in", ["to-string", ["get", "flightId"]], ["literal", ["F1", "F3"]]],
+      "#22c55e",
+      FLOW_LINE_DEFAULT_COLOR,
+    ]);
+  });
+
+  it("colors full flow view from authoritative groups and assigns overlapping flights once", () => {
+    const expression = buildFlowLineColorExpression({
+      flowViewEnabled: true,
+      flowGroups: {
+        "0": ["F1", "F2"],
+        "1": ["F1", "F3"],
+      },
+      flowColorByCommunity: {
+        "0": "#ef4444",
+        "1": "#22c55e",
+      },
+    });
+
+    expect(expression).toEqual([
+      "case",
+      ["in", ["to-string", ["get", "flightId"]], ["literal", ["F1", "F2"]]],
+      "#ef4444",
+      ["in", ["to-string", ["get", "flightId"]], ["literal", ["F3"]]],
+      "#22c55e",
+      FLOW_LINE_DEFAULT_COLOR,
+    ]);
   });
 });

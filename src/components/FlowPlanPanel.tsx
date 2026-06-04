@@ -90,12 +90,18 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   // Track original global flow communities/groups so we can restore after hover
   const origCommunitiesRef = useRef<ReturnType<typeof useSimStore.getState>["flowCommunities"] | null>(null);
   const origGroupsRef = useRef<ReturnType<typeof useSimStore.getState>["flowGroups"] | null>(null);
+  const origMembershipsRef = useRef<ReturnType<typeof useSimStore.getState>["flowMemberships"] | null>(null);
+  const origGroupMetadataRef = useRef<ReturnType<typeof useSimStore.getState>["flowGroupMetadata"] | null>(null);
+  const origExtractorMetadataRef = useRef<ReturnType<typeof useSimStore.getState>["flowExtractorMetadata"] | null>(null);
   const origEnabledRef = useRef<boolean | null>(null);
   const origColorsRef = useRef<ReturnType<typeof useSimStore.getState>["flowColorByCommunity"] | null>(null);
 
   // Separate refs for hover/preview so we don't overwrite basket baseline
   const hoverOrigCommunitiesRef = useRef<ReturnType<typeof useSimStore.getState>["flowCommunities"] | null>(null);
   const hoverOrigGroupsRef = useRef<ReturnType<typeof useSimStore.getState>["flowGroups"] | null>(null);
+  const hoverOrigMembershipsRef = useRef<ReturnType<typeof useSimStore.getState>["flowMemberships"] | null>(null);
+  const hoverOrigGroupMetadataRef = useRef<ReturnType<typeof useSimStore.getState>["flowGroupMetadata"] | null>(null);
+  const hoverOrigExtractorMetadataRef = useRef<ReturnType<typeof useSimStore.getState>["flowExtractorMetadata"] | null>(null);
   const hoverOrigEnabledRef = useRef<boolean | null>(null);
   const hoverOrigColorsRef = useRef<ReturnType<typeof useSimStore.getState>["flowColorByCommunity"] | null>(null);
 
@@ -108,7 +114,14 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const resolveByKey = useCallback((key: string) => flightsById.get(String(key).trim()) || null, [flightsById]);
 
   const restoreFlowPreview = () => {
-    setFlowCommunities(hoverOrigCommunitiesRef.current, hoverOrigGroupsRef.current, hoverOrigColorsRef.current || null);
+    setFlowCommunities(
+      hoverOrigCommunitiesRef.current,
+      hoverOrigGroupsRef.current,
+      hoverOrigColorsRef.current || null,
+      hoverOrigMembershipsRef.current,
+      hoverOrigGroupMetadataRef.current,
+      hoverOrigExtractorMetadataRef.current,
+    );
     setFlowViewEnabled(!!hoverOrigEnabledRef.current);
     setFlowPreviewGroupId(null);
     setFlowPreviewFlightId(null);
@@ -194,6 +207,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     const st = useSimStore.getState();
     origCommunitiesRef.current = st.flowCommunities;
     origGroupsRef.current = st.flowGroups;
+    origMembershipsRef.current = st.flowMemberships;
+    origGroupMetadataRef.current = st.flowGroupMetadata;
+    origExtractorMetadataRef.current = st.flowExtractorMetadata;
     origEnabledRef.current = st.flowViewEnabled;
     origColorsRef.current = st.flowColorByCommunity;
     // Apply basket mapping
@@ -202,13 +218,23 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowViewEnabled(true);
   };
   const clearBasketView = () => {
-    setFlowCommunities(origCommunitiesRef.current, origGroupsRef.current, origColorsRef.current || null);
+    setFlowCommunities(
+      origCommunitiesRef.current,
+      origGroupsRef.current,
+      origColorsRef.current || null,
+      origMembershipsRef.current,
+      origGroupMetadataRef.current,
+      origExtractorMetadataRef.current,
+    );
     setFlowViewEnabled(!!origEnabledRef.current);
     setFlowPreviewGroupId(null);
     setFlowPreviewFlightId(null);
     // Reset hover baseline to the restored state to avoid stale hover restoration
     hoverOrigCommunitiesRef.current = origCommunitiesRef.current;
     hoverOrigGroupsRef.current = origGroupsRef.current;
+    hoverOrigMembershipsRef.current = origMembershipsRef.current;
+    hoverOrigGroupMetadataRef.current = origGroupMetadataRef.current;
+    hoverOrigExtractorMetadataRef.current = origExtractorMetadataRef.current;
     hoverOrigEnabledRef.current = origEnabledRef.current;
     hoverOrigColorsRef.current = origColorsRef.current;
   };
@@ -799,6 +825,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     const st = useSimStore.getState();
                     hoverOrigCommunitiesRef.current = st.flowCommunities;
                     hoverOrigGroupsRef.current = st.flowGroups;
+                    hoverOrigMembershipsRef.current = st.flowMemberships;
+                    hoverOrigGroupMetadataRef.current = st.flowGroupMetadata;
+                    hoverOrigExtractorMetadataRef.current = st.flowExtractorMetadata;
                     hoverOrigEnabledRef.current = st.flowViewEnabled;
                     hoverOrigColorsRef.current = st.flowColorByCommunity;
                     // Build temp mapping for this basket flow
@@ -817,12 +846,13 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                     restoreFlowPreview();
                   };
                   return (
-                    <div key={bf.id} className="border border-white/10 rounded-md">
-                      <div
-                        className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
-                        onMouseEnter={handleFlowMouseEnter}
-                        onMouseLeave={handleFlowMouseLeave}
-                      >
+                    <div
+                      key={bf.id}
+                      className="border border-white/10 rounded-md"
+                      onMouseEnter={handleFlowMouseEnter}
+                      onMouseLeave={handleFlowMouseLeave}
+                    >
+                      <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">
                         <div className="flex items-center gap-2 text-xs">
                           <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: bf.color }} title={bf.name} />
                           <span className="opacity-90 font-medium truncate max-w-[50px]" title={bf.name}>{bf.name}</span>

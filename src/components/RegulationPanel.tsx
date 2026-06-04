@@ -30,6 +30,16 @@ import {
   getEffectiveTrafficVolumeSelectionClauses,
 } from "@/lib/multiTrafficVolumeSelection";
 import { toTimeWindow } from "@/lib/regulationProposals";
+import {
+  buildFlowGroupMetadata,
+  deriveMembershipsFromGroups,
+  derivePrimaryCommunitiesFromMemberships,
+  timeWindowDisplayLabel,
+  volumeDisplayLabel,
+  type FlowGroupMetadata,
+  type VpfFlowMetadata,
+  type VpfTopLevelMetadata,
+} from "@/lib/flowExtractor";
 
 type RegulationPanelProps = { embedded?: boolean };
 
@@ -78,10 +88,15 @@ type FlowHeuristicsDiagnostics = {
 };
 
 type FlowExtractionResponse = {
+  extractor?: "vpf";
+  is_partition?: boolean;
   communities?: Record<string, number>;
+  memberships?: Record<string, number[]>;
   groups?: Record<string, string[]>;
+  extractor_metadata?: VpfTopLevelMetadata;
   flows?: Array<{
     flow_id: number | string;
+    extractor_metadata?: Partial<VpfFlowMetadata> | null;
     heuristics?: {
       diagnostics?: FlowHeuristicsDiagnostics | null;
     } | null;
@@ -142,14 +157,16 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     flowViewEnabled,
     flowCommunities,
     flowGroups,
+    flowGroupMetadata,
+    flowExtractorMetadata,
     flowColorByCommunity,
-    flowThreshold,
-    flowResolution,
+    flowMinFlights,
+    flowMaxFlows,
     flowLoading,
     flowError,
     setFlowViewEnabled,
-    setFlowThreshold,
-    setFlowResolution,
+    setFlowMinFlights,
+    setFlowMaxFlows,
     setFlowCommunities,
     setFlowColorByCommunity,
     setFlowLoading,
@@ -836,7 +853,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     setCommunityReviewContext({
       communityId: String(context.communityId),
-      label: context.label || `Community ${context.communityId}`,
+      label: context.label || `Flow Group ${context.communityId}`,
       flightIds: normalizedIds,
     });
   }, [setCommunityReviewContext]);
@@ -850,7 +867,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     if (!communityReviewContext) {
       return { highlight: undefined as string | undefined, baseline: undefined as string | undefined };
     }
-    const baseLabel = communityReviewContext.label || `Community ${communityReviewContext.communityId}`;
+    const baseLabel = communityReviewContext.label || `Flow Group ${communityReviewContext.communityId}`;
     return {
       highlight: `Add ${baseLabel}`,
       baseline: baseLabel,
@@ -881,35 +898,35 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   // Flow Control: request community assignments for visible arrivals
   async function requestFlowExtraction() {
     if (!primaryTvId) return;
-    const ids = Array.from(new Set((Array.isArray(regulationListedFlightIds) ? regulationListedFlightIds : []).map((id) => String(id)).filter(Boolean)));
-    if (ids.length === 0) {
-      // Clear stale flow render state so the canvas falls back to the (empty) focus set.
-      setFlowCommunities(null, null);
-      setFlowPreviewGroupId(null);
-      setFlowPreviewFlightId(null);
-      setFlowError(selectedTvIds.length > 1
-        ? 'No flights match the current TV selection.'
-        : 'No flights available to extract flows.');
-      setCommunityHeuristics({});
-      return;
-    }
     setFlowLoading(true);
     setFlowError(null);
     try {
       const ref = formatTimeForAPI(t);
+      const [from, to] = regulationTimeWindow;
+      const windowMinutes = Number.isFinite(from) && Number.isFinite(to) && to > from
+        ? Math.max(1, Math.round((to - from) / 60))
+        : 60;
       const params = new URLSearchParams({
         traffic_volume_id: String(primaryTvId),
         ref_time_str: String(ref),
-        threshold: String(flowThreshold),
-        resolution: String(flowResolution),
-        flight_ids: ids.join(',')
+        window_minutes: String(windowMinutes),
+        min_flights: String(flowMinFlights),
       });
+      if (flowMaxFlows != null) params.set('vpf_max_flows', String(flowMaxFlows));
       const res = await (await import("@/lib/auth")).authFetch(`/api/flow_extraction?${params.toString()}`);
-      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      if (!res.ok) throw new Error(await res.text().catch(() => `Failed: ${res.status}`));
       const data = await res.json() as FlowExtractionResponse;
-      // Expect data.communities: { flightId: communityId }, data.groups: { comId: [flightIds] }
-      if (data && data.communities) {
-        setFlowCommunities(data.communities, data.groups || null);
+      const groups = data?.groups && typeof data.groups === "object" ? data.groups : null;
+      if (groups && Object.keys(groups).length > 0) {
+        const groupMetadata: Record<string, FlowGroupMetadata> = {};
+        for (const flow of data.flows || []) {
+          const flowId = String(flow?.flow_id ?? "");
+          if (!flowId) continue;
+          groupMetadata[flowId] = buildFlowGroupMetadata(flow.extractor_metadata, data.extractor_metadata);
+        }
+        const memberships = data.memberships ?? deriveMembershipsFromGroups(groups);
+        const communities = data.communities ?? derivePrimaryCommunitiesFromMemberships(memberships);
+        setFlowCommunities(communities, groups, undefined, memberships, groupMetadata, data.extractor_metadata ?? null);
         const nextHeuristics: Record<string, CommunityHeuristicsSummary> = {};
         for (const flow of data.flows || []) {
           const flowId = String(flow?.flow_id ?? "");
@@ -939,7 +956,12 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         setFlowPreviewGroupId(null);
         setFlowPreviewFlightId(null);
         setCommunityHeuristics({});
-        setFlowError('Flow extraction returned no communities.');
+        const reason = String(data?.extractor_metadata?.reason ?? "").trim();
+        setFlowError(reason === "no_primary_flights"
+          ? "No primary flights found in the selected VPF window."
+          : reason === "empty_primary_window"
+            ? "Choose a non-empty time window for VPF extraction."
+            : "Flow extraction returned no candidate groups.");
       }
     } catch (e: any) {
       setFlowCommunities(null, null);
@@ -957,7 +979,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     if (!flowViewEnabled) return;
     requestFlowExtraction();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowThreshold, flowResolution, selectedTvKey, t, regulationListedFlightIds]);
+  }, [flowMinFlights, flowMaxFlows, selectedTvKey, t, regulationTimeWindow]);
 
   // Apply pending edit payload (from RegulationPlanPanel) without causing extra API calls
   useEffect(() => {
@@ -1027,8 +1049,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                 await fetchRegulationProposals({
                   trafficVolumeId: String(primaryTvId),
                   timeWindow: toTimeWindow(formatTime(from), formatTime(to)),
-                  threshold: flowThreshold,
-                  resolution: flowResolution,
+                  minFlights: flowMinFlights,
+                  vpfMaxFlows: flowMaxFlows,
                 });
               }}
               disabled={proposalLoading || selectedTvIds.length > 1}
@@ -1140,26 +1162,25 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="text-[11px] opacity-80 mb-1">Threshold</div>
+              <div className="text-[11px] opacity-80 mb-1">Min Flights</div>
               <input
                 type="number"
-                min={0}
-                max={10}
-                step={0.05}
-                value={flowThreshold}
-                onChange={(e) => setFlowThreshold(Number(e.currentTarget.value))}
+                min={1}
+                step={1}
+                value={flowMinFlights}
+                onChange={(e) => setFlowMinFlights(Number(e.currentTarget.value))}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />
             </div>
             <div>
-              <div className="text-[11px] opacity-80 mb-1">Resolution</div>
+              <div className="text-[11px] opacity-80 mb-1">Max Groups</div>
               <input
                 type="number"
-                min={0.1}
-                max={10}
-                step={0.1}
-                value={flowResolution}
-                onChange={(e) => setFlowResolution(Number(e.currentTarget.value))}
+                min={1}
+                step={1}
+                value={flowMaxFlows ?? ""}
+                placeholder="No cap"
+                onChange={(e) => setFlowMaxFlows(e.currentTarget.value === "" ? null : Number(e.currentTarget.value))}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />
             </div>
@@ -1172,21 +1193,21 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           )}
           {!flowLoading && (
             <div className="text-[10px] opacity-70 mt-2">
-              {selectedTvIds.length > 1
-                ? `Extract Flows uses flights matching the current TV selection (${regulationListedFlightIds.length} flights).`
-                : `Extract Flows uses the current flight list (${regulationListedFlightIds.length} flights).`}
+              VPF uses the selected primary TV and active time window.
             </div>
           )}
           {!flowLoading && flowViewEnabled && (
-            <div className="text-[10px] opacity-70 mt-2">Flow view active. Colors represent discovered flows; singletons/unassigned are gray.</div>
+            <div className="text-[10px] opacity-70 mt-2">Flow view active. Colors represent candidate groups; unassigned flights are gray.</div>
           )}
         </div>
 
-        {/* Flow Communities (top 10 by size) */}
+        {/* Flow groups (top 10 by size) */}
         {flowViewEnabled && (
           <FlowCommunitiesSection
             flowCommunities={flowCommunities}
             flowGroups={flowGroups}
+            flowGroupMetadata={flowGroupMetadata}
+            flowExtractorMetadata={flowExtractorMetadata}
             flowColorByCommunity={flowColorByCommunity}
             communityHeuristics={communityHeuristics}
             flights={flights}
@@ -1579,11 +1600,11 @@ function CatcherButton(props: {
   );
 }
 
-function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommunity, communityHeuristics, flights, orderedFlightsData, selectedTrafficVolume, regulationTimeWindow, embedded, onReviewCommunity }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowColorByCommunity: Record<string, string> | null; communityHeuristics: Record<string, CommunityHeuristicsSummary>; flights: any[]; orderedFlightsData: any | null; selectedTrafficVolume: string | null; regulationTimeWindow: [number, number]; embedded?: boolean; onReviewCommunity: (context: CommunityReviewContext) => void; }) {
+function FlowCommunitiesSection({ flowCommunities, flowGroups, flowGroupMetadata, flowExtractorMetadata, flowColorByCommunity, communityHeuristics, flights, orderedFlightsData, selectedTrafficVolume, regulationTimeWindow, embedded, onReviewCommunity }: { flowCommunities: Record<string, number> | null; flowGroups: Record<string, string[]> | null; flowGroupMetadata: Record<string, FlowGroupMetadata> | null; flowExtractorMetadata: VpfTopLevelMetadata | null; flowColorByCommunity: Record<string, string> | null; communityHeuristics: Record<string, CommunityHeuristicsSummary>; flights: any[]; orderedFlightsData: any | null; selectedTrafficVolume: string | null; regulationTimeWindow: [number, number]; embedded?: boolean; onReviewCommunity: (context: CommunityReviewContext) => void; }) {
   const { setFlowPreviewFlightId, setFlowPreviewGroupId, regulationTargetFlightIds, setRegulationTargetFlightIds } = useSimStore();
   const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
   const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
-  // Derive community sizes
+  // Derive group sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
       return Object.entries(flowGroups).map(([cid, ids]) => ({ cid: String(cid), ids: (ids || []).map(String) }));
@@ -1600,7 +1621,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
     return Array.from(byCid.entries()).map(([cid, ids]) => ({ cid, ids }));
   }, [flowGroups, flowCommunities]);
 
-  // Sort communities by size desc and take top 10, excluding singletons
+  // Sort groups by size desc and take top 10, excluding singletons
   const topGroups = useMemo(() => {
     return groupEntries
       .map(g => ({ ...g, size: (g.ids || []).length }))
@@ -1672,23 +1693,38 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-lg p-3">
-      <div className="font-medium text-sm opacity-90 mb-2">Top Communities</div>
+      <div className="font-medium text-sm opacity-90 mb-2">Top Flow Groups</div>
+      {(() => {
+        const primary = volumeDisplayLabel(flowExtractorMetadata?.primary_volume, flowExtractorMetadata?.primary_tv);
+        const windowLabel = timeWindowDisplayLabel(flowExtractorMetadata?.primary_time_window);
+        if (!primary && !windowLabel) return null;
+        return (
+          <div className="mb-2 text-[11px] text-white/70">
+            Primary: {primary ?? "Selected TV"}{windowLabel ? `, ${windowLabel}` : ""}
+          </div>
+        );
+      })()}
       <div className={embedded ? "space-y-3" : "space-y-3 max-h-64 overflow-y-auto no-scrollbar"}>
         {topGroups.map((g) => {
           const statsFlightIds = g.ids.map((fid) => String(fid)).filter(Boolean);
           const heuristics = communityHeuristics[g.cid];
+          const metadata = flowGroupMetadata?.[g.cid] ?? null;
           const flightListOpen = expandedFlightLists[g.cid] ?? false;
           const heuristicFlightCount = heuristics?.flights ?? g.size;
           return (
-            <div key={g.cid} className="border border-white/10 rounded-md">
-              <div
-                className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
-                onMouseEnter={() => setFlowPreviewGroupId(String(g.cid))}
-                onMouseLeave={() => setFlowPreviewGroupId(null)}
-              >
+            <div
+              key={g.cid}
+              className="border border-white/10 rounded-md"
+              onMouseEnter={() => setFlowPreviewGroupId(String(g.cid))}
+              onMouseLeave={() => {
+                setFlowPreviewGroupId(null);
+                setFlowPreviewFlightId(null);
+              }}
+            >
+              <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">
                 <div className="flex items-center gap-2 text-xs">
                   <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: colorMap.get(g.cid) || '#9ca3af' }} />
-                  <span className="opacity-80">Community {g.cid}</span>
+                  <span className="opacity-80">Flow Group {g.cid}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="text-[10px] opacity-70">{g.size} flights</div>
@@ -1696,7 +1732,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                     flightIds={statsFlightIds}
                     sourceTrafficVolumeId={selectedTrafficVolume}
                     buttonClassName="border-white/20 text-white/80"
-                    ariaLabel={`Open flight statistics for community ${g.cid}`}
+                    ariaLabel={`Open flight statistics for flow group ${g.cid}`}
                     title="Open flight statistics"
                   />
                   <button
@@ -1722,7 +1758,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                         setOpenMenuFor((prev) => (prev === g.cid ? null : g.cid));
                       }}
                       className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1"
-                      title="Add this community to Targeted Flights"
+                      title="Add this flow group to Targeted Flights"
                       aria-haspopup="menu"
                       aria-expanded={openMenuFor === g.cid}
                     >
@@ -1762,7 +1798,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                             onReviewCommunity({
                               communityId: g.cid,
                               flightIds: uniqueIds,
-                              label: `Community ${g.cid}`,
+                              label: `Flow Group ${g.cid}`,
                             });
                             setOpenMenuFor(null);
                           }}
@@ -1775,6 +1811,15 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                   </div>
                 </div>
               </div>
+              {metadata && (metadata.secondaryLabel || metadata.secondaryWindowLabel || metadata.proxyScore !== null) && (
+                <div className="px-2 pt-2 text-[11px] text-white/70">
+                  {metadata.secondaryLabel && <span>Secondary: {metadata.secondaryLabel}</span>}
+                  {metadata.secondaryWindowLabel && <span>{metadata.secondaryLabel ? " • " : ""}{metadata.secondaryWindowLabel}</span>}
+                  {metadata.proxyScore !== null && metadata.proxyScore !== undefined && (
+                    <span>{metadata.secondaryLabel || metadata.secondaryWindowLabel ? " • " : ""}Score {metadata.proxyScore.toFixed(2)}</span>
+                  )}
+                </div>
+              )}
               <div className="px-2 pt-2">
                 <HourGlass
                   data={g.ids.map((fid) => arrivalTimeById.get(String(fid))).filter(Boolean) as string[]}

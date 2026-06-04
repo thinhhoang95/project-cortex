@@ -24,6 +24,14 @@ import {
 import type { FlightLineLabelMode } from "@/lib/flightLineLabels";
 import type { FlightLevelBinPreviewSegment } from "@/lib/flightLevelBinCounts";
 import {
+  deriveMembershipsFromGroups,
+  derivePrimaryCommunitiesFromMemberships,
+  normalizeOptionalPositiveInteger,
+  normalizePositiveInteger,
+  type FlowGroupMetadata,
+  type VpfTopLevelMetadata,
+} from "@/lib/flowExtractor";
+import {
   collectAllProposalFlights,
   collectProposalFlights,
   ProposeRegulationsRequest,
@@ -103,8 +111,8 @@ export type ProposalQuery = {
   trafficVolumeId: string;
   timeWindow: string;
   topK?: number;
-  threshold?: number;
-  resolution?: number;
+  minFlights?: number;
+  vpfMaxFlows?: number | null;
 };
 
 export type RerouteBaseListSource = "tv" | "query" | "catcher";
@@ -174,11 +182,14 @@ type State = {
   hotspotsMetadata: HotspotResponse["metadata"] | null;
   // Flow view state
   flowViewEnabled: boolean;
-  flowThreshold: number;
-  flowResolution: number;
-  flowCommunities: Record<string, number> | null; // flightId -> communityId
-  flowGroups: Record<string, string[]> | null;    // communityId -> flightIds
-  flowColorByCommunity: Record<string, string> | null; // communityId -> color
+  flowMinFlights: number;
+  flowMaxFlows: number | null;
+  flowCommunities: Record<string, number> | null; // derived fallback: flightId -> primary groupId
+  flowMemberships: Record<string, number[]> | null; // authoritative VPF: flightId -> groupIds
+  flowGroups: Record<string, string[]> | null;    // groupId -> flightIds
+  flowGroupMetadata: Record<string, FlowGroupMetadata> | null;
+  flowExtractorMetadata: VpfTopLevelMetadata | null;
+  flowColorByCommunity: Record<string, string> | null; // groupId -> color
   flowLoading: boolean;
   flowError: string | null;
   // Flow preview (hover) state
@@ -292,9 +303,16 @@ type State = {
   setHotspotsMetadata: (metadata: HotspotResponse["metadata"] | null) => void;
   // Flow view actions
   setFlowViewEnabled: (enabled: boolean) => void;
-  setFlowThreshold: (threshold: number) => void;
-  setFlowResolution: (resolution: number) => void;
-  setFlowCommunities: (communities: Record<string, number> | null, groups?: Record<string, string[]> | null, colorOverride?: Record<string, string> | null) => void;
+  setFlowMinFlights: (minFlights: number) => void;
+  setFlowMaxFlows: (maxFlows: number | null | undefined) => void;
+  setFlowCommunities: (
+    communities: Record<string, number> | null,
+    groups?: Record<string, string[]> | null,
+    colorOverride?: Record<string, string> | null,
+    memberships?: Record<string, number[]> | null,
+    groupMetadata?: Record<string, FlowGroupMetadata> | null,
+    extractorMetadata?: VpfTopLevelMetadata | null,
+  ) => void;
   setFlowLoading: (loading: boolean) => void;
   setFlowError: (error: string | null) => void;
   setFlowPreviewGroupId: (groupId: string | null) => void;
@@ -458,10 +476,13 @@ const defaultState: Pick<State,
   | 'hotspotsLoading'
   | 'hotspotsMetadata'
   | 'flowViewEnabled'
-  | 'flowThreshold'
-  | 'flowResolution'
+  | 'flowMinFlights'
+  | 'flowMaxFlows'
   | 'flowCommunities'
+  | 'flowMemberships'
   | 'flowGroups'
+  | 'flowGroupMetadata'
+  | 'flowExtractorMetadata'
   | 'flowColorByCommunity'
   | 'flowLoading'
   | 'flowError'
@@ -575,10 +596,13 @@ const defaultState: Pick<State,
   hotspotsLoading: false,
   hotspotsMetadata: null,
   flowViewEnabled: false,
-  flowThreshold: 0.8,
-  flowResolution: 1.0,
+  flowMinFlights: 4,
+  flowMaxFlows: null,
   flowCommunities: null,
+  flowMemberships: null,
   flowGroups: null,
+  flowGroupMetadata: null,
+  flowExtractorMetadata: null,
   flowColorByCommunity: null,
   flowLoading: false,
   flowError: null,
@@ -831,7 +855,10 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       regulationSimulationResult: invalidateServerDerivedState ? null : state.regulationSimulationResult,
       isResultsOpen: invalidateServerDerivedState ? false : state.isResultsOpen,
       flowCommunities: invalidateServerDerivedState ? null : state.flowCommunities,
+      flowMemberships: invalidateServerDerivedState ? null : state.flowMemberships,
       flowGroups: invalidateServerDerivedState ? null : state.flowGroups,
+      flowGroupMetadata: invalidateServerDerivedState ? null : state.flowGroupMetadata,
+      flowExtractorMetadata: invalidateServerDerivedState ? null : state.flowExtractorMetadata,
       flowColorByCommunity: invalidateServerDerivedState ? null : state.flowColorByCommunity,
       flowPreviewGroupId: invalidateServerDerivedState ? null : state.flowPreviewGroupId,
       flowPreviewFlightId: invalidateServerDerivedState ? null : state.flowPreviewFlightId,
@@ -1162,13 +1189,39 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setHotspotsLoading: (loading) => set({ hotspotsLoading: loading }),
   setHotspotsMetadata: (metadata) => set({ hotspotsMetadata: metadata }),
   setFlowViewEnabled: (enabled) => set({ flowViewEnabled: enabled }),
-  setFlowThreshold: (threshold) => set({ flowThreshold: threshold }),
-  setFlowResolution: (resolution) => set({ flowResolution: resolution }),
-  setFlowCommunities: (communities, groups = null, colorOverride = undefined) => set({
-    flowCommunities: communities,
-    flowGroups: groups,
-    flowColorByCommunity: colorOverride !== undefined ? colorOverride : computeFlowColorByCommunity(communities, groups)
-  }),
+  setFlowMinFlights: (minFlights) => set({ flowMinFlights: normalizePositiveInteger(minFlights, 4) }),
+  setFlowMaxFlows: (maxFlows) => set({ flowMaxFlows: normalizeOptionalPositiveInteger(maxFlows) }),
+  setFlowCommunities: (
+    communities,
+    groups = null,
+    colorOverride = undefined,
+    memberships = undefined,
+    groupMetadata = null,
+    extractorMetadata = null,
+  ) => {
+    const normalizedMemberships =
+      memberships !== undefined
+        ? memberships
+        : deriveMembershipsFromGroups(groups) ??
+          (communities
+            ? Object.fromEntries(
+                Object.entries(communities)
+                  .map(([flightId, groupId]) => [String(flightId), Number(groupId)] as const)
+                  .filter(([, groupId]) => Number.isFinite(groupId))
+                  .map(([flightId, groupId]) => [flightId, [groupId]])
+              )
+            : null);
+    const normalizedCommunities = communities ?? derivePrimaryCommunitiesFromMemberships(normalizedMemberships);
+    set({
+      flowCommunities: normalizedCommunities,
+      flowMemberships: normalizedMemberships,
+      flowGroups: groups,
+      flowGroupMetadata: groupMetadata,
+      flowExtractorMetadata: extractorMetadata,
+      flowColorByCommunity:
+        colorOverride !== undefined ? colorOverride : computeFlowColorByCommunity(normalizedCommunities, groups)
+    });
+  },
   setFlowLoading: (loading) => set({ flowLoading: loading }),
   setFlowError: (error) => set({ flowError: error }),
   setFlowPreviewGroupId: (groupId) => set({ flowPreviewGroupId: groupId }),
@@ -1270,15 +1323,17 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       const body: ProposeRegulationsRequest = {
         traffic_volume_id: q.trafficVolumeId,
         time_window: q.timeWindow,
+        extractor: "vpf",
       };
       if (q.topK != null) {
         body.top_k_regulations = q.topK;
       }
-      if (q.threshold != null) {
-        body.threshold = q.threshold;
+      if (q.minFlights != null) {
+        body.min_flights = normalizePositiveInteger(q.minFlights, get().flowMinFlights);
       }
-      if (q.resolution != null) {
-        body.resolution = q.resolution;
+      const maxFlows = q.vpfMaxFlows ?? get().flowMaxFlows;
+      if (maxFlows != null) {
+        body.vpf_max_flows = normalizePositiveInteger(maxFlows, maxFlows);
       }
       const data = await proposeRegulations(body);
       if (get().resourceStateEpoch !== requestEpoch) {

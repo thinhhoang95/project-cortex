@@ -3,15 +3,37 @@ import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
 const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
+function parsePositiveInteger(value: string | null, name: string): number | null | NextResponse {
+  if (value === null || value.trim() === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return NextResponse.json({ error: `${name} must be a positive integer` }, { status: 400 });
+  }
+  return Math.floor(parsed);
+}
+
+async function passThroughError(response: Response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.toLowerCase().includes('application/json')) {
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
+  }
+  const text = await response.text();
+  return new NextResponse(text, {
+    status: response.status,
+    headers: text
+      ? { 'Content-Type': contentType || 'text/plain; charset=utf-8' }
+      : undefined,
+  });
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const trafficVolumeId = searchParams.get('traffic_volume_id');
   const refTimeStr = searchParams.get('ref_time_str');
-  const threshold = searchParams.get('threshold');
-  const resolution = searchParams.get('resolution');
-  const seed = searchParams.get('seed');
-  const limit = searchParams.get('limit');
-  const flightIds = searchParams.get('flight_ids'); // optional, comma-separated
+  const windowMinutes = parsePositiveInteger(searchParams.get('window_minutes'), 'window_minutes');
+  const minFlights = parsePositiveInteger(searchParams.get('min_flights'), 'min_flights');
+  const vpfMaxFlows = parsePositiveInteger(searchParams.get('vpf_max_flows'), 'vpf_max_flows');
 
   if (!trafficVolumeId || !refTimeStr) {
     return NextResponse.json(
@@ -19,16 +41,18 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  if (windowMinutes instanceof NextResponse) return windowMinutes;
+  if (minFlights instanceof NextResponse) return minFlights;
+  if (vpfMaxFlows instanceof NextResponse) return vpfMaxFlows;
 
   try {
     const params = new URLSearchParams();
     params.set('traffic_volume_id', trafficVolumeId);
     params.set('ref_time_str', refTimeStr);
-    if (threshold) params.set('threshold', threshold);
-    if (resolution) params.set('resolution', resolution);
-    if (seed) params.set('seed', seed);
-    if (limit) params.set('limit', limit);
-    if (flightIds) params.set('flight_ids', flightIds);
+    params.set('extractor', 'vpf');
+    if (windowMinutes !== null) params.set('window_minutes', String(windowMinutes));
+    if (minFlights !== null) params.set('min_flights', String(minFlights));
+    if (vpfMaxFlows !== null) params.set('vpf_max_flows', String(vpfMaxFlows));
 
     const endpoint = `${API_BASE_URL}/flow_extraction?${params.toString()}`;
     const response = await fetch(endpoint, { headers: withAuth(request, { 'Content-Type': 'application/json' }) });
@@ -37,7 +61,7 @@ export async function GET(request: NextRequest) {
     if (unauthorized) return unauthorized;
 
     if (!response.ok) {
-      throw new Error(`API responded with status: ${response.status}`);
+      return passThroughError(response);
     }
     const data = await response.json();
     return NextResponse.json(data);

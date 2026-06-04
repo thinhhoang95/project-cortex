@@ -17,6 +17,7 @@ import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { Trajectory } from "@/lib/models";
 import { normalizeRegulationContext } from "@/lib/regulationTargets";
 import { buildRegulationDraftFromProposalFlow } from "@/lib/regulationProposalToPlan";
+import { buildFlowGroupMetadata } from "@/lib/flowExtractor";
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "–";
@@ -223,10 +224,10 @@ export default function RegulationProposalPanel({
     proposalPreviewAll,
     proposalPinnedProposals,
     proposalPinnedFlows,
-    flowThreshold,
-    flowResolution,
-    setFlowThreshold,
-    setFlowResolution,
+    flowMinFlights,
+    flowMaxFlows,
+    setFlowMinFlights,
+    setFlowMaxFlows,
     togglePreviewAllProposals,
     toggleProposalEye,
     toggleProposalFlowEye,
@@ -443,8 +444,8 @@ export default function RegulationProposalPanel({
       trafficVolumeId: proposalQuery.trafficVolumeId,
       timeWindow: proposalQuery.timeWindow,
       topK,
-      threshold: flowThreshold,
-      resolution: flowResolution,
+      minFlights: flowMinFlights,
+      vpfMaxFlows: flowMaxFlows,
     });
   };
 
@@ -736,33 +737,30 @@ export default function RegulationProposalPanel({
               />
             </label>
             <label className="flex flex-1 flex-col gap-1">
-              <span className="opacity-70">Threshold</span>
+              <span className="opacity-70">Min Flights</span>
               <input
                 type="number"
-                min={0.1}
-                max={10}
-                step={0.05}
-                value={flowThreshold}
+                min={1}
+                step={1}
+                value={flowMinFlights}
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   if (!Number.isFinite(v)) return;
-                  setFlowThreshold(Math.min(10, Math.max(0.1, v)));
+                  setFlowMinFlights(v);
                 }}
                 className="h-9 w-full rounded-md border border-white/20 bg-white/10 px-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-blue-300/40"
               />
             </label>
             <label className="flex flex-1 flex-col gap-1">
-              <span className="opacity-70">Resolution</span>
+              <span className="opacity-70">Max Groups</span>
               <input
                 type="number"
-                min={0.1}
-                max={10}
-                step={0.1}
-                value={flowResolution}
+                min={1}
+                step={1}
+                value={flowMaxFlows ?? ""}
+                placeholder="No cap"
                 onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (!Number.isFinite(v)) return;
-                  setFlowResolution(Math.min(10, Math.max(0.1, v)));
+                  setFlowMaxFlows(e.currentTarget.value === "" ? null : Number(e.currentTarget.value));
                 }}
                 className="h-9 w-full rounded-md border border-white/20 bg-white/10 px-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-blue-300/40"
               />
@@ -922,6 +920,7 @@ export default function RegulationProposalPanel({
                         const hasFlightIds = (flow.flight_ids?.length ?? 0) > 0;
                         const flowMenuKey = `flow:${proposal.id}::${flow.flow_id}`;
                         const flowMenuOpen = openAddMenuFor === flowMenuKey;
+                        const flowMetadata = buildFlowGroupMetadata(flow.extractor_metadata, null);
                         return (
                           <div
                             key={key}
@@ -1010,6 +1009,15 @@ export default function RegulationProposalPanel({
                                   </button>
                                 </div>
                               </div>
+                              {(flowMetadata.secondaryLabel || flowMetadata.secondaryWindowLabel || flowMetadata.proxyScore !== null) && (
+                                <div className="text-[11px] text-white/70">
+                                  {flowMetadata.secondaryLabel && <span>Secondary: {flowMetadata.secondaryLabel}</span>}
+                                  {flowMetadata.secondaryWindowLabel && <span>{flowMetadata.secondaryLabel ? " • " : ""}{flowMetadata.secondaryWindowLabel}</span>}
+                                  {flowMetadata.proxyScore !== null && (
+                                    <span>{flowMetadata.secondaryLabel || flowMetadata.secondaryWindowLabel ? " • " : ""}Score {flowMetadata.proxyScore.toFixed(2)}</span>
+                                  )}
+                                </div>
+                              )}
                               
                               <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px]">
                                 <div className="flex justify-between">

@@ -1,11 +1,13 @@
 import { authFetch } from "@/lib/auth";
+import type { VpfFlowMetadata } from "@/lib/flowExtractor";
 
 export type ProposeRegulationsRequest = {
   traffic_volume_id: string;
   time_window: string;
   top_k_regulations?: number;
-  threshold?: number;
-  resolution?: number;
+  extractor?: "vpf";
+  min_flights?: number;
+  vpf_max_flows?: number;
 };
 
 export type ProposalFlowFeatures = {
@@ -45,6 +47,7 @@ export type ProposalFlow = {
   assigned_cut_per_hour: number;
   time_window_label: string;
   time_window_bins: number[];
+  extractor_metadata?: Partial<VpfFlowMetadata> | null;
   features: ProposalFlowFeatures;
   final_score: number;
 };
@@ -78,6 +81,9 @@ export type RegulationProposal = {
 export type ProposeRegulationsResponse = {
   traffic_volume_id: string;
   time_window: string;
+  extractor?: "vpf";
+  min_flights?: number;
+  vpf_max_flows?: number | null;
   time_bin_minutes: number;
   top_k: number;
   weights: Record<string, number>;

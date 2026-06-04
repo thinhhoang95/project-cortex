@@ -37,6 +37,7 @@ import {
 import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import {
   applyCatcherToRerouteState,
+  buildFlowLineColorExpression,
   deriveVisibleFlightLineIds,
   filterCapturedToGate,
   freezeGateSnapshot,
@@ -139,11 +140,15 @@ export default function MapCanvasReroute() {
     showHotspots,
     hotspots,
     getActiveHotspots,
+    flowViewEnabled,
+    flowColorByCommunity,
     flowPreviewGroupId,
     flowGroups,
     flowPreviewFlightId,
     flightLinePreviewFlightIds,
     flightLevelBinPreviewSegments,
+    proposalPreviewActive,
+    regulationPreviewActive,
     playing,
     focusMode,
     focusFlightIds,
@@ -926,9 +931,8 @@ export default function MapCanvasReroute() {
             focusFlightIds: sim.focusFlightIds,
             flowPreviewFlightId: sim.flowPreviewFlightId,
             flowPreviewGroupId: sim.flowPreviewGroupId,
-            flowCommunities: sim.flowCommunities,
             flowGroups: sim.flowGroups,
-            showAllFlowCommunitiesWhenEnabled: false,
+            showAllFlowGroupsWhenEnabled: false,
           });
           const hasTvSelection =
             (Array.isArray(sim.selectedTrafficVolumes) && sim.selectedTrafficVolumes.length > 0) ||
@@ -1050,9 +1054,8 @@ export default function MapCanvasReroute() {
                 focusFlightIds: sim.focusFlightIds,
                 flowPreviewFlightId: sim.flowPreviewFlightId,
                 flowPreviewGroupId: sim.flowPreviewGroupId,
-                flowCommunities: sim.flowCommunities,
                 flowGroups: sim.flowGroups,
-                showAllFlowCommunitiesWhenEnabled: false,
+                showAllFlowGroupsWhenEnabled: false,
               });
             })(),
             baselineFlightIds: sim.rerouteBaseFlightIds,
@@ -1174,7 +1177,7 @@ export default function MapCanvasReroute() {
   // When a single-flight/group preview is toggled, update filters immediately
   useEffect(() => {
     updatePlanePositions(mapRef.current);
-  }, [flowPreviewFlightId, flowPreviewGroupId, flowGroups, flightLinePreviewFlightIds, flightLevelBinPreviewSegments]);
+  }, [flowViewEnabled, flowColorByCommunity, flowPreviewFlightId, flowPreviewGroupId, flowGroups, flightLinePreviewFlightIds, flightLevelBinPreviewSegments, proposalPreviewActive, regulationPreviewActive]);
 
   // Refresh filters on focus/visibility changes
   useEffect(() => { updatePlanePositions(mapRef.current); }, [focusMode, focusFlightIds, showFlightLines, selectedTrafficVolume, selectedCollapsedSector]);
@@ -2583,9 +2586,8 @@ function updatePlanePositions(map: maplibregl.Map | null) {
     flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
     flowPreviewFlightId: sim.flowPreviewFlightId,
     flowPreviewGroupId: sim.flowPreviewGroupId,
-    flowCommunities: sim.flowCommunities,
     flowGroups: sim.flowGroups,
-    showAllFlowCommunitiesWhenEnabled: false,
+    showAllFlowGroupsWhenEnabled: false,
   });
   const hasFlightLevelBinPreview = sim.flightLevelBinPreviewSegments.length > 0;
 
@@ -2631,6 +2633,14 @@ function updatePlanePositions(map: maplibregl.Map | null) {
       map.setPaintProperty("flight-lines", "line-opacity", lineOpacity);
       (map as any).__prevLineOpacity = lineOpacity;
     }
+    map.setPaintProperty("flight-lines", "line-color", buildFlowLineColorExpression({
+      flowViewEnabled: sim.flowViewEnabled,
+      flowPreviewGroupId: sim.flowPreviewGroupId,
+      flowGroups: sim.flowGroups,
+      flowColorByCommunity: sim.flowColorByCommunity,
+      proposalPreviewActive: sim.proposalPreviewActive,
+      regulationPreviewActive: sim.regulationPreviewActive,
+    }) as any);
   }
 
   syncFlightLevelBinPreviewLayer({

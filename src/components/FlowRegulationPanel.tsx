@@ -15,6 +15,16 @@ import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatCrossingFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import type { FlowBasketItem } from "@/components/useSimStore";
+import {
+  buildFlowGroupMetadata,
+  deriveMembershipsFromGroups,
+  derivePrimaryCommunitiesFromMemberships,
+  timeWindowDisplayLabel,
+  volumeDisplayLabel,
+  type FlowGroupMetadata,
+  type VpfFlowMetadata,
+  type VpfTopLevelMetadata,
+} from "@/lib/flowExtractor";
 
 type FlowRegulationPanelProps = { embedded?: boolean };
 
@@ -63,10 +73,10 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setFlowViewEnabled,
     setFlowError,
     flowColorByCommunity,
-    flowThreshold,
-    flowResolution,
-    setFlowThreshold,
-    setFlowResolution,
+    flowMinFlights,
+    flowMaxFlows,
+    setFlowMinFlights,
+    setFlowMaxFlows,
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
     resetProposalState,
@@ -235,8 +245,8 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
 
   // Trigger flow extraction
   const handleExtractFlows = async () => {
-    if (selectedTVs.length === 0) {
-      setExtractError('Please select at least one traffic volume.');
+    if (selectedTVs.length !== 1) {
+      setExtractError('VPF extraction requires exactly one primary traffic volume.');
       return;
     }
     if (!valid) {
@@ -255,24 +265,37 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setExpandedFlightLists({});
     try {
       const finalData = await fetchFlows({
-        tvs: selectedTVs.join(','),
+        tvs: selectedTVs[0],
         from_time_str: fromTimeStr,
         to_time_str: toTimeStr,
-        threshold: String(Math.min(1, Math.max(0, flowThreshold))),
-        resolution: String(Math.min(10, Math.max(0.1, flowResolution))),
+        min_flights: String(flowMinFlights),
+        vpf_max_flows: flowMaxFlows != null ? String(flowMaxFlows) : undefined,
       });
       setFlowResults(finalData);
-      // Build community/group mapping for global store so map can color and filter
-      const communities: Record<string, number> = {};
-      const groups: Record<string, string[]> = {};
+      const groups: Record<string, string[]> = finalData.groups ? { ...finalData.groups } : {};
+      const groupMetadata: Record<string, FlowGroupMetadata> = {};
       for (const f of finalData.flows || []) {
         const fidList = (f.flights || []).map(ff => String(ff.flight_id));
-        groups[String(f.flow_id)] = fidList;
-        for (const fid of fidList) communities[String(fid)] = Number(f.flow_id);
+        groups[String(f.flow_id)] = groups[String(f.flow_id)] || fidList;
+        groupMetadata[String(f.flow_id)] = buildFlowGroupMetadata(f.extractor_metadata, finalData.extractor_metadata);
       }
-      setFlowCommunities(communities, groups);
-      setFlowViewEnabled(true);
-      setFlowError(null);
+      if (Object.keys(groups).length > 0) {
+        const memberships = finalData.memberships ?? deriveMembershipsFromGroups(groups);
+        const communities = finalData.communities ?? derivePrimaryCommunitiesFromMemberships(memberships);
+        setFlowCommunities(communities, groups, undefined, memberships, groupMetadata, finalData.extractor_metadata ?? null);
+        setFlowViewEnabled(true);
+        setFlowError(null);
+      } else {
+        setFlowCommunities(null, null);
+        setFlowPreviewGroupId(null);
+        setFlowPreviewFlightId(null);
+        const reason = String(finalData.extractor_metadata?.reason ?? "").trim();
+        setExtractError(reason === "no_primary_flights"
+          ? "No primary flights found in the selected VPF window."
+          : reason === "empty_primary_window"
+            ? "Choose a non-empty time window for VPF extraction."
+            : "Flow extraction returned no candidate groups.");
+      }
     } catch (e: any) {
       setExtractError(e?.message || 'Failed to extract flows');
     } finally {
@@ -365,6 +388,14 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
 
     return map;
   }, [flowResults, minutesPerBin, fromTime, toTime]);
+
+  const primaryContextLabel = useMemo(() => {
+    if (!flowResults?.extractor_metadata) return null;
+    const primary = volumeDisplayLabel(flowResults.extractor_metadata.primary_volume, flowResults.extractor_metadata.primary_tv);
+    const window = timeWindowDisplayLabel(flowResults.extractor_metadata.primary_time_window);
+    if (primary && window) return `${primary}, ${window}`;
+    return primary || window;
+  }, [flowResults]);
 
   const reviewFlightIds = useMemo(() => {
     if (!reviewContext) return [] as string[];
@@ -547,7 +578,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
             <div className="font-medium text-sm opacity-90">Flow Extraction</div>
             <button
               onClick={handleExtractFlows}
-              disabled={extracting || selectedTVs.length === 0 || !valid}
+              disabled={extracting || selectedTVs.length !== 1 || !valid}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs ${extracting ? 'border-blue-400/50 bg-blue-500/20 text-blue-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
             >
               {extracting ? null : (
@@ -562,40 +593,37 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
           </div>
           <div className="grid grid-cols-2 gap-3 mb-2">
             <div>
-              <div className="text-[11px] opacity-80 mb-1">Threshold</div>
+              <div className="text-[11px] opacity-80 mb-1">Min Flights</div>
               <input
                 type="number"
-                min={0}
-                max={1}
-                step={0.05}
-                value={flowThreshold}
+                min={1}
+                step={1}
+                value={flowMinFlights}
                 onChange={(e) => {
                   const v = Number(e.currentTarget.value);
                   if (!Number.isFinite(v)) return;
-                  setFlowThreshold(Math.min(1, Math.max(0, v)));
+                  setFlowMinFlights(v);
                 }}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />
             </div>
             <div>
-              <div className="text-[11px] opacity-80 mb-1">Resolution</div>
+              <div className="text-[11px] opacity-80 mb-1">Max Groups</div>
               <input
                 type="number"
-                min={0.1}
-                max={10}
-                step={0.1}
-                value={flowResolution}
+                min={1}
+                step={1}
+                value={flowMaxFlows ?? ""}
+                placeholder="No cap"
                 onChange={(e) => {
-                  const v = Number(e.currentTarget.value);
-                  if (!Number.isFinite(v)) return;
-                  setFlowResolution(Math.min(10, Math.max(0.1, v)));
+                  setFlowMaxFlows(e.currentTarget.value === "" ? null : Number(e.currentTarget.value));
                 }}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none"
               />
             </div>
           </div>
-          {selectedTVs.length === 0 && (
-            <div className="text-[11px] opacity-70">Select at least one traffic volume.</div>
+          {selectedTVs.length !== 1 && (
+            <div className="text-[11px] opacity-70">Select exactly one primary traffic volume.</div>
           )}
           {extractError && (
             <div className="text-[11px] text-red-200 mt-1">{extractError}</div>
@@ -605,6 +633,9 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
         {flowResults && flowResults.flows && flowResults.flows.length > 0 && (
           <div className="bg-white/5 border border-white/10 rounded-lg p-4">
             <div className="font-medium text-sm opacity-90 mb-2">Flow Extraction Results ({(flowResults.flows || []).reduce((sum, f) => sum + ((f.flights || []).length), 0)} flights)</div>
+            {primaryContextLabel && (
+              <div className="text-[11px] opacity-70 mb-2">Primary: {primaryContextLabel}</div>
+            )}
             <div className="text-[11px] opacity-70 mb-2">The extracted flows also include dwelling flights.</div>
             <div className="space-y-3">
               {sortedFlows.map((flow) => {
@@ -614,6 +645,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                   .filter(Boolean) as string[];
                 const statsFlightIds = (flow.flights || []).map((fl) => String(fl.flight_id)).filter(Boolean);
                 const diagnostics: FlowHeuristicsDiagnostics | null | undefined = flow.heuristics?.diagnostics;
+                const metadata = buildFlowGroupMetadata(flow.extractor_metadata, flowResults.extractor_metadata);
                 const flowFlightCount = typeof diagnostics?.num_flights === "number"
                   ? diagnostics.num_flights
                   : (flow.flights?.length || 0);
@@ -625,12 +657,16 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                   return sec >= fromSec && sec <= toSec;
                 });
                 return (
-                  <div key={flow.flow_id} className="border border-white/10 rounded-md">
-                    <div
-                      className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md"
-                      onMouseEnter={() => setFlowPreviewGroupId(flowId)}
-                      onMouseLeave={() => setFlowPreviewGroupId(null)}
-                    >
+                  <div
+                    key={flow.flow_id}
+                    className="border border-white/10 rounded-md"
+                    onMouseEnter={() => setFlowPreviewGroupId(flowId)}
+                    onMouseLeave={() => {
+                      setFlowPreviewGroupId(null);
+                      setFlowPreviewFlightId(null);
+                    }}
+                  >
+                    <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">
                       <div className="flex items-center gap-2 text-xs">
                         <span
                           className="inline-block w-3 h-3 rounded-sm"
@@ -697,6 +733,13 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         />
                       </div>
                     </div>
+                    {(metadata.secondaryLabel || metadata.secondaryWindowLabel || metadata.proxyScore !== null) && (
+                      <div className="px-2 pt-2 text-[11px] text-white/70">
+                        {metadata.secondaryLabel && <span>Secondary: {metadata.secondaryLabel}</span>}
+                        {metadata.secondaryWindowLabel && <span>{metadata.secondaryLabel ? " • " : ""}{metadata.secondaryWindowLabel}</span>}
+                        {metadata.proxyScore !== null && <span>{metadata.secondaryLabel || metadata.secondaryWindowLabel ? " • " : ""}Score {metadata.proxyScore.toFixed(2)}</span>}
+                      </div>
+                    )}
                     <div className="px-2 pt-2">
                       <HourGlass
                         data={arrivalTimes}
@@ -903,12 +946,19 @@ function resolveFlowDiagnosticsMetric(
 
 // Types for flows API response
 type FlowsResponse = {
+  extractor?: "vpf";
+  is_partition?: boolean;
   num_time_bins: number;
   tvs: string[];
   timebins: number[];
+  communities?: Record<string, number>;
+  memberships?: Record<string, number[]>;
+  groups?: Record<string, string[]>;
+  extractor_metadata?: VpfTopLevelMetadata;
   flows: Array<{
     flow_id: number;
     controlled_volume: string | null;
+    extractor_metadata?: Partial<VpfFlowMetadata> | null;
     demand: number[];
     heuristics?: {
       diagnostics?: FlowHeuristicsDiagnostics | null;
@@ -946,16 +996,16 @@ async function fetchFlows(params: {
   timebins?: string;
   from_time_str?: string;
   to_time_str?: string;
-  threshold?: string;
-  resolution?: string;
+  min_flights?: string;
+  vpf_max_flows?: string;
 }) {
   const usp = new URLSearchParams();
   usp.set('tvs', params.tvs);
   if (params.timebins) usp.set('timebins', params.timebins);
   if (params.from_time_str) usp.set('from_time_str', params.from_time_str);
   if (params.to_time_str) usp.set('to_time_str', params.to_time_str);
-  if (params.threshold) usp.set('threshold', params.threshold);
-  if (params.resolution) usp.set('resolution', params.resolution);
+  if (params.min_flights) usp.set('min_flights', params.min_flights);
+  if (params.vpf_max_flows) usp.set('vpf_max_flows', params.vpf_max_flows);
   const res = await authFetch(`/api/flows?${usp.toString()}`);
   if (!res.ok) {
     const text = await res.text();

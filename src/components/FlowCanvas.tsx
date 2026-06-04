@@ -23,6 +23,7 @@ import { getFlightLineVisibilitySnapshot } from "@/lib/flightVisibility";
 import { captureFlightsByRerouteCatcher } from "@/lib/rerouteCatcher";
 import {
   applyCatcherToRegulationTargets,
+  buildFlowLineColorExpression,
   deriveVisibleFlightLineIds,
   filterCapturedToGate,
   freezeGateSnapshot,
@@ -89,8 +90,8 @@ export default function FlowCanvas() {
     hotspots,
     getActiveHotspots,
     flowViewEnabled,
-    flowCommunities,
     flowGroups,
+    flowColorByCommunity,
     flowPreviewGroupId,
     flowPreviewFlightId,
     flightLinePreviewFlightIds,
@@ -100,6 +101,8 @@ export default function FlowCanvas() {
     cancelRegulationCatcher,
     proposalPreviewActive,
     proposalPreviewFlightIds,
+    regulationPreviewActive,
+    regulationTargetFlightIds,
     playing,
     focusMode,
     focusFlightIds,
@@ -387,10 +390,9 @@ export default function FlowCanvas() {
               focusFlightIds: sim.focusFlightIds,
               flowPreviewFlightId: sim.flowPreviewFlightId,
               flowPreviewGroupId: sim.flowPreviewGroupId,
-              flowCommunities: sim.flowCommunities,
               flowGroups: sim.flowGroups,
               flowViewEnabled: sim.flowViewEnabled,
-              showAllFlowCommunitiesWhenEnabled: true,
+              showAllFlowGroupsWhenEnabled: true,
               proposalPreviewActive: sim.proposalPreviewActive,
               proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
               regulationPreviewActive: sim.regulationPreviewActive,
@@ -443,10 +445,9 @@ export default function FlowCanvas() {
                   focusFlightIds: sim.focusFlightIds,
                   flowPreviewFlightId: sim.flowPreviewFlightId,
                   flowPreviewGroupId: sim.flowPreviewGroupId,
-                  flowCommunities: sim.flowCommunities,
                   flowGroups: sim.flowGroups,
                   flowViewEnabled: sim.flowViewEnabled,
-                  showAllFlowCommunitiesWhenEnabled: true,
+                  showAllFlowGroupsWhenEnabled: true,
                   proposalPreviewActive: sim.proposalPreviewActive,
                   proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
                   regulationPreviewActive: sim.regulationPreviewActive,
@@ -575,15 +576,15 @@ export default function FlowCanvas() {
   useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flLowerBound, flUpperBound]);
 
   // When flow view state changes, update rendering
-  useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups, showTrafficVolumes, selectedTrafficVolumes]);
+  useEffect(() => { updateFlowRendering(mapRef.current); }, [flowViewEnabled, flowGroups, flowColorByCommunity, flowPreviewGroupId, proposalPreviewActive, regulationPreviewActive, showTrafficVolumes, selectedTrafficVolumes]);
 
   // Ensure filters also react to flow mapping toggles (e.g., Flow Basket eye button)
-  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowViewEnabled, flowCommunities, flowGroups]);
+  useEffect(() => { updateFlightLineFilters(mapRef.current); }, [flowViewEnabled, flowGroups]);
 
   useEffect(() => {
     updateFlightLineFilters(mapRef.current);
     updateFlowRendering(mapRef.current);
-  }, [proposalPreviewActive, proposalPreviewFlightIds]);
+  }, [proposalPreviewActive, proposalPreviewFlightIds, regulationPreviewActive, regulationTargetFlightIds]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1023,10 +1024,9 @@ function updateFlightLineFilters(map: maplibregl.Map | null) {
     flightLinePreviewFlightIds: sim.flightLinePreviewFlightIds,
     flowPreviewFlightId: sim.flowPreviewFlightId,
     flowPreviewGroupId: sim.flowPreviewGroupId,
-    flowCommunities: sim.flowCommunities,
     flowGroups: sim.flowGroups,
     flowViewEnabled: sim.flowViewEnabled,
-    showAllFlowCommunitiesWhenEnabled: true,
+    showAllFlowGroupsWhenEnabled: true,
     proposalPreviewActive: sim.proposalPreviewActive,
     proposalPreviewFlightIds: sim.proposalPreviewFlightIds,
     regulationPreviewActive: sim.regulationPreviewActive,
@@ -1162,50 +1162,14 @@ function updateFlowRendering(map: maplibregl.Map | null) {
   const sim = useSimStore.getState();
   if (!map.getLayer('flight-lines')) return;
 
-  if (
-    !sim.proposalPreviewActive &&
-    !sim.regulationPreviewActive &&
-    sim.flowViewEnabled &&
-    sim.flowCommunities &&
-    Object.keys(sim.flowCommunities).length > 0
-  ) {
-    // Only apply flow coloring when regulation preview is off
-    const colorByCommunity = new Map<string, string>(
-      Object.entries(sim.flowColorByCommunity || {})
-    );
-
-    // Group flight ids by assigned color
-    const gray = '#9ca3af';
-    const colorToIds: Record<string, string[]> = {};
-    for (const [fid, cidAny] of Object.entries(sim.flowCommunities)) {
-      const cid = String(cidAny);
-      const color = colorByCommunity.get(cid) || gray;
-      if (!colorToIds[color]) colorToIds[color] = [];
-      colorToIds[color].push(String(fid));
-    }
-
-    // Build a 'case' expression using 'in' checks to avoid validator issues with 'match' branch labels
-    const caseExpr: any[] = ['case'];
-    for (const [color, ids] of Object.entries(colorToIds)) {
-      if (!ids || ids.length === 0) continue;
-      caseExpr.push(
-        ['in', ['to-string', ['get', 'flightId']], ['literal', ids.map(String)]],
-        color
-      );
-    }
-    // Default color for flights not in mapping during flow view
-    caseExpr.push(gray);
-
-    try {
-      map.setPaintProperty('flight-lines', 'line-color', caseExpr as any);
-    } catch (err) {
-      // Diagnostic log to help track down invalid expression shapes
-      console.error('Failed to set flow line-color expression', { err, caseExpr, colorToIds });
-    }
-  } else {
-    // Restore base coloring
-    map.setPaintProperty('flight-lines', 'line-color', ['get', 'lineColor'] as any);
-  }
+  map.setPaintProperty('flight-lines', 'line-color', buildFlowLineColorExpression({
+    flowViewEnabled: sim.flowViewEnabled,
+    flowPreviewGroupId: sim.flowPreviewGroupId,
+    flowGroups: sim.flowGroups,
+    flowColorByCommunity: sim.flowColorByCommunity,
+    proposalPreviewActive: sim.proposalPreviewActive,
+    regulationPreviewActive: sim.regulationPreviewActive,
+  }) as any);
 
   // (No regulation overlay in FlowCanvas)
 

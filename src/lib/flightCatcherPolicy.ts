@@ -12,6 +12,9 @@ type CatcherMutationMode = "include" | "exclude";
 
 type IdIterable = Iterable<string> | null | undefined;
 
+export const BASE_FLIGHT_LINE_COLOR_EXPRESSION = ["get", "lineColor"] as const;
+export const FLOW_LINE_DEFAULT_COLOR = "#9ca3af";
+
 export function normalizeFlightIds(ids: IdIterable): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -145,10 +148,9 @@ export function deriveVisibleFlightLineIds(params: {
   flightLinePreviewFlightIds?: IdIterable;
   flowPreviewFlightId?: string | null;
   flowPreviewGroupId?: string | null;
-  flowCommunities?: Record<string, number> | null;
   flowGroups?: Record<string, string[]> | null;
   flowViewEnabled?: boolean;
-  showAllFlowCommunitiesWhenEnabled?: boolean;
+  showAllFlowGroupsWhenEnabled?: boolean;
   proposalPreviewActive?: boolean;
   proposalPreviewFlightIds?: IdIterable;
   regulationPreviewActive?: boolean;
@@ -176,23 +178,15 @@ export function deriveVisibleFlightLineIds(params: {
     useListDrivenVisibility = true;
   } else if (params.flowPreviewGroupId) {
     const groupId = String(params.flowPreviewGroupId);
-    if (params.flowGroups && params.flowGroups[groupId]) {
-      visible = normalizeFlightIds(params.flowGroups[groupId]);
-    } else if (params.flowCommunities) {
-      visible = normalizeFlightIds(
-        Object.entries(params.flowCommunities)
-          .filter(([, cid]) => String(cid) === groupId)
-          .map(([fid]) => String(fid))
-      );
-    }
+    visible = normalizeFlightIds(params.flowGroups?.[groupId]);
     useListDrivenVisibility = true;
   } else if (
-    params.showAllFlowCommunitiesWhenEnabled &&
+    params.showAllFlowGroupsWhenEnabled &&
     params.flowViewEnabled &&
-    params.flowCommunities &&
-    Object.keys(params.flowCommunities).length > 0
+    params.flowGroups &&
+    Object.keys(params.flowGroups).length > 0
   ) {
-    visible = normalizeFlightIds(Object.keys(params.flowCommunities));
+    visible = normalizeFlightIds(Object.values(params.flowGroups).flat());
     useListDrivenVisibility = true;
   } else if (params.focusMode) {
     visible = normalizeFlightIds(params.focusFlightIds);
@@ -205,4 +199,63 @@ export function deriveVisibleFlightLineIds(params: {
     return visible;
   }
   return visible.filter((id) => listDrivenEligible.has(id));
+}
+
+export function buildFlowLineColorExpression(params: {
+  flowViewEnabled?: boolean;
+  flowPreviewGroupId?: string | null;
+  flowGroups?: Record<string, string[]> | null;
+  flowColorByCommunity?: Record<string, string> | null;
+  proposalPreviewActive?: boolean;
+  regulationPreviewActive?: boolean;
+}): readonly unknown[] {
+  if (params.proposalPreviewActive || params.regulationPreviewActive) {
+    return BASE_FLIGHT_LINE_COLOR_EXPRESSION;
+  }
+
+  const colorByGroup = params.flowColorByCommunity ?? {};
+  const groups = params.flowGroups ?? {};
+  const previewGroupId = String(params.flowPreviewGroupId ?? "").trim();
+
+  if (previewGroupId) {
+    const previewIds = normalizeFlightIds(groups[previewGroupId]);
+    if (previewIds.length === 0) return BASE_FLIGHT_LINE_COLOR_EXPRESSION;
+    return buildFlightIdColorCase([[colorByGroup[previewGroupId] ?? FLOW_LINE_DEFAULT_COLOR, previewIds]]);
+  }
+
+  if (!params.flowViewEnabled || Object.keys(groups).length === 0) {
+    return BASE_FLIGHT_LINE_COLOR_EXPRESSION;
+  }
+
+  const groupIds = [
+    ...Object.keys(colorByGroup).filter((groupId) => groups[groupId]),
+    ...Object.keys(groups)
+      .filter((groupId) => !Object.prototype.hasOwnProperty.call(colorByGroup, groupId))
+      .sort((a, b) => a.localeCompare(b)),
+  ];
+  const assignedFlightIds = new Set<string>();
+  const colorEntries: Array<[string, string[]]> = [];
+
+  for (const groupId of groupIds) {
+    const ids = normalizeFlightIds(groups[groupId]).filter((flightId) => !assignedFlightIds.has(flightId));
+    if (ids.length === 0) continue;
+    for (const flightId of ids) assignedFlightIds.add(flightId);
+    colorEntries.push([colorByGroup[groupId] ?? FLOW_LINE_DEFAULT_COLOR, ids]);
+  }
+
+  return colorEntries.length > 0
+    ? buildFlightIdColorCase(colorEntries)
+    : BASE_FLIGHT_LINE_COLOR_EXPRESSION;
+}
+
+function buildFlightIdColorCase(colorEntries: Array<[string, string[]]>): readonly unknown[] {
+  const caseExpr: unknown[] = ["case"];
+  for (const [color, ids] of colorEntries) {
+    caseExpr.push(
+      ["in", ["to-string", ["get", "flightId"]], ["literal", ids]],
+      color,
+    );
+  }
+  caseExpr.push(FLOW_LINE_DEFAULT_COLOR);
+  return caseExpr;
 }

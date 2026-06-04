@@ -13,7 +13,14 @@ const TIME_WINDOW_PRESETS = ["15", "30", "45", "1h", "1h15", "1h30", "1h45", "2h
 
 type FlowPreviewSnapshot = Pick<
   ReturnType<typeof useSimStore.getState>,
-  "flowCommunities" | "flowGroups" | "flowColorByCommunity" | "flowPreviewGroupId" | "flowPreviewFlightId"
+  | "flowCommunities"
+  | "flowMemberships"
+  | "flowGroups"
+  | "flowGroupMetadata"
+  | "flowExtractorMetadata"
+  | "flowColorByCommunity"
+  | "flowPreviewGroupId"
+  | "flowPreviewFlightId"
 >;
 
 type RerouteBaseFlightListPanelProps = {
@@ -244,7 +251,10 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     setFlowCommunities(
       snapshot.flowCommunities,
       snapshot.flowGroups,
-      snapshot.flowColorByCommunity || null
+      snapshot.flowColorByCommunity || null,
+      snapshot.flowMemberships,
+      snapshot.flowGroupMetadata,
+      snapshot.flowExtractorMetadata,
     );
     setFlowPreviewGroupId(snapshot.flowPreviewGroupId);
     setFlowPreviewFlightId(snapshot.flowPreviewFlightId);
@@ -256,7 +266,10 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
       const current = useSimStore.getState();
       originalPreviewRef.current = {
         flowCommunities: current.flowCommunities,
+        flowMemberships: current.flowMemberships,
         flowGroups: current.flowGroups,
+        flowGroupMetadata: current.flowGroupMetadata,
+        flowExtractorMetadata: current.flowExtractorMetadata,
         flowColorByCommunity: current.flowColorByCommunity,
         flowPreviewGroupId: current.flowPreviewGroupId,
         flowPreviewFlightId: current.flowPreviewFlightId,

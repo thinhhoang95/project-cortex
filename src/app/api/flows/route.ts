@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
+function parsePositiveInteger(value: string, name: string): number | null | NextResponse {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return NextResponse.json({ error: `${name} must be a positive integer` }, { status: 400 });
+  }
+  return Math.floor(parsed);
+}
+
 // Proxies to backend flows endpoint
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -8,8 +17,8 @@ export async function GET(request: NextRequest) {
   const timebinsRaw = (searchParams.get('timebins') || '').trim();
   const fromTimeStr = (searchParams.get('from_time_str') || '').trim();
   const toTimeStr = (searchParams.get('to_time_str') || '').trim();
-  const threshold = (searchParams.get('threshold') || '').trim();
-  const resolution = (searchParams.get('resolution') || '').trim();
+  const minFlights = parsePositiveInteger((searchParams.get('min_flights') || '').trim(), 'min_flights');
+  const vpfMaxFlows = parsePositiveInteger((searchParams.get('vpf_max_flows') || '').trim(), 'vpf_max_flows');
   let parsedTimebins: number[] | null = null;
 
   // Basic validation mirroring backend contract
@@ -19,6 +28,15 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  const tvTokens = tvs.split(',').map((token) => token.trim()).filter(Boolean);
+  if (tvTokens.length !== 1) {
+    return NextResponse.json(
+      { error: 'VPF flow extraction requires exactly one primary tvs value' },
+      { status: 400 }
+    );
+  }
+  if (minFlights instanceof NextResponse) return minFlights;
+  if (vpfMaxFlows instanceof NextResponse) return vpfMaxFlows;
 
   if (timebinsRaw) {
     const tokens = timebinsRaw.split(',').map((token) => token.trim());
@@ -62,35 +80,16 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (threshold) {
-    const v = Number(threshold);
-    if (!Number.isFinite(v) || v < 0 || v > 1) {
-      return NextResponse.json(
-        { error: 'threshold must be a float in [0,1]' },
-        { status: 400 }
-      );
-    }
-  }
-
-  if (resolution) {
-    const v = Number(resolution);
-    if (!Number.isFinite(v) || v <= 0) {
-      return NextResponse.json(
-        { error: 'resolution must be a positive float' },
-        { status: 400 }
-      );
-    }
-  }
-
   try {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
     const params = new URLSearchParams();
-    params.set('tvs', tvs);
+    params.set('tvs', tvTokens[0]);
+    params.set('extractor', 'vpf');
     if (parsedTimebins && parsedTimebins.length > 0) params.set('timebins', parsedTimebins.join(','));
     if (fromTimeStr) params.set('from_time_str', fromTimeStr);
     if (toTimeStr) params.set('to_time_str', toTimeStr);
-    if (threshold) params.set('threshold', threshold);
-    if (resolution) params.set('resolution', resolution);
+    if (minFlights !== null) params.set('min_flights', String(minFlights));
+    if (vpfMaxFlows !== null) params.set('vpf_max_flows', String(vpfMaxFlows));
 
     const url = `${backendUrl}/flows?${params.toString()}`;
     const resp = await fetch(url, { headers: withAuth(request, { 'Content-Type': 'application/json' }) });
