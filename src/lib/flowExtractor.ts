@@ -1,4 +1,5 @@
 export type FlowExtractor = "vpf";
+export type VpfDefinitionSize = 2 | 3;
 
 export type VolumeDisplayInfo = {
   traffic_volume_id?: string;
@@ -23,6 +24,21 @@ export type TimeWindowDisplayInfo = {
   time_bin_minutes?: number;
 };
 
+export type VpfDefiningVolume = {
+  sequence_index?: number;
+  role?: "primary" | "secondary" | "tertiary" | string;
+  traffic_volume_id?: string;
+  timebins?: number[];
+  start_bin?: number;
+  end_bin?: number;
+  segment_type?: "primary" | "overload" | string;
+  is_primary?: boolean;
+  sum_excess?: number;
+  peak_excess?: number;
+  volume?: VolumeDisplayInfo;
+  time_window?: TimeWindowDisplayInfo;
+};
+
 export type VpfTopLevelMetadata = {
   primary_tv?: string;
   primary_timebins?: number[];
@@ -31,11 +47,19 @@ export type VpfTopLevelMetadata = {
   num_primary_flights?: number;
   min_flights?: number;
   max_flows?: number | null;
+  supported_definition_sizes?: VpfDefinitionSize[];
+  candidate_counts_by_definition_size_before_cap?: Record<string, number>;
+  candidate_counts_by_definition_size_after_cap?: Record<string, number>;
+  num_candidates_before_cap?: number;
+  num_candidates_after_cap?: number;
   reason?: "empty_time_axis" | "empty_primary_window" | "no_primary_flights" | string;
 };
 
 export type VpfFlowMetadata = {
   extractor?: FlowExtractor;
+  definition_size?: VpfDefinitionSize;
+  ordered_volume_ids?: string[];
+  flow_defining_volumes?: VpfDefiningVolume[];
   primary_tv?: string;
   primary_timebins?: number[];
   primary_volume?: VolumeDisplayInfo;
@@ -47,15 +71,36 @@ export type VpfFlowMetadata = {
   secondary_time_window?: TimeWindowDisplayInfo;
   secondary_sum_excess?: number;
   secondary_peak_excess?: number;
+  tertiary_tv?: string;
+  tertiary_volume?: VolumeDisplayInfo;
+  tertiary_start_bin?: number;
+  tertiary_end_bin?: number;
+  tertiary_time_window?: TimeWindowDisplayInfo;
+  tertiary_sum_excess?: number;
+  tertiary_peak_excess?: number;
   proxy_score?: number;
-  proxy_components?: Record<string, number>;
+  proxy_components?: Record<string, unknown>;
+};
+
+export type FlowDefiningVolumeDisplay = {
+  key: string;
+  sequenceIndex: number;
+  role: string;
+  trafficVolumeId: string;
+  label: string;
+  windowLabel: string | null;
+  isPrimary: boolean;
+  segmentType: string | null;
+  sumExcess: number | null;
+  peakExcess: number | null;
+  raw: VpfDefiningVolume;
 };
 
 export type FlowGroupMetadata = {
   primaryLabel?: string | null;
   primaryWindowLabel?: string | null;
-  secondaryLabel?: string | null;
-  secondaryWindowLabel?: string | null;
+  definitionSize?: VpfDefinitionSize | number | null;
+  definingVolumes?: FlowDefiningVolumeDisplay[];
   proxyScore?: number | null;
   raw?: Partial<VpfFlowMetadata> | null;
 };
@@ -97,10 +142,111 @@ export function timeWindowDisplayLabel(window?: TimeWindowDisplayInfo | null): s
   return null;
 }
 
+export function getVpfDefiningVolumes(
+  flowMetadata?: Partial<VpfFlowMetadata> | null,
+  topLevelMetadata?: VpfTopLevelMetadata | null,
+): VpfDefiningVolume[] {
+  const metadata = flowMetadata ?? {};
+  if (Array.isArray(metadata.flow_defining_volumes) && metadata.flow_defining_volumes.length > 0) {
+    return metadata.flow_defining_volumes
+      .map((item, index) => ({
+        ...item,
+        sequence_index: Number.isFinite(Number(item?.sequence_index)) ? Number(item.sequence_index) : index,
+      }))
+      .sort((a, b) => Number(a.sequence_index ?? 0) - Number(b.sequence_index ?? 0));
+  }
+
+  const primaryTv = metadata.primary_tv ?? topLevelMetadata?.primary_tv;
+  const primaryWindow = metadata.primary_time_window ?? topLevelMetadata?.primary_time_window;
+  const fallback: Array<VpfDefiningVolume | null> = [
+    primaryTv
+      ? {
+          sequence_index: 0,
+          role: "primary",
+          traffic_volume_id: primaryTv,
+          timebins: metadata.primary_timebins ?? topLevelMetadata?.primary_timebins ?? primaryWindow?.timebins ?? [],
+          start_bin: primaryWindow?.start_bin,
+          end_bin: primaryWindow?.end_bin,
+          segment_type: "primary",
+          is_primary: true,
+          volume: metadata.primary_volume ?? topLevelMetadata?.primary_volume,
+          time_window: primaryWindow,
+        }
+      : null,
+    metadata.secondary_tv
+      ? {
+          sequence_index: 1,
+          role: "secondary",
+          traffic_volume_id: metadata.secondary_tv,
+          timebins: metadata.secondary_time_window?.timebins ?? [],
+          start_bin: metadata.secondary_start_bin,
+          end_bin: metadata.secondary_end_bin,
+          segment_type: "overload",
+          is_primary: false,
+          sum_excess: metadata.secondary_sum_excess,
+          peak_excess: metadata.secondary_peak_excess,
+          volume: metadata.secondary_volume,
+          time_window: metadata.secondary_time_window,
+        }
+      : null,
+    metadata.tertiary_tv
+      ? {
+          sequence_index: 2,
+          role: "tertiary",
+          traffic_volume_id: metadata.tertiary_tv,
+          timebins: metadata.tertiary_time_window?.timebins ?? [],
+          start_bin: metadata.tertiary_start_bin,
+          end_bin: metadata.tertiary_end_bin,
+          segment_type: "overload",
+          is_primary: false,
+          sum_excess: metadata.tertiary_sum_excess,
+          peak_excess: metadata.tertiary_peak_excess,
+          volume: metadata.tertiary_volume,
+          time_window: metadata.tertiary_time_window,
+        }
+      : null,
+  ];
+
+  return fallback.filter((item): item is VpfDefiningVolume => item !== null);
+}
+
+export function buildFlowDefiningVolumeDisplays(
+  flowMetadata?: Partial<VpfFlowMetadata> | null,
+  topLevelMetadata?: VpfTopLevelMetadata | null,
+): FlowDefiningVolumeDisplay[] {
+  return getVpfDefiningVolumes(flowMetadata, topLevelMetadata)
+    .map((item, index) => {
+      const trafficVolumeId = String(item.traffic_volume_id ?? item.volume?.traffic_volume_id ?? "").trim();
+      if (!trafficVolumeId) return null;
+      const sequenceIndex = Number.isFinite(Number(item.sequence_index)) ? Number(item.sequence_index) : index;
+      return {
+        key: `${sequenceIndex}:${trafficVolumeId}`,
+        sequenceIndex,
+        role: String(item.role ?? (item.is_primary ? "primary" : "overload")),
+        trafficVolumeId,
+        label: volumeDisplayLabel(item.volume, trafficVolumeId) ?? trafficVolumeId,
+        windowLabel: timeWindowDisplayLabel(item.time_window),
+        isPrimary: Boolean(item.is_primary || item.role === "primary"),
+        segmentType: item.segment_type ? String(item.segment_type) : null,
+        sumExcess: Number.isFinite(Number(item.sum_excess)) ? Number(item.sum_excess) : null,
+        peakExcess: Number.isFinite(Number(item.peak_excess)) ? Number(item.peak_excess) : null,
+        raw: item,
+      };
+    })
+    .filter((item): item is FlowDefiningVolumeDisplay => item !== null)
+    .sort((a, b) => a.sequenceIndex - b.sequenceIndex);
+}
+
 export function buildFlowGroupMetadata(
   flowMetadata?: Partial<VpfFlowMetadata> | null,
   topLevelMetadata?: VpfTopLevelMetadata | null,
 ): FlowGroupMetadata {
+  const definingVolumes = buildFlowDefiningVolumeDisplays(flowMetadata, topLevelMetadata);
+  const definitionSize = Number.isFinite(Number(flowMetadata?.definition_size))
+    ? Number(flowMetadata?.definition_size)
+    : definingVolumes.length >= 2
+      ? definingVolumes.length
+      : null;
   return {
     primaryLabel: volumeDisplayLabel(
       flowMetadata?.primary_volume ?? topLevelMetadata?.primary_volume,
@@ -109,8 +255,8 @@ export function buildFlowGroupMetadata(
     primaryWindowLabel: timeWindowDisplayLabel(
       flowMetadata?.primary_time_window ?? topLevelMetadata?.primary_time_window,
     ),
-    secondaryLabel: volumeDisplayLabel(flowMetadata?.secondary_volume, flowMetadata?.secondary_tv),
-    secondaryWindowLabel: timeWindowDisplayLabel(flowMetadata?.secondary_time_window),
+    definitionSize,
+    definingVolumes,
     proxyScore: Number.isFinite(Number(flowMetadata?.proxy_score)) ? Number(flowMetadata?.proxy_score) : null,
     raw: flowMetadata ?? null,
   };

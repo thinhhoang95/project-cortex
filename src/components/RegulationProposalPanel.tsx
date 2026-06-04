@@ -13,6 +13,7 @@ import {
 } from "@/lib/regulationProposals";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
+import VpfDefiningVolumes from "@/components/VpfDefiningVolumes";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import type { Trajectory } from "@/lib/models";
 import { normalizeRegulationContext } from "@/lib/regulationTargets";
@@ -1009,15 +1010,7 @@ export default function RegulationProposalPanel({
                                   </button>
                                 </div>
                               </div>
-                              {(flowMetadata.secondaryLabel || flowMetadata.secondaryWindowLabel || flowMetadata.proxyScore !== null) && (
-                                <div className="text-[11px] text-white/70">
-                                  {flowMetadata.secondaryLabel && <span>Secondary: {flowMetadata.secondaryLabel}</span>}
-                                  {flowMetadata.secondaryWindowLabel && <span>{flowMetadata.secondaryLabel ? " • " : ""}{flowMetadata.secondaryWindowLabel}</span>}
-                                  {flowMetadata.proxyScore !== null && (
-                                    <span>{flowMetadata.secondaryLabel || flowMetadata.secondaryWindowLabel ? " • " : ""}Score {flowMetadata.proxyScore.toFixed(2)}</span>
-                                  )}
-                                </div>
-                              )}
+                              <VpfDefiningVolumes metadata={flowMetadata} className="px-0 pt-0" />
                               
                               <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px]">
                                 <div className="flex justify-between">

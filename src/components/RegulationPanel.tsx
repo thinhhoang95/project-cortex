@@ -11,6 +11,7 @@ import { authFetch } from "@/lib/auth";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
+import VpfDefiningVolumes from "@/components/VpfDefiningVolumes";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
@@ -1811,15 +1812,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowGroupMetadata
                   </div>
                 </div>
               </div>
-              {metadata && (metadata.secondaryLabel || metadata.secondaryWindowLabel || metadata.proxyScore !== null) && (
-                <div className="px-2 pt-2 text-[11px] text-white/70">
-                  {metadata.secondaryLabel && <span>Secondary: {metadata.secondaryLabel}</span>}
-                  {metadata.secondaryWindowLabel && <span>{metadata.secondaryLabel ? " • " : ""}{metadata.secondaryWindowLabel}</span>}
-                  {metadata.proxyScore !== null && metadata.proxyScore !== undefined && (
-                    <span>{metadata.secondaryLabel || metadata.secondaryWindowLabel ? " • " : ""}Score {metadata.proxyScore.toFixed(2)}</span>
-                  )}
-                </div>
-              )}
+              <VpfDefiningVolumes metadata={metadata} />
               <div className="px-2 pt-2">
                 <HourGlass
                   data={g.ids.map((fid) => arrivalTimeById.get(String(fid))).filter(Boolean) as string[]}

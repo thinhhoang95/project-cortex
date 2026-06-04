@@ -11,6 +11,7 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
+import VpfDefiningVolumes from "@/components/VpfDefiningVolumes";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatCrossingFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
@@ -733,13 +734,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         />
                       </div>
                     </div>
-                    {(metadata.secondaryLabel || metadata.secondaryWindowLabel || metadata.proxyScore !== null) && (
-                      <div className="px-2 pt-2 text-[11px] text-white/70">
-                        {metadata.secondaryLabel && <span>Secondary: {metadata.secondaryLabel}</span>}
-                        {metadata.secondaryWindowLabel && <span>{metadata.secondaryLabel ? " • " : ""}{metadata.secondaryWindowLabel}</span>}
-                        {metadata.proxyScore !== null && <span>{metadata.secondaryLabel || metadata.secondaryWindowLabel ? " • " : ""}Score {metadata.proxyScore.toFixed(2)}</span>}
-                      </div>
-                    )}
+                    <VpfDefiningVolumes metadata={metadata} />
                     <div className="px-2 pt-2">
                       <HourGlass
                         data={arrivalTimes}
