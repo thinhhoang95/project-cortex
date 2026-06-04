@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import CSComplexityPanel from "@/components/CSComplexityPanel";
 import CSComplexityFlightListLeftPanel from "@/components/CSComplexityFlightListLeftPanel";
+import CSComplexSpotsLeftPanel from "@/components/CSComplexSpotsLeftPanel";
 import ComplexityBottomControls from "@/components/ComplexityBottomControls";
 import ComplexityCanvas from "@/components/ComplexityCanvas";
 import Header from "@/components/Header";
@@ -70,7 +71,6 @@ export default function ComplexityPage() {
   const [showContextMapOverlay, setShowContextMapOverlay] = useState(true);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
-  const [panelVisible, setPanelVisible] = useState(false);
 
   const suiteRequestSeq = useRef(0);
   const traceRequestSeq = useRef(0);
@@ -105,7 +105,6 @@ export default function ComplexityPage() {
 
   useEffect(() => {
     if (selectedCollapsedSector) {
-      setPanelVisible(true);
       setLeftPanelsMinimized(false);
       setRightPanelsMinimized(false);
     }
@@ -278,7 +277,6 @@ export default function ComplexityPage() {
   );
 
   const handleClear = () => {
-    setPanelVisible(false);
     setSelectedMetric(DEFAULT_SELECTED_METRIC);
     setSelectedCollapsedSector(null);
     setFocusMode(false);
@@ -307,34 +305,40 @@ export default function ComplexityPage() {
         showContextOverlay={showContextMapOverlay}
       />
 
-      {panelVisible && (
+      <SidePanelToggleButton
+        side="left"
+        minimized={leftPanelsMinimized}
+        onToggle={() => setLeftPanelsMinimized((current) => !current)}
+        panelGroupLabel="complexity left panels"
+      />
+      <div
+        data-bottom-controls-blocker="left"
+        style={{ transform: leftPanelsMinimized ? "translateX(calc(-100% - 1.5rem))" : "none" }}
+        className={`absolute top-0 left-4 z-40 w-[360px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none transition-all duration-300 ease-in-out ${
+          leftPanelsMinimized ? "opacity-0" : "opacity-100"
+        }`}
+      >
+        <div className="pointer-events-auto">
+          <CSComplexSpotsLeftPanel embedded />
+        </div>
+        {selectedCollapsedSector && (
+          <div className="pointer-events-auto">
+            <CSComplexityFlightListLeftPanel
+              embedded
+              interestWindowLength={interestWindowLength}
+            />
+          </div>
+        )}
+      </div>
+
+      {selectedCollapsedSector && (
         <>
-          <SidePanelToggleButton
-            side="left"
-            minimized={leftPanelsMinimized}
-            onToggle={() => setLeftPanelsMinimized((current) => !current)}
-            panelGroupLabel="complexity flight list"
-          />
           <SidePanelToggleButton
             side="right"
             minimized={rightPanelsMinimized}
             onToggle={() => setRightPanelsMinimized((current) => !current)}
             panelGroupLabel="complexity panels"
           />
-          <div
-            data-bottom-controls-blocker="left"
-            style={{ transform: leftPanelsMinimized ? "translateX(calc(-100% - 1.5rem))" : "none" }}
-            className={`absolute top-0 left-4 z-40 w-[360px] h-screen min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 pt-16 pb-4 pointer-events-none transition-all duration-300 ease-in-out ${
-              leftPanelsMinimized ? "opacity-0" : "opacity-100"
-            }`}
-          >
-            <div className="pointer-events-auto">
-              <CSComplexityFlightListLeftPanel
-                embedded
-                interestWindowLength={interestWindowLength}
-              />
-            </div>
-          </div>
           <div
             data-bottom-controls-blocker="right"
             style={{ transform: rightPanelsMinimized ? "translateX(calc(100% + 1.5rem))" : "none" }}

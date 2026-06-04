@@ -30,6 +30,10 @@ export type ProposalFlowFeatures = {
   intervention_cost?: number;
   after_reg_fragility_cost?: number;
   before_reg_fragility_cost?: number;
+  NomRel?: number;
+  "NomRel/Flight"?: number;
+  InLoad?: number;
+  "InLoad/Flight"?: number;
 };
 
 export type ProposalFlow = {

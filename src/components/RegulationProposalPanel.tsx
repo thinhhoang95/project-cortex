@@ -33,6 +33,10 @@ type FeatureSummary = {
   flightCostAvg: number | null;
   slack15FragilityAvg: number | null;
   rhoRiskAvg: number | null;
+  nomRelAvg: number | null;
+  nomRelPerFlightAvg: number | null;
+  inLoadAvg: number | null;
+  inLoadPerFlightAvg: number | null;
   totalFlights: number;
 };
 
@@ -46,6 +50,14 @@ function summarizeProposalFeatures(proposal: RegulationProposal): FeatureSummary
     slack15FragilityCount: 0,
     rhoRiskSum: 0,
     rhoRiskCount: 0,
+    nomRelSum: 0,
+    nomRelCount: 0,
+    nomRelPerFlightSum: 0,
+    nomRelPerFlightCount: 0,
+    inLoadSum: 0,
+    inLoadCount: 0,
+    inLoadPerFlightSum: 0,
+    inLoadPerFlightCount: 0,
     flights: 0,
   };
   for (const flow of proposal.flows || []) {
@@ -70,6 +82,26 @@ function summarizeProposalFeatures(proposal: RegulationProposal): FeatureSummary
       accumulator.rhoRiskSum += rhoRisk;
       accumulator.rhoRiskCount += 1;
     }
+    const nomRel = getProposalFeatureMetric(features, "NomRel", "v2_nomrel.nomrel");
+    if (nomRel !== null) {
+      accumulator.nomRelSum += nomRel;
+      accumulator.nomRelCount += 1;
+    }
+    const nomRelPerFlight = getProposalFeatureMetric(features, "NomRel/Flight", "v2_nomrel.nomrel_per_flight");
+    if (nomRelPerFlight !== null) {
+      accumulator.nomRelPerFlightSum += nomRelPerFlight;
+      accumulator.nomRelPerFlightCount += 1;
+    }
+    const inLoad = getProposalFeatureMetric(features, "InLoad", "v2_inload.inload");
+    if (inLoad !== null) {
+      accumulator.inLoadSum += inLoad;
+      accumulator.inLoadCount += 1;
+    }
+    const inLoadPerFlight = getProposalFeatureMetric(features, "InLoad/Flight", "v2_inload.inload_per_flight");
+    if (inLoadPerFlight !== null) {
+      accumulator.inLoadPerFlightSum += inLoadPerFlight;
+      accumulator.inLoadPerFlightCount += 1;
+    }
     if (typeof features.num_flights === "number") {
       accumulator.flights += features.num_flights;
     } else {
@@ -81,6 +113,10 @@ function summarizeProposalFeatures(proposal: RegulationProposal): FeatureSummary
     flightCostAvg: accumulator.flightCostCount > 0 ? accumulator.flightCostSum / accumulator.flightCostCount : null,
     slack15FragilityAvg: accumulator.slack15FragilityCount > 0 ? accumulator.slack15FragilitySum / accumulator.slack15FragilityCount : null,
     rhoRiskAvg: accumulator.rhoRiskCount > 0 ? accumulator.rhoRiskSum / accumulator.rhoRiskCount : null,
+    nomRelAvg: accumulator.nomRelCount > 0 ? accumulator.nomRelSum / accumulator.nomRelCount : null,
+    nomRelPerFlightAvg: accumulator.nomRelPerFlightCount > 0 ? accumulator.nomRelPerFlightSum / accumulator.nomRelPerFlightCount : null,
+    inLoadAvg: accumulator.inLoadCount > 0 ? accumulator.inLoadSum / accumulator.inLoadCount : null,
+    inLoadPerFlightAvg: accumulator.inLoadPerFlightCount > 0 ? accumulator.inLoadPerFlightSum / accumulator.inLoadPerFlightCount : null,
     totalFlights: accumulator.flights,
   };
 }
@@ -92,6 +128,10 @@ function summarizeFlowFeatures(flow: ProposalFlow) {
     flightCost: getProposalFeatureMetric(features, "flight_cost", "intervention_cost"),
     slack15Fragility: getProposalFeatureMetric(features, "slack15_fragility", "after_reg_fragility_cost"),
     rhoRisk: getProposalFeatureMetric(features, "rho_risk", "before_reg_fragility_cost"),
+    nomRel: getProposalFeatureMetric(features, "NomRel", "v2_nomrel.nomrel"),
+    nomRelPerFlight: getProposalFeatureMetric(features, "NomRel/Flight", "v2_nomrel.nomrel_per_flight"),
+    inLoad: getProposalFeatureMetric(features, "InLoad", "v2_inload.inload"),
+    inLoadPerFlight: getProposalFeatureMetric(features, "InLoad/Flight", "v2_inload.inload_per_flight"),
     flights: typeof features.num_flights === "number" ? features.num_flights : flow.flight_ids?.length || 0,
   };
 }
@@ -102,7 +142,14 @@ function getProposalFeatureMetric(
 ): number | null {
   if (!features) return null;
   for (const key of keys) {
-    const value = (features as Record<string, unknown>)[key];
+    const value = key.includes(".")
+      ? key.split(".").reduce<unknown>((acc, part) => {
+          if (acc && typeof acc === "object" && part in (acc as Record<string, unknown>)) {
+            return (acc as Record<string, unknown>)[part];
+          }
+          return undefined;
+        }, features as Record<string, unknown>)
+      : (features as Record<string, unknown>)[key];
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
     }
@@ -827,6 +874,10 @@ export default function RegulationProposalPanel({
                   <span className="rounded-full bg-white/5 px-2 py-1">Flight Cost {formatNumber(summary.flightCostAvg)}</span>
                   <span className="rounded-full bg-white/5 px-2 py-1">S15 Fragility {formatNumber(summary.slack15FragilityAvg)}</span>
                   <span className="rounded-full bg-white/5 px-2 py-1">Rho Risk {formatNumber(summary.rhoRiskAvg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">NomRel {formatNumber(summary.nomRelAvg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">NomRel/Flt {formatNumber(summary.nomRelPerFlightAvg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">InLoad {formatNumber(summary.inLoadAvg)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">InLoad/Flt {formatNumber(summary.inLoadPerFlightAvg)}</span>
                   <span className="rounded-full bg-white/5 px-2 py-1">N {summary.totalFlights}</span>
                 </div>
               </div>
@@ -984,6 +1035,22 @@ export default function RegulationProposalPanel({
                                 <div className="flex justify-between">
                                   <span className="text-white/60">Rho Risk:</span>
                                   <span>{formatNumber(flowFeatures.rhoRisk)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">NomRel:</span>
+                                  <span>{formatNumber(flowFeatures.nomRel)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">NomRel/Flt:</span>
+                                  <span>{formatNumber(flowFeatures.nomRelPerFlight)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">InLoad:</span>
+                                  <span>{formatNumber(flowFeatures.inLoad)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">InLoad/Flt:</span>
+                                  <span>{formatNumber(flowFeatures.inLoadPerFlight)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-white/60">Flights:</span>

@@ -4,6 +4,7 @@ import {
   buildCollapsedSectorDdContextPath,
   buildCollapsedSectorDdContextTimeRange,
   buildComplexityContextDensityRulerModel,
+  buildCollapsedSectorDdHotspotsPath,
   buildCollapsedSectorDdSuitePath,
   buildCollapsedSectorDdTracePath,
   buildComplexityChartRows,
@@ -27,6 +28,16 @@ describe("csComplexity helpers", () => {
     expect(buildForwardTimeRange(7 * 3600, "1h")).toBe("07:00:00-08:00:00");
     expect(buildForwardTimeRange(7 * 3600, "2m")).toBe("07:00:00-07:02:00");
     expect(buildForwardTimeRange(86350, "1h")).toBe("23:59:10-23:59:59");
+
+    expect(
+      buildCollapsedSectorDdHotspotsPath({
+        metricId: "td",
+        timeRange: "07:00:00-08:00:00",
+        threshold: 0.05,
+      }),
+    ).toBe(
+      "/api/collapsed_sector_dd_hotspots?metric_id=td&time_range=07%3A00%3A00-08%3A00%3A00&threshold=0.05",
+    );
 
     expect(
       buildCollapsedSectorDdContextPath({

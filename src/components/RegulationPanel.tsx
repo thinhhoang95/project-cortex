@@ -47,6 +47,10 @@ type CommunityHeuristicsSummary = {
   flightCost: number | null;
   slack15Fragility: number | null;
   rhoRisk: number | null;
+  nomRel: number | null;
+  nomRelPerFlight: number | null;
+  inLoad: number | null;
+  inLoadPerFlight: number | null;
   flights: number | null;
   mvtv15: MostVulnerableTvItem[];
   mvtv30: MostVulnerableTvItem[];
@@ -63,6 +67,10 @@ type FlowHeuristicsDiagnostics = {
   intervention_cost?: number | null;
   after_reg_fragility_cost?: number | null;
   before_reg_fragility_cost?: number | null;
+  NomRel?: number | null;
+  "NomRel/Flight"?: number | null;
+  InLoad?: number | null;
+  "InLoad/Flight"?: number | null;
   num_flights?: number | null;
   MVTV15?: MostVulnerableTvItem[] | null;
   MVTV30?: MostVulnerableTvItem[] | null;
@@ -915,6 +923,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             flightCost: resolveDiagnosticsMetric(diagnostics, "flight_cost", "intervention_cost"),
             slack15Fragility: resolveDiagnosticsMetric(diagnostics, "slack15_fragility", "after_reg_fragility_cost"),
             rhoRisk: resolveDiagnosticsMetric(diagnostics, "rho_risk", "before_reg_fragility_cost"),
+            nomRel: resolveDiagnosticsMetric(diagnostics, "NomRel", "v2_nomrel.nomrel"),
+            nomRelPerFlight: resolveDiagnosticsMetric(diagnostics, "NomRel/Flight", "v2_nomrel.nomrel_per_flight"),
+            inLoad: resolveDiagnosticsMetric(diagnostics, "InLoad", "v2_inload.inload"),
+            inLoadPerFlight: resolveDiagnosticsMetric(diagnostics, "InLoad/Flight", "v2_inload.inload_per_flight"),
             flights: normalizeHeuristicValue(diagnostics?.num_flights),
             mvtv15: normalizeMostVulnerableTvItems(diagnostics?.MVTV15),
             mvtv30: normalizeMostVulnerableTvItems(diagnostics?.MVTV30),
@@ -1800,6 +1812,22 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowColorByCommun
                   <span>{formatHeuristicMetric(heuristics?.rhoRisk)}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-white/60">NomRel:</span>
+                  <span>{formatHeuristicMetric(heuristics?.nomRel)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">NomRel/Flt:</span>
+                  <span>{formatHeuristicMetric(heuristics?.nomRelPerFlight)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">InLoad:</span>
+                  <span>{formatHeuristicMetric(heuristics?.inLoad)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">InLoad/Flt:</span>
+                  <span>{formatHeuristicMetric(heuristics?.inLoadPerFlight)}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-white/60">N. Flights:</span>
                   <span>{formatHeuristicMetric(heuristicFlightCount, 0)}</span>
                 </div>
@@ -1865,7 +1893,14 @@ function resolveDiagnosticsMetric(
 ): number | null {
   if (!diagnostics) return null;
   for (const key of keys) {
-    const value = diagnostics[key];
+    const value = key.includes(".")
+      ? key.split(".").reduce<unknown>((acc, part) => {
+          if (acc && typeof acc === "object" && part in (acc as Record<string, unknown>)) {
+            return (acc as Record<string, unknown>)[part];
+          }
+          return undefined;
+        }, diagnostics)
+      : diagnostics[key];
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
     }

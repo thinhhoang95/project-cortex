@@ -206,13 +206,32 @@ export interface BaseEvaluationResponse {
 export interface FlowOptResult {
   flow_id: number;
   controlled_volume: string | null;
+  derived_initial_rate?: number;
+  initial_rate?: number;
+  initial_rate_source?: string | null;
+  candidate_rates?: number[];
+  grid_search_range?: string | number[] | Record<string, unknown> | null;
   n0: number[];            // length T+1
   demand: number[];        // length T
   n_opt: number[];         // length T+1
+  pre_target_demands?: Record<string, number[]>;
+  pre_ripple_demands?: Record<string, number[]>;
   target_demands: Record<string, number[]>; // baseline earliest crossings
   ripple_demands?: Record<string, number[]>;
   target_occupancy_opt?: Record<string, number[]>; // realized occupancy post-optimization
   ripple_occupancy_opt?: Record<string, number[]>;
+}
+
+export interface AutomaticRateAdjustmentSearchParams {
+  percent_lower?: number;
+  percent_upper?: number;
+  percent_step?: number;
+  max_joint_variants?: number;
+  rate_change_lower_bound_min?: number;
+  rate_change_upper_bound_min?: number;
+  initial_rate_scale?: number;
+  initial_rate?: number;
+  initial_rate_by_flow?: Record<string, number>;
 }
 
 export interface AutomaticRateAdjustmentResponse {
@@ -227,7 +246,9 @@ export interface AutomaticRateAdjustmentResponse {
   objective_optimized: { score: number; components: Record<string, number> };
   improvement: { absolute: number; percent: number };
   weights_used?: Record<string, number>;
-  sa_params_used?: Record<string, number>;
+  diagnostics?: Record<string, unknown>;
+  search_params_used?: AutomaticRateAdjustmentSearchParams;
+  sa_params_used?: AutomaticRateAdjustmentSearchParams;
 }
 
 // Shared occupancy types

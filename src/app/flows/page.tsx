@@ -21,11 +21,14 @@ export default function FlowsPage() {
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
   const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
   const flowRightPaneRef = useRef<HTMLDivElement>(null);
+  const proposalPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isRegulationProposalPanelOpen || proposalLoading) {
-      flowRightPaneRef.current?.scrollTo({ top: flowRightPaneRef.current.scrollHeight, behavior: 'smooth' });
-    }
+    if (!(isRegulationProposalPanelOpen || proposalLoading)) return;
+    const frameId = window.requestAnimationFrame(() => {
+      proposalPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
   }, [isRegulationProposalPanelOpen, proposalLoading]);
 
   if (!hydrated || !ready || !user) {
@@ -75,7 +78,7 @@ export default function FlowsPage() {
             <FlowRegulationPanel embedded />
           </div>
           {(isRegulationProposalPanelOpen || proposalLoading) && (
-            <div className="pointer-events-auto">
+            <div ref={proposalPanelRef} className="pointer-events-auto">
               <RegulationProposalPanel embedded />
             </div>
           )}

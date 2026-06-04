@@ -9,6 +9,7 @@ import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithCh
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import PerAccDelayAttributionPanel from "@/components/PerAccDelayAttributionPanel";
 import {
+  AutomaticRateAdjustmentSearchParams,
   BaseEvaluationResponse,
   AutomaticRateAdjustmentResponse,
   RegulationPlanPerAccAttrib,
@@ -40,7 +41,7 @@ import OccupancyPrePostPanel, {
 } from "@/components/OccupancyPrePostPanel";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import { buildFlightIdIndex, buildUniqueCallsignIndex } from "@/lib/flightIdentity";
-import { FlowInputPayload } from "@/lib/flow-input";
+import { FlowInputPayload, sanitizeFlowInputPayload } from "@/lib/flow-input";
 import { AutorateOccupancyResponse } from "@/lib/autorate";
 import { normalizePerAccAttribMode } from "@/lib/perAccAttribution";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
@@ -71,6 +72,231 @@ import { buildResourceStateHistoryCommitFromFlowOptimization } from "@/lib/regul
 
 type FetchState = { loading: boolean; error: string | null; data: BaseEvaluationResponse | null };
 type OptFetchState = { loading: boolean; error: string | null; data: AutomaticRateAdjustmentResponse | null };
+
+const KNOWN_WEIGHT_DEFINITIONS: Array<{ key: string; description: string }> = [
+  { key: "alpha_gt", description: "Penalty on rolling-hour capacity exceedance in target cells (J_cap)." },
+  { key: "alpha_rip", description: "Penalty on rolling-hour exceedance in ripple cells (J_cap)." },
+  { key: "alpha_ctx", description: "Penalty on rolling-hour exceedance in context cells (J_cap)." },
+  { key: "beta_gt", description: "Weight on |n_f(t) − d_f(t)| for target bins (J_reg)." },
+  { key: "beta_rip", description: "Weight on |n_f(t) − d_f(t)| for ripple bins (J_reg)." },
+  { key: "beta_ctx", description: "Weight on |n_f(t) − d_f(t)| for context/overflow bins (J_reg)." },
+  { key: "gamma_gt", description: "Weight on temporal variation |n_f(t+1) − n_f(t)| for target bins (J_tv)." },
+  { key: "gamma_rip", description: "Weight on temporal variation for ripple bins (J_tv)." },
+  { key: "gamma_ctx", description: "Weight on temporal variation for context/overflow bins (J_tv)." },
+  { key: "lambda_delay", description: "Multiplier on total pushback delay minutes (J_delay)." },
+  { key: "theta_share", description: "Weight on per-bin deviation of flow shares from demand shares (J_share)." },
+  { key: "eta_spill", description: "Penalty per unit released into overflow bin T (J_spill)." },
+  { key: "class_tolerance_w", description: "Bin tolerance w for GT/RIP classification (affects β/γ class only)." },
+];
+
+type SearchParamNumericKey = Exclude<keyof AutomaticRateAdjustmentSearchParams, "initial_rate_by_flow">;
+
+const GRID_SEARCH_PARAM_DEFINITIONS: Array<{
+  key: SearchParamNumericKey;
+  description: string;
+  defaultValue?: number;
+  step?: string;
+}> = [
+  {
+    key: "percent_lower",
+    description: "Lower percent-cut bound for candidate rates. Accepts normalized values like 0.15 or whole-number percent values like 15.",
+    defaultValue: 0.15,
+    step: "0.01",
+  },
+  {
+    key: "percent_upper",
+    description: "Upper percent-cut bound for candidate rates. Accepts normalized values like 0.85 or whole-number percent values like 85.",
+    defaultValue: 0.85,
+    step: "0.01",
+  },
+  {
+    key: "percent_step",
+    description: "Inclusive step between percent-cut candidates. Must be greater than 0.",
+    defaultValue: 0.1,
+    step: "0.01",
+  },
+  {
+    key: "max_joint_variants",
+    description: "Maximum Cartesian-product candidates evaluated across all flows before the API rejects the request.",
+    defaultValue: 4096,
+    step: "1",
+  },
+  {
+    key: "rate_change_lower_bound_min",
+    description: "Expand each flow's active-bin window earlier by this many minutes before deriving the rate grid.",
+    defaultValue: 0,
+    step: "1",
+  },
+  {
+    key: "rate_change_upper_bound_min",
+    description: "Expand each flow's active-bin window later by this many minutes before deriving the rate grid.",
+    defaultValue: 0,
+    step: "1",
+  },
+  {
+    key: "initial_rate_scale",
+    description: "Multiplier applied to the derived demand-based initial hourly rate when no manual initial rate override is supplied.",
+    defaultValue: 1,
+    step: "0.01",
+  },
+  {
+    key: "initial_rate",
+    description: "Optional global manual initial hourly rate. Leave blank to use the derived rate times the scale.",
+    step: "1",
+  },
+];
+
+function cloneNumericRecord(src?: Record<string, number> | null): Record<string, number> | undefined {
+  if (!src) return undefined;
+  const entries = Object.entries(src).filter(([, value]) => Number.isFinite(Number(value)));
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries.map(([key, value]) => [key, Number(value)]));
+}
+
+function mergeWeights(
+  base?: Record<string, number> | null,
+  override?: Record<string, number> | null,
+): Record<string, number> | undefined {
+  const merged = {
+    ...(cloneNumericRecord(base) || {}),
+    ...(cloneNumericRecord(override) || {}),
+  };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function cloneInitialRateByFlow(
+  src?: Record<string, number> | null,
+): Record<string, number> | undefined {
+  if (!src) return undefined;
+  const entries = Object.entries(src)
+    .map(([key, value]) => [String(key), Number(value)] as const)
+    .filter(([, value]) => Number.isFinite(value) && value >= 0);
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries);
+}
+
+function cloneSearchParams(
+  params?: AutomaticRateAdjustmentSearchParams | null,
+): AutomaticRateAdjustmentSearchParams | undefined {
+  if (!params) return undefined;
+  const next: AutomaticRateAdjustmentSearchParams = {};
+  for (const { key } of GRID_SEARCH_PARAM_DEFINITIONS) {
+    const value = params[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      next[key] = value;
+    }
+  }
+  const initialRateByFlow = cloneInitialRateByFlow(params.initial_rate_by_flow);
+  if (initialRateByFlow) {
+    next.initial_rate_by_flow = initialRateByFlow;
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function mergeSearchParams(
+  base?: AutomaticRateAdjustmentSearchParams | null,
+  override?: AutomaticRateAdjustmentSearchParams | null,
+): AutomaticRateAdjustmentSearchParams | undefined {
+  const baseClone = cloneSearchParams(base) || {};
+  const overrideClone = cloneSearchParams(override) || {};
+  const merged: AutomaticRateAdjustmentSearchParams = { ...baseClone, ...overrideClone };
+  if (overrideClone.initial_rate_by_flow) {
+    merged.initial_rate_by_flow = overrideClone.initial_rate_by_flow;
+  } else if (baseClone.initial_rate_by_flow) {
+    merged.initial_rate_by_flow = baseClone.initial_rate_by_flow;
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function parseInitialRateByFlowInput(raw: string): Record<string, number> {
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("initial_rate_by_flow must be a JSON object keyed by flow id.");
+  }
+  const entries = Object.entries(parsed).map(([key, value]) => [String(key), Number(value)] as const);
+  for (const [key, value] of entries) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`Initial rate for flow ${key} must be a non-negative number.`);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
+function normalizeCandidateRates(candidateRates?: number[] | null): number[] {
+  if (!Array.isArray(candidateRates)) return [];
+  const unique = new Set<number>();
+  for (const raw of candidateRates) {
+    const value = Number(raw);
+    if (Number.isFinite(value)) {
+      unique.add(value);
+    }
+  }
+  return Array.from(unique).sort((a, b) => b - a);
+}
+
+function formatRatePerHour(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const rounded = Math.abs(value - Math.round(value)) < 1e-6 ? Math.round(value) : Number(value.toFixed(1));
+  return `${rounded}/hr`;
+}
+
+function formatAverageRateStep(candidateRates?: number[] | null): string {
+  const normalized = normalizeCandidateRates(candidateRates);
+  if (normalized.length < 2) return "—";
+  let totalStep = 0;
+  for (let index = 1; index < normalized.length; index += 1) {
+    totalStep += Math.abs(normalized[index - 1] - normalized[index]);
+  }
+  const averageStep = totalStep / (normalized.length - 1);
+  return formatRatePerHour(averageStep);
+}
+
+function resolveGridSearchRangeLabel(
+  candidateRates?: number[] | null,
+  gridSearchRange?: string | number[] | Record<string, unknown> | null,
+): string {
+  const normalized = normalizeCandidateRates(candidateRates);
+  if (normalized.length > 0) {
+    const maxRate = normalized[0];
+    const minRate = normalized[normalized.length - 1];
+    if (maxRate === minRate) {
+      return formatRatePerHour(maxRate);
+    }
+    return `${formatRatePerHour(maxRate)} → ${formatRatePerHour(minRate)}`;
+  }
+
+  if (typeof gridSearchRange === "string") {
+    const trimmed = gridSearchRange.trim();
+    return trimmed.length > 0 ? trimmed : "—";
+  }
+  if (Array.isArray(gridSearchRange)) {
+    const values = gridSearchRange
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+    if (values.length > 0) {
+      const maxRate = Math.max(...values);
+      const minRate = Math.min(...values);
+      return maxRate === minRate
+        ? formatRatePerHour(maxRate)
+        : `${formatRatePerHour(maxRate)} → ${formatRatePerHour(minRate)}`;
+    }
+  }
+  if (gridSearchRange && typeof gridSearchRange === "object") {
+    const record = gridSearchRange as Record<string, unknown>;
+    const lower = Number(
+      record.min_rate ?? record.lower_rate ?? record.lower ?? record.min ?? record.start ?? Number.NaN,
+    );
+    const upper = Number(
+      record.max_rate ?? record.upper_rate ?? record.upper ?? record.max ?? record.end ?? Number.NaN,
+    );
+    if (Number.isFinite(lower) && Number.isFinite(upper)) {
+      return lower === upper
+        ? formatRatePerHour(upper)
+        : `${formatRatePerHour(Math.max(lower, upper))} → ${formatRatePerHour(Math.min(lower, upper))}`;
+    }
+  }
+  return "—";
+}
 
 function decodePayloadParam(param: string | null): FlowInputPayload | null {
   if (!param) return null;
@@ -163,7 +389,9 @@ function FlowEvaluationPageContent() {
   const showLabels = true;
   const [showWeightsSection, setShowWeightsSection] = useState<boolean>(false);
   const [showHyperparamsSection, setShowHyperparamsSection] = useState<boolean>(false);
-  const [saParamsOverride, setSaParamsOverride] = useState<Record<string, number> | null>(null);
+  const [searchParamsOverride, setSearchParamsOverride] = useState<AutomaticRateAdjustmentSearchParams | null>(null);
+  const [initialRateByFlowDraft, setInitialRateByFlowDraft] = useState("");
+  const [initialRateByFlowError, setInitialRateByFlowError] = useState<string | null>(null);
   const [rippleSummaryExpanded, setRippleSummaryExpanded] = useState<boolean>(false);
   const [expandedTargetCharts, setExpandedTargetCharts] = useState<Record<number, boolean>>({});
   const [expandedRippleCharts, setExpandedRippleCharts] = useState<Record<number, boolean>>({});
@@ -253,6 +481,96 @@ function FlowEvaluationPageContent() {
   const snapshotSizeBytes = useMemo(() => estimateSnapshotsSize(snapshotList), [snapshotList]);
   const snapshotSizeWarn = snapshotSizeBytes > SNAPSHOT_SIZE_WARN_THRESHOLD;
   const snapshotSizeDisplayKb = Math.max(0, Math.round(snapshotSizeBytes / 1024));
+  const weightsUsedResolved = useMemo(
+    () => ({
+      ...((evalState.data?.weights_used || {}) as Record<string, number>),
+      ...((optState.data?.weights_used || {}) as Record<string, number>),
+    }),
+    [evalState.data?.weights_used, optState.data?.weights_used],
+  );
+  const mergedWeights = useMemo(
+    () => mergeWeights(input?.weights, weightsOverride),
+    [input?.weights, weightsOverride],
+  );
+  const searchParamsUsedResolved = useMemo(
+    () => cloneSearchParams(optState.data?.search_params_used ?? optState.data?.sa_params_used) || null,
+    [optState.data?.search_params_used, optState.data?.sa_params_used],
+  );
+  const mergedSearchParams = useMemo(
+    () => mergeSearchParams(input?.search_params, searchParamsOverride),
+    [input?.search_params, searchParamsOverride],
+  );
+  const resolvedInitialRateByFlowForDisplay = useMemo(
+    () =>
+      cloneInitialRateByFlow(
+        searchParamsOverride?.initial_rate_by_flow
+          ?? input?.search_params?.initial_rate_by_flow
+          ?? searchParamsUsedResolved?.initial_rate_by_flow,
+      ) || null,
+    [
+      input?.search_params?.initial_rate_by_flow,
+      searchParamsOverride?.initial_rate_by_flow,
+      searchParamsUsedResolved?.initial_rate_by_flow,
+    ],
+  );
+  const weightKeysToDisplay = useMemo(() => {
+    const sourceKeys = new Set<string>([
+      ...Object.keys(input?.weights || {}),
+      ...Object.keys(weightsUsedResolved),
+      ...Object.keys(weightsOverride || {}),
+    ]);
+    const orderedKnown = KNOWN_WEIGHT_DEFINITIONS
+      .map((definition) => definition.key)
+      .filter((key) => sourceKeys.has(key));
+    const extras = Array.from(sourceKeys)
+      .filter((key) => !orderedKnown.includes(key))
+      .sort((a, b) => a.localeCompare(b));
+    return [...orderedKnown, ...extras];
+  }, [input?.weights, weightsOverride, weightsUsedResolved]);
+  const evaluationRequestPayload = useMemo(() => {
+    if (!input) return null;
+    const body: any = sanitizeFlowInputPayload(input) || { ...input };
+    if (mergedWeights) {
+      body.weights = mergedWeights;
+    } else {
+      delete body.weights;
+    }
+    delete body.search_params;
+    delete body.per_acc_attrib_mode;
+    delete body.colorsByFlow;
+    return body;
+  }, [input, mergedWeights]);
+  const optimizationRequestPayload = useMemo(() => {
+    if (!input) return null;
+    const body: any = sanitizeFlowInputPayload(input) || { ...input };
+    if (mergedWeights) {
+      body.weights = mergedWeights;
+    } else {
+      delete body.weights;
+    }
+    if (mergedSearchParams) {
+      body.search_params = mergedSearchParams;
+    } else {
+      delete body.search_params;
+    }
+    body.per_acc_attrib_mode = autoratePerAccAttribMode;
+    delete body.colorsByFlow;
+    return body;
+  }, [autoratePerAccAttribMode, input, mergedSearchParams, mergedWeights]);
+
+  useEffect(() => {
+    const nextDraft = resolvedInitialRateByFlowForDisplay
+      ? JSON.stringify(resolvedInitialRateByFlowForDisplay, null, 2)
+      : "";
+    setInitialRateByFlowDraft(nextDraft);
+    setInitialRateByFlowError(null);
+  }, [resolvedInitialRateByFlowForDisplay]);
+
+  useEffect(() => {
+    if (!input?.per_acc_attrib_mode) return;
+    setAutoratePerAccAttribMode(normalizePerAccAttribMode(input.per_acc_attrib_mode));
+  }, [input?.per_acc_attrib_mode]);
+
   const commitPreconditionError = useMemo(() => {
     if (!input) return "No flow plan payload is available to commit.";
     if (!optState.data) return "Run optimization before committing.";
@@ -413,19 +731,22 @@ function FlowEvaluationPageContent() {
   async function requestAutomaticRateAdjustmentForMode(
     perAccAttribMode: RegulationPlanPerAccAttribMode,
   ): Promise<AutomaticRateAdjustmentResponse> {
-    if (!input) {
+    if (!optimizationRequestPayload) {
       throw new Error("No input payload provided.");
     }
 
-    const body: any = { ...input };
-    if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
-      body.weights = weightsOverride;
-    }
-    if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
-      body.sa_params = saParamsOverride;
-    }
+    const body: any = {
+      ...optimizationRequestPayload,
+      search_params: optimizationRequestPayload.search_params
+        ? {
+            ...optimizationRequestPayload.search_params,
+            initial_rate_by_flow: optimizationRequestPayload.search_params.initial_rate_by_flow
+              ? { ...optimizationRequestPayload.search_params.initial_rate_by_flow }
+              : undefined,
+          }
+        : undefined,
+    };
     body.per_acc_attrib_mode = perAccAttribMode;
-    delete body.colorsByFlow;
 
     const optRes = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
       method: "POST",
@@ -693,19 +1014,13 @@ function FlowEvaluationPageContent() {
   }, [flights.length, resourceDate, setBaselineFlights]);
 
   const handleRun = async () => {
-    if (!input) return;
+    if (!evaluationRequestPayload) return;
     setEvalState({ loading: true, error: null, data: null });
     try {
-      const body: any = { ...input };
-      if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
-        body.weights = weightsOverride;
-      }
-      // Don't forward UI-only metadata if present
-      delete body.colorsByFlow;
       const res = await (await import("@/lib/auth")).authFetch("/api/base_evaluation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(evaluationRequestPayload),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -719,22 +1034,13 @@ function FlowEvaluationPageContent() {
   };
 
   const handleOptimize = async () => {
-    if (!input) return;
+    if (!optimizationRequestPayload) return;
     setOptState({ loading: true, error: null, data: null });
     try {
-      const body: any = { ...input };
-      if (!body.weights && weightsOverride && Object.keys(weightsOverride).length > 0) {
-        body.weights = weightsOverride;
-      }
-      if (saParamsOverride && Object.keys(saParamsOverride).length > 0) {
-        body.sa_params = saParamsOverride;
-      }
-      body.per_acc_attrib_mode = autoratePerAccAttribMode;
-      delete body.colorsByFlow;
       const res = await (await import("@/lib/auth")).authFetch("/api/automatic_rate_adjustment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(optimizationRequestPayload),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -770,6 +1076,10 @@ function FlowEvaluationPageContent() {
     setFlightLinePreviewFlightIds(new Set<string>());
 
     setInput(null);
+    setWeightsOverride(null);
+    setSearchParamsOverride(null);
+    setInitialRateByFlowDraft("");
+    setInitialRateByFlowError(null);
     setEvalState({ loading: false, error: null, data: null });
     setOptState({ loading: false, error: null, data: null });
     setOccAllState({ loading: false, error: null, data: null });
@@ -957,32 +1267,29 @@ function FlowEvaluationPageContent() {
         perAccAttribByMode[mode] = nextAttrib;
       }
 
-      const payloadForSnapshot: FlowInputPayload = {
+      const payloadForSnapshot = sanitizeFlowInputPayload(input) || {
         flows: { ...(input.flows || {}) },
         targets: { ...(input.targets || {}) },
       };
-      if (input.ripples) payloadForSnapshot.ripples = { ...input.ripples };
-      if (typeof input.auto_ripple_time_bins !== 'undefined') payloadForSnapshot.auto_ripple_time_bins = input.auto_ripple_time_bins;
-      if (input.indexer_path) payloadForSnapshot.indexer_path = input.indexer_path;
-      if (input.flights_path) payloadForSnapshot.flights_path = input.flights_path;
-      if (input.capacities_path) payloadForSnapshot.capacities_path = input.capacities_path;
-      if (input.colorsByFlow) payloadForSnapshot.colorsByFlow = { ...input.colorsByFlow };
-      const resolvedWeights = (() => {
-        if (weightsOverride && Object.keys(weightsOverride).length > 0) return { ...weightsOverride };
-        if (input.weights) return { ...input.weights };
-        return undefined;
-      })();
-      if (resolvedWeights) payloadForSnapshot.weights = resolvedWeights;
+      if (mergedWeights) {
+        payloadForSnapshot.weights = mergedWeights;
+      } else {
+        delete payloadForSnapshot.weights;
+      }
+      if (mergedSearchParams) {
+        payloadForSnapshot.search_params = mergedSearchParams;
+      } else {
+        delete payloadForSnapshot.search_params;
+      }
+      payloadForSnapshot.per_acc_attrib_mode = autoratePerAccAttribMode;
 
       const snapshot = createSolutionSnapshot({
         description: snapshotDescription.trim() || `Solution ${snapshotList.length + 1}`,
         payload: payloadForSnapshot,
         weightsOverride: weightsOverride || null,
-        weightsUsed: (optState.data?.weights_used as Record<string, number>)
-          || (evalState.data?.weights_used as Record<string, number>)
-          || null,
-        saParamsOverride: saParamsOverride || null,
-        saParamsUsed: (optState.data?.sa_params_used as Record<string, number>) || null,
+        weightsUsed: Object.keys(weightsUsedResolved).length > 0 ? weightsUsedResolved : null,
+        searchParamsOverride: searchParamsOverride || null,
+        searchParamsUsed: searchParamsUsedResolved,
         evaluation: evalState.data,
         optimization: optState.data,
         occupancy: occupancyData,
@@ -1208,53 +1515,28 @@ function FlowEvaluationPageContent() {
   }, [input?.flows]);
 
   const encodedShareUrl = useMemo(() => {
-    const current: any = { ...input };
-    if (weightsOverride && Object.keys(weightsOverride).length > 0) current.weights = weightsOverride;
-    const b64 = encodePayloadParam(current);
+    const current = input ? (sanitizeFlowInputPayload(input) || { ...input }) : null;
+    if (current) {
+      if (mergedWeights) {
+        current.weights = mergedWeights;
+      } else {
+        delete current.weights;
+      }
+      if (mergedSearchParams) {
+        current.search_params = mergedSearchParams;
+      } else {
+        delete current.search_params;
+      }
+      current.per_acc_attrib_mode = autoratePerAccAttribMode;
+    }
+    const b64 = current ? encodePayloadParam(current) : "";
     const view = `${viewFrom}-${viewTo}`;
     const params = new URLSearchParams();
     if (b64) params.set("payload", b64);
     if (view) params.set("view", view);
     params.set("autostart", "1");
     return `/flow-evaluation?${params.toString()}`;
-  }, [input, weightsOverride, viewFrom, viewTo]);
-
-  // Descriptions for known weight terms
-  const WEIGHT_DEFINITIONS: Array<{ key: string; description: string }> = useMemo(() => ([
-    // Capacity exceedance (alpha)
-    { key: 'alpha_gt', description: 'Penalty on rolling-hour capacity exceedance in target cells (J_cap).' },
-    { key: 'alpha_rip', description: 'Penalty on rolling-hour exceedance in ripple cells (J_cap).' },
-    { key: 'alpha_ctx', description: 'Penalty on rolling-hour exceedance in context cells (J_cap).' },
-    // Demand deviation regularization (beta)
-    { key: 'beta_gt', description: 'Weight on |n_f(t) − d_f(t)| for target bins (J_reg).' },
-    { key: 'beta_rip', description: 'Weight on |n_f(t) − d_f(t)| for ripple bins (J_reg).' },
-    { key: 'beta_ctx', description: 'Weight on |n_f(t) − d_f(t)| for context/overflow bins (J_reg).' },
-    // Temporal smoothness (gamma)
-    { key: 'gamma_gt', description: 'Weight on temporal variation |n_f(t+1) − n_f(t)| for target bins (J_tv).' },
-    { key: 'gamma_rip', description: 'Weight on temporal variation for ripple bins (J_tv).' },
-    { key: 'gamma_ctx', description: 'Weight on temporal variation for context/overflow bins (J_tv).' },
-    // Delay cost
-    { key: 'lambda_delay', description: 'Multiplier on total pushback delay minutes (J_delay).' },
-    // Fairness and spill (optional)
-    { key: 'theta_share', description: 'Weight on per-bin deviation of flow shares from demand shares (J_share).' },
-    { key: 'eta_spill', description: 'Penalty per unit released into overflow bin T (J_spill).' },
-    // Classification tolerance
-    { key: 'class_tolerance_w', description: 'Bin tolerance w for GT/RIP classification (affects β/γ class only).' },
-  ]), []);
-
-  const SA_PARAM_DEFINITIONS: Array<{ key: string; description: string; default: number }> = useMemo(() => ([
-    { key: 'iterations', description: 'Total SA moves to attempt', default: 1000 },
-    { key: 'warmup_moves', description: 'Initial moves before cooling begins', default: 50 },
-    { key: 'alpha_T', description: 'Temperature decay factor per period', default: 0.95 },
-    { key: 'L', description: 'Temperature update period', default: 50 },
-    { key: 'seed', description: 'Random seed (0 for deterministic default)', default: 0 },
-    { key: 'attention_bias', description: 'Probability to sample from target/ripple bins', default: 0.8 },
-    { key: 'max_shift', description: 'Maximum Δ for shift-later', default: 4 },
-    { key: 'pull_max', description: 'Maximum Δ for pull-forward', default: 2 },
-    { key: 'smooth_window_max', description: 'Max window length for smoothing', default: 3 },
-    { key: 'rate_change_lower_bound_min', description: 'Minutes to expand below earliest target bin', default: 0 },
-    { key: 'rate_change_upper_bound_min', description: 'Minutes to expand above latest target bin', default: 0 },
-  ]), []);
+  }, [autoratePerAccAttribMode, input, mergedSearchParams, mergedWeights, viewFrom, viewTo]);
 
   if (!hydrated || !ready || !user) {
     return null;
@@ -1288,7 +1570,7 @@ function FlowEvaluationPageContent() {
                 className={`px-3 py-1 rounded-lg border text-xs flex items-center gap-1.5 ${optState.loading ? 'border-purple-400/50 bg-purple-500/20 text-purple-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
               >
                 <svg className="w-3 h-3 shrink-0" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M5 1.5 5.8 3.5 7.5 4l-1.7.5L5 6.5 4.2 4.5 2.5 4l1.7-.5L5 1.5Zm4.5 5 .6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4Z"/></svg>
-                {optState.loading ? <ShimmeringText text="Playing in Boltzmann Realms..." /> : "Optimize Release Rates with Simulated Annealing"}
+                {optState.loading ? <ShimmeringText text="Searching Joint Rate Grid..." /> : "Optimize Release Rates with Grid Search"}
               </button>
               <button
                 type="button"
@@ -1430,7 +1712,7 @@ function FlowEvaluationPageContent() {
 
             {/* Weights override */}
             <div className="mt-4">
-              <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Weights and Hyperparameters</div>
+              <div className="text-[11px] uppercase tracking-wider text-white/60 mb-2">Objective Weights and Joint Search</div>
               <div className="space-y-4">
                 <div>
                   <button
@@ -1440,7 +1722,7 @@ function FlowEvaluationPageContent() {
                     aria-controls="weights-details-content"
                     aria-expanded={showWeightsSection}
                   >
-                    <span>Weights</span>
+                    <span>Objective Weights</span>
                     <svg
                       className={`w-4 h-4 text-white/70 transition-transform ${showWeightsSection ? "rotate-90" : ""}`}
                       viewBox="0 0 20 20"
@@ -1460,6 +1742,9 @@ function FlowEvaluationPageContent() {
                       id="weights-details-content"
                       aria-hidden={!showWeightsSection}
                     >
+                      <div className="border-b border-white/10 px-3 py-2 text-[11px] text-white/60">
+                        Keys shown here are discovered from the current payload and the API&apos;s effective `weights_used` response.
+                      </div>
                       <table className="w-full text-sm text-white/90">
                         <thead className="bg-white/5 text-white/70">
                           <tr>
@@ -1469,57 +1754,58 @@ function FlowEvaluationPageContent() {
                           </tr>
                         </thead>
                         <tbody>
-                          {(() => {
-                            const used = (evalState.data?.weights_used || {}) as Record<string, number>;
-                            const override = (weightsOverride || {}) as Record<string, number>;
-                            const knownKeys = WEIGHT_DEFINITIONS.map((d) => d.key);
-                            const extraKeys = Array.from(new Set([
-                              ...Object.keys(used || {}),
-                              ...Object.keys(override || {}),
-                            ])).filter((k) => !knownKeys.includes(k));
-                            const orderedKeys = [...knownKeys, ...extraKeys];
-                            return orderedKeys.map((key) => {
-                              const def = WEIGHT_DEFINITIONS.find((d) => d.key === key);
-                              const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
-                              const displayVal = hasOverride
-                                ? String(override[key])
-                                : (used && Object.prototype.hasOwnProperty.call(used, key))
-                                  ? String(used[key])
-                                  : '';
-                              return (
-                                <tr key={key} className="border-t border-white/10 align-top">
-                                  <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
-                                  <td className="px-3 py-2 text-white/70 text-[12px]">
-                                    {def?.description || 'Custom weight key'}
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <input
-                                      type="number"
-                                      value={displayVal}
-                                      onChange={(e) => {
-                                        const raw = e.currentTarget.value;
-                                        setWeightsOverride((prev) => {
-                                          const base = { ...(prev || {}) } as Record<string, number>;
-                                          if (raw === '') {
-                                            // Clear override to fall back to used value
-                                            delete base[key];
-                                            return Object.keys(base).length > 0 ? base : null;
-                                          }
-                                          const num = Number(raw);
-                                          if (!Number.isFinite(num)) return base;
-                                          base[key] = num;
-                                          return base;
-                                        });
-                                      }}
-                                      className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
-                                      style={{ colorScheme: 'dark' }}
-                                    />
-                                  </td>
-
-                                </tr>
-                              );
-                            });
-                          })()}
+                          {weightKeysToDisplay.length === 0 && (
+                            <tr className="border-t border-white/10">
+                              <td colSpan={3} className="px-3 py-3 text-[12px] text-white/60">
+                                No weight keys are present yet. Run an evaluation or add a custom weight override below.
+                              </td>
+                            </tr>
+                          )}
+                          {weightKeysToDisplay.map((key) => {
+                            const def = KNOWN_WEIGHT_DEFINITIONS.find((definition) => definition.key === key);
+                            const hasOverride = Boolean(
+                              weightsOverride && Object.prototype.hasOwnProperty.call(weightsOverride, key),
+                            );
+                            const inputValue = input?.weights?.[key];
+                            const usedValue = weightsUsedResolved[key];
+                            const displayVal = hasOverride
+                              ? String(weightsOverride?.[key])
+                              : typeof inputValue === "number"
+                                ? String(inputValue)
+                                : typeof usedValue === "number"
+                                  ? String(usedValue)
+                                  : "";
+                            return (
+                              <tr key={key} className="border-t border-white/10 align-top">
+                                <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
+                                <td className="px-3 py-2 text-white/70 text-[12px]">
+                                  {def?.description || "Custom weight key"}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    value={displayVal}
+                                    onChange={(e) => {
+                                      const raw = e.currentTarget.value;
+                                      setWeightsOverride((prev) => {
+                                        const base = { ...(prev || {}) } as Record<string, number>;
+                                        if (raw === "") {
+                                          delete base[key];
+                                          return Object.keys(base).length > 0 ? base : null;
+                                        }
+                                        const num = Number(raw);
+                                        if (!Number.isFinite(num)) return prev;
+                                        base[key] = num;
+                                        return base;
+                                      });
+                                    }}
+                                    className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
+                                    style={{ colorScheme: "dark" }}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
                           <WeightsAddRow onAdd={(key, val) => setWeightsOverride((prev) => ({ ...(prev || {}), [key]: val }))} />
                         </tbody>
                       </table>
@@ -1534,7 +1820,7 @@ function FlowEvaluationPageContent() {
                     aria-controls="hyperparameters-details-content"
                     aria-expanded={showHyperparamsSection}
                   >
-                    <span>Optimization Hyperparameters</span>
+                    <span>Grid Search Parameters</span>
                     <svg
                       className={`w-4 h-4 text-white/70 transition-transform ${showHyperparamsSection ? "rotate-90" : ""}`}
                       viewBox="0 0 20 20"
@@ -1563,15 +1849,18 @@ function FlowEvaluationPageContent() {
                           </tr>
                         </thead>
                         <tbody>
-                          {SA_PARAM_DEFINITIONS.map(({ key, description, default: defVal }) => {
-                            const used = (optState.data?.sa_params_used || {}) as Record<string, number>;
-                            const override = (saParamsOverride || {}) as Record<string, number>;
-                            const hasOverride = override && Object.prototype.hasOwnProperty.call(override, key);
-                            const displayVal = hasOverride
-                              ? String(override[key])
-                              : (used && Object.prototype.hasOwnProperty.call(used, key))
-                                ? String(used[key])
-                                : String(defVal);
+                          {GRID_SEARCH_PARAM_DEFINITIONS.map(({ key, description, defaultValue, step }) => {
+                            const overrideValue = searchParamsOverride?.[key];
+                            const inputValue = input?.search_params?.[key];
+                            const usedValue = searchParamsUsedResolved?.[key];
+                            const resolvedValue = typeof overrideValue === "number"
+                              ? overrideValue
+                              : typeof inputValue === "number"
+                                ? inputValue
+                                : typeof usedValue === "number"
+                                  ? usedValue
+                                  : defaultValue;
+                            const displayVal = typeof resolvedValue === "number" ? String(resolvedValue) : "";
                             return (
                               <tr key={key} className="border-t border-white/10 align-top">
                                 <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">{key}</td>
@@ -1579,28 +1868,84 @@ function FlowEvaluationPageContent() {
                                 <td className="px-3 py-2">
                                   <input
                                     type="number"
+                                    step={step}
                                     value={displayVal}
                                     onChange={(e) => {
                                       const raw = e.currentTarget.value;
-                                      setSaParamsOverride((prev) => {
-                                        const base = { ...(prev || {}) } as Record<string, number>;
-                                        if (raw === '') {
+                                      setSearchParamsOverride((prev) => {
+                                        const base: AutomaticRateAdjustmentSearchParams = cloneSearchParams(prev) || {};
+                                        if (raw === "") {
                                           delete base[key];
                                           return Object.keys(base).length > 0 ? base : null;
                                         }
                                         const num = Number(raw);
-                                        if (!Number.isFinite(num)) return base;
+                                        if (!Number.isFinite(num)) return prev;
                                         base[key] = num;
-                                        return base;
+                                        return Object.keys(base).length > 0 ? base : null;
                                       });
                                     }}
                                     className="w-32 px-2 py-1 bg-white/10 border border-white/20 rounded-md text-white"
-                                    style={{ colorScheme: 'dark' }}
+                                    style={{ colorScheme: "dark" }}
                                   />
                                 </td>
                               </tr>
                             );
                           })}
+                          <tr className="border-t border-white/10 align-top">
+                            <td className="px-3 py-2 font-mono text-[12px] text-white/80 whitespace-nowrap">initial_rate_by_flow</td>
+                            <td className="px-3 py-2 text-white/70 text-[12px]">
+                              Optional per-flow manual initial hourly rates keyed by request flow id, for example{" "}
+                              <span className="font-mono text-white/80">{'{"0": 24, "1": 18}'}</span>.
+                            </td>
+                            <td className="px-3 py-2">
+                              <textarea
+                                value={initialRateByFlowDraft}
+                                onChange={(e) => {
+                                  const raw = e.currentTarget.value;
+                                  setInitialRateByFlowDraft(raw);
+                                  if (raw.trim() === "") {
+                                    setInitialRateByFlowError(null);
+                                    setSearchParamsOverride((prev) => {
+                                      const base: AutomaticRateAdjustmentSearchParams = cloneSearchParams(prev) || {};
+                                      delete base.initial_rate_by_flow;
+                                      return Object.keys(base).length > 0 ? base : null;
+                                    });
+                                    return;
+                                  }
+                                  try {
+                                    const parsed = parseInitialRateByFlowInput(raw);
+                                    setInitialRateByFlowError(null);
+                                    setSearchParamsOverride((prev) => {
+                                      const base: AutomaticRateAdjustmentSearchParams = cloneSearchParams(prev) || {};
+                                      if (Object.keys(parsed).length > 0) {
+                                        base.initial_rate_by_flow = parsed;
+                                      } else {
+                                        delete base.initial_rate_by_flow;
+                                      }
+                                      return Object.keys(base).length > 0 ? base : null;
+                                    });
+                                  } catch (error) {
+                                    setInitialRateByFlowError(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Enter a JSON object keyed by flow id.",
+                                    );
+                                  }
+                                }}
+                                placeholder='{"0": 24, "1": 18}'
+                                className="min-h-24 w-full rounded-md border border-white/20 bg-white/10 px-2 py-1 font-mono text-[12px] text-white"
+                                style={{ colorScheme: "dark" }}
+                                spellCheck={false}
+                              />
+                              {initialRateByFlowError ? (
+                                <div className="mt-1 text-[11px] text-rose-300">{initialRateByFlowError}</div>
+                              ) : (
+                                <div className="mt-1 text-[11px] text-white/50">
+                                  Leave blank to use the API&apos;s derived initial rates.
+                                </div>
+                              )}
+                            </td>
+                          </tr>
                         </tbody>
                       </table>
                     </div>
@@ -1614,7 +1959,7 @@ function FlowEvaluationPageContent() {
               <button
                 onClick={() => setShowDebug((s) => !s)}
                 className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
-              >{showDebug ? 'Hide Request' : 'Show Request'}</button>
+              >{showDebug ? 'Hide Requests' : 'Show Requests'}</button>
               <button
                 onClick={() => setShowResponse((s) => !s)}
                 className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
@@ -1625,8 +1970,15 @@ function FlowEvaluationPageContent() {
               >{showOptResponse ? 'Hide Optimization Response' : 'Show Optimization Response'}</button>
             </div>
             {showDebug && (
-              <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-48 overflow-auto">
-                {JSON.stringify(input, null, 2)}
+              <div className="mt-2 space-y-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/90 font-mono max-h-72 overflow-auto">
+                <div>
+                  <div className="mb-1 text-[11px] uppercase tracking-wider text-white/60">`/base_evaluation` request</div>
+                  <pre>{JSON.stringify(evaluationRequestPayload, null, 2)}</pre>
+                </div>
+                <div>
+                  <div className="mb-1 text-[11px] uppercase tracking-wider text-white/60">`/automatic_rate_adjustment` request</div>
+                  <pre>{JSON.stringify(optimizationRequestPayload, null, 2)}</pre>
+                </div>
               </div>
             )}
             {showResponse && evalState.data && (
@@ -2328,6 +2680,15 @@ function FlowEvaluationPageContent() {
                 ? (flow.ripple_demands || {})
                 : (flow.ripple_occupancy || flow.ripple_demands || {});
               const optFlow = optState.data?.flows?.find(f => f.flow_id === flow.flow_id);
+              const candidateRates = normalizeCandidateRates(optFlow?.candidate_rates);
+              const rateRangeLabel = resolveGridSearchRangeLabel(optFlow?.candidate_rates, optFlow?.grid_search_range);
+              const averageRateStepLabel = formatAverageRateStep(optFlow?.candidate_rates);
+              const derivedInitialRateLabel = formatRatePerHour(optFlow?.derived_initial_rate);
+              const initialRateLabel = formatRatePerHour(optFlow?.initial_rate);
+              const initialRateSourceLabel = (() => {
+                const raw = String(optFlow?.initial_rate_source ?? "").trim();
+                return raw.length > 0 ? raw.replace(/_/g, " ") : "—";
+              })();
 
               // Sort by total demand descending; ensure controlled TV first for targets
               const sortedTargetTvIds = Object.keys(targets).sort((a, b) => {
@@ -2364,6 +2725,31 @@ function FlowEvaluationPageContent() {
                       <span className="text-[11px] px-2 py-1 rounded-md border border-rose-400/70 bg-rose-500/10 text-rose-200">Controlled volume: {controlledTv}</span>
                     )}
                   </div>
+                  {!!optFlow && (
+                    <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-5">
+                      <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wider text-white/50">Derived Initial</div>
+                        <div className="mt-1 font-mono text-sm text-white">{derivedInitialRateLabel}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wider text-white/50">Initial Rate</div>
+                        <div className="mt-1 font-mono text-sm text-white">{initialRateLabel}</div>
+                        <div className="mt-1 text-[11px] text-white/55">{initialRateSourceLabel}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wider text-white/50">Tried Range</div>
+                        <div className="mt-1 font-mono text-sm text-white">{rateRangeLabel}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wider text-white/50">Avg Step</div>
+                        <div className="mt-1 font-mono text-sm text-white">{averageRateStepLabel}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wider text-white/50">Variants</div>
+                        <div className="mt-1 font-mono text-sm text-white">{candidateRates.length || "—"}</div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Target TV charts */}
                   <div className="mb-4">

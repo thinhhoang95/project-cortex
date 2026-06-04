@@ -1,4 +1,8 @@
-import { AutomaticRateAdjustmentResponse, BaseEvaluationResponse } from "@/lib/models";
+import {
+  AutomaticRateAdjustmentResponse,
+  AutomaticRateAdjustmentSearchParams,
+  BaseEvaluationResponse,
+} from "@/lib/models";
 import { AutorateOccupancyResponse, cloneAutorateOccupancyResponse } from "@/lib/autorate";
 import { FlowInputPayload, sanitizeFlowInputPayload } from "@/lib/flow-input";
 import {
@@ -68,8 +72,8 @@ export interface SolutionSnapshot {
   payload: FlowInputPayload;
   weightsUsed?: Record<string, number> | null;
   weightsOverride?: Record<string, number> | null;
-  saParamsUsed?: Record<string, number> | null;
-  saParamsOverride?: Record<string, number> | null;
+  searchParamsUsed?: AutomaticRateAdjustmentSearchParams | null;
+  searchParamsOverride?: AutomaticRateAdjustmentSearchParams | null;
   minutesPerBin: number;
   timeLabels?: string[];
   objective: SnapshotObjectiveSummary;
@@ -84,8 +88,8 @@ export interface CreateSnapshotParams {
   payload: FlowInputPayload;
   weightsOverride?: Record<string, number> | null;
   weightsUsed?: Record<string, number> | null;
-  saParamsOverride?: Record<string, number> | null;
-  saParamsUsed?: Record<string, number> | null;
+  searchParamsOverride?: AutomaticRateAdjustmentSearchParams | null;
+  searchParamsUsed?: AutomaticRateAdjustmentSearchParams | null;
   evaluation?: BaseEvaluationResponse | null;
   optimization: AutomaticRateAdjustmentResponse;
   occupancy?: AutorateOccupancyResponse | null;
@@ -110,8 +114,8 @@ export function createSolutionSnapshot(params: CreateSnapshotParams): SolutionSn
     payload,
     weightsOverride,
     weightsUsed,
-    saParamsOverride,
-    saParamsUsed,
+    searchParamsOverride,
+    searchParamsUsed,
     evaluation,
     optimization,
     occupancy,
@@ -163,8 +167,22 @@ export function createSolutionSnapshot(params: CreateSnapshotParams): SolutionSn
     },
     weightsUsed: weightsUsed ? { ...weightsUsed } : null,
     weightsOverride: weightsOverride ? { ...weightsOverride } : null,
-    saParamsUsed: saParamsUsed ? { ...saParamsUsed } : null,
-    saParamsOverride: saParamsOverride ? { ...saParamsOverride } : null,
+    searchParamsUsed: searchParamsUsed
+      ? {
+          ...searchParamsUsed,
+          initial_rate_by_flow: searchParamsUsed.initial_rate_by_flow
+            ? { ...searchParamsUsed.initial_rate_by_flow }
+            : undefined,
+        }
+      : null,
+    searchParamsOverride: searchParamsOverride
+      ? {
+          ...searchParamsOverride,
+          initial_rate_by_flow: searchParamsOverride.initial_rate_by_flow
+            ? { ...searchParamsOverride.initial_rate_by_flow }
+            : undefined,
+        }
+      : null,
     minutesPerBin,
     timeLabels: aggregated?.timeLabels,
     objective: {
@@ -250,6 +268,8 @@ function readSnapshotsFromStorage(): SolutionSnapshot[] {
       .map((item) => ({
         ...item,
         version: typeof item?.version === "number" ? item.version : SNAPSHOT_VERSION,
+        searchParamsUsed: item?.searchParamsUsed ?? item?.saParamsUsed ?? null,
+        searchParamsOverride: item?.searchParamsOverride ?? item?.saParamsOverride ?? null,
         perAccAttribByMode: sanitizeStoredPerAccAttribs(
           item?.perAccAttribByMode,
           item?.aggregatedOccupancy?.per_acc_attrib ?? item?.per_acc_attrib,

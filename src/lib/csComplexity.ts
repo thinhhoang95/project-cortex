@@ -74,6 +74,32 @@ export interface ComplexitySuiteResponse {
   metadata?: Record<string, unknown>;
 }
 
+export interface ComplexityHotspot {
+  collapsed_sector_id: string;
+  metric_id: ComplexityMetricId;
+  start_bin: number;
+  end_bin: number;
+  start_label: string;
+  end_label: string;
+  time_bin: string;
+  bin_count: number;
+  min_upper_tail_probability?: number | null;
+  peak_observed_value?: number | null;
+  worst_bin_start_time?: string | null;
+  worst_bin_observed_value?: number | null;
+  worst_bin_expected_mean?: number | null;
+}
+
+export interface ComplexityHotspotsResponse {
+  metric_id: ComplexityMetricId;
+  threshold: number;
+  time_range: ComplexityTimeRange;
+  context_bin_minutes?: number | null;
+  hotspots: ComplexityHotspot[];
+  count: number;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ComplexityTraceStatePoint {
   time_s?: number | null;
   lon?: number | null;
@@ -727,6 +753,25 @@ export function buildCollapsedSectorDdSuitePath(params: {
     query.set("sample_seconds", String(sampleSeconds));
   }
   return `/api/collapsed_sector_dd_suite?${query.toString()}`;
+}
+
+export function buildCollapsedSectorDdHotspotsPath(params: {
+  metricId: ComplexityMetricId;
+  timeRange?: string | null;
+  threshold?: number | null;
+}): string {
+  const query = new URLSearchParams({
+    metric_id: String(params.metricId ?? "").trim(),
+  });
+  const timeRange = String(params.timeRange ?? "").trim();
+  if (timeRange) {
+    query.set("time_range", timeRange);
+  }
+  const threshold = Number(params.threshold);
+  if (Number.isFinite(threshold)) {
+    query.set("threshold", String(threshold));
+  }
+  return `/api/collapsed_sector_dd_hotspots?${query.toString()}`;
 }
 
 export function buildCollapsedSectorDdContextPath(params: {

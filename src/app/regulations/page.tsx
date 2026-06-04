@@ -35,11 +35,14 @@ export default function RegulationsPage() {
   } | null>(null);
   const { hydrated, ready, resourceDate, user } = useResourceDateGuard();
   const regulationRightPaneRef = useRef<HTMLDivElement>(null);
+  const proposalPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isRegulationProposalPanelOpen || proposalLoading) {
-      regulationRightPaneRef.current?.scrollTo({ top: regulationRightPaneRef.current.scrollHeight, behavior: 'smooth' });
-    }
+    if (!(isRegulationProposalPanelOpen || proposalLoading)) return;
+    const frameId = window.requestAnimationFrame(() => {
+      proposalPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
   }, [isRegulationProposalPanelOpen, proposalLoading]);
 
   useEffect(() => {
@@ -144,7 +147,7 @@ export default function RegulationsPage() {
               <RegulationPanel embedded />
             </div>
             {(isRegulationProposalPanelOpen || proposalLoading) && (
-              <div className="pointer-events-auto">
+              <div ref={proposalPanelRef} className="pointer-events-auto">
                 <RegulationProposalPanel embedded mode="regulations" />
               </div>
             )}

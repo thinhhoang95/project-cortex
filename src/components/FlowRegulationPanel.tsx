@@ -44,6 +44,10 @@ type FlowHeuristicsDiagnostics = {
   intervention_cost?: number | null;
   after_reg_fragility_cost?: number | null;
   before_reg_fragility_cost?: number | null;
+  NomRel?: number | null;
+  "NomRel/Flight"?: number | null;
+  InLoad?: number | null;
+  "InLoad/Flight"?: number | null;
   num_flights?: number | null;
   MVTV15?: MostVulnerableTvItem[] | null;
   MVTV30?: MostVulnerableTvItem[] | null;
@@ -746,6 +750,22 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                         <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "rho_risk", "before_reg_fragility_cost"))}</span>
                       </div>
                       <div className="flex justify-between">
+                        <span className="text-white/60">NomRel:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "NomRel", "v2_nomrel.nomrel"))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">NomRel/Flt:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "NomRel/Flight", "v2_nomrel.nomrel_per_flight"))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">InLoad:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "InLoad", "v2_inload.inload"))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">InLoad/Flt:</span>
+                        <span>{formatHeuristicValue(resolveFlowDiagnosticsMetric(diagnostics, "InLoad/Flight", "v2_inload.inload_per_flight"))}</span>
+                      </div>
+                      <div className="flex justify-between">
                         <span className="text-white/60">N. Flights:</span>
                         <span>{formatHeuristicValue(flowFlightCount, 0)}</span>
                       </div>
@@ -866,7 +886,14 @@ function resolveFlowDiagnosticsMetric(
 ): number | null {
   if (!diagnostics) return null;
   for (const key of keys) {
-    const value = diagnostics[key];
+    const value = key.includes(".")
+      ? key.split(".").reduce<unknown>((acc, part) => {
+          if (acc && typeof acc === "object" && part in (acc as Record<string, unknown>)) {
+            return (acc as Record<string, unknown>)[part];
+          }
+          return undefined;
+        }, diagnostics)
+      : diagnostics[key];
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
     }
