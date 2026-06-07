@@ -33,6 +33,7 @@ import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
   applyTrafficVolumeFilters,
+  applyTrafficVolumeFlowTrace,
   applyTrafficVolumeHighlightList,
   applyTrafficVolumeHover,
   applyTrafficVolumeHotspots,
@@ -94,6 +95,7 @@ export default function FlowCanvas() {
     flowColorByCommunity,
     flowPreviewGroupId,
     flowPreviewFlightId,
+    flowTraceVolumeIds,
     flightLinePreviewFlightIds,
     flightLevelBinPreviewSegments,
     regulationCatcherActive,
@@ -728,14 +730,28 @@ export default function FlowCanvas() {
     applyTrafficVolumeHover(map, hoveredTrafficVolume, flLowerBound, flUpperBound, true);
   }, [hoveredTrafficVolume, flLowerBound, flUpperBound]);
 
-  // Update hotspot layers when hotspots/time/FL range changes
+  // Update flow trace + hotspot layers when hotspots/time/FL range changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const activeHotspots = getActiveHotspots();
-    const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
-    applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
-  }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
+    const activeHotspotIds = activeHotspots.map(h => String(h.traffic_volume_id));
+    const normalizedTraceIds = Array.from(
+      new Set((flowTraceVolumeIds || []).map((id) => String(id).trim()).filter(Boolean)),
+    );
+
+    if (normalizedTraceIds.length > 0) {
+      const hotspotSet = new Set(activeHotspotIds);
+      const traceHotspotIds = normalizedTraceIds.filter((id) => hotspotSet.has(id));
+      const traceNonHotspotIds = normalizedTraceIds.filter((id) => !hotspotSet.has(id));
+      applyTrafficVolumeFlowTrace(map, traceNonHotspotIds, flLowerBound, flUpperBound, true);
+      applyTrafficVolumeHotspots(map, traceHotspotIds, flLowerBound, flUpperBound, true);
+      return;
+    }
+
+    applyTrafficVolumeFlowTrace(map, [], flLowerBound, flUpperBound, true);
+    applyTrafficVolumeHotspots(map, activeHotspotIds, flLowerBound, flUpperBound, true);
+  }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots, flowTraceVolumeIds]);
 
   useEffect(() => {
     const map = mapRef.current;

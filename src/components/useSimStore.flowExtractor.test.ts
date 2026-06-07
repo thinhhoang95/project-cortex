@@ -73,4 +73,20 @@ describe("useSimStore VPF flow extractor state", () => {
     expect(useSimStore.getState().flowGroupMetadata?.["0"]?.definingVolumes?.map((volume) => volume.trafficVolumeId)).toEqual(["TVA", "TVB"]);
     expect(useSimStore.getState().flowExtractorMetadata?.primary_tv).toBe("TVA");
   });
+
+  it("normalizes and clears flow trace volume state", () => {
+    useSimStore.getState().setFlowTraceLoading(true);
+    useSimStore.getState().setFlowTraceError("failed");
+    useSimStore.getState().setFlowTraceVolumeIds(["TVA", " TVB ", "TVA", ""]);
+
+    expect(useSimStore.getState().flowTraceLoading).toBe(true);
+    expect(useSimStore.getState().flowTraceError).toBe("failed");
+    expect(useSimStore.getState().flowTraceVolumeIds).toEqual(["TVA", "TVB"]);
+
+    useSimStore.getState().clearFlowTraceVolumeIds();
+
+    expect(useSimStore.getState().flowTraceLoading).toBe(false);
+    expect(useSimStore.getState().flowTraceError).toBeNull();
+    expect(useSimStore.getState().flowTraceVolumeIds).toEqual([]);
+  });
 });

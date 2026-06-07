@@ -197,6 +197,9 @@ type State = {
   flowPreviewFlightId: string | null;
   flightLinePreviewFlightIds: Set<string>;
   flightLevelBinPreviewSegments: FlightLevelBinPreviewSegment[];
+  flowTraceVolumeIds: string[];
+  flowTraceLoading: boolean;
+  flowTraceError: string | null;
   // Regulation Design state
   regulationTargetFlightIds: Set<string>;
   regulationPreviewActive: boolean;
@@ -320,6 +323,10 @@ type State = {
   setFlightLinePreviewFlightIds: (flightIds: Set<string>) => void;
   setFlightLevelBinPreviewSegments: (segments: FlightLevelBinPreviewSegment[]) => void;
   clearFlightLevelBinPreviewSegments: () => void;
+  setFlowTraceVolumeIds: (volumeIds: string[]) => void;
+  clearFlowTraceVolumeIds: () => void;
+  setFlowTraceLoading: (loading: boolean) => void;
+  setFlowTraceError: (error: string | null) => void;
   setFlowColorByCommunity: (m: Record<string, string> | null) => void;
   fetchHotspots: (threshold?: number) => Promise<void>;
   getActiveHotspots: () => Hotspot[];
@@ -490,6 +497,9 @@ const defaultState: Pick<State,
   | 'flowPreviewFlightId'
   | 'flightLinePreviewFlightIds'
   | 'flightLevelBinPreviewSegments'
+  | 'flowTraceVolumeIds'
+  | 'flowTraceLoading'
+  | 'flowTraceError'
   | 'regulationTargetFlightIds'
   | 'regulationPreviewActive'
   | 'regulationVisibleFlightIds'
@@ -610,6 +620,9 @@ const defaultState: Pick<State,
   flowPreviewFlightId: null,
   flightLinePreviewFlightIds: new Set<string>(),
   flightLevelBinPreviewSegments: [],
+  flowTraceVolumeIds: [],
+  flowTraceLoading: false,
+  flowTraceError: null,
   regulationTargetFlightIds: new Set<string>(),
   regulationPreviewActive: false,
   regulationVisibleFlightIds: [],
@@ -796,6 +809,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       regulationEditPayload: null,
       flightLinePreviewFlightIds: new Set<string>(),
       flightLevelBinPreviewSegments: [] as FlightLevelBinPreviewSegment[],
+      flowTraceVolumeIds: [] as string[],
+      flowTraceLoading: false,
+      flowTraceError: null,
       flights,
       range: nextRange,
       t: clampTimeToRange(state.t, nextRange),
@@ -864,6 +880,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       flowPreviewFlightId: invalidateServerDerivedState ? null : state.flowPreviewFlightId,
       flightLinePreviewFlightIds: invalidateServerDerivedState ? new Set<string>() : state.flightLinePreviewFlightIds,
       flightLevelBinPreviewSegments: invalidateServerDerivedState ? [] : state.flightLevelBinPreviewSegments,
+      flowTraceVolumeIds: invalidateServerDerivedState ? [] : state.flowTraceVolumeIds,
+      flowTraceLoading: invalidateServerDerivedState ? false : state.flowTraceLoading,
+      flowTraceError: invalidateServerDerivedState ? null : state.flowTraceError,
       rerouteImpactResult: invalidateServerDerivedState ? null : state.rerouteImpactResult,
       isRerouteImpactResultsOpen: invalidateServerDerivedState ? false : state.isRerouteImpactResultsOpen,
       rerouteImpactScenarioSignature: invalidateServerDerivedState ? null : state.rerouteImpactScenarioSignature,
@@ -1229,6 +1248,18 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
   setFlightLinePreviewFlightIds: (flightIds) => set({ flightLinePreviewFlightIds: flightIds }),
   setFlightLevelBinPreviewSegments: (segments) => set({ flightLevelBinPreviewSegments: segments }),
   clearFlightLevelBinPreviewSegments: () => set({ flightLevelBinPreviewSegments: [] }),
+  setFlowTraceVolumeIds: (volumeIds) => set({
+    flowTraceVolumeIds: Array.from(
+      new Set((volumeIds || []).map((id) => String(id).trim()).filter(Boolean)),
+    ),
+  }),
+  clearFlowTraceVolumeIds: () => set({
+    flowTraceVolumeIds: [],
+    flowTraceLoading: false,
+    flowTraceError: null,
+  }),
+  setFlowTraceLoading: (loading) => set({ flowTraceLoading: loading }),
+  setFlowTraceError: (error) => set({ flowTraceError: error }),
   setFlowColorByCommunity: (m) => set({ flowColorByCommunity: m }),
   setRegulationVisibleFlightIds: (ids) => set({ regulationVisibleFlightIds: ids }),
   setRegulationListedFlightIds: (ids) => set({ regulationListedFlightIds: ids }),
@@ -1423,6 +1454,9 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       proposalPinnedProposals: new Set<string>(),
       proposalPinnedFlows: new Set<string>(),
       proposalPinnedFlightIds: new Set<string>(),
+      flowTraceVolumeIds: [],
+      flowTraceLoading: false,
+      flowTraceError: null,
     });
   },
   setRegulationEditPayload: (p) => set({ regulationEditPayload: p }),

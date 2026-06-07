@@ -27,6 +27,9 @@ export const TRAFFIC_VOLUME_LAYER_IDS = {
   pointHighlight: "sector-point-highlight",
   pointHover: "sector-point-hover",
   pointHotspot: "sector-point-hotspot",
+  flowTrace: "sector-flow-trace",
+  flowTraceOutline: "sector-flow-trace-outline",
+  pointFlowTrace: "sector-point-flow-trace",
 } as const;
 
 type TrafficVolumeTheme = {
@@ -39,6 +42,7 @@ type TrafficVolumeTheme = {
   selected: string;
   hover: string;
   hotspot: string;
+  flowTrace: string;
 };
 
 const TRAFFIC_VOLUME_THEMES: Record<ThemeName, TrafficVolumeTheme> = {
@@ -52,6 +56,7 @@ const TRAFFIC_VOLUME_THEMES: Record<ThemeName, TrafficVolumeTheme> = {
     selected: "#fbbf24",
     hover: "#06b6d4",
     hotspot: "#ef4444",
+    flowTrace: "#38bdf8",
   },
   dark: {
     polygonFill: "#3b82f6",
@@ -63,6 +68,7 @@ const TRAFFIC_VOLUME_THEMES: Record<ThemeName, TrafficVolumeTheme> = {
     selected: "#fbbf24",
     hover: "#06b6d4",
     hotspot: "#ef4444",
+    flowTrace: "#38bdf8",
   },
 };
 
@@ -96,6 +102,8 @@ function getBaseFilterForLayer(layerId: string): FilterSpecification | null {
     case TRAFFIC_VOLUME_LAYER_IDS.hoverOutline:
     case TRAFFIC_VOLUME_LAYER_IDS.hotspot:
     case TRAFFIC_VOLUME_LAYER_IDS.hotspotOutline:
+    case TRAFFIC_VOLUME_LAYER_IDS.flowTrace:
+    case TRAFFIC_VOLUME_LAYER_IDS.flowTraceOutline:
     case TRAFFIC_VOLUME_LAYER_IDS.label:
       return POLYGON_ONLY_FILTER;
     case TRAFFIC_VOLUME_LAYER_IDS.point:
@@ -104,6 +112,7 @@ function getBaseFilterForLayer(layerId: string): FilterSpecification | null {
     case TRAFFIC_VOLUME_LAYER_IDS.pointHighlight:
     case TRAFFIC_VOLUME_LAYER_IDS.pointHover:
     case TRAFFIC_VOLUME_LAYER_IDS.pointHotspot:
+    case TRAFFIC_VOLUME_LAYER_IDS.pointFlowTrace:
       return NONAS_POINT_FILTER;
     default:
       return null;
@@ -292,6 +301,20 @@ export function addTrafficVolumeLayers(
   });
 
   map.addLayer({
+    id: TRAFFIC_VOLUME_LAYER_IDS.flowTrace,
+    type: "fill",
+    source: TRAFFIC_VOLUME_SOURCE_ID,
+    paint: { "fill-color": colors.flowTrace, "fill-opacity": 0.12 },
+    filter: ["==", ["get", "traffic_volume_id"], ""],
+  });
+  map.addLayer({
+    id: TRAFFIC_VOLUME_LAYER_IDS.flowTraceOutline,
+    type: "line",
+    source: TRAFFIC_VOLUME_SOURCE_ID,
+    paint: { "line-color": colors.flowTrace, "line-width": 2, "line-opacity": 0.5 },
+    filter: ["==", ["get", "traffic_volume_id"], ""],
+  });
+  map.addLayer({
     id: TRAFFIC_VOLUME_LAYER_IDS.highlight,
     type: "fill",
     source: TRAFFIC_VOLUME_SOURCE_ID,
@@ -334,6 +357,19 @@ export function addTrafficVolumeLayers(
     filter: ["==", ["get", "traffic_volume_id"], ""],
   });
 
+  map.addLayer({
+    id: TRAFFIC_VOLUME_LAYER_IDS.pointFlowTrace,
+    type: "circle",
+    source: TRAFFIC_VOLUME_SOURCE_ID,
+    filter: mergeFilters([["==", ["get", "traffic_volume_id"], ""], NONAS_POINT_FILTER]),
+    paint: {
+      "circle-color": colors.flowTrace,
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3.5, 8, 5.5, 12, 7],
+      "circle-opacity": 0.65,
+      "circle-stroke-color": colors.pointStroke,
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 4, 0.5, 8, 1.5, 12, 2],
+    },
+  });
   map.addLayer({
     id: TRAFFIC_VOLUME_LAYER_IDS.pointHighlight,
     type: "circle",
@@ -411,12 +447,15 @@ export function applyTrafficVolumeVisibility(
     TRAFFIC_VOLUME_LAYER_IDS.pointLabel,
     TRAFFIC_VOLUME_LAYER_IDS.pointHoverLabel,
     TRAFFIC_VOLUME_LAYER_IDS.point,
+    TRAFFIC_VOLUME_LAYER_IDS.flowTrace,
+    TRAFFIC_VOLUME_LAYER_IDS.flowTraceOutline,
     TRAFFIC_VOLUME_LAYER_IDS.highlight,
     TRAFFIC_VOLUME_LAYER_IDS.highlightOutline,
     TRAFFIC_VOLUME_LAYER_IDS.hover,
     TRAFFIC_VOLUME_LAYER_IDS.hoverOutline,
     TRAFFIC_VOLUME_LAYER_IDS.hotspot,
     TRAFFIC_VOLUME_LAYER_IDS.hotspotOutline,
+    TRAFFIC_VOLUME_LAYER_IDS.pointFlowTrace,
     TRAFFIC_VOLUME_LAYER_IDS.pointHighlight,
     TRAFFIC_VOLUME_LAYER_IDS.pointHover,
     TRAFFIC_VOLUME_LAYER_IDS.pointHotspot,
@@ -547,6 +586,36 @@ export function applyTrafficVolumeHotspots(
   ];
   const baseIdFilter: FilterSpecification = trafficVolumeIds.length > 0
     ? buildTrafficVolumeIdListFilter(trafficVolumeIds, includeFlRange ? flLowerBound : undefined, includeFlRange ? flUpperBound : undefined)
+    : ["==", ["get", "traffic_volume_id"], ""] as FilterSpecification;
+  for (const layerId of layers) {
+    if (!map.getLayer(layerId)) continue;
+    const baseFilter = getBaseFilterForLayer(layerId);
+    const merged = mergeFilters([baseFilter, baseIdFilter]);
+    map.setFilter(layerId, merged);
+  }
+}
+
+export function applyTrafficVolumeFlowTrace(
+  map: maplibregl.Map,
+  trafficVolumeIds: string[],
+  flLowerBound?: number,
+  flUpperBound?: number,
+  includeFlRange = false
+): void {
+  const layers = [
+    TRAFFIC_VOLUME_LAYER_IDS.flowTrace,
+    TRAFFIC_VOLUME_LAYER_IDS.flowTraceOutline,
+    TRAFFIC_VOLUME_LAYER_IDS.pointFlowTrace,
+  ];
+  const normalizedIds = Array.from(
+    new Set((trafficVolumeIds || []).map((id) => String(id).trim()).filter(Boolean)),
+  );
+  const baseIdFilter: FilterSpecification = normalizedIds.length > 0
+    ? buildTrafficVolumeIdListFilter(
+        normalizedIds,
+        includeFlRange ? flLowerBound : undefined,
+        includeFlRange ? flUpperBound : undefined,
+      )
     : ["==", ["get", "traffic_volume_id"], ""] as FilterSpecification;
   for (const layerId of layers) {
     if (!map.getLayer(layerId)) continue;
