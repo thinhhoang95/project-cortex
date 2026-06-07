@@ -93,4 +93,33 @@ describe("buildFlowGroupMetadata", () => {
 
     expect(metadata.definingVolumes?.[0]?.windowLabel).toBe("bins 45-47");
   });
+
+  it("uses top-level primary metadata when proposal flows only carry secondary aliases", () => {
+    const metadata = buildFlowGroupMetadata(
+      {
+        definition_size: 2,
+        secondary_tv: "TVB",
+        secondary_start_bin: 41,
+        secondary_end_bin: 42,
+        secondary_volume: { display_name: "TVB Meter" },
+      },
+      {
+        primary_tv: "TVA",
+        primary_timebins: [36, 37, 38],
+        primary_volume: { display_name: "TVA Primary" },
+        primary_time_window: { label: "09:00-09:45" },
+      },
+      { timeBinMinutes: 15 },
+    );
+
+    expect(metadata.definitionSize).toBe(2);
+    expect(metadata.definingVolumes?.map((volume) => volume.label)).toEqual([
+      "TVA Primary",
+      "TVB Meter",
+    ]);
+    expect(metadata.definingVolumes?.map((volume) => volume.windowLabel)).toEqual([
+      "09:00-09:45",
+      "10:15-10:45",
+    ]);
+  });
 });

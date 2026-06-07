@@ -1,5 +1,5 @@
 import { authFetch } from "@/lib/auth";
-import type { VpfFlowMetadata } from "@/lib/flowExtractor";
+import type { VpfFlowMetadata, VpfTopLevelMetadata } from "@/lib/flowExtractor";
 
 export type ProposeRegulationsRequest = {
   traffic_volume_id: string;
@@ -82,6 +82,7 @@ export type ProposeRegulationsResponse = {
   traffic_volume_id: string;
   time_window: string;
   extractor?: "vpf";
+  extractor_metadata?: VpfTopLevelMetadata | null;
   min_flights?: number;
   vpf_max_flows?: number | null;
   time_bin_minutes: number;

@@ -921,7 +921,14 @@ export default function RegulationProposalPanel({
                         const hasFlightIds = (flow.flight_ids?.length ?? 0) > 0;
                         const flowMenuKey = `flow:${proposal.id}::${flow.flow_id}`;
                         const flowMenuOpen = openAddMenuFor === flowMenuKey;
-                        const flowMetadata = buildFlowGroupMetadata(flow.extractor_metadata, null);
+                        const flowMetadata = buildFlowGroupMetadata(
+                          flow.extractor_metadata,
+                          proposalResults?.extractor_metadata ?? null,
+                          { timeBinMinutes: proposalResults?.time_bin_minutes },
+                        );
+                        const flowDefinitionBadge = flowMetadata.definitionSize
+                          ? `VPF-${flowMetadata.definitionSize}`
+                          : null;
                         return (
                           <div
                             key={key}
@@ -931,8 +938,13 @@ export default function RegulationProposalPanel({
                           >
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
+                                <div className="flex min-w-0 items-center gap-2">
                                   <div className="font-semibold text-sm">Flow {flow.flow_id}</div>
+                                  {flowDefinitionBadge && (
+                                    <div className="shrink-0 rounded-md border border-cyan-300/20 bg-cyan-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-100">
+                                      {flowDefinitionBadge}
+                                    </div>
+                                  )}
                                   <div className="text-white/70 text-xs">{flow.control_volume_id || '—'}</div>
                                 </div>
                                 <div className="flex items-center gap-2">

@@ -8,12 +8,23 @@ type VpfDefiningVolumesProps = {
   className?: string;
 };
 
+function hasSpacingOverride(className: string | undefined, prefix: string): boolean {
+  return Boolean(className?.split(/\s+/).some((token) => token.startsWith(prefix)));
+}
+
 export default function VpfDefiningVolumes({ metadata, className }: VpfDefiningVolumesProps) {
   const volumes = metadata?.definingVolumes ?? [];
   if (volumes.length === 0) return null;
 
+  const defaultPadding = [
+    hasSpacingOverride(className, "px-") ? null : "px-2",
+    hasSpacingOverride(className, "pt-") ? null : "pt-2",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={["no-scrollbar min-w-0 max-w-full overflow-x-auto px-2 pt-2 text-[11px] text-white/70", className].filter(Boolean).join(" ")}>
+    <div className={["no-scrollbar min-w-0 max-w-full overflow-x-auto text-[11px] text-white/70", defaultPadding, className].filter(Boolean).join(" ")}>
       <div className="flex w-max min-w-full flex-nowrap items-center gap-1.5">
         {volumes.map((volume, index) => {
           return (

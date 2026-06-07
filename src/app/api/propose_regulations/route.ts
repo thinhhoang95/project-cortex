@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
-const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-
 function parsePositiveInteger(value: unknown, name: string): number | null | NextResponse {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
@@ -84,7 +82,8 @@ export async function POST(request: NextRequest) {
   if (vpfMaxFlows !== null) payload.vpf_max_flows = vpfMaxFlows;
 
   try {
-    const endpoint = `${API_BASE_URL}/propose_regulations`;
+    const apiBaseUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    const endpoint = `${apiBaseUrl}/propose_regulations`;
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: withAuth(request, { 'Content-Type': 'application/json' }),
