@@ -11,6 +11,7 @@ import HourGlass from "@/components/HourGlass";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import ShimmeringText from "@/components/ShimmeringText";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 
 interface DemandData {
     rolling_window_size: number;
@@ -59,6 +60,7 @@ interface DemandFlightListResponse {
 }
 
 export default function StochasticAirspaceInfo() {
+    const shimmerTheme = useDocumentTheme();
     const { selectedTrafficVolume, selectedTrafficVolumeData, t, flights, resourceStateEpoch, focusMode, setFocusMode, setFocusFlightIds, setT, setFlowPreviewFlightId } = useSimStore();
     const [demandData, setDemandData] = useState<DemandData | null>(null);
     const [demandFlightList, setDemandFlightList] = useState<DemandFlightListResponse | null>(null);
@@ -74,6 +76,7 @@ export default function StochasticAirspaceInfo() {
         selectedTrafficVolumeData?.properties?.min_fl,
         selectedTrafficVolumeData?.properties?.max_fl
     );
+    const selectedTvContextLoading = loading || flightListLoading;
 
     useEffect(() => {
         setDemandData(null);
@@ -463,7 +466,15 @@ export default function StochasticAirspaceInfo() {
                         <div className="flex justify-between items-start">
                             <div>
                                 <h3 className="font-medium text-sm opacity-90">Selected Traffic Volume</h3>
-                                <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
+                                {selectedTvContextLoading ? (
+                                    <ShimmeringText
+                                        text={selectedTrafficVolume}
+                                        className="text-lg font-semibold"
+                                        theme={shimmerTheme}
+                                    />
+                                ) : (
+                                    <p className="text-lg font-semibold">{selectedTrafficVolume}</p>
+                                )}
                                 {flightLevelRange && (
                                     <p className="text-xs opacity-70 mt-1">{flightLevelRange}</p>
                                 )}

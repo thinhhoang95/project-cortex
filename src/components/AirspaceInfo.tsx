@@ -24,6 +24,7 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import {
   buildMergedMultiTvChartRows,
   buildRollingChartDataFromOccupancy,
@@ -158,6 +159,7 @@ function AirspaceCustomTooltip({
 }
 
 export default function AirspaceInfo() {
+  const shimmerTheme = useDocumentTheme();
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -763,6 +765,7 @@ export default function AirspaceInfo() {
 
   const dynamicFlightColumnCount = selectedTvIds.length * 3;
   const tableColSpan = 4 + dynamicFlightColumnCount;
+  const selectedTvContextLoading = loading || flightListLoading;
 
   const renderTooltip = useCallback(
     (props: any) => <AirspaceCustomTooltip {...props} chartSeries={chartSeries} />,
@@ -781,7 +784,17 @@ export default function AirspaceInfo() {
             <div className="flex justify-between items-start gap-3">
               <div className="min-w-0">
                 <h3 className="font-medium text-sm opacity-90">Selected Traffic Volumes ({selectedTvIds.length})</h3>
-                {primaryTvId && <p className="text-lg font-semibold break-all">{primaryTvId}</p>}
+                {primaryTvId && (
+                  selectedTvContextLoading ? (
+                    <ShimmeringText
+                      text={primaryTvId}
+                      className="text-lg font-semibold break-all"
+                      theme={shimmerTheme}
+                    />
+                  ) : (
+                    <p className="text-lg font-semibold break-all">{primaryTvId}</p>
+                  )
+                )}
                 {selectedTvIds.length > 1 && selectionExpression && (
                   <p className="mt-1 text-xs opacity-75 break-all">{selectionExpression}</p>
                 )}

@@ -16,6 +16,7 @@ import { normalizeCapacity } from "@/lib/capacity";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import ShimmeringText from "@/components/ShimmeringText";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import {
   assertReplayableRegulationTargets,
   normalizeFlightIdList,
@@ -124,6 +125,7 @@ const REGULATION_CATCHER_TIMEFRAME_OPTIONS: Array<{ value: RegulationCatcherTime
 ];
 
 export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
+  const shimmerTheme = useDocumentTheme();
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -221,6 +223,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   const [currentCount, setCurrentCount] = useState<number>(0);
   const [currentAnchorCapacity, setCurrentAnchorCapacity] = useState<number | null>(null);
   const [occupancyData, setOccupancyData] = useState<any | null>(null);
+  const [occupancyLoading, setOccupancyLoading] = useState(false);
   const [secondaryOccupancyByTv, setSecondaryOccupancyByTv] = useState<Record<string, any>>({});
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<Record<string, string[]> | null>(null);
   const [orderedFlightsData, setOrderedFlightsData] = useState<any | null>(null);
@@ -243,6 +246,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
 
   useEffect(() => {
     setOccupancyData(null);
+    setOccupancyLoading(false);
     setSecondaryOccupancyByTv({});
     setFlightIdentifiersData(null);
     setOrderedFlightsData(null);
@@ -291,11 +295,16 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!primaryTvId) { setOccupancyData(null); return; }
+      if (!primaryTvId) {
+        setOccupancyData(null);
+        setOccupancyLoading(false);
+        return;
+      }
       // If not editing, clear any previous target selection immediately to avoid race with async fetch
       if (!useSimStore.getState().regulationEditPayload) {
         clearRegulationTargetFlights();
       }
+      setOccupancyLoading(true);
       try {
         const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${primaryTvId}`);
         if (!res.ok) throw new Error('failed');
@@ -313,6 +322,8 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
         setRegulationRate(cap ?? 0);
       } catch {
         if (!cancelled) { setOccupancyData(null); setCurrentAnchorCapacity(null); }
+      } finally {
+        if (!cancelled) setOccupancyLoading(false);
       }
       // Default active time window anchored at current t unless editing payload provided
       if (!useSimStore.getState().regulationEditPayload) {
@@ -1013,6 +1024,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
   }, [regulationEditPayload, primaryTvId, currentContext, setRegulationTimeWindow, setRegulationRate, setRegulationTargetFlightIds, setRegulationEditPayload]);
 
   if (!primaryTvId || selectedTvIds.length === 0) return null;
+  const selectedTvContextLoading = occupancyLoading || flightListLoading;
 
   return (
     <div className={embedded
@@ -1023,7 +1035,15 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
           <div className="text-[10px] uppercase tracking-wider opacity-70">
             {selectedTvIds.length > 1 ? `Reference TV (${selectedTvIds.length} selected)` : 'Reference TV'}
           </div>
-          <div className="text-lg font-semibold">{primaryTvId}</div>
+          {selectedTvContextLoading ? (
+            <ShimmeringText
+              text={primaryTvId}
+              className="text-lg font-semibold"
+              theme={shimmerTheme}
+            />
+          ) : (
+            <div className="text-lg font-semibold">{primaryTvId}</div>
+          )}
           {selectedTvIds.length > 1 && selectionExpression && (
             <div className="mt-1 text-[11px] opacity-75 break-all">{selectionExpression}</div>
           )}

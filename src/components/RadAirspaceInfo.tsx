@@ -16,6 +16,7 @@ import {
 import PanelCloseButton from "@/components/PanelCloseButton";
 import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import { useSimStore } from "@/components/useSimStore";
 import { authFetch } from "@/lib/auth";
 import {
@@ -83,6 +84,7 @@ export default function RadAirspaceInfo({
   onInterestWindowLengthChange,
   onClear,
 }: RadAirspaceInfoProps) {
+  const shimmerTheme = useDocumentTheme();
   const t = useSimStore((state) => state.t);
   const resourceStateEpoch = useSimStore((state) => state.resourceStateEpoch);
   const deferredT = useDeferredValue(t);
@@ -239,7 +241,15 @@ export default function RadAirspaceInfo({
       <div className="flex items-start justify-between gap-3 border-b border-white/15 p-4">
         <div className="min-w-0">
           <h2 className="font-semibold">Traffic Volume Focus</h2>
-          <p className="mt-1 break-all text-lg font-semibold">{trafficVolumeId}</p>
+          {loading ? (
+            <ShimmeringText
+              text={trafficVolumeId}
+              className="mt-1 break-all text-lg font-semibold"
+              theme={shimmerTheme}
+            />
+          ) : (
+            <p className="mt-1 break-all text-lg font-semibold">{trafficVolumeId}</p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-white/75">
             <span className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5">
               Window {interestWindowLength}

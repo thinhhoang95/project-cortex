@@ -12,6 +12,7 @@ import FlightQueryDialog from "@/components/FlightQueryDialog";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/MostVulnerableTvList";
 import VpfDefiningVolumes from "@/components/VpfDefiningVolumes";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatCrossingFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
@@ -66,6 +67,7 @@ type FlowHeuristicsDiagnostics = {
 };
 
 export default function FlowRegulationPanel({ embedded = false }: FlowRegulationPanelProps) {
+  const shimmerTheme = useDocumentTheme();
   const {
     t,
     flights,
@@ -104,6 +106,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<FlowReviewContext | null>(null);
   const [selectedTvRanges, setSelectedTvRanges] = useState<Array<{ tvId: string; label: string }>>([]);
+  const [selectedTvRangeLoading, setSelectedTvRangeLoading] = useState(false);
   const [basketError, setBasketError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -162,8 +165,10 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     let cancelled = false;
     if (!selectedTVs.length) {
       setSelectedTvRanges([]);
+      setSelectedTvRangeLoading(false);
       return;
     }
+    setSelectedTvRangeLoading(true);
     Promise.all(
       selectedTVs.map(async (tvId) => ({
         tvId,
@@ -176,9 +181,13 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
           items
             .filter((item): item is { tvId: string; label: string } => typeof item.label === "string" && item.label.length > 0),
         );
+        setSelectedTvRangeLoading(false);
       })
       .catch(() => {
-        if (!cancelled) setSelectedTvRanges([]);
+        if (!cancelled) {
+          setSelectedTvRanges([]);
+          setSelectedTvRangeLoading(false);
+        }
       });
 
     return () => {
@@ -398,6 +407,11 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     return primary || window;
   }, [flowResults]);
 
+  const selectedTvRangeById = useMemo(() => {
+    return new Map(selectedTvRanges.map((item) => [item.tvId, item.label]));
+  }, [selectedTvRanges]);
+  const selectedVolumeContextLoading = selectedTvRangeLoading || extracting;
+
   const reviewFlightIds = useMemo(() => {
     if (!reviewContext) return [] as string[];
     const seen = new Set<string>();
@@ -527,15 +541,27 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
           {basketError && (
             <div className="text-[11px] text-red-200 mt-2">{basketError}</div>
           )}
-          {selectedTvRanges.length > 0 && (
+          {selectedTVs.length > 0 && (
             <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-2">
               <div className="text-[11px] opacity-80 mb-1">Selected capacity ranges</div>
               <div className="space-y-1">
-                {selectedTvRanges.map((item) => (
-                  <div key={item.tvId} className="text-[11px] opacity-80">
-                    <span className="font-mono">{item.tvId}</span>: {item.label}
-                  </div>
-                ))}
+                {selectedTVs.map((tvId) => {
+                  const rangeLabel = selectedTvRangeById.get(tvId);
+                  return (
+                    <div key={tvId} className="text-[11px] opacity-80">
+                      {selectedVolumeContextLoading ? (
+                        <ShimmeringText
+                          text={tvId}
+                          className="font-mono font-normal"
+                          theme={shimmerTheme}
+                        />
+                      ) : (
+                        <span className="font-mono">{tvId}</span>
+                      )}
+                      : {rangeLabel ?? (selectedTvRangeLoading ? "Loading..." : "Unavailable")}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

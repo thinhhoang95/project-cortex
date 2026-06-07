@@ -24,6 +24,7 @@ import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import ShimmeringText from "@/components/ShimmeringText";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import { type FlightLevelCountsPayload } from "@/lib/flightLevelBinCounts";
 import {
   formatTrafficVolumeSelectionExpression,
@@ -58,6 +59,7 @@ type RerouteTvSelectionInfoPanelProps = {
 };
 
 export default function RerouteTvSelectionInfoPanel({ embedded = false }: RerouteTvSelectionInfoPanelProps) {
+  const shimmerTheme = useDocumentTheme();
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -284,9 +286,22 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
           <div>
             <h2 className="font-semibold">Selected TV Information</h2>
             <p className="text-xs opacity-70 mt-1">
-              {selectedTvIds.length === 1
-                ? `TV ${selectedTvIds[0]}`
-                : selectionExpression}
+              {selectedTvIds.length === 1 ? (
+                loading ? (
+                  <>
+                    <span>TV </span>
+                    <ShimmeringText
+                      text={selectedTvIds[0] ?? ""}
+                      className="font-mono font-normal"
+                      theme={shimmerTheme}
+                    />
+                  </>
+                ) : (
+                  `TV ${selectedTvIds[0]}`
+                )
+              ) : (
+                selectionExpression
+              )}
             </p>
           </div>
           <PanelCloseButton

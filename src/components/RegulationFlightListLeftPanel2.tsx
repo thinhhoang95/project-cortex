@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useSimStore } from "@/components/useSimStore";
 import HourGlass from "@/components/HourGlass";
 import ShimmeringText from "@/components/ShimmeringText";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import { authFetch } from "@/lib/auth";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
@@ -95,6 +96,7 @@ type RegulationFlightListRow = {
 type RegulationFlightListLeftPanel2Props = { embedded?: boolean };
 
 export default function RegulationFlightListLeftPanel2({ embedded = false }: RegulationFlightListLeftPanel2Props) {
+  const shimmerTheme = useDocumentTheme();
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -453,9 +455,17 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
       <div className="flex items-center justify-between p-3 border-b border-white/20 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="font-semibold text-sm">Flight List ({rows.length})</h3>
-          {selectedTvIds.length > 1 && selectionExpression && (
-            <span className="text-[10px] opacity-70 truncate">{selectionExpression}</span>
-          )}
+          <span className="text-[10px] opacity-70 truncate">
+            {isLoading ? (
+              <ShimmeringText
+                text={selectedTvIds.length > 1 && selectionExpression ? selectionExpression : `TV ${primaryTvId}`}
+                className="font-normal"
+                theme={shimmerTheme}
+              />
+            ) : (
+              selectedTvIds.length > 1 && selectionExpression ? selectionExpression : `TV ${primaryTvId}`
+            )}
+          </span>
           <button
             type="button"
             className="h-6 w-6 p-0 rounded hover:bg-white/10 border border-white/10 text-white/90 flex items-center justify-center"

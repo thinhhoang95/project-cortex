@@ -19,6 +19,7 @@ import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import {
   assertReplayableRegulationTargets,
   normalizeRegulationContext,
@@ -101,6 +102,7 @@ type FlightRow = {
 };
 
 export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewProps) {
+  const shimmerTheme = useDocumentTheme();
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -163,6 +165,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   const [currentCount, setCurrentCount] = useState<number>(0);
   const [currentAnchorCapacity, setCurrentAnchorCapacity] = useState<number | null>(null);
   const [occupancyData, setOccupancyData] = useState<any | null>(null);
+  const [occupancyLoading, setOccupancyLoading] = useState(false);
   const [flightIdentifiersData, setFlightIdentifiersData] = useState<FlightIdentifiersData | null>(null);
   const [orderedFlightsData, setOrderedFlightsData] = useState<OrderedFlightsData | null>(null);
   const [primaryFlightDataTvId, setPrimaryFlightDataTvId] = useState<string | null>(null);
@@ -215,6 +218,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
   useEffect(() => {
     setOccupancyData(null);
+    setOccupancyLoading(false);
     setFlightIdentifiersData(null);
     setOrderedFlightsData(null);
     setPrimaryFlightDataTvId(null);
@@ -233,11 +237,16 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!selectedTrafficVolume) { setOccupancyData(null); return; }
+      if (!selectedTrafficVolume) {
+        setOccupancyData(null);
+        setOccupancyLoading(false);
+        return;
+      }
       // If not editing, clear any previous target selection immediately to avoid race with async fetch
       if (!useSimStore.getState().regulationEditPayload) {
         clearRegulationTargetFlights();
       }
+      setOccupancyLoading(true);
       try {
         const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${selectedTrafficVolume}`);
         if (!res.ok) throw new Error('failed');
@@ -255,6 +264,8 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
         setRegulationRate(cap ?? 0);
       } catch {
         if (!cancelled) { setOccupancyData(null); setCurrentAnchorCapacity(null); }
+      } finally {
+        if (!cancelled) setOccupancyLoading(false);
       }
       // Default active time window anchored at current t unless editing payload provided
       if (!useSimStore.getState().regulationEditPayload) {
@@ -525,6 +536,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
   );
   const isFlightListLoading = flightListLoading || (secondaryTvIds.length > 0 && secondaryFlightListLoading);
   const effectiveFlightListError = flightListError || secondaryFlightListError;
+  const selectedTvContextLoading = occupancyLoading || isFlightListLoading || proposalLoading;
 
   const flightsById = useMemo(() => {
     const map = new Map<string, (typeof flights)[number]>();
@@ -1076,7 +1088,15 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
           <div className="text-[10px] uppercase tracking-wider opacity-70">
             {selectedTvIds.length > 1 ? `Reference TV (${selectedTvIds.length} selected)` : "Reference TV"}
           </div>
-          <div className="text-lg font-semibold">{primaryTvId}</div>
+          {selectedTvContextLoading ? (
+            <ShimmeringText
+              text={primaryTvId}
+              className="text-lg font-semibold"
+              theme={shimmerTheme}
+            />
+          ) : (
+            <div className="text-lg font-semibold">{primaryTvId}</div>
+          )}
           {selectedTvIds.length > 1 && selectionExpression && (
             <div className="mt-1 text-[11px] opacity-75 break-all">{selectionExpression}</div>
           )}

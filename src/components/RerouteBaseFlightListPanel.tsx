@@ -3,6 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
+import ShimmeringText from "@/components/ShimmeringText";
+import { useDocumentTheme } from "@/components/useDocumentTheme";
 import { authFetch } from "@/lib/auth";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
@@ -60,6 +62,7 @@ type TvFlightCell = {
 };
 
 export default function RerouteBaseFlightListPanel({ embedded = false }: RerouteBaseFlightListPanelProps) {
+  const shimmerTheme = useDocumentTheme();
   const {
     rerouteBaseFlightIds,
     rerouteBaseSelectedFlightIds,
@@ -85,9 +88,11 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
   const originalPreviewRef = useRef<FlowPreviewSnapshot | null>(null);
   const tvFlightsReqSeq = useRef(0);
   const [tvFlightDataByTv, setTvFlightDataByTv] = useState<Record<string, TvFlightsPayload>>({});
+  const [tvFlightLoading, setTvFlightLoading] = useState(false);
 
   useEffect(() => {
     setTvFlightDataByTv({});
+    setTvFlightLoading(false);
     setExpanded(false);
     originalPreviewRef.current = null;
   }, [resourceStateEpoch]);
@@ -124,9 +129,11 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
     const reqId = ++tvFlightsReqSeq.current;
     if (!showTvColumns) {
       setTvFlightDataByTv({});
+      setTvFlightLoading(false);
       return;
     }
 
+    setTvFlightLoading(true);
     const refTime = formatTimeForAPI(t);
     Promise.all(
       selectedTvIds.map(async (tvId) => {
@@ -147,11 +154,13 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
       .then((entries) => {
         if (reqId !== tvFlightsReqSeq.current) return;
         setTvFlightDataByTv(Object.fromEntries(entries));
+        setTvFlightLoading(false);
       })
       .catch((error) => {
         if (reqId !== tvFlightsReqSeq.current) return;
         console.error("Failed to load reroute TV flight details:", error);
         setTvFlightDataByTv({});
+        setTvFlightLoading(false);
       });
   }, [resourceStateEpoch, selectedTvIds, selectedTvKey, showTvColumns, t]);
 
@@ -346,6 +355,19 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="font-semibold truncate">Base Flight List</h2>
+            {showTvColumns && (
+              <span className="text-[10px] opacity-70 truncate">
+                {tvFlightLoading ? (
+                  <ShimmeringText
+                    text={selectedTvIds.length === 1 ? `TV ${selectedTvIds[0]}` : selectedTvIds.join(" + ")}
+                    className="font-normal"
+                    theme={shimmerTheme}
+                  />
+                ) : (
+                  selectedTvIds.length === 1 ? `TV ${selectedTvIds[0]}` : selectedTvIds.join(" + ")
+                )}
+              </span>
+            )}
             <span className="text-xs px-2 py-0.5 rounded-full border border-white/20 bg-white/10">
               {rows.length.toLocaleString("en-US")}
             </span>
