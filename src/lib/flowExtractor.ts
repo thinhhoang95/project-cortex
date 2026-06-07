@@ -105,6 +105,10 @@ export type FlowGroupMetadata = {
   raw?: Partial<VpfFlowMetadata> | null;
 };
 
+export type FlowExtractorDisplayOptions = {
+  timeBinMinutes?: number | null;
+};
+
 export function normalizePositiveInteger(value: unknown, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -133,13 +137,83 @@ export function volumeDisplayLabel(volume?: VolumeDisplayInfo | null, fallback?:
   return null;
 }
 
-export function timeWindowDisplayLabel(window?: TimeWindowDisplayInfo | null): string | null {
+function normalizeNonNegativeInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.floor(parsed);
+}
+
+function normalizeTimeBinMinutes(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function formatMinutesAsHHMM(totalMinutes: number): string {
+  const minutes = Math.max(0, Math.floor(totalMinutes));
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function getBinRange(startBin?: unknown, endBin?: unknown, timebins?: unknown): { startBin: number; endBin: number } | null {
+  const start = normalizeNonNegativeInteger(startBin);
+  const end = normalizeNonNegativeInteger(endBin);
+  if (start !== null && end !== null) {
+    return { startBin: Math.min(start, end), endBin: Math.max(start, end) };
+  }
+
+  if (!Array.isArray(timebins)) return null;
+  const bins = timebins
+    .map((value) => normalizeNonNegativeInteger(value))
+    .filter((value): value is number => value !== null);
+  if (bins.length === 0) return null;
+
+  return {
+    startBin: Math.min(...bins),
+    endBin: Math.max(...bins),
+  };
+}
+
+function formatBinRangeLabel(range: { startBin: number; endBin: number }, timeBinMinutes?: number | null): string {
+  const safeBinMinutes = normalizeTimeBinMinutes(timeBinMinutes);
+  if (!safeBinMinutes) {
+    return range.startBin === range.endBin
+      ? `bin ${range.startBin}`
+      : `bins ${range.startBin}-${range.endBin}`;
+  }
+
+  const startMinutes = range.startBin * safeBinMinutes;
+  const endMinutes = (range.endBin + 1) * safeBinMinutes;
+  return `${formatMinutesAsHHMM(startMinutes)}-${formatMinutesAsHHMM(endMinutes)}`;
+}
+
+export function timeWindowDisplayLabel(
+  window?: TimeWindowDisplayInfo | null,
+  options: FlowExtractorDisplayOptions = {},
+): string | null {
   const explicit = String(window?.label ?? "").trim();
   if (explicit) return explicit;
   const start = String(window?.start_time ?? "").trim();
   const end = String(window?.end_time ?? "").trim();
   if (start && end) return `${start}-${end}`;
+  const range = getBinRange(window?.start_bin, window?.end_bin, window?.timebins);
+  if (range) {
+    return formatBinRangeLabel(range, window?.time_bin_minutes ?? options.timeBinMinutes);
+  }
   return null;
+}
+
+function definingVolumeWindowDisplayLabel(
+  volume: VpfDefiningVolume,
+  options: FlowExtractorDisplayOptions,
+): string | null {
+  const nested = timeWindowDisplayLabel(volume.time_window, options);
+  if (nested) return nested;
+
+  const range = getBinRange(volume.start_bin, volume.end_bin, volume.timebins);
+  if (!range) return null;
+  return formatBinRangeLabel(range, volume.time_window?.time_bin_minutes ?? options.timeBinMinutes);
 }
 
 export function getVpfDefiningVolumes(
@@ -213,6 +287,7 @@ export function getVpfDefiningVolumes(
 export function buildFlowDefiningVolumeDisplays(
   flowMetadata?: Partial<VpfFlowMetadata> | null,
   topLevelMetadata?: VpfTopLevelMetadata | null,
+  options: FlowExtractorDisplayOptions = {},
 ): FlowDefiningVolumeDisplay[] {
   return getVpfDefiningVolumes(flowMetadata, topLevelMetadata)
     .map((item, index) => {
@@ -225,7 +300,7 @@ export function buildFlowDefiningVolumeDisplays(
         role: String(item.role ?? (item.is_primary ? "primary" : "overload")),
         trafficVolumeId,
         label: volumeDisplayLabel(item.volume, trafficVolumeId) ?? trafficVolumeId,
-        windowLabel: timeWindowDisplayLabel(item.time_window),
+        windowLabel: definingVolumeWindowDisplayLabel(item, options),
         isPrimary: Boolean(item.is_primary || item.role === "primary"),
         segmentType: item.segment_type ? String(item.segment_type) : null,
         sumExcess: Number.isFinite(Number(item.sum_excess)) ? Number(item.sum_excess) : null,
@@ -240,8 +315,9 @@ export function buildFlowDefiningVolumeDisplays(
 export function buildFlowGroupMetadata(
   flowMetadata?: Partial<VpfFlowMetadata> | null,
   topLevelMetadata?: VpfTopLevelMetadata | null,
+  options: FlowExtractorDisplayOptions = {},
 ): FlowGroupMetadata {
-  const definingVolumes = buildFlowDefiningVolumeDisplays(flowMetadata, topLevelMetadata);
+  const definingVolumes = buildFlowDefiningVolumeDisplays(flowMetadata, topLevelMetadata, options);
   const definitionSize = Number.isFinite(Number(flowMetadata?.definition_size))
     ? Number(flowMetadata?.definition_size)
     : definingVolumes.length >= 2
@@ -254,6 +330,7 @@ export function buildFlowGroupMetadata(
     ),
     primaryWindowLabel: timeWindowDisplayLabel(
       flowMetadata?.primary_time_window ?? topLevelMetadata?.primary_time_window,
+      options,
     ),
     definitionSize,
     definingVolumes,

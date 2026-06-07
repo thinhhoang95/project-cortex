@@ -22,6 +22,7 @@ import TrafficVolumeInfoTooltip from '@/components/TrafficVolumeInfoTooltip';
 import TrafficVolumeMiniMap from '@/components/TrafficVolumeMiniMap';
 import TimeScaleControl from '@/components/TimeScaleControl';
 import ShimmeringText from '@/components/ShimmeringText';
+import VpfDefiningVolumes from '@/components/VpfDefiningVolumes';
 import { useSimStore } from '@/components/useSimStore';
 import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
 import type {
@@ -38,6 +39,12 @@ import {
   normalizeAgentRunMethodology,
   toAgentRunRef,
 } from '@/lib/agentRuns';
+import {
+  buildFlowGroupMetadata,
+  type FlowDefiningVolumeDisplay,
+  type FlowGroupMetadata,
+  type VpfFlowMetadata,
+} from '@/lib/flowExtractor';
 import { normalizePerAccAttribMode } from '@/lib/perAccAttribution';
 import {
   Line,
@@ -125,12 +132,15 @@ interface AgentSolutionRegulation {
   timeWindow?: string;
   step_number?: number;
   stepNumber?: number;
+  extractor_metadata?: Partial<VpfFlowMetadata> | null;
   [key: string]: unknown;
 }
 
 interface AgentSolDetailsResponse {
   trajectory_key?: string;
   selected_step?: AgentSolutionStep;
+  selected_step_regulations?: AgentSolutionRegulation[];
+  regulations?: AgentSolutionRegulation[];
   per_stage_reward?: PerStageRewardEntry[];
   step_delays_by_flight?: Record<string, AgentSolutionFlightDelay | number | string>;
   pre_post?: AgentSolutionPrePost;
@@ -208,8 +218,65 @@ interface FlowGroup {
   flowId?: string;
   baselineRate?: number | null;
   allowedRate?: number | null;
+  metadata?: FlowGroupMetadata | null;
   flightIds: string[];
   rows: FlowGroupRow[];
+}
+
+interface FlowDefinitionRow {
+  key: string;
+  stepNumber: number | null;
+  flowId?: string;
+  controlVolume?: string;
+  timeWindow?: string;
+  baselineRate: number | null;
+  allowedRate: number | null;
+  flightCount: number | null;
+  metadata: FlowGroupMetadata | null;
+}
+
+// Compact "H:/O:" defining-volume chain. H = hotspot (primary) segment,
+// O = overload (secondary) segment, mirroring the raw `H:<TV>:<window>` encoding.
+function DefiningVolumeChain({
+  volumes,
+  className = '',
+}: {
+  volumes: FlowDefiningVolumeDisplay[];
+  className?: string;
+}) {
+  if (!volumes.length) return null;
+  return (
+    <div
+      className={`no-scrollbar flex min-w-0 max-w-full flex-nowrap items-center gap-1 overflow-x-auto text-[11px] ${className}`}
+    >
+      {volumes.map((volume, index) => (
+        <span key={volume.key} className="contents">
+          {index > 0 && <span className="shrink-0 text-white/30">→</span>}
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.05] px-1.5 py-0.5">
+            <span
+              className={`font-mono font-semibold ${
+                volume.isPrimary ? 'text-emerald-300' : 'text-amber-300'
+              }`}
+            >
+              {volume.isPrimary ? 'H' : 'O'}
+            </span>
+            <TrafficVolumeInfoTooltip
+              trafficVolumeId={volume.trafficVolumeId}
+              className="inline-flex min-w-0"
+              tooltipClassName="z-[12000]"
+            >
+              <span className="max-w-[120px] truncate font-medium text-sky-100">
+                {volume.label}
+              </span>
+            </TrafficVolumeInfoTooltip>
+            {volume.windowLabel && (
+              <span className="shrink-0 font-mono text-white/45">{volume.windowLabel}</span>
+            )}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 type FlowGroupMiniMapTooltipProps = {
@@ -823,6 +890,198 @@ function getRegFlowIdString(reg: AgentSolutionRegulation | null | undefined): st
   return out;
 }
 
+function normalizeRegulationArray(source: unknown): AgentSolutionRegulation[] {
+  if (!Array.isArray(source)) return [];
+  return source.filter(
+    (entry): entry is AgentSolutionRegulation =>
+      Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry),
+  );
+}
+
+function getSolutionRegulations(solution: AgentSolutionBest | null): AgentSolutionRegulation[] {
+  return normalizeRegulationArray(solution?.regulations);
+}
+
+function filterRegulationsForStep(
+  regulations: AgentSolutionRegulation[],
+  selectedStep: AgentSolutionStep | null,
+): AgentSolutionRegulation[] {
+  if (!selectedStep) return [];
+
+  const stepNumber = getStepNumber(selectedStep);
+  if (Number.isFinite(stepNumber)) {
+    const explicitMatches = regulations.filter((reg) => {
+      const regStepNumber = getRegStepNumber(reg);
+      return Number.isFinite(regStepNumber) && regStepNumber === stepNumber;
+    });
+    if (explicitMatches.length > 0) return explicitMatches;
+  }
+
+  const stepCv = normalizeControlVolume(getStepControlVolume(selectedStep));
+  const stepWindow = normalizeTimeWindow(getStepTimeWindow(selectedStep));
+  return regulations.filter((reg) => {
+    const regCv = normalizeControlVolume(getRegControlVolume(reg));
+    const regWindow = normalizeTimeWindow(getRegTimeWindow(reg));
+    const cvMatches = stepCv ? stepCv === regCv : true;
+    const windowMatches = stepWindow ? stepWindow === regWindow : true;
+    return cvMatches && windowMatches;
+  });
+}
+
+function getStepDetailRegulations(
+  solution: AgentSolutionBest | null,
+  selectedStep: AgentSolutionStep | null,
+  details: AgentSolDetailsResponse | null,
+): AgentSolutionRegulation[] {
+  const detailRegulations = normalizeRegulationArray(details?.selected_step_regulations);
+  if (detailRegulations.length > 0) return detailRegulations;
+  return filterRegulationsForStep(getSolutionRegulations(solution), selectedStep);
+}
+
+function getViewRegulations(
+  viewMode: ViewMode,
+  solution: AgentSolutionBest | null,
+  selectedStep: AgentSolutionStep | null,
+  details: AgentSolDetailsResponse | null,
+): AgentSolutionRegulation[] {
+  if (viewMode === 'whole_plan') {
+    const detailRegulations = normalizeRegulationArray(details?.regulations);
+    return detailRegulations.length > 0 ? detailRegulations : getSolutionRegulations(solution);
+  }
+  if (viewMode === 'per_episode') {
+    return getStepDetailRegulations(solution, selectedStep, details);
+  }
+  return [];
+}
+
+function getDetailTimeBinMinutes(details: AgentSolDetailsResponse | null): number | null {
+  const raw = details?.pre_post?.time_bin_minutes ?? details?.metadata?.time_bin_minutes;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function getRegExtractorMetadata(reg: AgentSolutionRegulation | null | undefined): Partial<VpfFlowMetadata> | null {
+  const metadata = reg?.extractor_metadata ?? (reg as Record<string, unknown> | null | undefined)?.extractor_metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  return metadata as Partial<VpfFlowMetadata>;
+}
+
+function buildRegFlowMetadata(
+  reg: AgentSolutionRegulation,
+  timeBinMinutes: number | null,
+): FlowGroupMetadata | null {
+  const metadata = getRegExtractorMetadata(reg);
+  if (!metadata) return null;
+  return buildFlowGroupMetadata(metadata, null, { timeBinMinutes });
+}
+
+function getRegDefiningTrafficVolumeIds(reg: AgentSolutionRegulation): string[] {
+  const metadata = getRegExtractorMetadata(reg);
+  if (!metadata) return [];
+  const flowMetadata = buildFlowGroupMetadata(metadata);
+  return (flowMetadata.definingVolumes ?? []).map((volume) => volume.trafficVolumeId);
+}
+
+function buildFlowDefinitionRows(
+  regulations: AgentSolutionRegulation[],
+  timeBinMinutes: number | null,
+): FlowDefinitionRow[] {
+  type FlowDefinitionBucket = FlowDefinitionRow & {
+    order: number;
+    flightIds: Set<string>;
+    fallbackFlightCount: number | null;
+  };
+
+  const buckets = new Map<string, FlowDefinitionBucket>();
+  let order = 0;
+
+  for (const reg of regulations) {
+    const stepNumber = getRegStepNumber(reg);
+    const flowId = getRegFlowIdString(reg) ?? undefined;
+    const controlVolume = getRegControlVolume(reg) || undefined;
+    const timeWindow = getRegTimeWindow(reg) || undefined;
+    const metadata = buildRegFlowMetadata(reg, timeBinMinutes);
+    const baselineRate = extractNumeric(reg, REG_BASE_RATE_KEYS);
+    const allowedRate = extractNumeric(reg, REG_ALLOWED_RATE_KEYS);
+    const flightIds = Array.from(
+      new Set(
+        collectIdsFromReg(reg, FLIGHT_ID_KEYS)
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    );
+    const fallbackFlightCount = extractNumeric(reg, FLIGHT_COUNT_KEYS);
+    const hasStableIdentity =
+      stepNumber !== null || Boolean(flowId) || Boolean(controlVolume) || Boolean(timeWindow);
+    const key = hasStableIdentity
+      ? [
+          stepNumber ?? '',
+          flowId ?? '',
+          controlVolume ? normalizeControlVolume(controlVolume) : '',
+          timeWindow ? normalizeTimeWindow(timeWindow) : '',
+        ].join('||')
+      : `row-${order}`;
+
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        key,
+        stepNumber,
+        flowId,
+        controlVolume,
+        timeWindow,
+        baselineRate,
+        allowedRate,
+        flightCount: null,
+        metadata,
+        order: order++,
+        flightIds: new Set<string>(),
+        fallbackFlightCount,
+      };
+      buckets.set(key, bucket);
+    } else {
+      if (bucket.stepNumber === null && stepNumber !== null) bucket.stepNumber = stepNumber;
+      if (!bucket.flowId && flowId) bucket.flowId = flowId;
+      if (!bucket.controlVolume && controlVolume) bucket.controlVolume = controlVolume;
+      if (!bucket.timeWindow && timeWindow) bucket.timeWindow = timeWindow;
+      if (bucket.baselineRate === null && baselineRate !== null) bucket.baselineRate = baselineRate;
+      if (bucket.allowedRate === null && allowedRate !== null) bucket.allowedRate = allowedRate;
+      if (
+        (!bucket.metadata?.definingVolumes?.length && metadata?.definingVolumes?.length) ||
+        (!bucket.metadata && metadata)
+      ) {
+        bucket.metadata = metadata;
+      }
+      if (bucket.fallbackFlightCount === null && fallbackFlightCount !== null) {
+        bucket.fallbackFlightCount = fallbackFlightCount;
+      }
+    }
+
+    for (const flightId of flightIds) {
+      bucket.flightIds.add(flightId);
+    }
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => {
+      const aStep = a.stepNumber ?? Number.POSITIVE_INFINITY;
+      const bStep = b.stepNumber ?? Number.POSITIVE_INFINITY;
+      if (aStep !== bStep) return aStep - bStep;
+      return a.order - b.order;
+    })
+    .map((bucket) => ({
+      key: bucket.key,
+      stepNumber: bucket.stepNumber,
+      flowId: bucket.flowId,
+      controlVolume: bucket.controlVolume,
+      timeWindow: bucket.timeWindow,
+      baselineRate: bucket.baselineRate,
+      allowedRate: bucket.allowedRate,
+      flightCount: bucket.flightIds.size > 0 ? bucket.flightIds.size : bucket.fallbackFlightCount,
+      metadata: bucket.metadata,
+    }));
+}
+
 function buildFlowGroupsForStep(
   solution: AgentSolutionBest | null,
   selectedStep: AgentSolutionStep | null,
@@ -830,30 +1089,10 @@ function buildFlowGroupsForStep(
   flightsById: Map<string, Trajectory>,
 ): FlowGroup[] {
   if (!solution || !selectedStep) return [];
-  const regulations = Array.isArray(solution.regulations) ? solution.regulations : [];
-
-  // Try to match regs explicitly by step number; otherwise by CV + time window
-  const stepNumber = getStepNumber(selectedStep);
-  let regs: AgentSolutionRegulation[] = [];
-  if (Number.isFinite(stepNumber)) {
-    regs = regulations.filter((reg) => {
-      const sn = Number((reg as any)?.step_number ?? (reg as any)?.stepNumber);
-      return Number.isFinite(sn) && sn === stepNumber;
-    });
-  }
-  if (regs.length === 0) {
-    const stepCv = normalizeControlVolume(getStepControlVolume(selectedStep));
-    const stepWindow = normalizeTimeWindow(getStepTimeWindow(selectedStep));
-    regs = regulations.filter((reg) => {
-      const regCv = normalizeControlVolume(getRegControlVolume(reg));
-      const regWindow = normalizeTimeWindow(getRegTimeWindow(reg));
-      const cvMatches = stepCv ? stepCv === regCv : true;
-      const windowMatches = stepWindow ? stepWindow === regWindow : true;
-      return cvMatches && windowMatches;
-    });
-  }
+  const regs = getStepDetailRegulations(solution, selectedStep, details);
 
   if (regs.length === 0) return [];
+  const timeBinMinutes = getDetailTimeBinMinutes(details);
 
   const detailsRows: Map<string, FlowGroupRow> = new Map();
   if (details?.step_delays_by_flight) {
@@ -902,6 +1141,7 @@ function buildFlowGroupsForStep(
     flowId?: string;
     baselineRate: number | null;
     allowedRate: number | null;
+    metadata: FlowGroupMetadata | null;
     flightIds: Set<string>;
   };
 
@@ -941,6 +1181,7 @@ function buildFlowGroupsForStep(
         flowId,
         baselineRate: extractNumeric(reg, REG_BASE_RATE_KEYS),
         allowedRate: extractNumeric(reg, REG_ALLOWED_RATE_KEYS),
+        metadata: buildRegFlowMetadata(reg, timeBinMinutes),
         flightIds: new Set<string>(),
       };
       buckets.set(dedupeKey, bucket);
@@ -962,6 +1203,10 @@ function buildFlowGroupsForStep(
       if (bucket.allowedRate === null) {
         const candidate = extractNumeric(reg, REG_ALLOWED_RATE_KEYS);
         if (candidate !== null) bucket.allowedRate = candidate;
+      }
+      if (!bucket.metadata?.definingVolumes?.length) {
+        const candidate = buildRegFlowMetadata(reg, timeBinMinutes);
+        if (candidate?.definingVolumes?.length) bucket.metadata = candidate;
       }
     }
 
@@ -1031,6 +1276,7 @@ function buildFlowGroupsForStep(
       flowId: asStringId(assignedFlowId) ?? undefined,
       baselineRate: bucket.baselineRate,
       allowedRate: bucket.allowedRate,
+      metadata: bucket.metadata,
       flightIds: rows.map((r) => r.flightId),
       rows,
     });
@@ -1717,6 +1963,34 @@ export default function AgentResultSummaryComponent({
     [selectedSolution, selectedStep, detailsData, flightsById, viewMode],
   );
 
+  const viewRegulations = useMemo(
+    () => getViewRegulations(viewMode, selectedSolution, selectedStep, detailsData),
+    [viewMode, selectedSolution, selectedStep, detailsData],
+  );
+
+  const flowDefinitionRows = useMemo(
+    () => buildFlowDefinitionRows(viewRegulations, getDetailTimeBinMinutes(detailsData)),
+    [viewRegulations, detailsData],
+  );
+
+  // Flow definitions for every step of the plan (not just the selected one), so the
+  // per-episode step grid can render each step's defining volumes inline.
+  const flowDefinitionsByStep = useMemo(() => {
+    const map = new Map<number, FlowDefinitionRow[]>();
+    if (viewMode !== 'per_episode' || !selectedSolution) return map;
+    const rows = buildFlowDefinitionRows(
+      getSolutionRegulations(selectedSolution),
+      getDetailTimeBinMinutes(detailsData),
+    );
+    for (const row of rows) {
+      if (row.stepNumber === null) continue;
+      const list = map.get(row.stepNumber);
+      if (list) list.push(row);
+      else map.set(row.stepNumber, [row]);
+    }
+    return map;
+  }, [viewMode, selectedSolution, detailsData]);
+
   const availableTrafficVolumes = useMemo(() => {
     const set = new Set<string>();
     const prePost = detailsData?.pre_post;
@@ -1743,11 +2017,20 @@ export default function AgentResultSummaryComponent({
         }
       }
     }
+    for (const reg of viewRegulations) {
+      const cv = getRegControlVolume(reg);
+      if (cv) {
+        set.add(cv);
+      }
+      for (const tv of getRegDefiningTrafficVolumeIds(reg)) {
+        set.add(tv);
+      }
+    }
     return Array.from(set)
       .map((value) => value.trim())
       .filter((value) => value.length > 0)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [detailsData?.pre_post, selectedSolution?.regulations, selectedSolutionSteps, viewMode]);
+  }, [detailsData?.pre_post, selectedSolution?.regulations, selectedSolutionSteps, viewMode, viewRegulations]);
 
   const trafficVolumeOptions = useMemo<ChipOption[]>(() => {
     return availableTrafficVolumes.map((tv) => ({
@@ -1853,10 +2136,19 @@ export default function AgentResultSummaryComponent({
         set.add(cv.trim());
       }
     }
+    for (const reg of viewRegulations) {
+      const cv = getRegControlVolume(reg);
+      if (cv) {
+        set.add(cv.trim());
+      }
+      for (const tv of getRegDefiningTrafficVolumeIds(reg)) {
+        set.add(tv.trim());
+      }
+    }
     return Array.from(set)
       .filter((id) => id.length > 0)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [selectedSolution?.regulations, selectedSolutionSteps]);
+  }, [selectedSolution?.regulations, selectedSolutionSteps, viewRegulations]);
 
   const flightPathsCard = (
     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
@@ -2314,8 +2606,9 @@ export default function AgentResultSummaryComponent({
                     </div>
                   ) : viewMode === 'per_episode' ? (
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
-                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4 flex flex-col">
-                        <div className="flex items-center justify-between">
+                      <div className="relative min-h-[280px] rounded-2xl border border-white/10 bg-black/30">
+                        <div className="absolute inset-0 flex flex-col px-4 py-4">
+                        <div className="flex shrink-0 items-center justify-between">
                           <h3 className="text-sm font-semibold text-white/80">Step Sequence</h3>
                           {selectedSolutionSteps.length ? (
                             <span className="text-xs text-white/50">
@@ -2324,7 +2617,7 @@ export default function AgentResultSummaryComponent({
                             </span>
                           ) : null}
                         </div>
-                        <div className="flex-1" />
+                        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto no-scrollbar pr-1">
                         {bestError ? (
                           <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                             {bestError}
@@ -2337,68 +2630,79 @@ export default function AgentResultSummaryComponent({
                             />
                           </div>
                         ) : selectedSolutionSteps.length ? (
-                          <div className="mt-4 flex items-center gap-3 overflow-x-auto pb-2">
+                          <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
                             {selectedSolutionSteps.map((step, index) => {
                               const stepNumber = getStepNumber(step) ?? index + 1;
                               const isActive = stepNumber === selectedStepNumber;
                               const controlVolume = getStepControlVolume(step) || 'Unknown CV';
                               const timeWindow = getStepTimeWindow(step) || '—';
                               const aggregate = stepAggregates.get(stepNumber);
-                              const proposalRank = pickNumber([
-                                step.proposal_rank,
-                                (step.metadata || {})?.proposal_rank,
-                              ]);
+                              const flows = flowDefinitionsByStep.get(stepNumber) ?? [];
+                              const flightCount = aggregate?.flightCount ?? null;
                               return (
-                                <div
+                                <button
                                   key={`solution-step-${stepNumber}`}
-                                  className="flex items-center gap-2"
+                                  type="button"
+                                  ref={registerStepButton(stepNumber)}
+                                  onClick={() => handleStepSelect(stepNumber)}
+                                  className={`flex flex-col rounded-xl border px-3 py-2.5 text-left transition ${isActive
+                                    ? 'border-emerald-400/70 bg-emerald-400/10 shadow-[0_18px_30px_-26px_rgba(16,185,129,0.7)]'
+                                    : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                                    }`}
                                 >
-                                  <button
-                                    type="button"
-                                    ref={registerStepButton(stepNumber)}
-                                    onClick={() => handleStepSelect(stepNumber)}
-                                    className={`min-w-[220px] rounded-2xl border px-4 py-3 text-left shadow transition ${isActive
-                                      ? 'border-emerald-400/70 bg-emerald-400/15 shadow-[0_18px_30px_-24px_rgba(16,185,129,0.7)]'
-                                      : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                                      }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-3">
-                                      <div>
-                                        <div className="text-[11px] uppercase tracking-wide text-white/55">
-                                          Step {stepNumber}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span
+                                      className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${isActive
+                                        ? 'bg-emerald-400/20 text-emerald-100'
+                                        : 'bg-white/10 text-white/55'
+                                        }`}
+                                    >
+                                      Step {stepNumber}
+                                    </span>
+                                    {flightCount !== null && (
+                                      <span className="text-[11px] text-white/55">
+                                        <span className="font-semibold text-white/85">
+                                          {formatCount(flightCount)}
+                                        </span>{' '}
+                                        flight{flightCount === 1 ? '' : 's'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {(flows.length
+                                    ? flows
+                                    : [null]
+                                  ).map((flow, flowIndex) => {
+                                    const primaryLabel =
+                                      flow?.controlVolume || controlVolume;
+                                    const primaryWindow = flow?.timeWindow || timeWindow;
+                                    const definingVolumes =
+                                      flow?.metadata?.definingVolumes ?? [];
+                                    return (
+                                      <div
+                                        key={flow?.key ?? `step-${stepNumber}-flow-${flowIndex}`}
+                                        className={flowIndex > 0 ? 'mt-2 border-t border-white/10 pt-2' : 'mt-2'}
+                                      >
+                                        <div className="flex items-baseline gap-1.5">
+                                          <span className="font-mono text-[11px] font-semibold text-emerald-300">
+                                            H
+                                          </span>
+                                          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white/90">
+                                            {primaryLabel}
+                                          </span>
+                                          {primaryWindow ? (
+                                            <span className="shrink-0 font-mono text-[11px] text-white/55">
+                                              {primaryWindow}
+                                            </span>
+                                          ) : null}
                                         </div>
-                                        <div className="mt-1 text-sm font-semibold text-white/90">
-                                          {controlVolume}
-                                        </div>
-                                        <div className="text-xs text-white/60">
-                                          {timeWindow}
-                                        </div>
+                                        <DefiningVolumeChain
+                                          volumes={definingVolumes}
+                                          className="mt-1.5"
+                                        />
                                       </div>
-                                      {proposalRank !== null && (
-                                        <span className="rounded-lg bg-emerald-500/20 px-2 py-1 text-[11px] font-semibold text-emerald-200">
-                                          Proposal #{proposalRank}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-white/60">
-                                      <span>
-                                        <span className="font-semibold text-white/85">
-                                          {formatCount(aggregate?.flowCount ?? null)}
-                                        </span>{' '}
-                                        flows
-                                      </span>
-                                      <span>
-                                        <span className="font-semibold text-white/85">
-                                          {formatCount(aggregate?.flightCount ?? null)}
-                                        </span>{' '}
-                                        flights
-                                      </span>
-                                    </div>
-                                  </button>
-                                  {index < selectedSolutionSteps.length - 1 && (
-                                    <div className="h-0 w-0 border-y-[14px] border-l-[10px] border-y-transparent border-l-white/20 opacity-70" />
-                                  )}
-                                </div>
+                                    );
+                                  })}
+                                </button>
                               );
                             })}
                           </div>
@@ -2407,7 +2711,8 @@ export default function AgentResultSummaryComponent({
                             No steps available for this solution.
                           </div>
                         )}
-                        <div className="flex-1" />
+                        </div>
+                        </div>
                       </div>
                       {flightPathsCard}
                     </div>
@@ -2419,6 +2724,103 @@ export default function AgentResultSummaryComponent({
 
               {viewMode !== 'unselected' && (
                 <>
+                  {viewMode === 'whole_plan' && (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_16px_36px_-24px_rgba(56,189,248,0.75)] backdrop-blur-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-semibold text-white/90">
+                          Regulation Flow Definitions
+                        </h3>
+                        <p className="text-xs text-white/60">
+                          Defining volumes grouped by regulation step
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/60">
+                        {flowDefinitionRows.length} flow
+                        {flowDefinitionRows.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4">
+                      {detailsLoading && flowDefinitionRows.length === 0 ? (
+                        <div className="flex min-h-[96px] items-center justify-center rounded-xl border border-white/10 bg-black/25">
+                          <ShimmeringText
+                            text="Loading flow definitions…"
+                            className="text-sm text-white/60 font-normal"
+                          />
+                        </div>
+                      ) : detailsError && flowDefinitionRows.length === 0 ? (
+                        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                          {detailsError}
+                        </div>
+                      ) : flowDefinitionRows.length > 0 ? (
+                        <div className="space-y-3">
+                          {flowDefinitionRows.map((row, index) => {
+                            const hasVpfDefinition = Boolean(row.metadata?.definingVolumes?.length);
+                            return (
+                              <div
+                                key={`${row.key}-${index}`}
+                                className="rounded-xl border border-white/10 bg-black/25 px-4 py-3"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {row.stepNumber !== null ? (
+                                        <span className="rounded-md bg-sky-400/15 px-2 py-1 text-[11px] font-semibold text-sky-100">
+                                          Step {row.stepNumber}
+                                        </span>
+                                      ) : null}
+                                      {row.flowId ? (
+                                        <span className="rounded-md bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/70">
+                                          Flow #{row.flowId}
+                                        </span>
+                                      ) : null}
+                                      {row.metadata?.definitionSize ? (
+                                        <span className="rounded-md bg-emerald-400/15 px-2 py-1 text-[11px] font-semibold text-emerald-100">
+                                          VPF-{row.metadata.definitionSize}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className="mt-2 truncate text-sm font-semibold text-white/90">
+                                      {row.controlVolume || 'Unknown TV'}
+                                      {row.timeWindow ? ` · ${row.timeWindow}` : ''}
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    {row.flightCount !== null ? (
+                                      <span className="rounded-lg bg-white/10 px-3 py-1 font-semibold text-white/70">
+                                        {formatCount(row.flightCount)} flight
+                                        {row.flightCount === 1 ? '' : 's'}
+                                      </span>
+                                    ) : null}
+                                    {(row.baselineRate !== null && row.baselineRate !== undefined) ||
+                                      (row.allowedRate !== null && row.allowedRate !== undefined) ? (
+                                      <span className="rounded-lg bg-emerald-400/15 px-3 py-1 font-semibold text-emerald-200">
+                                        {formatRate(row.baselineRate)} → {formatRate(row.allowedRate)}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                {hasVpfDefinition ? (
+                                  <VpfDefiningVolumes metadata={row.metadata} className="px-0 pt-3" />
+                                ) : (
+                                  <div className="mt-3 rounded-lg border border-dashed border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/50">
+                                    VPF defining volumes are unavailable for this flow.
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-white/15 bg-black/25 px-4 py-5 text-sm text-white/60">
+                          No regulation flow definitions are available for this plan.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  )}
+
                   <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_40px_-24px_rgba(14,116,144,0.8)] backdrop-blur-sm">
                     <div className="flex flex-wrap items-baseline justify-between gap-3">
                       <div>
@@ -2782,6 +3184,10 @@ export default function AgentResultSummaryComponent({
                           </div>
                         ) : null}
                       </div>
+                      <VpfDefiningVolumes
+                        metadata={group.metadata}
+                        className="px-0 pt-3"
+                      />
                       <FlowGroupMiniMapTooltip
                         flightIds={group.flightIds}
                         className="mt-3"

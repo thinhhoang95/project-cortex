@@ -44,4 +44,53 @@ describe("buildFlowGroupMetadata", () => {
     expect(metadata.definingVolumes?.map((volume) => volume.trafficVolumeId)).toEqual(["TVA", "TVB", "TVC"]);
     expect(metadata.definingVolumes?.map((volume) => volume.label)).toEqual(["TVA Primary", "TVB Meter", "TVC Meter"]);
   });
+
+  it("formats VPF defining-volume bins with the run bin size", () => {
+    const metadata = buildFlowGroupMetadata(
+      {
+        definition_size: 2,
+        flow_defining_volumes: [
+          {
+            sequence_index: 0,
+            role: "primary",
+            traffic_volume_id: "TVA",
+            start_bin: 45,
+            end_bin: 47,
+            is_primary: true,
+          },
+          {
+            sequence_index: 1,
+            role: "secondary",
+            traffic_volume_id: "TVB",
+            timebins: [48, 49],
+            is_primary: false,
+          },
+        ],
+      },
+      null,
+      { timeBinMinutes: 15 },
+    );
+
+    expect(metadata.definingVolumes?.map((volume) => volume.windowLabel)).toEqual([
+      "11:15-12:00",
+      "12:00-12:30",
+    ]);
+  });
+
+  it("falls back to bin labels when the run bin size is unavailable", () => {
+    const metadata = buildFlowGroupMetadata({
+      flow_defining_volumes: [
+        {
+          sequence_index: 0,
+          role: "primary",
+          traffic_volume_id: "TVA",
+          start_bin: 45,
+          end_bin: 47,
+          is_primary: true,
+        },
+      ],
+    });
+
+    expect(metadata.definingVolumes?.[0]?.windowLabel).toBe("bins 45-47");
+  });
 });

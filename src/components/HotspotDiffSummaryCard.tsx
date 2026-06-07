@@ -256,7 +256,7 @@ const CategorySection = memo(function CategorySection({
         </span>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-2">
         {displayed.length > 0 ? (
           displayed.map((entry) => (
             <HotspotSummaryRow
