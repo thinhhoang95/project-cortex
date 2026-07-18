@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
+import { forwardUpstreamJson, withAuth, maybeHandleUnauthorized } from '@/app/api/_utils';
 
 const API_BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -32,9 +32,7 @@ export async function GET(request: NextRequest) {
       throw new Error(`API responded with status: ${response.status}`);
     }
 
-    const data = await response.json();
-    
-    return NextResponse.json(data);
+    return forwardUpstreamJson(response);
   } catch (error) {
     console.error('Error fetching flight identifiers data:', error);
     

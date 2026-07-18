@@ -52,3 +52,16 @@ export async function maybeHandleUnauthorized(
   return NextResponse.json({ error: message }, { status: 401 });
 }
 
+// Forward successful JSON responses without buffering and serializing large payloads again.
+export function forwardUpstreamJson(resp: Response): NextResponse {
+  const headers = new Headers();
+  for (const name of ["content-type", "cache-control", "x-resource-date", "x-resource-state-id"]) {
+    const value = resp.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return new NextResponse(resp.body, {
+    status: resp.status,
+    headers,
+  });
+}
+

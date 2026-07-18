@@ -11,6 +11,11 @@ import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import PanelCloseButton from "@/components/PanelCloseButton";
 import { authFetch } from "@/lib/auth";
+import {
+  fetchTvCountWithCapacity,
+  fetchTvFlights,
+  floorToTvTimeBin,
+} from "@/lib/tvApiCache";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
@@ -207,6 +212,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
   );
+  const flightListRefTimeStr = useMemo(
+    () => formatTimeForAPI(floorToTvTimeBin(t)),
+    [t],
+  );
   const regulationWindowFrom = regulationTimeWindow[0];
   const regulationWindowTo = regulationTimeWindow[1];
   // When applying an edit payload, suppress auto preset updates on time changes
@@ -248,9 +257,10 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       }
       setOccupancyLoading(true);
       try {
-        const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${selectedTrafficVolume}`);
-        if (!res.ok) throw new Error('failed');
-        const data = await res.json();
+        const data = await fetchTvCountWithCapacity<any>({
+          trafficVolumeId: selectedTrafficVolume,
+          resourceStateEpoch,
+        });
         if (cancelled) return;
         setOccupancyData(data);
         const binMinutes = inferTimeBinMinutesFromData(data);
@@ -295,10 +305,11 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       setOrderedFlightsData(null);
       setPrimaryFlightDataTvId(null);
       try {
-        const ref = formatTimeForAPI(t);
-        const res = await authFetch(`/api/tv_flights?traffic_volume_id=${selectedTrafficVolume}&ref_time_str=${ref}`);
-        if (!res.ok) throw new Error('Failed');
-        const data = await res.json();
+        const data = await fetchTvFlights<any>({
+          trafficVolumeId: selectedTrafficVolume,
+          refTimeStr: flightListRefTimeStr,
+          resourceStateEpoch,
+        });
         if (cancelled) return;
         if (data.ordered_flights && data.details) {
           setOrderedFlightsData(data as OrderedFlightsData);
@@ -321,7 +332,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     }
     loadFlights();
     return () => { cancelled = true; };
-  }, [resourceStateEpoch, selectedTrafficVolume, t]);
+  }, [flightListRefTimeStr, resourceStateEpoch, selectedTrafficVolume]);
 
   // Load secondary TV memberships/details to support multi-TV intersection rows
   useEffect(() => {
@@ -339,12 +350,13 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       setSecondaryFlightDataByTv({});
 
       try {
-        const ref = formatTimeForAPI(t);
         const entries = await Promise.all(
           secondaryTvIds.map(async (tvId) => {
-            const res = await authFetch(`/api/tv_flights?traffic_volume_id=${encodeURIComponent(tvId)}&ref_time_str=${encodeURIComponent(ref)}`);
-            if (!res.ok) throw new Error(`Failed to fetch flights for ${tvId}`);
-            const data = await res.json();
+            const data = await fetchTvFlights<any>({
+              trafficVolumeId: tvId,
+              refTimeStr: flightListRefTimeStr,
+              resourceStateEpoch,
+            });
             const payload: TvFlightsPayload = data.ordered_flights && data.details
               ? { kind: "ordered", data: data as OrderedFlightsData }
               : { kind: "legacy", data: data as FlightIdentifiersData };
@@ -364,7 +376,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
     }
     loadSecondaryFlights();
     return () => { cancelled = true; };
-  }, [primaryTvId, resourceStateEpoch, selectedTvKey, secondaryTvIds, t]);
+  }, [flightListRefTimeStr, primaryTvId, resourceStateEpoch, selectedTvKey, secondaryTvIds]);
 
   // Clear single-flight preview on unmount
   useEffect(() => {

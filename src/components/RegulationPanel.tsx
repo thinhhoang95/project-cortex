@@ -43,6 +43,11 @@ import {
   type VpfTopLevelMetadata,
 } from "@/lib/flowExtractor";
 import { fetchFlowTrace, normalizeTraceFlightIds } from "@/lib/flowTrace";
+import {
+  fetchTvCountWithCapacity,
+  fetchTvFlights,
+  floorToTvTimeBin,
+} from "@/lib/tvApiCache";
 
 type RegulationPanelProps = { embedded?: boolean };
 
@@ -240,6 +245,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     selectedTrafficVolumeData?.properties?.min_fl,
     selectedTrafficVolumeData?.properties?.max_fl
   );
+  const flightListRefTimeStr = useMemo(
+    () => formatTimeForAPI(floorToTvTimeBin(t)),
+    [t],
+  );
   // When applying an edit payload, suppress auto preset updates on time changes
   const suppressAutoPresetRef = useRef<boolean>(false);
   // Suppress applying preset side-effect once when we programmatically set activePreset
@@ -307,9 +316,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       }
       setOccupancyLoading(true);
       try {
-        const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${primaryTvId}`);
-        if (!res.ok) throw new Error('failed');
-        const data = await res.json();
+        const data = await fetchTvCountWithCapacity<any>({
+          trafficVolumeId: primaryTvId,
+          resourceStateEpoch,
+        });
         if (cancelled) return;
         setOccupancyData(data);
         const binMinutes = inferTimeBinMinutesFromData(data);
@@ -346,9 +356,10 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       try {
         const entries = await Promise.all(
           secondaryTvIds.map(async (tvId) => {
-            const res = await authFetch(`/api/tv_count_with_capacity?traffic_volume_id=${encodeURIComponent(tvId)}`);
-            if (!res.ok) throw new Error(`Failed to fetch occupancy for ${tvId}`);
-            const data = await res.json();
+            const data = await fetchTvCountWithCapacity<any>({
+              trafficVolumeId: tvId,
+              resourceStateEpoch,
+            });
             return [tvId, data] as const;
           })
         );
@@ -369,10 +380,11 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       if (!primaryTvId) { setFlightIdentifiersData(null); setOrderedFlightsData(null); return; }
       setFlightListLoading(true);
       try {
-        const ref = formatTimeForAPI(t);
-        const res = await authFetch(`/api/tv_flights?traffic_volume_id=${primaryTvId}&ref_time_str=${ref}`);
-        if (!res.ok) throw new Error('Failed');
-        const data = await res.json();
+        const data = await fetchTvFlights<any>({
+          trafficVolumeId: primaryTvId,
+          refTimeStr: flightListRefTimeStr,
+          resourceStateEpoch,
+        });
         if (cancelled) return;
         if (data.ordered_flights && data.details) {
           setOrderedFlightsData(data);
@@ -389,7 +401,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     }
     loadFlights();
     return () => { cancelled = true; };
-  }, [primaryTvId, resourceStateEpoch, t]);
+  }, [flightListRefTimeStr, primaryTvId, resourceStateEpoch]);
 
   const timeBinMinutes = useMemo(
     () => inferTimeBinMinutesFromData(occupancyData),

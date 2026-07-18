@@ -13,7 +13,6 @@ import {
   YAxis,
 } from "recharts";
 import { useSimStore } from "@/components/useSimStore";
-import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
 import { formatDwellingTime } from "@/lib/dwellTime";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
@@ -41,6 +40,11 @@ import {
   formatTrafficVolumeSelectionExpression,
   getEffectiveTrafficVolumeSelectionClauses,
 } from "@/lib/multiTrafficVolumeSelection";
+import {
+  fetchTvCountWithCapacity,
+  fetchTvFlights,
+  floorToTvTimeBin,
+} from "@/lib/tvApiCache";
 
 interface OccupancyData {
   traffic_volume_id: string;
@@ -199,7 +203,11 @@ export default function AirspaceInfo() {
     () => formatTrafficVolumeSelectionExpression(selectedTvClauses),
     [selectedTvClauses],
   );
-  const currentTimeStr = useMemo(() => formatTimeForAPI(t), [t]);
+  const flightListReferenceSeconds = floorToTvTimeBin(t);
+  const currentTimeStr = useMemo(
+    () => formatTimeForAPI(flightListReferenceSeconds),
+    [flightListReferenceSeconds],
+  );
 
   const [occupancyByTv, setOccupancyByTv] = useState<Record<string, OccupancyData>>({});
   const [flightDataByTv, setFlightDataByTv] = useState<Record<string, TvFlightsPayload>>({});
@@ -249,18 +257,10 @@ export default function AirspaceInfo() {
 
     Promise.all(
       selectedTvIds.map(async (trafficVolumeId) => {
-        const response = await authFetch(
-          `/api/tv_count_with_capacity?traffic_volume_id=${encodeURIComponent(trafficVolumeId)}`,
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-          throw new Error(
-            errorData.error || `Failed to fetch occupancy data (${response.statusText})`,
-          );
-        }
-
-        const data: OccupancyData = await response.json();
+        const data = await fetchTvCountWithCapacity<OccupancyData>({
+          trafficVolumeId,
+          resourceStateEpoch,
+        });
         return [trafficVolumeId, data] as const;
       }),
     )
@@ -275,7 +275,7 @@ export default function AirspaceInfo() {
         setOccupancyByTv({});
         setLoading(false);
       });
-  }, [occupancyByTv, resourceStateEpoch, selectedTvIds, selectedTvKey, t]);
+  }, [occupancyByTv, resourceStateEpoch, selectedTvIds, selectedTvKey]);
 
   useEffect(() => {
     const reqId = ++flightsRequestSeq.current;
@@ -291,18 +291,11 @@ export default function AirspaceInfo() {
 
     Promise.all(
       selectedTvIds.map(async (trafficVolumeId) => {
-        const response = await authFetch(
-          `/api/tv_flights?traffic_volume_id=${encodeURIComponent(trafficVolumeId)}&ref_time_str=${encodeURIComponent(currentTimeStr)}`,
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-          throw new Error(
-            errorData.error || `Failed to fetch flight data (${response.statusText})`,
-          );
-        }
-
-        const data = await response.json();
+        const data = await fetchTvFlights<any>({
+          trafficVolumeId,
+          refTimeStr: currentTimeStr,
+          resourceStateEpoch,
+        });
         const payload: TvFlightsPayload = data.ordered_flights && data.details
           ? { kind: "ordered", data: data as OrderedFlightsData }
           : { kind: "legacy", data: data as FlightIdentifiersData };
