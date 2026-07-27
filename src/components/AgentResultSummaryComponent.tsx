@@ -11,6 +11,7 @@ import {
 import type { FocusEvent, HTMLAttributes, MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import FlightListStatistics from '@/components/FlightListStatistics';
+import AgentGaResultSummaryPanel from '@/components/AgentGaResultSummaryPanel';
 import AgentSaResultSummaryPanel from '@/components/AgentSaResultSummaryPanel';
 import FlightPathsMiniMap from '@/components/FlightPathsMiniMap';
 import OccupancyPrePostPanel, {
@@ -35,10 +36,7 @@ import type {
 } from '@/lib/models';
 import { authFetch } from '@/lib/auth';
 import type { AgentRunRef, AgentSolListRun } from '@/lib/agentRuns';
-import {
-  normalizeAgentRunMethodology,
-  toAgentRunRef,
-} from '@/lib/agentRuns';
+import { toAgentRunRef } from '@/lib/agentRuns';
 import {
   buildFlowGroupMetadata,
   type FlowDefiningVolumeDisplay,
@@ -1491,25 +1489,6 @@ const historicalTooltip = ({ active, payload }: any) => {
   );
 };
 
-const RUN_METHODOLOGY_META = {
-  rz: {
-    label: 'RZ',
-    badge: 'border border-cyan-400/35 bg-cyan-500/10 text-cyan-100',
-    description: 'Regulation zoning solutions',
-    selectedCard:
-      'border-emerald-400/70 bg-emerald-400/10 shadow-[0_18px_40px_-24px_rgba(16,185,129,0.8)]',
-    selectedMetric: 'bg-emerald-500/15 text-emerald-300',
-  },
-  sa: {
-    label: 'SA',
-    badge: 'border border-fuchsia-400/35 bg-fuchsia-500/10 text-fuchsia-100',
-    description: 'Simulated annealing analytics',
-    selectedCard:
-      'border-fuchsia-400/60 bg-fuchsia-500/10 shadow-[0_18px_40px_-24px_rgba(168,85,247,0.68)]',
-    selectedMetric: 'bg-fuchsia-500/15 text-fuchsia-100',
-  },
-} as const;
-
 export default function AgentResultSummaryComponent({
   className = '',
   endpoint = '/api/agent_sol_summary',
@@ -1541,6 +1520,7 @@ export default function AgentResultSummaryComponent({
   const [viewTo, setViewTo] = useState<string>('23:59');
   const [occSortMode, setOccSortMode] = useState<OccupancyPrePostSortMode>('total');
   const [pinnedTrafficVolumes, setPinnedTrafficVolumes] = useState<string[]>([]);
+  const [isFlightsPaneOpen, setIsFlightsPaneOpen] = useState(false);
 
   const flights = useSimStore((state) => state.flights);
 
@@ -2273,154 +2253,29 @@ export default function AgentResultSummaryComponent({
   );
 
   const runSolutionSummaries = selectedRzRun?.solutions ?? [];
+  const historicalRewardData =
+    selectedRzRun?.metadata?.historical_best?.map((entry) => ({
+      time: new Date(entry.ts_iso).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      value:
+        entry.best_total_improvement !== null &&
+        entry.best_total_improvement !== undefined
+          ? entry.best_total_improvement
+          : Number.NaN,
+    })) ?? [];
+  const latestHistoricalReward =
+    historicalRewardData[historicalRewardData.length - 1]?.value;
 
   return (
     <div
-      className={`grid min-h-[560px] grid-cols-[minmax(280px,340px)_minmax(0,1fr)_minmax(300px,360px)] text-white ${className}`}
+      className={`grid min-h-[560px] transition-[grid-template-columns] duration-300 ease-out ${
+        isFlightsPaneOpen
+          ? 'grid-cols-[minmax(0,1fr)_minmax(320px,380px)]'
+          : 'grid-cols-[minmax(0,1fr)_52px]'
+      } text-white ${className}`}
     >
-      <aside className="agent-result-summary__runs-pane flex flex-col overflow-hidden border-r border-white/5">
-        <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-5">
-          {loading && (
-            <div className="flex h-full items-center justify-center">
-              <ShimmeringText
-                text="Loading agent runs…"
-                className="text-sm text-white/60 font-normal"
-              />
-            </div>
-          )}
-          {!loading && error && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              {error}
-            </div>
-          )}
-          {!loading && !error && !runEntries.length && (
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
-              No agent runs available yet.
-            </div>
-          )}
-          {!loading && !error && runEntries.length ? (
-            <div className="space-y-4">
-              {runEntries.map((run) => {
-                const isSelected = run.ref.runKey === selectedRunRef?.runKey;
-                const methodologyKey =
-                  normalizeAgentRunMethodology(run.methodology) ?? run.ref.methodology ?? 'rz';
-                const methodologyMeta = RUN_METHODOLOGY_META[methodologyKey];
-                const chartData =
-                  run.ref.methodology === 'rz'
-                    ? run.metadata?.historical_best?.map((entry) => ({
-                    time: new Date(entry.ts_iso).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    }),
-                    value:
-                      entry.best_total_improvement !== null &&
-                        entry.best_total_improvement !== undefined
-                        ? entry.best_total_improvement
-                        : Number.NaN,
-                    })) ?? []
-                    : [];
-
-                return (
-                  <button
-                    key={run.ref.runKey}
-                    type="button"
-                    onClick={() => setSelectedRunRef(run.ref)}
-                    aria-pressed={isSelected}
-                    className={`group block w-full rounded-2xl border px-5 py-4 text-left transition-all duration-150 ${isSelected
-                      ? methodologyMeta.selectedCard
-                      : 'border-white/10 bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.06]'
-                      }`}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <div className="text-xs font-medium text-white/60">
-                            Run ID
-                          </div>
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${methodologyMeta.badge}`}
-                          >
-                            {methodologyMeta.label}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-lg font-semibold text-white">
-                          {run.run_id}
-                        </div>
-                        <div className="mt-1 text-xs text-white/55">
-                          {methodologyMeta.description}
-                        </div>
-                      </div>
-                      <div
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${isSelected
-                          ? methodologyMeta.selectedMetric
-                          : 'bg-white/10 text-white/75'
-                          }`}
-                      >
-                        {formatImprovement(run.best_total_improvement)}
-                      </div>
-                    </div>
-
-                    {run.ref.methodology === 'rz' && run.solutions.length > 0 ? (
-                      <div className="mt-4 space-y-3">
-                        {run.solutions.map((solution) => {
-                          const trajectoryLabel = formatTrajectoryLength(solution.trajectory_length);
-                          return (
-                            <div
-                              key={`${run.ref.runKey}-solution-${solution.rank}`}
-                              className="rounded-xl border border-white/5 bg-black/20 px-4 py-3 transition group-hover:border-white/10"
-                            >
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="font-medium text-white/85">
-                                  {`Rank ${solution.rank} · ${trajectoryLabel}`}
-                                </span>
-                                <span className="font-semibold text-emerald-200">
-                                  {formatImprovement(solution.total_improvement)}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="mt-4 rounded-xl border border-white/5 bg-black/20 px-4 py-3 text-sm text-white/60">
-                        {run.ref.methodology === 'sa'
-                          ? 'Objective progress, occupancy, TV relief, and delay attribution are available in the SA detail panel.'
-                          : 'No ranked RZ solutions available for this run.'}
-                      </div>
-                    )}
-
-                    {chartData.length > 0 && (
-                      <div className="mt-4 h-24 rounded-xl border border-white/5 bg-slate-900/60 px-3 py-2">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartData}>
-                            <XAxis
-                              dataKey="time"
-                              tickLine={false}
-                              axisLine={false}
-                              tickMargin={8}
-                              tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
-                            />
-                            <YAxis domain={['auto', 'auto']} tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }} />
-                            <Tooltip content={historicalTooltip} />
-                            <Line
-                              type="monotone"
-                              dataKey="value"
-                              stroke="rgba(52, 211, 153, 0.9)"
-                              strokeWidth={2}
-                              dot={false}
-                              activeDot={{ r: 4, strokeWidth: 0 }}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-      </aside>
       {error ? (
         <section className="col-span-2 flex h-full items-center justify-center px-6 text-sm text-red-300">
           {error}
@@ -2437,7 +2292,17 @@ export default function AgentResultSummaryComponent({
           )}
         </section>
       ) : selectedRun.ref.methodology === 'sa' ? (
-        <AgentSaResultSummaryPanel run={selectedRun.ref} />
+        <AgentSaResultSummaryPanel
+          run={selectedRun.ref}
+          flightsPaneOpen={isFlightsPaneOpen}
+          onFlightsPaneOpenChange={setIsFlightsPaneOpen}
+        />
+      ) : selectedRun.ref.methodology === 'ga' ? (
+        <AgentGaResultSummaryPanel
+          run={selectedRun.ref}
+          flightsPaneOpen={isFlightsPaneOpen}
+          onFlightsPaneOpenChange={setIsFlightsPaneOpen}
+        />
       ) : (
         <>
           <section className="agent-result-summary__details-pane relative flex flex-col">
@@ -2481,7 +2346,8 @@ export default function AgentResultSummaryComponent({
                       )}
                     </div>
                     <p className="mt-1 text-xs text-white/60">
-                      {lastUpdated ? `Updated ${lastUpdated}` : 'Awaiting metadata update'}
+                      Run {selectedRzRun.run_id}
+                      {lastUpdated ? ` · Updated ${lastUpdated}` : ''}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3 text-sm">
@@ -2552,6 +2418,73 @@ export default function AgentResultSummaryComponent({
                     })}
                   </div>
                 </div>
+
+                {historicalRewardData.length > 0 && (
+                  <div className="mt-5 rounded-2xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/[0.08] via-black/25 to-slate-950/40 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-white/90">
+                          Historical Reward
+                        </h3>
+                        <p className="mt-1 text-xs text-white/55">
+                          Best total improvement over the lifetime of this run
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-right">
+                        <div className="text-[10px] uppercase tracking-wide text-emerald-100/60">
+                          Latest best
+                        </div>
+                        <div className="mt-0.5 text-sm font-semibold text-emerald-300">
+                          {formatImprovement(latestHistoricalReward)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 h-44 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={historicalRewardData}
+                          margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="historicalRewardStroke" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stopColor="rgba(56, 189, 248, 0.85)" />
+                              <stop offset="100%" stopColor="rgba(52, 211, 153, 1)" />
+                            </linearGradient>
+                          </defs>
+                          <XAxis
+                            dataKey="time"
+                            tickLine={false}
+                            axisLine={false}
+                            tickMargin={10}
+                            minTickGap={28}
+                            tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
+                          />
+                          <YAxis
+                            width={48}
+                            domain={['auto', 'auto']}
+                            tickLine={false}
+                            axisLine={false}
+                            tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
+                          />
+                          <Tooltip content={historicalTooltip} />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="url(#historicalRewardStroke)"
+                            strokeWidth={2.5}
+                            dot={false}
+                            activeDot={{
+                              r: 4,
+                              fill: 'rgb(52, 211, 153)',
+                              stroke: 'rgba(15, 23, 42, 0.9)',
+                              strokeWidth: 2,
+                            }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-5">
                   {viewMode === 'unselected' ? (
@@ -3115,8 +3048,32 @@ export default function AgentResultSummaryComponent({
           </div>
           </section>
 
-          <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5">
-        {!selectedRun ? (
+          <aside className="agent-result-summary__flights-pane relative flex min-w-0 flex-col overflow-hidden border-l border-white/5">
+        {!isFlightsPaneOpen ? (
+          <button
+            type="button"
+            onClick={() => setIsFlightsPaneOpen(true)}
+            className="group flex h-full w-full flex-col items-center gap-3 bg-white/[0.02] py-4 text-white/55 transition hover:bg-white/[0.06] hover:text-white/90"
+            aria-label={`Show flight assignments (${flightRows.length} flights)`}
+            title="Show flight assignments"
+          >
+            <svg
+              className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.8}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="rounded-full bg-white/10 px-1.5 py-1 text-[10px] font-semibold text-white/75">
+              {flightRows.length}
+            </span>
+            <span className="mt-4 rotate-90 whitespace-nowrap text-xs font-medium text-white/65">
+              Flights
+            </span>
+          </button>
+        ) : !selectedRun ? (
           <div className="flex h-full items-center justify-center text-sm text-white/60">
             Select a run to view flight impacts.
           </div>
@@ -3138,13 +3095,30 @@ export default function AgentResultSummaryComponent({
                       : 'All flights with assigned delays across the plan'}
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-1">
+                <div className="flex items-start gap-2">
                   <div className="text-right text-[11px] uppercase tracking-wide text-white/45">
                     <div>{flightRows.length} flights</div>
                     <div>
                       {selectedFlightIds.length} selected
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsFlightsPaneOpen(false)}
+                    className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-white/55 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                    aria-label="Collapse flight assignments"
+                    title="Collapse flight assignments"
+                  >
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>

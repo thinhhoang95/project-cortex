@@ -70,6 +70,11 @@ const METHODOLOGY_META: Record<
     badge: 'border border-fuchsia-400/35 bg-fuchsia-500/10 text-fuchsia-100',
     subtitle: 'SA optimization',
   },
+  ga: {
+    label: 'GA',
+    badge: 'border border-amber-400/35 bg-amber-500/10 text-amber-100',
+    subtitle: 'NSGA-II optimization',
+  },
 };
 
 function formatImprovement(value: number | null | undefined): string {
@@ -189,7 +194,7 @@ export default function AgentRunResultsList({
                   : 'text-rose-300';
 
               return (
-                <li key={run.run_id}>
+                <li key={`${run.methodology}:${run.run_id}`}>
                   <button
                     type="button"
                     onClick={() => {
@@ -243,8 +248,10 @@ export default function AgentRunResultsList({
                           {formatImprovement(run.best_total_improvement)}
                         </span>
                         <span className="text-xs text-white/50">
-                          {methodology === 'sa' && !hasImprovement
-                            ? 'cached summary unavailable'
+                          {methodology === 'ga' && !hasImprovement
+                            ? 'multi-objective run'
+                            : methodology === 'sa' && !hasImprovement
+                              ? 'cached summary unavailable'
                             : 'vs. baseline scenario'}
                         </span>
                       </div>

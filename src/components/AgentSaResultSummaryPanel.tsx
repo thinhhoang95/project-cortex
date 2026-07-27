@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
 import {
   CartesianGrid,
@@ -260,13 +268,24 @@ function objectiveTooltip({
 
 interface AgentSaResultSummaryPanelProps {
   className?: string;
+  flightsPaneOpen?: boolean;
+  leadingContent?: ReactNode;
+  mode?: 'sa' | 'ga';
+  onFlightsPaneOpenChange?: (open: boolean) => void;
+  selectedPointId?: string | null;
   run: AgentRunRef;
 }
 
 export default function AgentSaResultSummaryPanel({
   className = '',
+  flightsPaneOpen = true,
+  leadingContent,
+  mode = 'sa',
+  onFlightsPaneOpenChange,
+  selectedPointId,
   run,
 }: AgentSaResultSummaryPanelProps) {
+  const isGa = mode === 'ga';
   const commitTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [selectedSeries, setSelectedSeries] = useState<SaObjectiveHistorySeries>('best');
   const [objectiveView, setObjectiveView] = useState<ObjectiveViewMode>('total');
@@ -301,18 +320,23 @@ export default function AgentSaResultSummaryPanel({
       try {
         setAnalysisLoading(true);
         setAnalysisError(null);
-        const params = new URLSearchParams({
-          run_id: run.runId,
-          series: selectedSeries,
-        });
-        const response = await authFetch(`/api/sa_posthoc_analysis?${params.toString()}`, {
+        const params = new URLSearchParams({ run_id: run.runId });
+        if (isGa) {
+          if (selectedPointId) params.set('point_id', selectedPointId);
+        } else {
+          params.set('series', selectedSeries);
+        }
+        const endpoint = isGa ? '/api/ga_posthoc_analysis' : '/api/sa_posthoc_analysis';
+        const response = await authFetch(`${endpoint}?${params.toString()}`, {
           method: 'GET',
           signal: controller.signal,
         });
 
         if (!response.ok) {
           const text = await response.text().catch(() => '');
-          throw new Error(text || `Failed to fetch SA analysis (${response.status})`);
+          throw new Error(
+            text || `Failed to fetch ${isGa ? 'GA' : 'SA'} analysis (${response.status})`,
+          );
         }
 
         const payload = (await response.json()) as SaPosthocAnalysisResponse;
@@ -320,7 +344,9 @@ export default function AgentSaResultSummaryPanel({
         setAnalysisData(payload);
       } catch (err) {
         if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
-        setAnalysisError(err instanceof Error ? err.message : 'Failed to fetch SA analysis');
+        setAnalysisError(
+          err instanceof Error ? err.message : `Failed to fetch ${isGa ? 'GA' : 'SA'} analysis`,
+        );
         setAnalysisData(null);
       } finally {
         if (!cancelled) setAnalysisLoading(false);
@@ -333,7 +359,7 @@ export default function AgentSaResultSummaryPanel({
       cancelled = true;
       controller.abort();
     };
-  }, [run.runId, run.runKey, selectedSeries]);
+  }, [isGa, run.runId, run.runKey, selectedPointId, selectedSeries]);
 
   useEffect(() => {
     let cancelled = false;
@@ -344,14 +370,18 @@ export default function AgentSaResultSummaryPanel({
         setOccupancyLoading(true);
         setOccupancyError(null);
         const params = new URLSearchParams({ run_id: run.runId });
-        const response = await authFetch(`/api/sa_posthoc_occupancy?${params.toString()}`, {
+        if (isGa && selectedPointId) params.set('point_id', selectedPointId);
+        const endpoint = isGa ? '/api/ga_posthoc_occupancy' : '/api/sa_posthoc_occupancy';
+        const response = await authFetch(`${endpoint}?${params.toString()}`, {
           method: 'GET',
           signal: controller.signal,
         });
 
         if (!response.ok) {
           const text = await response.text().catch(() => '');
-          throw new Error(text || `Failed to fetch SA occupancy (${response.status})`);
+          throw new Error(
+            text || `Failed to fetch ${isGa ? 'GA' : 'SA'} occupancy (${response.status})`,
+          );
         }
 
         const payload = (await response.json()) as SaPosthocOccupancyResponse;
@@ -359,7 +389,9 @@ export default function AgentSaResultSummaryPanel({
         setOccupancyData(payload);
       } catch (err) {
         if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
-        setOccupancyError(err instanceof Error ? err.message : 'Failed to fetch SA occupancy');
+        setOccupancyError(
+          err instanceof Error ? err.message : `Failed to fetch ${isGa ? 'GA' : 'SA'} occupancy`,
+        );
         setOccupancyData(null);
       } finally {
         if (!cancelled) setOccupancyLoading(false);
@@ -372,7 +404,7 @@ export default function AgentSaResultSummaryPanel({
       cancelled = true;
       controller.abort();
     };
-  }, [run.runId, run.runKey]);
+  }, [isGa, run.runId, run.runKey, selectedPointId]);
 
   useEffect(() => {
     const range = deriveOccupancyViewRange(occupancyData?.pre_post);
@@ -502,6 +534,9 @@ export default function AgentSaResultSummaryPanel({
     () => toSaPerAccAttrib(analysisData?.acc_attributed_delay_full_day),
     [analysisData?.acc_attributed_delay_full_day],
   );
+  const selectedPoint = analysisData?.metadata?.selected_point as
+    | Record<string, unknown>
+    | undefined;
 
   const objectiveSection = (
     <div className="rounded-2xl border border-white/10 bg-black/25 p-5 shadow-[0_10px_32px_-20px_rgba(168,85,247,0.62)]">
@@ -509,11 +544,13 @@ export default function AgentSaResultSummaryPanel({
         <div>
           <h3 className="text-base font-semibold text-white/90">Objective Progress</h3>
           <p className="text-xs text-white/60">
-            Inspect optimization progress over iterations for the selected SA trace.
+            {isGa
+              ? 'Track the knee solution as the Pareto population evolves over generations.'
+              : 'Inspect optimization progress over iterations for the selected SA trace.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
+          {!isGa && <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
             {(['best', 'current'] as SaObjectiveHistorySeries[]).map((series) => (
               <button
                 key={series}
@@ -528,7 +565,7 @@ export default function AgentSaResultSummaryPanel({
                 {series === 'best' ? 'Best' : 'Current'}
               </button>
             ))}
-          </div>
+          </div>}
           <div className="inline-flex rounded-full border border-white/10 bg-white/5 p-1">
             {(['total', 'components'] as ObjectiveViewMode[]).map((mode) => (
               <button
@@ -627,19 +664,20 @@ export default function AgentSaResultSummaryPanel({
     <>
       <section className={`agent-result-summary__details-pane flex min-w-0 flex-col overflow-y-auto no-scrollbar ${className}`}>
         <div className="space-y-6 px-6 py-6">
+        {leadingContent}
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_18px_40px_-24px_rgba(168,85,247,0.68)] backdrop-blur-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
                 <span className="rounded-full border border-fuchsia-400/35 bg-fuchsia-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-fuchsia-100">
-                  SA
+                  {isGa ? 'GA' : 'SA'}
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wide text-white/70">
                   {status.replace(/[_-]+/g, ' ')}
                 </span>
               </div>
               <h2 className="mt-3 text-xl font-semibold text-white/90">
-                Simulated Annealing Summary
+                {isGa ? 'NSGA-II Selected Solution' : 'Simulated Annealing Summary'}
               </h2>
               <p className="mt-1 text-sm text-white/60">
                 Run {run.runId}
@@ -655,21 +693,32 @@ export default function AgentSaResultSummaryPanel({
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
-              <div className="text-[11px] uppercase tracking-wide text-white/45">Total Improvement</div>
+              <div className="text-[11px] uppercase tracking-wide text-white/45">
+                {isGa ? 'Combined Improvement' : 'Total Improvement'}
+              </div>
               <div className="mt-2 text-2xl font-semibold text-emerald-300">
                 {formatImprovement(analysisData?.summary_metrics?.final_total_objective_improvement)}
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
-              <div className="text-[11px] uppercase tracking-wide text-white/45">Capacity Delta</div>
+              <div className="text-[11px] uppercase tracking-wide text-white/45">
+                {isGa ? 'Capacity Relief' : 'Capacity Delta'}
+              </div>
               <div className="mt-2 text-2xl font-semibold text-sky-200">
                 {formatMetric(analysisData?.summary_metrics?.final_capacity_excess_delta, 1)}
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
-              <div className="text-[11px] uppercase tracking-wide text-white/45">Delay Delta</div>
+              <div className="text-[11px] uppercase tracking-wide text-white/45">
+                {isGa ? 'Delay Cost' : 'Delay Delta'}
+              </div>
               <div className="mt-2 text-2xl font-semibold text-amber-200">
-                {formatMetric(analysisData?.summary_metrics?.final_delay_component_delta, 1)}
+                {formatMetric(
+                  isGa
+                    ? analysisData?.summary_metrics?.total_delay_min
+                    : analysisData?.summary_metrics?.final_delay_component_delta,
+                  1,
+                )}
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
@@ -691,7 +740,9 @@ export default function AgentSaResultSummaryPanel({
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(260px,0.85fr)]">
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
-              <div className="text-[11px] uppercase tracking-wide text-white/45">Best Solution</div>
+              <div className="text-[11px] uppercase tracking-wide text-white/45">
+                {isGa ? 'Selected Pareto Solution' : 'Best Solution'}
+              </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-4">
                 <div>
                   <div className="text-[11px] text-white/45">J_total</div>
@@ -721,32 +772,59 @@ export default function AgentSaResultSummaryPanel({
             </div>
 
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
-              <div className="text-[11px] uppercase tracking-wide text-white/45">Convergence Fit</div>
+              <div className="text-[11px] uppercase tracking-wide text-white/45">
+                {isGa ? 'Pareto Selection' : 'Convergence Fit'}
+              </div>
               <div className="mt-3 space-y-2 text-sm text-white/75">
-                <div>
-                  <span className="text-white/45">Model:</span>{' '}
-                  <span className="font-medium text-white/90">
-                    {analysisData?.convergence_fit?.model ?? '—'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-white/45">Asymptote:</span>{' '}
-                  <span className="font-medium text-white/90">
-                    {formatMetric(analysisData?.convergence_fit?.asymptote_improvement, 2)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-white/45">Rate:</span>{' '}
-                  <span className="font-medium text-white/90">
-                    {formatMetric(analysisData?.convergence_fit?.rate_constant, 4)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-white/45">R²:</span>{' '}
-                  <span className="font-medium text-white/90">
-                    {formatMetric(analysisData?.convergence_fit?.r_squared, 3)}
-                  </span>
-                </div>
+                {isGa ? (
+                  <>
+                    <div>
+                      <span className="text-white/45">Point:</span>{' '}
+                      <span className="font-medium text-white/90">
+                        {String(selectedPoint?.point_id ?? selectedPointId ?? '—')}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-white/45">Frontier index:</span>{' '}
+                      <span className="font-medium text-white/90">
+                        {formatMetric(selectedPoint?.frontier_index, 0)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-white/45">Knee solution:</span>{' '}
+                      <span className="font-medium text-white/90">
+                        {selectedPoint?.is_knee ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span className="text-white/45">Model:</span>{' '}
+                      <span className="font-medium text-white/90">
+                        {analysisData?.convergence_fit?.model ?? '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-white/45">Asymptote:</span>{' '}
+                      <span className="font-medium text-white/90">
+                        {formatMetric(analysisData?.convergence_fit?.asymptote_improvement, 2)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-white/45">Rate:</span>{' '}
+                      <span className="font-medium text-white/90">
+                        {formatMetric(analysisData?.convergence_fit?.rate_constant, 4)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-white/45">R²:</span>{' '}
+                      <span className="font-medium text-white/90">
+                        {formatMetric(analysisData?.convergence_fit?.r_squared, 3)}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -765,7 +843,7 @@ export default function AgentSaResultSummaryPanel({
                 allowModeChange={false}
                 metricsGridClassName="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
                 variant="page"
-                unavailableMessage="ACC attribution is unavailable for this SA analysis payload."
+                unavailableMessage={`ACC attribution is unavailable for this ${isGa ? 'GA' : 'SA'} analysis payload.`}
               />
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_10px_32px_-20px_rgba(147,51,234,0.62)] backdrop-blur-sm">
@@ -885,7 +963,7 @@ export default function AgentSaResultSummaryPanel({
             <div>
               <h3 className="text-base font-semibold text-white/90">Occupancy Pre/Post Histograms</h3>
               <p className="text-xs text-white/60">
-                Compare the final SA solution against the baseline occupancy counts.
+                Compare the selected {isGa ? 'GA Pareto' : 'SA'} solution against the baseline occupancy counts.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-white/55">
@@ -916,7 +994,7 @@ export default function AgentSaResultSummaryPanel({
 	                <select
 	                  className="h-[40px] rounded-md border border-white/20 bg-white/10 px-3 text-[12px] text-white/90 focus:outline-none"
 	                  value={occSortMode}
-	                  aria-label="SA occupancy histogram sort"
+	                  aria-label={`${isGa ? 'GA' : 'SA'} occupancy histogram sort`}
 	                  onChange={(e) =>
 	                    setOccSortMode(e.currentTarget.value as OccupancyPrePostSortMode)
 	                  }
@@ -1027,18 +1105,63 @@ export default function AgentSaResultSummaryPanel({
         </div>
         </div>
       </section>
-      <aside className="agent-result-summary__flights-pane relative flex flex-col border-l border-white/5">
+      <aside className="agent-result-summary__flights-pane relative flex min-w-0 flex-col overflow-hidden border-l border-white/5">
+        {!flightsPaneOpen ? (
+          <button
+            type="button"
+            onClick={() => onFlightsPaneOpenChange?.(true)}
+            className="group flex h-full w-full flex-col items-center gap-3 bg-white/[0.02] py-4 text-white/55 transition hover:bg-white/[0.06] hover:text-white/90"
+            aria-label={`Show flight assignments (${delayRows.length} flights)`}
+            title="Show flight assignments"
+          >
+            <svg
+              className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.8}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="rounded-full bg-white/10 px-1.5 py-1 text-[10px] font-semibold text-white/75">
+              {delayRows.length}
+            </span>
+            <span className="mt-4 rotate-90 whitespace-nowrap text-xs font-medium text-white/65">
+              Flights
+            </span>
+          </button>
+        ) : (
+          <>
         <div className="border-b border-white/10 px-4 py-3">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-white/85">Flights (Whole Plan)</h3>
               <p className="text-xs text-white/55">
-                Concrete delay assignment for each flight from SA final solution
+                Concrete delay assignment for each flight from the selected {isGa ? 'GA Pareto' : 'SA final'} solution
               </p>
             </div>
-            <div className="shrink-0 whitespace-nowrap text-right text-[11px] uppercase tracking-wide text-white/45">
-              <div>{delayRows.length} flights</div>
-              <div>{delayedRowsCount} delayed</div>
+            <div className="flex items-start gap-2">
+              <div className="shrink-0 whitespace-nowrap text-right text-[11px] uppercase tracking-wide text-white/45">
+                <div>{delayRows.length} flights</div>
+                <div>{delayedRowsCount} delayed</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onFlightsPaneOpenChange?.(false)}
+                className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-white/55 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                aria-label="Collapse flight assignments"
+                title="Collapse flight assignments"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
             </div>
           </div>
         </div>
@@ -1095,10 +1218,12 @@ export default function AgentSaResultSummaryPanel({
             </div>
           ) : (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-5 text-sm text-white/60">
-              No delay assignments available for this SA run.
+              No delay assignments available for this {isGa ? 'GA' : 'SA'} run.
             </div>
           )}
         </div>
+          </>
+        )}
       </aside>
     </>
   );

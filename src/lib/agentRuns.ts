@@ -1,4 +1,4 @@
-export type AgentRunMethodology = "rz" | "sa";
+export type AgentRunMethodology = "rz" | "sa" | "ga";
 
 export interface AgentRunRef {
   runId: string;
@@ -18,7 +18,7 @@ export function normalizeAgentRunMethodology(
 ): AgentRunMethodology | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "rz" || normalized === "sa") {
+  if (normalized === "rz" || normalized === "sa" || normalized === "ga") {
     return normalized;
   }
   return null;
