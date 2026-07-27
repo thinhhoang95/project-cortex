@@ -25,6 +25,8 @@ import FlightQueryDialog from "@/components/FlightQueryDialog";
 import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import { useDocumentTheme } from "@/components/useDocumentTheme";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import {
   assertReplayableRegulationTargets,
   normalizeRegulationContext,
@@ -108,6 +110,7 @@ type FlightRow = {
 
 export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewProps) {
   const shimmerTheme = useDocumentTheme();
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -477,13 +480,11 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
 
       const color = capacity <= 0
         ? "#94a3b8"
-        : ratio >= 1.4
-          ? "#b91c1c"
-          : ratio >= 1.2
-            ? "#f97316"
-            : ratio >= 1.0
-              ? "#fb923c"
-              : "#34d399";
+        : resolveHotspotColor({
+            traffic_volume_id: primaryTvId,
+            hourly_occupancy: occupancy,
+            hourly_capacity: capacity,
+          }, hotspotSettings) ?? "#34d399";
 
       const metadata: string[] = [`Rolling occupancy: ${Math.round(occupancy)}`];
       if (capacity > 0) {
@@ -503,7 +504,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
       });
       return acc;
     }, [] as any[]);
-  }, [chartData, regulationTimeWindow, selectedTrafficVolume]);
+  }, [chartData, hotspotSettings, primaryTvId, regulationTimeWindow, selectedTrafficVolume]);
 
   const windowAnchorCapacityRange = useMemo(() => {
     if (!chartData.length) return null;

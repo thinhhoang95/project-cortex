@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyTrafficVolumeFlowTrace,
   applyTrafficVolumeFlowTraceWithHotspots,
+  applyTrafficVolumeHotspots,
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "./trafficVolumeLayers";
 
@@ -83,6 +84,40 @@ describe("applyTrafficVolumeFlowTrace", () => {
       "all",
       ["!=", ["get", "source_geom_type"], "Point"],
       ["in", ["get", "traffic_volume_id"], ["literal", ["TVA", "TVC"]]],
+    ]);
+  });
+});
+
+describe("applyTrafficVolumeHotspots", () => {
+  it("uses the centralized color assigned to each traffic volume", () => {
+    const filters = new Map<string, unknown>();
+    const paints = new Map<string, unknown>();
+    const map = {
+      getLayer: () => true,
+      setFilter: (layerId: string, filter: unknown) => filters.set(layerId, filter),
+      setPaintProperty: (layerId: string, property: string, value: unknown) => {
+        paints.set(`${layerId}:${property}`, value);
+      },
+    };
+
+    applyTrafficVolumeHotspots(map as any, [
+      { traffic_volume_id: "TV_ORANGE", hotspot_severity: "orange", hotspot_color: "#fb923c" },
+      { traffic_volume_id: "TV_VIOLET", hotspot_severity: "violet", hotspot_color: "#8b5cf6" },
+    ]);
+
+    expect(paints.get(`${TRAFFIC_VOLUME_LAYER_IDS.hotspot}:fill-color`)).toEqual([
+      "match",
+      ["to-string", ["get", "traffic_volume_id"]],
+      "TV_ORANGE",
+      "#fb923c",
+      "TV_VIOLET",
+      "#8b5cf6",
+      "#ef4444",
+    ]);
+    expect(filters.get(TRAFFIC_VOLUME_LAYER_IDS.hotspot)).toEqual([
+      "all",
+      ["!=", ["get", "source_geom_type"], "Point"],
+      ["in", ["get", "traffic_volume_id"], ["literal", ["TV_ORANGE", "TV_VIOLET"]]],
     ]);
   });
 });

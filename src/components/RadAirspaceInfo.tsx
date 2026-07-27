@@ -18,6 +18,7 @@ import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import { useDocumentTheme } from "@/components/useDocumentTheme";
 import { useSimStore } from "@/components/useSimStore";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
 import { authFetch } from "@/lib/auth";
 import {
   buildRollingChartDataFromOccupancy,
@@ -29,6 +30,7 @@ import { getTvScopeWindowSeconds } from "@/lib/radPreviewTvScope";
 import type { SectorFeatureProps } from "@/lib/models";
 import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 
 interface OccupancyData {
   traffic_volume_id: string;
@@ -85,6 +87,7 @@ export default function RadAirspaceInfo({
   onClear,
 }: RadAirspaceInfoProps) {
   const shimmerTheme = useDocumentTheme();
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const t = useSimStore((state) => state.t);
   const resourceStateEpoch = useSimStore((state) => state.resourceStateEpoch);
   const deferredT = useDeferredValue(t);
@@ -209,17 +212,15 @@ export default function RadAirspaceInfo({
 
       const occupancy = Number(point.count ?? 0);
       const capacity = Number(point.capacity ?? 0);
-      const ratio = capacity > 0 ? occupancy / capacity : 0;
-
       let color = "#34d399";
       if (capacity <= 0) {
         color = "#94a3b8";
-      } else if (ratio >= 1.4) {
-        color = "#b91c1c";
-      } else if (ratio >= 1.2) {
-        color = "#f97316";
-      } else if (ratio >= 1.0) {
-        color = "#fb923c";
+      } else {
+        color = resolveHotspotColor({
+          traffic_volume_id: trafficVolumeId,
+          hourly_occupancy: occupancy,
+          hourly_capacity: capacity,
+        }, hotspotSettings) ?? "#34d399";
       }
 
       return {
@@ -234,7 +235,7 @@ export default function RadAirspaceInfo({
     });
 
     return { data, fromTime: firstStart, toTime: lastEnd };
-  }, [displayChartData, trafficVolumeId]);
+  }, [displayChartData, hotspotSettings, trafficVolumeId]);
 
   return (
     <div className="flex w-full shrink-0 flex-col rounded-2xl border border-white/20 bg-white/20 text-white shadow-xl backdrop-blur-md">

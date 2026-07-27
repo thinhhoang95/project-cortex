@@ -22,6 +22,7 @@ import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
   applyTrafficVolumeHighlightList,
+  applyTrafficVolumeHotspots,
   applyTrafficVolumeVisibility,
   getTrafficVolumeCenter,
   getTrafficVolumeCenterFromMap,
@@ -638,6 +639,18 @@ export default function MapCanvas() {
     if (!map) return;
     applyTrafficVolumeHighlightList(map, selectedTrafficVolumes);
   }, [selectedTrafficVolumes]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyTrafficVolumeHotspots(
+      map,
+      getActiveHotspots(),
+      flLowerBound,
+      flUpperBound,
+      true,
+    );
+  }, [flLowerBound, flUpperBound, getActiveHotspots, hotspots, showHotspots, t]);
 
   // on showWaypoints change, toggle waypoint visibility via paint properties
   useEffect(() => {

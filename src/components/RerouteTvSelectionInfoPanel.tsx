@@ -25,6 +25,8 @@ import TrafficOverloadBar, { type TrafficOverloadDatum } from "@/components/Traf
 import PanelCloseButton from "@/components/PanelCloseButton";
 import ShimmeringText from "@/components/ShimmeringText";
 import { useDocumentTheme } from "@/components/useDocumentTheme";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import { type FlightLevelCountsPayload } from "@/lib/flightLevelBinCounts";
 import {
   formatTrafficVolumeSelectionExpression,
@@ -60,6 +62,7 @@ type RerouteTvSelectionInfoPanelProps = {
 
 export default function RerouteTvSelectionInfoPanel({ embedded = false }: RerouteTvSelectionInfoPanelProps) {
   const shimmerTheme = useDocumentTheme();
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -229,15 +232,13 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
 
     const data: TrafficOverloadDatum[] = entries.map((entry) => {
       const capacity = entry.capacity;
-      const ratio = capacity && capacity > 0 ? entry.count / capacity : 0;
-      const isOver = capacity !== undefined && capacity !== null && entry.count > capacity;
-
-      let color = "#34d399";
-      if (isOver) {
-        if (ratio >= 1.4) color = "#b91c1c";
-        else if (ratio >= 1.2) color = "#f97316";
-        else color = "#fb923c";
-      }
+      const color = capacity == null
+        ? "#94a3b8"
+        : resolveHotspotColor({
+            traffic_volume_id: primaryTvId,
+            hourly_occupancy: entry.count,
+            hourly_capacity: capacity,
+          }, hotspotSettings) ?? "#34d399";
 
       return {
         period: entry.window,
@@ -258,7 +259,7 @@ export default function RerouteTvSelectionInfoPanel({ embedded = false }: Rerout
       toTime: String(last).split("-")[1] || "24:00",
       data,
     };
-  }, [primaryOccupancy, primaryTvId]);
+  }, [hotspotSettings, primaryOccupancy, primaryTvId]);
 
   if (airspaceDisplayMode !== "tv") {
     return (

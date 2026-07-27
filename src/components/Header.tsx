@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
-import { useThemeStore } from '@/components/useThemeStore';
 import { loadSectors } from '@/lib/airspace';
 import { getResourcePathsForDate } from '@/lib/dataPaths';
 import Link from 'next/link';
@@ -16,6 +15,7 @@ import type { AgentRunRef } from '@/lib/agentRuns';
 import FlightQueryDialog from '@/components/FlightQueryDialog';
 import { APP_VERSION, VERSION_CODENAME } from '@/lib/version';
 import { formatFlightLevelRange } from '@/lib/trafficVolumeFormat';
+import SettingsDialog from '@/components/SettingsDialog';
 
 type SearchResult =
   | { id: string; type: 'flight'; flight: any }
@@ -38,6 +38,7 @@ export default function Header() {
   const [flightQueryInitialPrompt, setFlightQueryInitialPrompt] = useState('');
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [showSystemCredits, setShowSystemCredits] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showRegulationDropdown, setShowRegulationDropdown] = useState(false);
   const [showDynamicRadDropdown, setShowDynamicRadDropdown] = useState(false);
@@ -59,7 +60,6 @@ export default function Header() {
     user,
     resourceDate,
   } = useSimStore();
-  const { theme, toggleTheme } = useThemeStore();
   const pathname = usePathname();
   const dynamicRadActive = pathname === '/rad-preview' || pathname === '/complexity';
   const regulationActive = pathname === '/regulations' || pathname?.startsWith('/flows');
@@ -624,12 +624,16 @@ export default function Header() {
                   </button>
                   <button
                     onClick={() => {
-                      toggleTheme();
+                      setShowDropdown(false);
+                      setShowSettings(true);
                     }}
                     className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)] flex items-center justify-between"
                   >
-                    <span>Appearance</span>
-                    <span className="text-xs uppercase glass-menu-muted">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+                    <span>Settings</span>
+                    <svg className="h-4 w-4 glass-menu-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.55 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.2 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.4v-4h.09A1.7 1.7 0 0 0 4.2 8.55a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.55 4.2a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2.4h4v.09A1.7 1.7 0 0 0 15 4.2a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 8.55a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.09v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
+                    </svg>
                   </button>
                   <button
                     onClick={() => {
@@ -717,6 +721,11 @@ export default function Header() {
       <SystemCreditsDialog
         open={showSystemCredits}
         onClose={() => setShowSystemCredits(false)}
+      />
+      <SettingsDialog
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        trafficVolumes={trafficVolumes}
       />
     </>
   );

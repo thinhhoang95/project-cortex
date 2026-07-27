@@ -1,4 +1,5 @@
 import { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 
 const MINUTES_PER_DAY = 24 * 60;
 const SECONDS_PER_MINUTE = 60;
@@ -130,19 +131,7 @@ export function computeHotspotSegments(
     const capacity = Number(hotspot?.hourly_capacity ?? Number.NaN);
     const hasOccupancy = Number.isFinite(occupancy);
     const hasCapacity = Number.isFinite(capacity);
-    const ratio = hasCapacity && capacity > 0 && hasOccupancy
-      ? occupancy / capacity
-      : hasOccupancy && (!hasCapacity || capacity <= 0)
-        ? Number.POSITIVE_INFINITY
-        : 0;
-
-    const color = hotspot?.is_overloaded
-      ? ratio >= 1.4
-        ? "#b91c1c"
-        : ratio >= 1.2
-          ? "#f97316"
-          : "#fb923c"
-      : "#34d399";
+    const color = resolveHotspotColor(hotspot) ?? "#34d399";
 
     const baseMetadata: string[] = [];
     if (hasOccupancy) {

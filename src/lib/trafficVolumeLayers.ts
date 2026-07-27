@@ -7,6 +7,11 @@ import {
   getTrafficVolumeFlIntersectionFilter,
   normalizeTrafficVolumeFeatureProperties,
 } from "@/lib/airspaceDisplay";
+import {
+  HOTSPOT_COLORS,
+  type HotspotMeasurement,
+  type HotspotSeverity,
+} from "@/lib/hotspotColoring";
 
 export const TRAFFIC_VOLUME_SOURCE_ID = "sectors";
 export const TRAFFIC_VOLUME_CENTROIDS_SOURCE_ID = "tv-centroids";
@@ -574,11 +579,35 @@ export function applyTrafficVolumeHover(
 
 export function applyTrafficVolumeHotspots(
   map: maplibregl.Map,
-  trafficVolumeIds: string[],
+  hotspots: Array<string | HotspotMeasurement>,
   flLowerBound?: number,
   flUpperBound?: number,
   includeFlRange = false
 ): void {
+  const severityRank: Record<HotspotSeverity, number> = { orange: 1, red: 2, violet: 3 };
+  const hotspotById = new Map<string, { color: string; rank: number }>();
+  for (const hotspot of hotspots || []) {
+    const id = typeof hotspot === "string"
+      ? hotspot.trim()
+      : String(hotspot.traffic_volume_id ?? "").trim();
+    if (!id) continue;
+    const severity = typeof hotspot === "string"
+      ? "red"
+      : hotspot.hotspot_severity ?? "red";
+    const next = {
+      color: typeof hotspot === "string"
+        ? HOTSPOT_COLORS.red
+        : hotspot.hotspot_color || HOTSPOT_COLORS[severity],
+      rank: severityRank[severity],
+    };
+    const current = hotspotById.get(id);
+    if (!current || next.rank > current.rank) hotspotById.set(id, next);
+  }
+  const normalizedHotspots = Array.from(
+    hotspotById,
+    ([id, value]) => [id, value.color] as const,
+  );
+  const trafficVolumeIds = normalizedHotspots.map(([id]) => id);
   const layers = [
     TRAFFIC_VOLUME_LAYER_IDS.hotspot,
     TRAFFIC_VOLUME_LAYER_IDS.hotspotOutline,
@@ -592,6 +621,25 @@ export function applyTrafficVolumeHotspots(
     const baseFilter = getBaseFilterForLayer(layerId);
     const merged = mergeFilters([baseFilter, baseIdFilter]);
     map.setFilter(layerId, merged);
+  }
+
+  if (typeof map.setPaintProperty !== "function") return;
+  const colorExpression: any = normalizedHotspots.length > 0
+    ? [
+        "match",
+        ["to-string", ["get", "traffic_volume_id"]],
+        ...normalizedHotspots.flatMap(([id, color]) => [id, color]),
+        HOTSPOT_COLORS.red,
+      ]
+    : HOTSPOT_COLORS.red;
+  if (map.getLayer(TRAFFIC_VOLUME_LAYER_IDS.hotspot)) {
+    map.setPaintProperty(TRAFFIC_VOLUME_LAYER_IDS.hotspot, "fill-color", colorExpression);
+  }
+  if (map.getLayer(TRAFFIC_VOLUME_LAYER_IDS.hotspotOutline)) {
+    map.setPaintProperty(TRAFFIC_VOLUME_LAYER_IDS.hotspotOutline, "line-color", colorExpression);
+  }
+  if (map.getLayer(TRAFFIC_VOLUME_LAYER_IDS.pointHotspot)) {
+    map.setPaintProperty(TRAFFIC_VOLUME_LAYER_IDS.pointHotspot, "circle-color", colorExpression);
   }
 }
 
@@ -628,7 +676,8 @@ export function applyTrafficVolumeFlowTrace(
 export function applyTrafficVolumeFlowTraceWithHotspots(
   map: maplibregl.Map,
   params: {
-    activeHotspotIds: string[];
+    activeHotspotIds?: string[];
+    activeHotspots?: HotspotMeasurement[];
     flowTraceVolumeIds: string[];
     flLowerBound?: number;
     flUpperBound?: number;
@@ -636,27 +685,42 @@ export function applyTrafficVolumeFlowTraceWithHotspots(
   },
 ): void {
   const {
-    activeHotspotIds,
+    activeHotspotIds = [],
+    activeHotspots = [],
     flowTraceVolumeIds,
     flLowerBound,
     flUpperBound,
     includeFlRange = false,
   } = params;
+  const normalizedHotspots: Array<string | HotspotMeasurement> =
+    activeHotspots.length > 0 ? activeHotspots : activeHotspotIds;
   const normalizedTraceIds = Array.from(
     new Set((flowTraceVolumeIds || []).map((id) => String(id).trim()).filter(Boolean)),
   );
 
   if (normalizedTraceIds.length === 0) {
     applyTrafficVolumeFlowTrace(map, [], flLowerBound, flUpperBound, includeFlRange);
-    applyTrafficVolumeHotspots(map, activeHotspotIds, flLowerBound, flUpperBound, includeFlRange);
+    applyTrafficVolumeHotspots(map, normalizedHotspots, flLowerBound, flUpperBound, includeFlRange);
     return;
   }
 
-  const hotspotSet = new Set((activeHotspotIds || []).map((id) => String(id).trim()).filter(Boolean));
+  const hotspotSet = new Set(
+    normalizedHotspots
+      .map((hotspot) => typeof hotspot === "string"
+        ? hotspot.trim()
+        : String(hotspot.traffic_volume_id ?? "").trim())
+      .filter(Boolean),
+  );
   const traceHotspotIds = normalizedTraceIds.filter((id) => hotspotSet.has(id));
   const traceNonHotspotIds = normalizedTraceIds.filter((id) => !hotspotSet.has(id));
   applyTrafficVolumeFlowTrace(map, traceNonHotspotIds, flLowerBound, flUpperBound, includeFlRange);
-  applyTrafficVolumeHotspots(map, traceHotspotIds, flLowerBound, flUpperBound, includeFlRange);
+  const traceHotspots = normalizedHotspots.filter((hotspot) => {
+    const id = typeof hotspot === "string"
+      ? hotspot
+      : String(hotspot.traffic_volume_id ?? "");
+    return traceHotspotIds.includes(id);
+  });
+  applyTrafficVolumeHotspots(map, traceHotspots, flLowerBound, flUpperBound, includeFlRange);
 }
 
 export function getTrafficVolumeCenter(geometry: GeoJSON.Geometry | null | undefined): [number, number] | null {

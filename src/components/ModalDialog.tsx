@@ -36,8 +36,13 @@ export default function ModalDialog({
       />
       <div className="absolute inset-0 flex items-center justify-center p-6">
         <div
-          className={`${width} ${height} rounded-2xl border overflow-hidden relative flex flex-col isolate`}
-          style={{ background: "var(--modal-surface)", borderColor: "var(--panel-border)", color: "var(--foreground)" }}
+          className={`${width} ${height} rounded-2xl border overflow-hidden relative flex flex-col isolate backdrop-blur-2xl`}
+          style={{
+            background: "var(--modal-surface)",
+            borderColor: "var(--panel-border)",
+            color: "var(--foreground)",
+            boxShadow: "0 32px 90px -28px rgba(2, 6, 23, 0.78), inset 0 1px 0 rgba(255,255,255,0.08)",
+          }}
         >
           <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: "1px solid var(--panel-divider)" }}>
             <div>
@@ -57,7 +62,7 @@ export default function ModalDialog({
               )}
             </div>
           </div>
-          <div className="overflow-y-auto flex-1">
+          <div className="modal-scrollbar overflow-y-auto flex-1">
             {children}
           </div>
         </div>

@@ -40,6 +40,8 @@ import {
 } from "@/lib/regulationProposals";
 import type { ProposalRegulationSource } from "@/lib/regulationProposalToPlan";
 import { TV_DCB_GLANCE_DEFAULT_HORIZON_MINUTES } from "@/lib/tvDcbGlance";
+import { applyHotspotColoring, type HotspotSeverity } from "@/lib/hotspotColoring";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
 
 interface User {
   email: string;
@@ -58,6 +60,8 @@ interface Hotspot {
   hourly_occupancy: number;
   hourly_capacity: number;
   is_overloaded: boolean;
+  hotspot_color?: string;
+  hotspot_severity?: HotspotSeverity;
 }
 
 interface HotspotResponse {
@@ -177,6 +181,7 @@ type State = {
   alternativeRoutesError: string | null;
   hoveredAlternativeRoute: string | null;
   showHotspots: boolean;
+  rawHotspots: Hotspot[];
   hotspots: Hotspot[];
   hotspotsLoading: boolean;
   hotspotsMetadata: HotspotResponse["metadata"] | null;
@@ -304,6 +309,7 @@ type State = {
   setHotspots: (hotspots: Hotspot[]) => void;
   setHotspotsLoading: (loading: boolean) => void;
   setHotspotsMetadata: (metadata: HotspotResponse["metadata"] | null) => void;
+  reapplyHotspotSettings: () => void;
   // Flow view actions
   setFlowViewEnabled: (enabled: boolean) => void;
   setFlowMinFlights: (minFlights: number) => void;
@@ -479,6 +485,7 @@ const defaultState: Pick<State,
   | 'alternativeRoutesError'
   | 'hoveredAlternativeRoute'
   | 'showHotspots'
+  | 'rawHotspots'
   | 'hotspots'
   | 'hotspotsLoading'
   | 'hotspotsMetadata'
@@ -602,6 +609,7 @@ const defaultState: Pick<State,
   alternativeRoutesError: null,
   hoveredAlternativeRoute: null,
   showHotspots: false,
+  rawHotspots: [],
   hotspots: [],
   hotspotsLoading: false,
   hotspotsMetadata: null,
@@ -850,6 +858,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
           ? state.resourceStateEpoch + 1
           : state.resourceStateEpoch,
       hotspots: invalidateServerDerivedState ? [] : state.hotspots,
+      rawHotspots: invalidateServerDerivedState ? [] : state.rawHotspots,
       hotspotsMetadata: invalidateServerDerivedState ? null : state.hotspotsMetadata,
       proposalLoading: invalidateServerDerivedState ? false : state.proposalLoading,
       proposalError: invalidateServerDerivedState ? null : state.proposalError,
@@ -1204,9 +1213,24 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
     set({ t: next > range[1] ? range[0] : next });
   },
   setShowHotspots: (show) => set({ showHotspots: show }),
-  setHotspots: (hotspots) => set({ hotspots }),
+  setHotspots: (hotspots) => set({
+    rawHotspots: hotspots,
+    hotspots: applyHotspotColoring(
+      hotspots,
+      useHotspotSettingsStore.getState().settings,
+    ),
+  }),
   setHotspotsLoading: (loading) => set({ hotspotsLoading: loading }),
   setHotspotsMetadata: (metadata) => set({ hotspotsMetadata: metadata }),
+  reapplyHotspotSettings: () => {
+    const rawHotspots = get().rawHotspots;
+    set({
+      hotspots: applyHotspotColoring(
+        rawHotspots,
+        useHotspotSettingsStore.getState().settings,
+      ),
+    });
+  },
   setFlowViewEnabled: (enabled) => set({ flowViewEnabled: enabled }),
   setFlowMinFlights: (minFlights) => set({ flowMinFlights: normalizePositiveInteger(minFlights, 4) }),
   setFlowMaxFlows: (maxFlows) => set({ flowMaxFlows: normalizeOptionalPositiveInteger(maxFlows) }),
@@ -1285,8 +1309,13 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       }
 
       // Hotspots are already sorted by z_max in the API
+      const rawHotspots = data.hotspots || [];
       set({
-        hotspots: data.hotspots || [],
+        rawHotspots,
+        hotspots: applyHotspotColoring(
+          rawHotspots,
+          useHotspotSettingsStore.getState().settings,
+        ),
         hotspotsMetadata: data.metadata ?? null,
       });
     } catch (error) {
@@ -1294,7 +1323,7 @@ export const useSimStore = create(persist<State, [], [], Pick<State, 'user' | 'r
       if (get().resourceStateEpoch !== requestEpoch) {
         return;
       }
-      set({ hotspots: [], hotspotsMetadata: null });
+      set({ rawHotspots: [], hotspots: [], hotspotsMetadata: null });
     } finally {
       if (get().resourceStateEpoch === requestEpoch) {
         set({ hotspotsLoading: false });

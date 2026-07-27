@@ -270,6 +270,24 @@ export function buildRadFlightCacheKey(
   return `${Math.max(0, Math.floor(resourceStateEpoch || 0))}|${normalizeRadId(radId)}|${legitimacyFlag}`;
 }
 
+export function resolveRadHighlightFlightIds(
+  selectedRadId: string | null | undefined,
+  legitimacyFlag: RadLegitimacyFlag,
+  flightList: PreviewRadFlightListResponse | null | undefined,
+): string[] {
+  const normalizedRadId = normalizeRadId(selectedRadId);
+  if (
+    !normalizedRadId ||
+    !flightList ||
+    normalizeRadId(flightList.rad_id) !== normalizedRadId ||
+    flightList.legitimacy_flag !== legitimacyFlag
+  ) {
+    return [];
+  }
+
+  return flightList.flight_ids;
+}
+
 export function normalizeRadId(radId: string | null | undefined): string {
   return String(radId ?? "").trim().toUpperCase();
 }

@@ -23,7 +23,7 @@
   --input-placeholder: rgba(248, 250, 252, 0.65);
   --analytics-background: linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.65) 100%);
   --modal-overlay: rgba(15, 23, 42, 0.65);
-  --modal-surface: rgba(28, 41, 64, 0.97);
+  --modal-surface: linear-gradient(145deg, rgba(51, 65, 85, 0.88), rgba(15, 23, 42, 0.82));
   --modal-footer-bg: rgba(22, 34, 54, 0.90);
 }
 
@@ -137,6 +137,31 @@ a {
 
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+.modal-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.38) transparent;
+}
+
+.modal-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.34);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.modal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(191, 219, 254, 0.48);
+  background-clip: padding-box;
 }
 
 /* Time input icon always uses dark color-scheme since all themes have dark backgrounds */

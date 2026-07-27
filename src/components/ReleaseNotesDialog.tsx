@@ -12,6 +12,15 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
+  <h4 class="font-bold mb-4">Mon. 27/07/2026</h4>
+  <ul class="list-disc pl-6 space-y-2 mb-4">
+    <li><strong>Collapsed-Sector Complexity Workspace.</strong> A new complexity workspace brings dynamic-density analysis, contextual density layers, complex-spot inspection, ordered sector flight lists, and artifact-readiness feedback together on an interactive map.</li>
+    <li><strong>VPF Flow Analysis.</strong> Flow extraction and regulation workflows now use the VPF flow model, including defining-volume metadata and synchronized previews across Flow, Regulation, Regulation Proposal, and Reroute views.</li>
+    <li><strong>Flight Flow Tracing.</strong> Selected flights can now reveal the traffic volumes they traverse directly on the map. Trace results are cached, synchronized with the active preview, and remain visually distinct from live hotspots.</li>
+    <li><strong>Faster Traffic-Volume Data.</strong> Concurrent traffic-volume count and flight-list requests are now deduplicated, reducing repeated API work and making repeated selections more responsive.</li>
+    <li><strong>Personalized Appearance and Hotspot Thresholds.</strong> The new Settings dialog supports light, dark, and system themes plus persistent global or per-traffic-volume hotspot thresholds. Choose percentage-of-capacity or absolute-volume thresholds for orange, red, and violet severity levels, with consistent coloring across maps and charts.</li>
+  </ul>
+
   <h4 class="font-bold mb-4">Wed. 25/03/2026</h4>
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Grouped Traffic Volume Selection (OR Semantics).</strong> You can now build grouped TV selections using OR semantics — click to append traffic volumes into logical groups, and the platform evaluates demand across any member of the group. Flight lists, occupancy counts, and canvas highlights all reflect the grouped expression.</li>

@@ -1,4 +1,5 @@
 export type ThemeName = "light" | "dark";
+export type ThemePreference = ThemeName | "system";
 
 export const THEME_STORAGE_KEY = "theme-preference";
 export const THEME_COOKIE_KEY = "theme-preference";
@@ -27,7 +28,7 @@ export const THEMES: Record<ThemeName, ThemeVariables> = {
     "--input-placeholder": "rgba(248, 250, 252, 0.65)",
     "--analytics-background": "linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.65) 100%)",
     "--modal-overlay": "rgba(15, 23, 42, 0.65)",
-    "--modal-surface": "rgba(28, 41, 64, 0.97)",
+    "--modal-surface": "linear-gradient(145deg, rgba(51, 65, 85, 0.88), rgba(15, 23, 42, 0.82))",
     "--modal-footer-bg": "rgba(22, 34, 54, 0.90)",
   },
   dark: {
@@ -51,15 +52,27 @@ export const THEMES: Record<ThemeName, ThemeVariables> = {
     "--input-placeholder": "rgba(148, 163, 184, 0.55)",
     "--analytics-background": "linear-gradient(180deg, rgba(2,6,23,0.96) 0%, rgba(2,6,23,0.72) 100%)",
     "--modal-overlay": "rgba(2, 6, 23, 0.82)",
-    "--modal-surface": "rgba(5, 10, 28, 0.97)",
+    "--modal-surface": "linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.84))",
     "--modal-footer-bg": "rgba(3, 7, 20, 0.92)",
   },
 };
 
 export const DEFAULT_THEME: ThemeName = "light";
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = DEFAULT_THEME;
 
 export function isThemeName(value: unknown): value is ThemeName {
   return typeof value === "string" && value in THEMES;
+}
+
+export function isThemePreference(value: unknown): value is ThemePreference {
+  return value === "system" || isThemeName(value);
+}
+
+export function resolveThemePreference(
+  preference: ThemePreference,
+  prefersDark = false,
+): ThemeName {
+  return preference === "system" ? (prefersDark ? "dark" : "light") : preference;
 }
 
 export function applyTheme(theme: ThemeName) {

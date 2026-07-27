@@ -24,6 +24,8 @@ import FlightLevelBinCountChart from "@/components/FlightLevelBinCountChart";
 import ShimmeringText from "@/components/ShimmeringText";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import { useDocumentTheme } from "@/components/useDocumentTheme";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import {
   buildMergedMultiTvChartRows,
   buildRollingChartDataFromOccupancy,
@@ -164,6 +166,7 @@ function AirspaceCustomTooltip({
 
 export default function AirspaceInfo() {
   const shimmerTheme = useDocumentTheme();
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -709,17 +712,15 @@ export default function AirspaceInfo() {
 
       const occupancy = Number(point.count ?? 0);
       const capacity = Number(point.capacity ?? 0);
-      const ratio = capacity > 0 ? occupancy / capacity : 0;
-
       let color = "#34d399";
       if (capacity <= 0) {
         color = "#94a3b8";
-      } else if (ratio >= 1.4) {
-        color = "#b91c1c";
-      } else if (ratio >= 1.2) {
-        color = "#f97316";
-      } else if (ratio >= 1.0) {
-        color = "#fb923c";
+      } else {
+        color = resolveHotspotColor({
+          traffic_volume_id: primaryTvId,
+          hourly_occupancy: occupancy,
+          hourly_capacity: capacity,
+        }, hotspotSettings) ?? "#34d399";
       }
 
       const metadata: string[] = [`Rolling occupancy: ${Math.round(occupancy)}`];
@@ -745,7 +746,7 @@ export default function AirspaceInfo() {
       fromTime: firstStart,
       toTime: lastEnd,
     };
-  }, [primaryDisplayChartData, primaryTvId]);
+  }, [hotspotSettings, primaryDisplayChartData, primaryTvId]);
 
   const formatXAxisTick = (tickItem: string, index: number) => {
     if (index % 12 === 0) {

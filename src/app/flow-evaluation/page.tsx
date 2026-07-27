@@ -17,9 +17,11 @@ import {
   type Trajectory,
 } from "@/lib/models";
 import { useSimStore } from "@/components/useSimStore";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
 import { loadTrajectories } from "@/lib/flights";
 import { getFlightsCsvPath } from "@/lib/dataPaths";
 import { normalizeCapacity } from "@/lib/capacity";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import {
   ComposedChart,
   Bar,
@@ -351,6 +353,7 @@ export default function FlowEvaluationPage() {
 
 function FlowEvaluationPageContent() {
   const router = useRouter();
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const resourceDate = useSimStore((state) => state.resourceDate);
   const resourceStateSelectedId = useSimStore((state) => state.resourceStateSelectedId);
   const resourceStateHeadId = useSimStore((state) => state.resourceStateHeadId);
@@ -2477,14 +2480,13 @@ function FlowEvaluationPageContent() {
                           const cap = normalizeCapacity(row.capacity);
                           const occ = Number(row.total);
                           if (cap == null) return;
-                          if (!Number.isFinite(occ) || occ <= cap) return;
-                          const ratio = cap > 0 ? occ / cap : Infinity;
-                          let color = "#fb923c";
-                          if (ratio >= 1.4) {
-                            color = "#b91c1c";
-                          } else if (ratio >= 1.2) {
-                            color = "#f97316";
-                          }
+                          if (!Number.isFinite(occ)) return;
+                          const color = resolveHotspotColor({
+                            traffic_volume_id: tvId,
+                            hourly_occupancy: occ,
+                            hourly_capacity: cap,
+                          }, hotspotSettings);
+                          if (!color) return;
                           const startMinutes = Number(row.startMin ?? 0);
                           if (!Number.isFinite(startMinutes)) return;
                           const endMinutes = startMinutes + binMinutes;

@@ -776,9 +776,8 @@ export default function RegulationCanvas() {
     const map = mapRef.current;
     if (!map) return;
     const activeHotspots = getActiveHotspots();
-    const activeHotspotIds = activeHotspots.map(h => String(h.traffic_volume_id));
     applyTrafficVolumeFlowTraceWithHotspots(map, {
-      activeHotspotIds,
+      activeHotspots,
       flowTraceVolumeIds,
       flLowerBound,
       flUpperBound,

@@ -738,8 +738,7 @@ export default function RadPreviewCanvas({
     const map = mapRef.current;
     if (!map) return;
     const activeHotspots = getActiveHotspots();
-    const hotspotTrafficVolumeIds = activeHotspots.map((hotspot) => hotspot.traffic_volume_id);
-    applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
+    applyTrafficVolumeHotspots(map, activeHotspots, flLowerBound, flUpperBound, true);
   }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
 
   useEffect(() => {

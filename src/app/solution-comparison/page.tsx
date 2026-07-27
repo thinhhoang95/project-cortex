@@ -25,6 +25,8 @@ import {
   SNAPSHOT_STORAGE_KEY,
 } from "@/lib/comparison";
 import { useSimStore } from "@/components/useSimStore";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import { loadTrajectories } from "@/lib/flights";
 import { buildUniqueCallsignIndex } from "@/lib/flightIdentity";
 import { getFlightsCsvPath } from "@/lib/dataPaths";
@@ -311,6 +313,7 @@ function formatFlights(value: number): string {
 }
 
 export default function SolutionComparisonPage() {
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const resourceDate = useSimStore((state) => state.resourceDate);
   const { flights, setBaselineFlights } = useSimStore();
   const { hydrated, ready, user } = useResourceDateGuard();
@@ -1037,14 +1040,13 @@ export default function SolutionComparisonPage() {
           const occupancy = Number(series[i] ?? 0);
           const capacity = normalizeCapacity(capacitySeries?.[i]);
           if (capacity == null) continue;
-          if (!Number.isFinite(occupancy) || occupancy <= capacity) continue;
-          const ratio = capacity > 0 ? occupancy / capacity : Infinity;
-          let color = "#fb923c";
-          if (ratio >= 1.4) {
-            color = "#b91c1c";
-          } else if (ratio >= 1.2) {
-            color = "#f97316";
-          }
+          if (!Number.isFinite(occupancy)) continue;
+          const color = resolveHotspotColor({
+            traffic_volume_id: tvId,
+            hourly_occupancy: occupancy,
+            hourly_capacity: capacity,
+          }, hotspotSettings);
+          if (!color) continue;
           const endMin = Math.min(startMin + binMinutes, Math.max(viewFromMin + 1, viewToMin));
           const startLabel = minutesToHHMM(startMin);
           const endLabel = minutesToHHMM(endMin);
@@ -1066,7 +1068,7 @@ export default function SolutionComparisonPage() {
       map.set(snap.id, segmentsForSnapshot);
     });
     return map;
-  }, [alignedSnapshots, capacityBySnapshot, minutesPerBin, tvSeriesBySnapshot, viewFromMin, viewToMin]);
+  }, [alignedSnapshots, capacityBySnapshot, hotspotSettings, minutesPerBin, tvSeriesBySnapshot, viewFromMin, viewToMin]);
 
   const tvIdsUnion = useMemo(() => {
     const set = new Set<string>();

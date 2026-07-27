@@ -16,6 +16,11 @@ import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
 import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import ShimmeringText from "@/components/ShimmeringText";
 import HotspotDiffSummaryCard from "@/components/HotspotDiffSummaryCard";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import {
+  resolveHotspotColor,
+  type HotspotColoringSettings,
+} from "@/lib/hotspotColoring";
 
 const PAGE_SIZE = 20;
 export type OccupancyPrePostSortMode = OccupancyWindowSortMode;
@@ -76,8 +81,15 @@ const TvChartCard = memo(function TvChartCard({
   tv, rows, isPinned, isFocused, compact, binMinutes, showLabels, viewFrom, viewTo, hasPreSeries, hasPostSeries,
 }: TvChartCardProps) {
   const hasData = rows.length > 0;
-  const preSegments = useMemo(() => buildOverloadSegments(rows, binMinutes, tv, 'pre'), [rows, binMinutes, tv]);
-  const postSegments = useMemo(() => buildOverloadSegments(rows, binMinutes, tv, 'post'), [rows, binMinutes, tv]);
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
+  const preSegments = useMemo(
+    () => buildOverloadSegments(rows, binMinutes, tv, 'pre', hotspotSettings),
+    [binMinutes, hotspotSettings, rows, tv],
+  );
+  const postSegments = useMemo(
+    () => buildOverloadSegments(rows, binMinutes, tv, 'post', hotspotSettings),
+    [binMinutes, hotspotSettings, rows, tv],
+  );
 
   return (
     <div
@@ -602,6 +614,7 @@ function buildOverloadSegments(
   binMinutes: number,
   tvId: string,
   series: 'pre' | 'post',
+  settings: HotspotColoringSettings,
 ): TrafficOverloadDatum[] {
   const segments: TrafficOverloadDatum[] = [];
   const binLength = Math.max(1, binMinutes);
@@ -614,15 +627,12 @@ function buildOverloadSegments(
     const preVal = typeof row.pre === "number" && Number.isFinite(row.pre) ? row.pre : null;
     const occupancy = series === 'post' ? postVal : preVal;
     if (occupancy == null || !Number.isFinite(occupancy)) return;
-    if (occupancy <= capacity) return;
-
-    const ratio = capacity > 0 ? occupancy / capacity : Infinity;
-    let color = "#fb923c";
-    if (ratio >= 1.4) {
-      color = "#b91c1c";
-    } else if (ratio >= 1.2) {
-      color = "#f97316";
-    }
+    const color = resolveHotspotColor({
+      traffic_volume_id: tvId,
+      hourly_occupancy: occupancy,
+      hourly_capacity: capacity,
+    }, settings);
+    if (!color) return;
 
     const startMinutes = typeof row.startMin === "number" ? row.startMin : NaN;
     if (!Number.isFinite(startMinutes)) return;

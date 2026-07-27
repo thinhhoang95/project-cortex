@@ -17,6 +17,8 @@ import { formatFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import ShimmeringText from "@/components/ShimmeringText";
 import { useDocumentTheme } from "@/components/useDocumentTheme";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import {
   assertReplayableRegulationTargets,
   normalizeFlightIdList,
@@ -131,6 +133,7 @@ const REGULATION_CATCHER_TIMEFRAME_OPTIONS: Array<{ value: RegulationCatcherTime
 
 export default function RegulationPanel({ embedded = false }: RegulationPanelProps) {
   const shimmerTheme = useDocumentTheme();
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const {
     selectedTrafficVolume,
     selectedTrafficVolumeClauses,
@@ -542,16 +545,13 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       const capacity = Number(point.capacity ?? 0);
       const ratio = capacity > 0 ? occupancy / capacity : 0;
 
-      // Match color convention from LeftControl1
       const color = capacity <= 0
         ? "#94a3b8"
-        : ratio >= 1.4
-          ? "#b91c1c"
-          : ratio >= 1.2
-            ? "#f97316"
-            : ratio >= 1.0
-              ? "#fb923c"
-              : "#34d399";
+        : resolveHotspotColor({
+            traffic_volume_id: primaryTvId,
+            hourly_occupancy: occupancy,
+            hourly_capacity: capacity,
+          }, hotspotSettings) ?? "#34d399";
 
       const metadata: string[] = [`Rolling occupancy: ${Math.round(occupancy)}`];
       if (capacity > 0) {
@@ -571,7 +571,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
       });
       return acc;
     }, [] as any[]);
-  }, [chartData, regulationTimeWindow, primaryTvId]);
+  }, [chartData, hotspotSettings, primaryTvId, regulationTimeWindow]);
 
   const windowAnchorCapacityRange = useMemo(() => {
     if (!chartData.length) return null;

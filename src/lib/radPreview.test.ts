@@ -8,6 +8,7 @@ import {
   buildRadFlightCacheKey,
   mapRadFlightRows,
   normalizeRadId,
+  resolveRadHighlightFlightIds,
 } from "@/lib/radPreview";
 import type { Trajectory } from "@/lib/models";
 
@@ -16,6 +17,21 @@ describe("radPreview helpers", () => {
     expect(buildRadFlightCacheKey(4, "ed2272", "L")).toBe("4|ED2272|L");
     expect(buildRadFlightCacheKey(4.8, " Ed2272 ", "I")).toBe("4|ED2272|I");
     expect(normalizeRadId(" ed2272 ")).toBe("ED2272");
+  });
+
+  it("uses the selected RAD's complete flight list for map highlighting", () => {
+    const flightList = {
+      rad_id: "RAD1",
+      legitimacy_flag: "L" as const,
+      flight_ids: ["F1", "F2", "F3"],
+      count: 3,
+      rule_instance_ids: [1],
+      matching_rule_instance_ids: [1],
+    };
+
+    expect(resolveRadHighlightFlightIds(" rad1 ", "L", flightList)).toEqual(["F1", "F2", "F3"]);
+    expect(resolveRadHighlightFlightIds("RAD2", "L", flightList)).toEqual([]);
+    expect(resolveRadHighlightFlightIds("RAD1", "I", flightList)).toEqual([]);
   });
 
   it("maps known and unresolved flights without dropping order", () => {

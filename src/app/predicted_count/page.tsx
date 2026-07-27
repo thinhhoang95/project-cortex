@@ -9,9 +9,11 @@ import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOv
 import SelectChevron from "@/components/SelectChevron";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from "@/components/useSimStore";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
 import { loadSectors } from "@/lib/airspace";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { normalizeCapacity } from "@/lib/capacity";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import {
   CartesianGrid,
   ComposedChart,
@@ -416,6 +418,7 @@ function ChartCard({
   viewFromTime: string;
   viewToTime: string;
 }) {
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const rows = useMemo(() => {
     const n = Math.min(series.length, timeBins.length);
     const arr: ChartRow[] = new Array(n).fill(0).map((_, i) => {
@@ -453,14 +456,12 @@ function ChartCard({
       const capacity = Number(row.capacity);
       const occupancy = Number(row.value);
       if (!Number.isFinite(capacity) || !Number.isFinite(occupancy)) return;
-      if (occupancy <= capacity) return;
-      const ratio = capacity > 0 ? occupancy / capacity : Infinity;
-      let color = "#fb923c";
-      if (ratio >= 1.4) {
-        color = "#b91c1c";
-      } else if (ratio >= 1.2) {
-        color = "#f97316";
-      }
+      const color = resolveHotspotColor({
+        traffic_volume_id: tvId,
+        hourly_occupancy: occupancy,
+        hourly_capacity: capacity,
+      }, hotspotSettings);
+      if (!color) return;
       const startMinutes = row.startMin;
       const endMinutes = startMinutes + binMinutes;
       segments.push({
@@ -475,7 +476,7 @@ function ChartCard({
       });
     });
     return segments;
-  }, [rows, minutesPerBin, tvId]);
+  }, [hotspotSettings, rows, minutesPerBin, tvId]);
 
   const renderTooltip = ({ active, payload }: { active?: boolean; payload?: any[] }) => {
     if (!active || !payload?.length) return null;

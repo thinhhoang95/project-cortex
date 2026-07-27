@@ -946,8 +946,7 @@ export default function MapCanvas() {
     const map = mapRef.current;
     if (!map) return;
     const activeHotspots = getActiveHotspots();
-    const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
-    applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
+    applyTrafficVolumeHotspots(map, activeHotspots, flLowerBound, flUpperBound, true);
   }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
 
   useEffect(() => {

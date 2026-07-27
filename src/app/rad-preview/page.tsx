@@ -25,6 +25,7 @@ import {
   mapRadFlightRows,
   normalizeRadId,
   RAD_PREVIEW_SEARCH_FIELDS,
+  resolveRadHighlightFlightIds,
   type PreviewRadFlightListResponse,
   type PreviewRadsForTrafficVolumeResponse,
   type PreviewRadsResponse,
@@ -415,13 +416,10 @@ export default function RadPreviewPage() {
     }
   }, [selectedTrafficVolumeId, setFocusFlightIds, setFocusMode, tvScopedFlightIdSet]);
 
-  const canvasSelectedFlightIds = useMemo(() => {
-    if (!selectedTrafficVolumeId) {
-      return selectedFlightList?.flight_ids ?? [];
-    }
-    if (!selectedRow) return [] as string[];
-    return radScopedFlightIds;
-  }, [radScopedFlightIds, selectedFlightList, selectedRow, selectedTrafficVolumeId]);
+  const canvasSelectedFlightIds = useMemo(
+    () => resolveRadHighlightFlightIds(selectedRadId, legitimacyFlag, selectedFlightList),
+    [legitimacyFlag, selectedFlightList, selectedRadId],
+  );
 
   const displayFlightIds = useMemo(() => {
     if (!selectedTrafficVolumeId) {

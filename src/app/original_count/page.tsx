@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from '@/components/useSimStore';
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
 import Header from "@/components/Header";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -13,6 +14,7 @@ import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOv
 import TrafficVolumeShockwaves from "@/components/TrafficVolumeShockwaves";
 import SelectChevron from "@/components/SelectChevron";
 import { normalizeCapacity } from "@/lib/capacity";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import { formatShockwaveHorizonLabel } from "@/lib/trafficVolumeShockwaves";
 import {
   ComposedChart,
@@ -504,6 +506,7 @@ export default function OriginalCountPage() {
 }
 
 function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], showCapacity = false, viewFromMin, viewToMin, viewFromTime, viewToTime }: { tvId: string; series: number[]; labels: string[]; minutesPerBin: number; capacitySeries?: number[]; showCapacity?: boolean; viewFromMin: number; viewToMin: number; viewFromTime: string; viewToTime: string }) {
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
   const rows = useMemo(() => {
     const n = Math.min(series.length, labels.length);
     const arr = new Array(n).fill(0).map((_, i) => {
@@ -531,14 +534,12 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
       const capacity = Number(row.capacity);
       const occupancy = Number(row.value);
       if (!Number.isFinite(capacity) || !Number.isFinite(occupancy)) return;
-      if (occupancy <= capacity) return;
-      const ratio = capacity > 0 ? occupancy / capacity : Infinity;
-      let color = "#fb923c";
-      if (ratio >= 1.4) {
-        color = "#b91c1c";
-      } else if (ratio >= 1.2) {
-        color = "#f97316";
-      }
+      const color = resolveHotspotColor({
+        traffic_volume_id: tvId,
+        hourly_occupancy: occupancy,
+        hourly_capacity: capacity,
+      }, hotspotSettings);
+      if (!color) return;
       const startMinutes = row.startMin;
       const endMinutes = startMinutes + binMinutes;
       const startLabel = formatMinutesToHHMM(startMinutes);
@@ -555,7 +556,7 @@ function ChartCard({ tvId, series, labels, minutesPerBin, capacitySeries = [], s
       });
     });
     return segments;
-  }, [rows, minutesPerBin, tvId]);
+  }, [hotspotSettings, rows, minutesPerBin, tvId]);
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3">

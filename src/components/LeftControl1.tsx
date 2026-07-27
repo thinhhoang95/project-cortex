@@ -7,6 +7,7 @@ import ShimmeringText from "@/components/ShimmeringText";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import { addMinutesToHHMM } from "@/lib/time";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 
 type LeftControl1Props = { embedded?: boolean };
 
@@ -252,14 +253,7 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
                         const occupancy = Number(hotspot.hourly_occupancy ?? 0);
                         const capacity = Number(hotspot.hourly_capacity ?? 0);
                         const excess = occupancy - capacity;
-                        const ratio = capacity > 0 ? occupancy / capacity : 0;
-                        const severityColor = hotspot.is_overloaded
-                          ? ratio >= 1.4
-                            ? "#b91c1c"
-                            : ratio >= 1.2
-                              ? "#f97316"
-                              : "#fb923c"
-                          : "#34d399";
+                        const severityColor = resolveHotspotColor(hotspot) ?? "#34d399";
                         const metadata: string[] = [
                           `Occupancy: ${occupancy.toFixed(0)}`,
                           `Capacity: ${capacity.toFixed(0)}`,

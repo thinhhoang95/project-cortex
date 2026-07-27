@@ -26,6 +26,8 @@ import { authFetch } from "@/lib/auth";
 import { normalizeCapacity } from "@/lib/capacity";
 import { binIndexToRangeLabel } from "@/lib/time";
 import { formatDwellingTime } from "@/lib/dwellTime";
+import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import { resolveHotspotColor } from "@/lib/hotspotColoring";
 
 interface FlightListStatisticsProps {
   flightIds: string[];
@@ -483,6 +485,7 @@ function FlightListStatistics({
   sourceTrafficVolumeId,
 }: FlightListStatisticsProps) {
   const flights = useSimStore(state => state.flights);
+  const hotspotSettings = useHotspotSettingsStore((state) => state.settings);
 
   const analysis = useMemo<FlightListAnalysis>(() => buildAnalysisForFlightIds(flights, flightIds), [flights, flightIds]);
 
@@ -1335,14 +1338,12 @@ function FlightListStatistics({
                         const occupancy = Number(row.total);
                         if (!Number.isFinite(capacity) || capacity < 0) continue;
                         if (!Number.isFinite(occupancy)) continue;
-                        if (occupancy <= capacity) continue;
-                        const ratio = capacity > 0 ? occupancy / capacity : Infinity;
-                        let color = "#fb923c";
-                        if (ratio >= 1.4) {
-                          color = "#b91c1c";
-                        } else if (ratio >= 1.2) {
-                          color = "#f97316";
-                        }
+                        const color = resolveHotspotColor({
+                          traffic_volume_id: card.tvId,
+                          hourly_occupancy: occupancy,
+                          hourly_capacity: capacity,
+                        }, hotspotSettings);
+                        if (!color) continue;
                         const startMinutes = row.startMinute;
                         const endMinutes = startMinutes + binMinutes;
                         const startLabel = formatMinutesToHHMM(startMinutes);
