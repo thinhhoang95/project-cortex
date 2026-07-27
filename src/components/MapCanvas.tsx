@@ -44,6 +44,13 @@ import {
   TRAFFIC_VOLUME_SOURCE_ID,
 } from "@/lib/trafficVolumeLayers";
 import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
+import {
+  getSlackSourceTrafficVolumeId,
+  isSlackOverlayEligible,
+  setSlackOverlayVisibility,
+  SLACK_LAYER_ID,
+  syncSlackOverlayVisibility,
+} from "@/lib/slackOverlay";
 import { formatSecondsToHHMM, formatSecondsToHHMMSS } from "@/lib/time";
 import {
   getSummaryTimeBinMinutes,
@@ -63,8 +70,6 @@ import {
   TV_DCB_GLANCE_LAYER_ID,
   TV_DCB_GLANCE_MIN_ZOOM,
 } from "@/lib/trafficVolumeDcbGlanceMap";
-
-const SLACK_LAYER_ID = "sector-slack";
 
 export default function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -143,18 +148,11 @@ export default function MapCanvas() {
     const binSeconds = safeBinMinutes * 60;
     return Math.floor(Math.max(0, t) / binSeconds) * binSeconds;
   }, [glanceTimeBinMinutes, t]);
-  const selectedTvIds = useMemo(
-    () =>
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [],
-    [selectedTrafficVolume, selectedTrafficVolumes],
-  );
-  const slackSourceTrafficVolumeId = airspaceDisplayMode === "tv" && selectedTvIds.length === 1
-    ? selectedTvIds[0] ?? null
-    : null;
+  const slackSourceTrafficVolumeId = getSlackSourceTrafficVolumeId({
+    airspaceDisplayMode,
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
+  });
   const slackEligible = !!slackSourceTrafficVolumeId;
 
   // init map
@@ -213,8 +211,13 @@ export default function MapCanvas() {
           }, TRAFFIC_VOLUME_LAYER_IDS.point);
         }
 
-        applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
         const sim = useSimStore.getState();
+        applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
+        syncSlackOverlayVisibility(map, {
+          showTrafficVolumes: sim.showTrafficVolumes,
+          slackEligible: isSlackOverlayEligible(sim),
+          slackMode: sim.slackMode,
+        });
         if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
           console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
           setAirspaceDisplayMode("tv");
@@ -704,7 +707,7 @@ export default function MapCanvas() {
 
     const apply = () => {
       try {
-        applyTrafficVolumeVisibility(map, showTrafficVolumes, { includeSlack: true });
+        applyTrafficVolumeVisibility(map, showTrafficVolumes);
         if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
           map.setLayoutProperty(
             TV_DCB_GLANCE_LAYER_ID,
@@ -964,13 +967,11 @@ export default function MapCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!showTrafficVolumes || !slackEligible || slackMode === "off") {
-      hideSlackOverlay(map);
-      return;
-    }
-    if (map.getLayer(SLACK_LAYER_ID)) {
-      map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "visible");
-    }
+    syncSlackOverlayVisibility(map, {
+      showTrafficVolumes,
+      slackEligible,
+      slackMode,
+    });
   }, [showTrafficVolumes, slackEligible, slackMode]);
 
   useEffect(() => {
@@ -1426,12 +1427,12 @@ async function fetchAndApplySlack(
     }
     setSlackMetaByTv(metaRecord);
     applySlackOverlay(map, results);
-    const showTraffic = useSimStore.getState().showTrafficVolumes;
-    if (showImmediately && showTraffic && map.getLayer(SLACK_LAYER_ID)) {
-      map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "visible");
-    } else {
-      hideSlackOverlay(map);
-    }
+    const sim = useSimStore.getState();
+    syncSlackOverlayVisibility(map, {
+      showTrafficVolumes: sim.showTrafficVolumes,
+      slackEligible: isSlackOverlayEligible(sim),
+      slackMode: showImmediately ? sim.slackMode : "off",
+    });
     return true;
   } catch (error) {
     console.error("Failed to fetch/apply slack:", error);
@@ -1521,10 +1522,7 @@ function applySlackOverlay(map: maplibregl.Map, results: any[]) {
 }
 
 function hideSlackOverlay(map: maplibregl.Map) {
-  if (!map || !map.isStyleLoaded()) return;
-  if (map.getLayer(SLACK_LAYER_ID)) {
-    map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "none");
-  }
+  setSlackOverlayVisibility(map, false);
 }
 
 function clamp01(value: number): number {

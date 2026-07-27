@@ -442,7 +442,6 @@ export function applyTrafficVolumeFilters(
 export function applyTrafficVolumeVisibility(
   map: maplibregl.Map,
   visible: boolean,
-  options: { includeSlack?: boolean } = {}
 ): void {
   const visibility = visible ? "visible" : "none";
   const layerIds: string[] = [
@@ -465,9 +464,6 @@ export function applyTrafficVolumeVisibility(
     TRAFFIC_VOLUME_LAYER_IDS.pointHover,
     TRAFFIC_VOLUME_LAYER_IDS.pointHotspot,
   ];
-  if (options.includeSlack) {
-    layerIds.push("sector-slack");
-  }
   for (const layerId of layerIds) {
     if (!map.getLayer(layerId)) continue;
     try {

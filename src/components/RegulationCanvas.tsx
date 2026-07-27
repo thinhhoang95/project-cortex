@@ -44,6 +44,13 @@ import {
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "@/lib/trafficVolumeLayers";
 import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
+import {
+  getSlackSourceTrafficVolumeId,
+  isSlackOverlayEligible,
+  setSlackOverlayVisibility,
+  SLACK_LAYER_ID,
+  syncSlackOverlayVisibility,
+} from "@/lib/slackOverlay";
 import { formatSecondsToHHMM, formatSecondsToHHMMSS } from "@/lib/time";
 import { getSummaryTimeBinMinutes, type TvDcbGlanceResponse, type TvDcbGlanceSummary } from "@/lib/tvDcbGlance";
 import {
@@ -64,8 +71,6 @@ const REGULATION_CATCHER_SOURCE_ID = "regulation-catcher-source";
 const REGULATION_CATCHER_DRAFT_LAYER_ID = "regulation-catcher-draft";
 const REGULATION_CATCHER_PREVIEW_LAYER_ID = "regulation-catcher-preview";
 const REGULATION_CATCHER_POINTS_LAYER_ID = "regulation-catcher-points";
-const SLACK_LAYER_ID = "sector-slack";
-
 export default function RegulationCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const rafRef = useRef<number | undefined>(undefined);
@@ -92,6 +97,7 @@ export default function RegulationCanvas() {
     hotspots,
     getActiveHotspots,
     showTrafficVolumes,
+    airspaceDisplayMode,
     regulationTargetFlightIds,
     regulationPreviewActive,
     addRegulationTargetFlight,
@@ -161,7 +167,11 @@ export default function RegulationCanvas() {
           : [],
     [selectedTrafficVolumes, selectedTrafficVolume],
   );
-  const slackSourceTrafficVolumeId = selectedTvHighlightIds.length === 1 ? selectedTvHighlightIds[0] ?? null : null;
+  const slackSourceTrafficVolumeId = getSlackSourceTrafficVolumeId({
+    airspaceDisplayMode,
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
+  });
   const slackEligible = !!slackSourceTrafficVolumeId;
 
   const syncRegulationCatcherOverlay = () => {
@@ -217,8 +227,13 @@ export default function RegulationCanvas() {
         }, TRAFFIC_VOLUME_LAYER_IDS.point);
       }
 
-      applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
       const sim = useSimStore.getState();
+      applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
+      syncSlackOverlayVisibility(map, {
+        showTrafficVolumes: sim.showTrafficVolumes,
+        slackEligible: isSlackOverlayEligible(sim),
+        slackMode: sim.slackMode,
+      });
       applyTrafficVolumeFilters(map, getTrafficVolumeFilter(sim.flLowerBound, sim.flUpperBound, sim.t), { includeSlack: true });
 
       // --- Flight lines (static geometry) ---
@@ -985,14 +1000,11 @@ export default function RegulationCanvas() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!showTrafficVolumes || !slackEligible || slackMode === 'off') {
-      hideSlackOverlay(map);
-      if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
-        map.setLayoutProperty(TV_DCB_GLANCE_LAYER_ID, 'visibility', showTrafficVolumes ? 'visible' : 'none');
-      }
-    } else if (map.getLayer(SLACK_LAYER_ID)) {
-      map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'visible');
-    }
+    syncSlackOverlayVisibility(map, {
+      showTrafficVolumes,
+      slackEligible,
+      slackMode,
+    });
     if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
       map.setLayoutProperty(TV_DCB_GLANCE_LAYER_ID, 'visibility', showTrafficVolumes ? 'visible' : 'none');
     }
@@ -1378,14 +1390,12 @@ async function fetchAndApplySlack(
     }
     setSlackMetaByTv(metaRecord);
     applySlackOverlay(map, results);
-    const showTraffic = useSimStore.getState().showTrafficVolumes;
-    if (showImmediately && showTraffic) {
-      if (map.getLayer(SLACK_LAYER_ID)) {
-        map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'visible');
-      }
-    } else {
-      hideSlackOverlay(map);
-    }
+    const sim = useSimStore.getState();
+    syncSlackOverlayVisibility(map, {
+      showTrafficVolumes: sim.showTrafficVolumes,
+      slackEligible: isSlackOverlayEligible(sim),
+      slackMode: showImmediately ? sim.slackMode : "off",
+    });
     return true;
   } catch (e) {
     console.error('Failed to fetch/apply slack:', e);
@@ -1485,10 +1495,7 @@ function applySlackOverlay(map: maplibregl.Map, results: any[]) {
 }
 
 function hideSlackOverlay(map: maplibregl.Map) {
-  if (!map || !map.isStyleLoaded()) return;
-  if (map.getLayer(SLACK_LAYER_ID)) {
-    map.setLayoutProperty(SLACK_LAYER_ID, 'visibility', 'none');
-  }
+  setSlackOverlayVisibility(map, false);
 }
 
 function clamp01(value: number): number {

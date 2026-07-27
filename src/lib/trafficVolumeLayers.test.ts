@@ -4,6 +4,7 @@ import {
   applyTrafficVolumeFlowTrace,
   applyTrafficVolumeFlowTraceWithHotspots,
   applyTrafficVolumeHotspots,
+  applyTrafficVolumeVisibility,
   TRAFFIC_VOLUME_LAYER_IDS,
 } from "./trafficVolumeLayers";
 
@@ -119,5 +120,24 @@ describe("applyTrafficVolumeHotspots", () => {
       ["!=", ["get", "source_geom_type"], "Point"],
       ["in", ["get", "traffic_volume_id"], ["literal", ["TV_ORANGE", "TV_VIOLET"]]],
     ]);
+  });
+});
+
+describe("applyTrafficVolumeVisibility", () => {
+  it("does not take ownership of the Slack overlay layer", () => {
+    const visibility = new Map<string, unknown>();
+    const map = {
+      getLayer: () => true,
+      setLayoutProperty: (layerId: string, property: string, value: unknown) => {
+        visibility.set(`${layerId}:${property}`, value);
+      },
+    };
+
+    applyTrafficVolumeVisibility(map as any, true);
+
+    expect(visibility.get("sector-slack:visibility")).toBeUndefined();
+    expect(
+      visibility.get(`${TRAFFIC_VOLUME_LAYER_IDS.fill}:visibility`),
+    ).toBe("visible");
   });
 });

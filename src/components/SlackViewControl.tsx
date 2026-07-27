@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useSimStore } from "@/components/useSimStore";
+import { isSlackOverlayEligible } from "@/lib/slackOverlay";
 
 type SlackViewControlProps = {
   embedded?: boolean;
@@ -24,16 +25,11 @@ export default function SlackViewControl({
     viewOptionsMinimized,
   } = useSimStore();
 
-  const selectedTvIds = useMemo(
-    () =>
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [],
-    [selectedTrafficVolume, selectedTrafficVolumes],
-  );
-  const slackEligible = airspaceDisplayMode === "tv" && selectedTvIds.length === 1;
+  const slackEligible = isSlackOverlayEligible({
+    airspaceDisplayMode,
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
+  });
 
   useEffect(() => {
     if (!slackEligible && slackMode !== "off") {

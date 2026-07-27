@@ -66,6 +66,13 @@ import {
   type RerouteImpactResponse,
 } from "@/lib/rerouteImpact";
 import { createAsyncLoadGuard } from "@/lib/asyncLoadGuard";
+import {
+  getSlackSourceTrafficVolumeId,
+  isSlackOverlayEligible,
+  setSlackOverlayVisibility,
+  SLACK_LAYER_ID,
+  syncSlackOverlayVisibility,
+} from "@/lib/slackOverlay";
 import { formatSecondsToHHMM, formatSecondsToHHMMSS } from "@/lib/time";
 import { getSummaryTimeBinMinutes, type TvDcbGlanceResponse, type TvDcbGlanceSummary } from "@/lib/tvDcbGlance";
 import {
@@ -98,8 +105,6 @@ const REROUTE_DRAFT_SOLID_LINE_LAYER_ID = "reroute-draft-solid-line";
 const REROUTE_DRAFT_DASHED_LINE_LAYER_ID = "reroute-draft-dashed-line";
 const REROUTE_DRAFT_POINT_LAYER_ID = "reroute-draft-point";
 const REROUTE_PREVIEW_LAYER_ID = "reroute-preview-line";
-const SLACK_LAYER_ID = "sector-slack";
-
 type RenderRerouteObstacle = RerouteObstacle & { locked?: boolean };
 type RenderRerouteFunnel = RerouteFunnel & { locked?: boolean };
 
@@ -213,17 +218,12 @@ export default function MapCanvasReroute() {
   const isCatcherDrawing = rerouteCatcherActive && rerouteCatcherMode !== "off";
   const isShapeDrawing = rerouteShapeToolMode !== "off";
   const isAnyDrawingActive = isCatcherDrawing || isShapeDrawing;
-  const selectedTvIds = useMemo(
-    () =>
-      Array.isArray(selectedTrafficVolumes) && selectedTrafficVolumes.length > 0
-        ? selectedTrafficVolumes
-        : selectedTrafficVolume
-          ? [selectedTrafficVolume]
-          : [],
-    [selectedTrafficVolume, selectedTrafficVolumes],
-  );
-  const slackSourceTrafficVolumeId = selectedTvIds.length === 1 ? selectedTvIds[0] ?? null : null;
-  const slackEligible = airspaceDisplayMode === "tv" && !!slackSourceTrafficVolumeId;
+  const slackSourceTrafficVolumeId = getSlackSourceTrafficVolumeId({
+    airspaceDisplayMode,
+    selectedTrafficVolume,
+    selectedTrafficVolumes,
+  });
+  const slackEligible = !!slackSourceTrafficVolumeId;
   const renderRerouteObstacles = useMemo(
     () => buildRenderableObstacles(rerouteCommittedMoves, rerouteObstacles),
     [rerouteCommittedMoves, rerouteObstacles],
@@ -303,7 +303,13 @@ export default function MapCanvasReroute() {
           }, TRAFFIC_VOLUME_LAYER_IDS.point);
         }
 
-        applyTrafficVolumeVisibility(map, useSimStore.getState().showTrafficVolumes, { includeSlack: true });
+        const sim = useSimStore.getState();
+        applyTrafficVolumeVisibility(map, sim.showTrafficVolumes);
+        syncSlackOverlayVisibility(map, {
+          showTrafficVolumes: sim.showTrafficVolumes,
+          slackEligible: isSlackOverlayEligible(sim),
+          slackMode: sim.slackMode,
+        });
         if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
           map.setLayoutProperty(
             TV_DCB_GLANCE_LAYER_ID,
@@ -313,7 +319,6 @@ export default function MapCanvasReroute() {
               : "none",
           );
         }
-        const sim = useSimStore.getState();
         if (sim.airspaceDisplayMode === "es" && !csSourcesRef.current) {
           console.error("Collapsed sectors are unavailable; reverting map mode to traffic volumes.");
           setAirspaceDisplayMode("tv");
@@ -1475,7 +1480,7 @@ export default function MapCanvasReroute() {
 
     const apply = () => {
       try {
-        applyTrafficVolumeVisibility(map, showTrafficVolumes, { includeSlack: true });
+        applyTrafficVolumeVisibility(map, showTrafficVolumes);
         if (map.getLayer(TV_DCB_GLANCE_LAYER_ID)) {
           map.setLayoutProperty(
             TV_DCB_GLANCE_LAYER_ID,
@@ -1740,13 +1745,11 @@ export default function MapCanvasReroute() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!showTrafficVolumes || !slackEligible || slackMode === "off") {
-      hideSlackOverlay(map);
-      return;
-    }
-    if (map.getLayer(SLACK_LAYER_ID)) {
-      map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "visible");
-    }
+    syncSlackOverlayVisibility(map, {
+      showTrafficVolumes,
+      slackEligible,
+      slackMode,
+    });
   }, [showTrafficVolumes, slackEligible, slackMode]);
 
   useEffect(() => {
@@ -2343,15 +2346,12 @@ async function fetchAndApplySlack(
     }
     const data = await response.json();
     applySlackOverlay(map, Array.isArray(data?.results) ? data.results : []);
-    if (
-      map.getLayer(SLACK_LAYER_ID) &&
-      useSimStore.getState().showTrafficVolumes &&
-      useSimStore.getState().slackMode !== "off"
-    ) {
-      map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "visible");
-    } else {
-      hideSlackOverlay(map);
-    }
+    const sim = useSimStore.getState();
+    syncSlackOverlayVisibility(map, {
+      showTrafficVolumes: sim.showTrafficVolumes,
+      slackEligible: isSlackOverlayEligible(sim),
+      slackMode: sim.slackMode,
+    });
     return true;
   } catch (error) {
     console.error("Failed to fetch/apply slack:", error);
@@ -2444,10 +2444,7 @@ function applySlackOverlay(map: maplibregl.Map, results: any[]) {
 }
 
 function hideSlackOverlay(map: maplibregl.Map) {
-  if (!map.isStyleLoaded()) return;
-  if (map.getLayer(SLACK_LAYER_ID)) {
-    map.setLayoutProperty(SLACK_LAYER_ID, "visibility", "none");
-  }
+  setSlackOverlayVisibility(map, false);
 }
 
 function clamp01(value: number): number {

@@ -1,64 +1,39 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-
-type RegionSwitchBannerProps = {
-  usAppUrl?: string;
-};
+import { useEffect, useRef, useState } from "react";
 
 const DISMISS_STORAGE_KEY = "flow-kitchen-region-banner-dismissed";
 
-function isLocalHost(hostname: string): boolean {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname.endsWith(".localhost")
-  );
-}
-
-function deriveUsUrl(currentHref: string, overrideBaseUrl?: string): string {
-  const currentUrl = new URL(currentHref);
-
-  if (overrideBaseUrl) {
-    const baseUrl = new URL(overrideBaseUrl);
-    baseUrl.pathname = currentUrl.pathname;
-    baseUrl.search = currentUrl.search;
-    baseUrl.hash = currentUrl.hash;
-    return baseUrl.toString();
-  }
-
-  if (isLocalHost(currentUrl.hostname)) {
-    return currentUrl.pathname + currentUrl.search + currentUrl.hash;
-  }
-
-  const nextUrl = new URL(currentHref);
-  if (nextUrl.hostname.startsWith("eu.")) {
-    nextUrl.hostname = `us.${nextUrl.hostname.slice(3)}`;
-    return nextUrl.toString();
-  }
-  if (nextUrl.hostname.includes(".eu.")) {
-    nextUrl.hostname = nextUrl.hostname.replace(".eu.", ".us.");
-    return nextUrl.toString();
-  }
-  if (!nextUrl.hostname.startsWith("us.")) {
-    nextUrl.hostname = `us.${nextUrl.hostname}`;
-  }
-  return nextUrl.toString();
-}
-
-export default function RegionSwitchBanner({
-  usAppUrl = process.env.NEXT_PUBLIC_US_APP_URL,
-}: RegionSwitchBannerProps) {
-  const [targetHref, setTargetHref] = useState<string>(usAppUrl || "/");
+export default function RegionSwitchBanner() {
   const [dismissed, setDismissed] = useState(false);
+  const [regionMenuOpen, setRegionMenuOpen] = useState(false);
+  const regionMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setTargetHref(deriveUsUrl(window.location.href, usAppUrl));
     setDismissed(window.localStorage.getItem(DISMISS_STORAGE_KEY) === "1");
-  }, [usAppUrl]);
+  }, []);
+
+  useEffect(() => {
+    if (!regionMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!regionMenuRef.current?.contains(event.target as Node)) {
+        setRegionMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRegionMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [regionMenuOpen]);
 
   const handleDismiss = () => {
     setDismissed(true);
@@ -83,6 +58,49 @@ export default function RegionSwitchBanner({
             You are using the European version of Flow&apos;s Kitchen.
           </span>
         </span>
+        <div ref={regionMenuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setRegionMenuOpen((open) => !open)}
+            aria-haspopup="menu"
+            aria-expanded={regionMenuOpen}
+            className="inline-flex items-center gap-1 font-medium text-cyan-200 underline decoration-cyan-300/50 underline-offset-4 transition-colors hover:text-white hover:decoration-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+          >
+            Change
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              fill="none"
+              className={`h-3.5 w-3.5 transition-transform ${regionMenuOpen ? "rotate-180" : ""}`}
+            >
+              <path
+                d="m5.5 7.5 4.5 4.5 4.5-4.5"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          {regionMenuOpen && (
+            <div
+              role="menu"
+              aria-label="Choose a Flow's Kitchen region"
+              className="absolute left-1/2 top-full z-10 mt-3 w-56 -translate-x-1/2 overflow-hidden rounded-lg border border-white/15 bg-slate-900/95 p-1.5 text-left shadow-2xl backdrop-blur-xl"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm text-slate-100 transition-colors hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-none"
+              >
+                <span aria-hidden="true" className="text-xl leading-none">
+                  🇺🇸
+                </span>
+                <span>United States</span>
+              </button>
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={handleDismiss}
