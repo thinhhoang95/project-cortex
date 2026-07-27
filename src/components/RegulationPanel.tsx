@@ -42,7 +42,6 @@ import {
   type VpfFlowMetadata,
   type VpfTopLevelMetadata,
 } from "@/lib/flowExtractor";
-import { fetchFlowTrace, normalizeTraceFlightIds } from "@/lib/flowTrace";
 import {
   fetchTvCountWithCapacity,
   fetchTvFlights,
@@ -182,7 +181,6 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
     setFlowError,
     setFlowPreviewFlightId,
     setFlowPreviewGroupId,
-    regulationPreviewActive,
     setRegulationPreviewActive,
     regulationCatcherMode,
     regulationCatcherTimeframe,
@@ -1640,44 +1638,9 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowGroupMetadata
     setFlowPreviewGroupId,
     regulationTargetFlightIds,
     setRegulationTargetFlightIds,
-    setFlowTraceVolumeIds,
-    clearFlowTraceVolumeIds,
-    setFlowTraceLoading,
-    setFlowTraceError,
   } = useSimStore();
   const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
   const [expandedFlightLists, setExpandedFlightLists] = useState<Record<string, boolean>>({});
-  const traceRequestSeqRef = useRef(0);
-
-  const previewFlowTrace = useCallback(async (flightIds: Iterable<string>) => {
-    const ids = normalizeTraceFlightIds(flightIds);
-    const seq = traceRequestSeqRef.current + 1;
-    traceRequestSeqRef.current = seq;
-
-    if (ids.length === 0) {
-      clearFlowTraceVolumeIds();
-      return;
-    }
-
-    setFlowTraceLoading(true);
-    setFlowTraceError(null);
-    try {
-      const trace = await fetchFlowTrace(ids);
-      if (traceRequestSeqRef.current !== seq) return;
-      setFlowTraceVolumeIds(trace.volume_ids || []);
-      setFlowTraceLoading(false);
-    } catch (err) {
-      if (traceRequestSeqRef.current !== seq) return;
-      setFlowTraceVolumeIds([]);
-      setFlowTraceError(err instanceof Error ? err.message : "Failed to fetch flow trace");
-      setFlowTraceLoading(false);
-    }
-  }, [clearFlowTraceVolumeIds, setFlowTraceError, setFlowTraceLoading, setFlowTraceVolumeIds]);
-
-  const clearPreviewFlowTrace = useCallback(() => {
-    traceRequestSeqRef.current += 1;
-    clearFlowTraceVolumeIds();
-  }, [clearFlowTraceVolumeIds]);
   // Derive group sizes
   const groupEntries = useMemo(() => {
     if (flowGroups && Object.keys(flowGroups).length > 0) {
@@ -1728,12 +1691,9 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowGroupMetadata
   }, [topGroups]);
 
   useEffect(() => {
-    clearPreviewFlowTrace();
     setFlowPreviewGroupId(null);
     setFlowPreviewFlightId(null);
-  }, [topGroups, clearPreviewFlowTrace, setFlowPreviewFlightId, setFlowPreviewGroupId]);
-
-  useEffect(() => () => clearPreviewFlowTrace(), [clearPreviewFlowTrace]);
+  }, [topGroups, setFlowPreviewFlightId, setFlowPreviewGroupId]);
 
   // Use centralized color mapping from the store; default gray for others
   const colorMap = useMemo(() => new Map<string, string>(Object.entries(flowColorByCommunity || {})), [flowColorByCommunity]);
@@ -1799,12 +1759,10 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowGroupMetadata
               className="border border-white/10 rounded-md"
               onMouseEnter={() => {
                 setFlowPreviewGroupId(String(g.cid));
-                void previewFlowTrace(g.ids);
               }}
               onMouseLeave={() => {
                 setFlowPreviewGroupId(null);
                 setFlowPreviewFlightId(null);
-                clearPreviewFlowTrace();
               }}
             >
               <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">

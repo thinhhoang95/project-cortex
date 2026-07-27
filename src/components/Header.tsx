@@ -270,7 +270,7 @@ export default function Header() {
           <div className="flex items-center space-x-3">
             <h1 className="text-xl font-bold text-white">Flow&apos;s Kitchen</h1>
             <span className="text-[0.6rem] font-bold uppercase text-green-400 bg-green-500/20 border border-green-500/30 rounded-full px-1.5 py-0.5 leading-none">
-              Public Preview
+              Preview
             </span>
           </div>
 
@@ -350,7 +350,7 @@ export default function Header() {
                   Analytics
                 </button>
                 {showAnalyticsDropdown && (
-                  <div className="absolute left-0 top-full mt-2 w-56 glass-menu rounded-lg shadow-xl z-[2100]">
+                  <div className="absolute left-0 top-full mt-2 flex w-56 flex-col glass-menu rounded-lg shadow-xl z-[2100]">
                     <Link
                       href="/original_count"
                       onClick={() => setShowAnalyticsDropdown(false)}

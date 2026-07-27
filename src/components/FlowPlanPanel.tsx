@@ -58,6 +58,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowViewEnabled,
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
+    setFlightLinePreviewFlightIds,
     resourceDate,
     resourceStateSelectedId,
   } = useSimStore();
@@ -95,6 +96,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   const origExtractorMetadataRef = useRef<ReturnType<typeof useSimStore.getState>["flowExtractorMetadata"] | null>(null);
   const origEnabledRef = useRef<boolean | null>(null);
   const origColorsRef = useRef<ReturnType<typeof useSimStore.getState>["flowColorByCommunity"] | null>(null);
+  const origFlightLinePreviewRef = useRef<Set<string> | null>(null);
 
   // Separate refs for hover/preview so we don't overwrite basket baseline
   const hoverOrigCommunitiesRef = useRef<ReturnType<typeof useSimStore.getState>["flowCommunities"] | null>(null);
@@ -146,7 +148,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
       }
     }
     return collected;
-  }, [flowBasket, resolveByKey]);
+  }, [flowBasket]);
 
   // Build request body for Flow Impact Evaluation
   const buildBaselinePayload = () => {
@@ -184,7 +186,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   };
 
   // Build communities/groups/colors from the current Flow Basket
-  const buildBasketFlowMapping = () => {
+  const buildBasketFlowMapping = useCallback(() => {
     const groups: Record<string, string[]> = {};
     const communities: Record<string, number> = {} as any; // using 0 as placeholder, community id will be key string
     const colorMap: Record<string, string> = {};
@@ -199,7 +201,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
       colorMap[cid] = bf.color;
     }
     return { groups, communities: communities as any, colorMap };
-  };
+  }, [flowBasket]);
 
   // Toggle the Flow Basket map view
   const applyBasketView = () => {
@@ -212,12 +214,14 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     origExtractorMetadataRef.current = st.flowExtractorMetadata;
     origEnabledRef.current = st.flowViewEnabled;
     origColorsRef.current = st.flowColorByCommunity;
+    origFlightLinePreviewRef.current = new Set(st.flightLinePreviewFlightIds);
     // Apply basket mapping
     const { groups, communities, colorMap } = buildBasketFlowMapping();
     setFlowCommunities(communities, groups, colorMap);
     setFlowViewEnabled(true);
+    setFlightLinePreviewFlightIds(new Set(allBasketFlightIds));
   };
-  const clearBasketView = () => {
+  const clearBasketView = useCallback(() => {
     setFlowCommunities(
       origCommunitiesRef.current,
       origGroupsRef.current,
@@ -229,6 +233,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     setFlowViewEnabled(!!origEnabledRef.current);
     setFlowPreviewGroupId(null);
     setFlowPreviewFlightId(null);
+    setFlightLinePreviewFlightIds(new Set(origFlightLinePreviewRef.current ?? []));
     // Reset hover baseline to the restored state to avoid stale hover restoration
     hoverOrigCommunitiesRef.current = origCommunitiesRef.current;
     hoverOrigGroupsRef.current = origGroupsRef.current;
@@ -237,7 +242,14 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     hoverOrigExtractorMetadataRef.current = origExtractorMetadataRef.current;
     hoverOrigEnabledRef.current = origEnabledRef.current;
     hoverOrigColorsRef.current = origColorsRef.current;
-  };
+    origFlightLinePreviewRef.current = null;
+  }, [
+    setFlightLinePreviewFlightIds,
+    setFlowCommunities,
+    setFlowPreviewFlightId,
+    setFlowPreviewGroupId,
+    setFlowViewEnabled,
+  ]);
 
   // Load traffic volumes once for the search box
   useEffect(() => {
@@ -424,7 +436,8 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
     const { groups, communities, colorMap } = buildBasketFlowMapping();
     setFlowCommunities(communities, groups, colorMap);
     setFlowViewEnabled(true);
-  }, [basketView, flowBasket]);
+    setFlightLinePreviewFlightIds(new Set(allBasketFlightIds));
+  }, [basketView, buildBasketFlowMapping, allBasketFlightIds, setFlightLinePreviewFlightIds, setFlowCommunities, setFlowViewEnabled]);
 
   useEffect(() => {
     setExpandedFlows((prev) => {
@@ -440,7 +453,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
   // Cleanup on unmount if basketView was active
   useEffect(() => {
     return () => { if (basketView) clearBasketView(); };
-  }, [basketView]);
+  }, [basketView, clearBasketView]);
 
   return (
     <>

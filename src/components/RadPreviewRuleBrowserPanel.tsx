@@ -69,8 +69,8 @@ export default function RadPreviewRuleBrowserPanel({
     : `Loaded ${rows.length.toLocaleString("en-US")} of ${totalAvailable.toLocaleString("en-US")} RADs.`;
 
   return (
-    <div className="flex flex-col w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white">
-      <div className="p-4 border-b border-white/15">
+    <div className="flex max-h-[calc(100vh-5rem)] w-full flex-col overflow-hidden rounded-2xl border border-white/20 bg-white/20 text-white shadow-xl backdrop-blur-md">
+      <div className="shrink-0 p-4 border-b border-white/15">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="font-semibold">{title}</h2>
@@ -92,12 +92,14 @@ export default function RadPreviewRuleBrowserPanel({
             />
           </div>
         </div>
+      </div>
+      <div className="shrink-0 p-4 border-b border-white/15">
         {warning && (
-          <div className="mt-3 rounded-lg border border-amber-300/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          <div className="rounded-lg border border-amber-300/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
             {warning}
           </div>
         )}
-        <div className="group mt-3 rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+        <div className={`group rounded-xl border border-white/10 bg-white/5 px-3 py-3 ${warning ? "mt-3" : ""}`}>
           <label className="sr-only" htmlFor="rad-preview-filter">
             Search RAD metadata
           </label>
@@ -155,7 +157,7 @@ export default function RadPreviewRuleBrowserPanel({
           </div>
         </div>
       </div>
-      <div className="p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 no-scrollbar">
         {loading && rows.length === 0 && (
           <div className="flex items-center justify-center py-8 text-sm text-white/70">
             {querying ? (
@@ -334,7 +336,7 @@ function FlagButton({
       title={title}
       onClick={onClick}
       className={`min-w-9 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-        active ? "bg-white text-slate-900" : "text-white/75 hover:bg-white/10 hover:text-white"
+        active ? "bg-white text-[#0f172a]" : "text-white/75 hover:bg-white/10 hover:text-white"
       }`}
     >
       {label}

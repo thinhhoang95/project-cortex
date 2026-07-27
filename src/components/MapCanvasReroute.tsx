@@ -15,6 +15,7 @@ import { syncFlightLevelLabelLayer } from "@/lib/flightLineLabelLayer";
 import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
+import { useFlowTracePreviewSync } from "@/components/useFlowTracePreviewSync";
 import { SectorFeatureProps, Trajectory } from "@/lib/models";
 import FlightDetailsPopup from "@/components/FlightDetailsPopup";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
@@ -48,9 +49,9 @@ import {
   addTrafficVolumeSources,
   buildTrafficVolumeSources,
   applyTrafficVolumeFilters,
+  applyTrafficVolumeFlowTraceWithHotspots,
   applyTrafficVolumeHighlightList,
   applyTrafficVolumeHover,
-  applyTrafficVolumeHotspots,
   applyTrafficVolumeVisibility,
   getTrafficVolumeCenter,
   getTrafficVolumeCenterFromMap,
@@ -145,6 +146,7 @@ export default function MapCanvasReroute() {
     flowPreviewGroupId,
     flowGroups,
     flowPreviewFlightId,
+    flowTraceVolumeIds,
     flightLinePreviewFlightIds,
     flightLevelBinPreviewSegments,
     proposalPreviewActive,
@@ -188,6 +190,7 @@ export default function MapCanvasReroute() {
     () => (resourceDate ? getResourcePathsForDate(resourceDate) : null),
     [resourceDate],
   );
+  useFlowTracePreviewSync();
 
   const [selectedFlight, setSelectedFlight] = useState<Trajectory | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -1709,14 +1712,20 @@ export default function MapCanvasReroute() {
     applyTrafficVolumeHover(map, hoveredTrafficVolume);
   }, [hoveredTrafficVolume]);
 
-  // Update hotspot layers when hotspots change, FL range changes, or time changes
+  // Update flow trace + hotspot layers when hotspots/time/FL range changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const activeHotspots = getActiveHotspots();
-    const hotspotTrafficVolumeIds = activeHotspots.map(h => h.traffic_volume_id);
-    applyTrafficVolumeHotspots(map, hotspotTrafficVolumeIds, flLowerBound, flUpperBound, true);
-  }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots]);
+    const activeHotspotIds = activeHotspots.map(h => String(h.traffic_volume_id));
+    applyTrafficVolumeFlowTraceWithHotspots(map, {
+      activeHotspotIds,
+      flowTraceVolumeIds,
+      flLowerBound,
+      flUpperBound,
+      includeFlRange: true,
+    });
+  }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots, flowTraceVolumeIds]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -14,6 +14,7 @@ import { syncFlightLevelLabelLayer } from "@/lib/flightLineLabelLayer";
 import { buildTrajectoryLineFeatureCollection } from "@/lib/trajectoryRender";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
+import { useFlowTracePreviewSync } from "@/components/useFlowTracePreviewSync";
 import { Trajectory } from "@/lib/models";
 import PageLoadingIndicator from "@/components/PageLoadingIndicator";
 import { ensureSurfacePrecipHour, hideSurfacePrecipLayer, isoHourFrom } from "@/lib/weatherOverlay";
@@ -33,10 +34,9 @@ import {
   addTrafficVolumeLayers,
   addTrafficVolumeSources,
   applyTrafficVolumeFilters,
-  applyTrafficVolumeFlowTrace,
+  applyTrafficVolumeFlowTraceWithHotspots,
   applyTrafficVolumeHighlightList,
   applyTrafficVolumeHover,
-  applyTrafficVolumeHotspots,
   applyTrafficVolumeVisibility,
   getTrafficVolumeCenter,
   getTrafficVolumeCenterFromMap,
@@ -138,6 +138,7 @@ export default function FlowCanvas() {
   );
   const currentMinuteOfDay = useMemo(() => getMinuteOfDay(t), [t]);
   const currentMinuteTick = useMemo(() => Math.floor(t / 60), [t]);
+  useFlowTracePreviewSync();
   const glanceReferenceBinSeconds = useMemo(() => {
     const safeBinMinutes = Math.max(1, Math.round(glanceTimeBinMinutes || TV_DCB_GLANCE_DEFAULT_BIN_MINUTES));
     const binSeconds = safeBinMinutes * 60;
@@ -736,21 +737,13 @@ export default function FlowCanvas() {
     if (!map) return;
     const activeHotspots = getActiveHotspots();
     const activeHotspotIds = activeHotspots.map(h => String(h.traffic_volume_id));
-    const normalizedTraceIds = Array.from(
-      new Set((flowTraceVolumeIds || []).map((id) => String(id).trim()).filter(Boolean)),
-    );
-
-    if (normalizedTraceIds.length > 0) {
-      const hotspotSet = new Set(activeHotspotIds);
-      const traceHotspotIds = normalizedTraceIds.filter((id) => hotspotSet.has(id));
-      const traceNonHotspotIds = normalizedTraceIds.filter((id) => !hotspotSet.has(id));
-      applyTrafficVolumeFlowTrace(map, traceNonHotspotIds, flLowerBound, flUpperBound, true);
-      applyTrafficVolumeHotspots(map, traceHotspotIds, flLowerBound, flUpperBound, true);
-      return;
-    }
-
-    applyTrafficVolumeFlowTrace(map, [], flLowerBound, flUpperBound, true);
-    applyTrafficVolumeHotspots(map, activeHotspotIds, flLowerBound, flUpperBound, true);
+    applyTrafficVolumeFlowTraceWithHotspots(map, {
+      activeHotspotIds,
+      flowTraceVolumeIds,
+      flLowerBound,
+      flUpperBound,
+      includeFlRange: true,
+    });
   }, [showHotspots, hotspots, flLowerBound, flUpperBound, t, getActiveHotspots, flowTraceVolumeIds]);
 
   useEffect(() => {

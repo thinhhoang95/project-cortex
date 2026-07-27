@@ -12,6 +12,7 @@ interface ModalDialogProps {
   children: React.ReactNode;
   width?: string;
   height?: string;
+  dismissible?: boolean;
 }
 
 export default function ModalDialog({
@@ -23,11 +24,16 @@ export default function ModalDialog({
   children,
   width = "w-[min(1080px,95vw)]",
   height = "h-[min(860px,92vh)]",
+  dismissible = true,
 }: ModalDialogProps) {
   if (!open) return null;
   const content = (
     <div className="fixed inset-0 z-[9999]">
-      <div className="absolute inset-0 backdrop-blur-sm" style={{ backgroundColor: "var(--modal-overlay)" }} onClick={onClose} />
+      <div
+        className="absolute inset-0 backdrop-blur-sm"
+        style={{ backgroundColor: "var(--modal-overlay)" }}
+        onClick={dismissible ? onClose : undefined}
+      />
       <div className="absolute inset-0 flex items-center justify-center p-6">
         <div
           className={`${width} ${height} rounded-2xl border overflow-hidden relative flex flex-col isolate`}
@@ -42,11 +48,13 @@ export default function ModalDialog({
             </div>
             <div className="flex items-center gap-2">
               {headerActions}
-              <PanelCloseButton
-                onClick={onClose}
-                ariaLabel="Close dialog"
-                title="Close dialog"
-              />
+              {dismissible && (
+                <PanelCloseButton
+                  onClick={onClose}
+                  ariaLabel="Close dialog"
+                  title="Close dialog"
+                />
+              )}
             </div>
           </div>
           <div className="overflow-y-auto flex-1">

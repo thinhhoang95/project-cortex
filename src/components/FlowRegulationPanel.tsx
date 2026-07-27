@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import { loadSectors } from "@/lib/airspace";
 import { getResourcePathsForDate } from "@/lib/dataPaths";
@@ -14,7 +14,6 @@ import MostVulnerableTvList, { type MostVulnerableTvItem } from "@/components/Mo
 import VpfDefiningVolumes from "@/components/VpfDefiningVolumes";
 import { useDocumentTheme } from "@/components/useDocumentTheme";
 import { formatDwellingTime } from "@/lib/dwellTime";
-import { fetchFlowTrace, normalizeTraceFlightIds } from "@/lib/flowTrace";
 import { formatCrossingFlightLevelRange } from "@/lib/trafficVolumeFormat";
 import { getDerivedCapacityRangeForTvAsync } from "@/lib/tvCapacityRanges";
 import type { FlowBasketItem } from "@/components/useSimStore";
@@ -83,10 +82,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setFlowMaxFlows,
     setFlowPreviewGroupId,
     setFlowPreviewFlightId,
-    setFlowTraceVolumeIds,
-    clearFlowTraceVolumeIds,
-    setFlowTraceLoading,
-    setFlowTraceError,
     resetProposalState,
     flowBasket,
     addFlowBasket,
@@ -113,37 +108,6 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
   const [selectedTvRanges, setSelectedTvRanges] = useState<Array<{ tvId: string; label: string }>>([]);
   const [selectedTvRangeLoading, setSelectedTvRangeLoading] = useState(false);
   const [basketError, setBasketError] = useState<string | null>(null);
-  const traceRequestSeqRef = useRef(0);
-
-  const previewFlowTrace = useCallback(async (flightIds: Iterable<string>) => {
-    const ids = normalizeTraceFlightIds(flightIds);
-    const seq = traceRequestSeqRef.current + 1;
-    traceRequestSeqRef.current = seq;
-
-    if (ids.length === 0) {
-      clearFlowTraceVolumeIds();
-      return;
-    }
-
-    setFlowTraceLoading(true);
-    setFlowTraceError(null);
-    try {
-      const trace = await fetchFlowTrace(ids);
-      if (traceRequestSeqRef.current !== seq) return;
-      setFlowTraceVolumeIds(trace.volume_ids || []);
-      setFlowTraceLoading(false);
-    } catch (err) {
-      if (traceRequestSeqRef.current !== seq) return;
-      setFlowTraceVolumeIds([]);
-      setFlowTraceError(err instanceof Error ? err.message : "Failed to fetch flow trace");
-      setFlowTraceLoading(false);
-    }
-  }, [clearFlowTraceVolumeIds, setFlowTraceError, setFlowTraceLoading, setFlowTraceVolumeIds]);
-
-  const clearPreviewFlowTrace = useCallback(() => {
-    traceRequestSeqRef.current += 1;
-    clearFlowTraceVolumeIds();
-  }, [clearFlowTraceVolumeIds]);
 
   useEffect(() => {
     setExtracting(false);
@@ -153,8 +117,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     setOpenAddMenuFor(null);
     setReviewContext(null);
     setBasketError(null);
-    clearPreviewFlowTrace();
-  }, [resourceStateEpoch, clearPreviewFlowTrace]);
+  }, [resourceStateEpoch]);
 
   useEffect(() => {
     if (!resourceDate) return;
@@ -521,10 +484,9 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
       setFlowError(null);
       setFlowPreviewGroupId(null);
       setFlowPreviewFlightId(null);
-      clearPreviewFlowTrace();
       resetProposalState();
     }
-  }, [selectedTVs, setFlowCommunities, setFlowViewEnabled, setFlowError, setFlowPreviewGroupId, setFlowPreviewFlightId, clearPreviewFlowTrace, resetProposalState]);
+  }, [selectedTVs, setFlowCommunities, setFlowViewEnabled, setFlowError, setFlowPreviewGroupId, setFlowPreviewFlightId, resetProposalState]);
 
 
   useEffect(() => {
@@ -538,10 +500,9 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
     if (!flowResults || !flowResults.flows || flowResults.flows.length === 0) {
       setFlowPreviewGroupId(null);
       setFlowPreviewFlightId(null);
-      clearPreviewFlowTrace();
     }
-    return () => { setFlowPreviewGroupId(null); setFlowPreviewFlightId(null); clearPreviewFlowTrace(); };
-  }, [flowResults, setFlowPreviewGroupId, setFlowPreviewFlightId, clearPreviewFlowTrace]);
+    return () => { setFlowPreviewGroupId(null); setFlowPreviewFlightId(null); };
+  }, [flowResults, setFlowPreviewGroupId, setFlowPreviewFlightId]);
 
   if (!open) return null;
 
@@ -728,12 +689,10 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                     className="border border-white/10 rounded-md"
                     onMouseEnter={() => {
                       setFlowPreviewGroupId(flowId);
-                      void previewFlowTrace((flow.flights || []).map((flight) => String(flight.flight_id)));
                     }}
                     onMouseLeave={() => {
                       setFlowPreviewGroupId(null);
                       setFlowPreviewFlightId(null);
-                      clearPreviewFlowTrace();
                     }}
                   >
                     <div className="flex items-center justify-between px-2 py-1 bg-white/5 rounded-t-md">

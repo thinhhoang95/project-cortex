@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import ShimmeringText from "@/components/ShimmeringText";
 import { useSimStore } from "@/components/useSimStore";
@@ -19,7 +19,6 @@ import type { Trajectory } from "@/lib/models";
 import { normalizeRegulationContext } from "@/lib/regulationTargets";
 import { buildRegulationDraftFromProposalFlow } from "@/lib/regulationProposalToPlan";
 import { buildFlowGroupMetadata } from "@/lib/flowExtractor";
-import { fetchFlowTrace, normalizeTraceFlightIds } from "@/lib/flowTrace";
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "–";
@@ -224,8 +223,6 @@ export default function RegulationProposalPanel({
     proposalResults,
     proposalQuery,
     proposalPreviewAll,
-    proposalPreviewActive,
-    proposalPreviewFlightIds,
     proposalPinnedProposals,
     proposalPinnedFlows,
     flowMinFlights,
@@ -246,10 +243,6 @@ export default function RegulationProposalPanel({
     setFlowBasketPeriod,
     addTargetCells,
     addRegulation,
-    setFlowTraceVolumeIds,
-    clearFlowTraceVolumeIds,
-    setFlowTraceLoading,
-    setFlowTraceError,
     resourceDate,
     resourceStateSelectedId,
     flights,
@@ -268,37 +261,6 @@ export default function RegulationProposalPanel({
   const [openAddMenuFor, setOpenAddMenuFor] = useState<string | null>(null);
   const [reviewContext, setReviewContext] = useState<ProposalReviewContext | null>(null);
   const [basketError, setBasketError] = useState<string | null>(null);
-  const traceRequestSeqRef = useRef(0);
-
-  const previewTraceForFlights = useCallback(async (flightIds: Iterable<string>) => {
-    const ids = normalizeTraceFlightIds(flightIds);
-    const seq = traceRequestSeqRef.current + 1;
-    traceRequestSeqRef.current = seq;
-
-    if (ids.length === 0) {
-      clearFlowTraceVolumeIds();
-      return;
-    }
-
-    setFlowTraceLoading(true);
-    setFlowTraceError(null);
-    try {
-      const trace = await fetchFlowTrace(ids);
-      if (traceRequestSeqRef.current !== seq) return;
-      setFlowTraceVolumeIds(trace.volume_ids || []);
-      setFlowTraceLoading(false);
-    } catch (err) {
-      if (traceRequestSeqRef.current !== seq) return;
-      setFlowTraceVolumeIds([]);
-      setFlowTraceError(err instanceof Error ? err.message : "Failed to fetch flow trace");
-      setFlowTraceLoading(false);
-    }
-  }, [clearFlowTraceVolumeIds, setFlowTraceError, setFlowTraceLoading, setFlowTraceVolumeIds]);
-
-  const clearPreviewTrace = useCallback(() => {
-    traceRequestSeqRef.current += 1;
-    clearFlowTraceVolumeIds();
-  }, [clearFlowTraceVolumeIds]);
 
   useEffect(() => {
     const nextTopK = proposalQuery?.topK ?? proposalResults?.top_k;
@@ -308,18 +270,7 @@ export default function RegulationProposalPanel({
     setExpandedFlightLists({});
     setShowAllFlightLists({});
     setBasketError(null);
-    clearPreviewTrace();
-  }, [proposalQuery, proposalResults, clearPreviewTrace]);
-
-  useEffect(() => {
-    if (!proposalPreviewActive) {
-      clearPreviewTrace();
-      return;
-    }
-    void previewTraceForFlights(proposalPreviewFlightIds);
-  }, [proposalPreviewActive, proposalPreviewFlightIds, previewTraceForFlights, clearPreviewTrace]);
-
-  useEffect(() => () => clearPreviewTrace(), [clearPreviewTrace]);
+  }, [proposalQuery, proposalResults]);
 
   const showPanel = isRegulationProposalPanelOpen || proposalLoading;
 

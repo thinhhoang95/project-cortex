@@ -625,6 +625,40 @@ export function applyTrafficVolumeFlowTrace(
   }
 }
 
+export function applyTrafficVolumeFlowTraceWithHotspots(
+  map: maplibregl.Map,
+  params: {
+    activeHotspotIds: string[];
+    flowTraceVolumeIds: string[];
+    flLowerBound?: number;
+    flUpperBound?: number;
+    includeFlRange?: boolean;
+  },
+): void {
+  const {
+    activeHotspotIds,
+    flowTraceVolumeIds,
+    flLowerBound,
+    flUpperBound,
+    includeFlRange = false,
+  } = params;
+  const normalizedTraceIds = Array.from(
+    new Set((flowTraceVolumeIds || []).map((id) => String(id).trim()).filter(Boolean)),
+  );
+
+  if (normalizedTraceIds.length === 0) {
+    applyTrafficVolumeFlowTrace(map, [], flLowerBound, flUpperBound, includeFlRange);
+    applyTrafficVolumeHotspots(map, activeHotspotIds, flLowerBound, flUpperBound, includeFlRange);
+    return;
+  }
+
+  const hotspotSet = new Set((activeHotspotIds || []).map((id) => String(id).trim()).filter(Boolean));
+  const traceHotspotIds = normalizedTraceIds.filter((id) => hotspotSet.has(id));
+  const traceNonHotspotIds = normalizedTraceIds.filter((id) => !hotspotSet.has(id));
+  applyTrafficVolumeFlowTrace(map, traceNonHotspotIds, flLowerBound, flUpperBound, includeFlRange);
+  applyTrafficVolumeHotspots(map, traceHotspotIds, flLowerBound, flUpperBound, includeFlRange);
+}
+
 export function getTrafficVolumeCenter(geometry: GeoJSON.Geometry | null | undefined): [number, number] | null {
   if (!geometry) return null;
   if (geometry.type === "Point") {

@@ -40,7 +40,7 @@ export default function LoginPage() {
           {/* Left: Illustration */}
           <div className="relative hidden md:block">
             <Image
-              src="/assets/login_art.png"
+              src="/assets/DSC_0320.png"
               width={512}
               height={768}
               

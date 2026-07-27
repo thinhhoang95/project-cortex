@@ -8,6 +8,7 @@ import CSComplexSpotsLeftPanel from "@/components/CSComplexSpotsLeftPanel";
 import ComplexityBottomControls from "@/components/ComplexityBottomControls";
 import ComplexityCanvas from "@/components/ComplexityCanvas";
 import Header from "@/components/Header";
+import ModalDialog from "@/components/ModalDialog";
 import SidePanelToggleButton from "@/components/SidePanelToggleButton";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from "@/components/useSimStore";
@@ -27,6 +28,11 @@ import {
   type ComplexitySuiteResponse,
   type ComplexityTraceResponse,
 } from "@/lib/csComplexity";
+import {
+  complexityArtifactCurrentPath,
+  complexityArtifactJobPath,
+  type ComplexityArtifactState,
+} from "@/lib/complexityArtifacts";
 
 const DEFAULT_INTEREST_WINDOW = "1h";
 const DEFAULT_SELECTED_METRIC: ComplexityMetricId = "td";
@@ -71,11 +77,95 @@ export default function ComplexityPage() {
   const [showContextMapOverlay, setShowContextMapOverlay] = useState(true);
   const [leftPanelsMinimized, setLeftPanelsMinimized] = useState(false);
   const [rightPanelsMinimized, setRightPanelsMinimized] = useState(false);
+  const [artifactState, setArtifactState] = useState<ComplexityArtifactState | null>(null);
+  const [artifactChecking, setArtifactChecking] = useState(false);
+  const [artifactDismissed, setArtifactDismissed] = useState(false);
+  const [artifactError, setArtifactError] = useState<string | null>(null);
 
   const suiteRequestSeq = useRef(0);
   const traceRequestSeq = useRef(0);
   const contextRequestSeq = useRef(0);
+  const artifactRequestSeq = useRef(0);
   const { hydrated, ready, user } = useResourceDateGuard();
+  const complexityReady = artifactState?.status === "ready" && artifactState.ready;
+
+  useEffect(() => {
+    if (!ready || !user) return;
+    const requestId = ++artifactRequestSeq.current;
+    setArtifactChecking(true);
+    setArtifactState(null);
+    setArtifactError(null);
+    setArtifactDismissed(false);
+    authFetch(complexityArtifactCurrentPath, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(extractErrorMessage(payload, "Failed to check complexity readiness"));
+        }
+        return payload as ComplexityArtifactState;
+      })
+      .then((payload) => {
+        if (requestId !== artifactRequestSeq.current) return;
+        setArtifactState(payload);
+      })
+      .catch((error) => {
+        if (requestId !== artifactRequestSeq.current) return;
+        setArtifactError(error instanceof Error ? error.message : "Failed to check complexity readiness");
+      })
+      .finally(() => {
+        if (requestId === artifactRequestSeq.current) setArtifactChecking(false);
+      });
+  }, [ready, resourceStateEpoch, user]);
+
+  useEffect(() => {
+    const jobId = artifactState?.job_id;
+    if (!jobId || !["queued", "running"].includes(artifactState.status)) return;
+    const requestId = artifactRequestSeq.current;
+    const timer = window.setInterval(() => {
+      authFetch(complexityArtifactJobPath(jobId), { cache: "no-store" })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(extractErrorMessage(payload, "Failed to read complexity job"));
+          }
+          return payload as ComplexityArtifactState;
+        })
+        .then((payload) => {
+          if (requestId !== artifactRequestSeq.current) return;
+          setArtifactState(payload);
+          if (payload.status === "failed") {
+            setArtifactError(payload.error || "Complexity calculation failed");
+          }
+        })
+        .catch((error) => {
+          if (requestId !== artifactRequestSeq.current) return;
+          setArtifactError(error instanceof Error ? error.message : "Failed to read complexity job");
+        });
+    }, 750);
+    return () => window.clearInterval(timer);
+  }, [artifactState?.job_id, artifactState?.status]);
+
+  const startComplexityComputation = async () => {
+    setArtifactError(null);
+    setArtifactDismissed(false);
+    const requestId = artifactRequestSeq.current;
+    try {
+      const response = await authFetch(complexityArtifactCurrentPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: false }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(extractErrorMessage(payload, "Failed to start complexity calculation"));
+      }
+      if (requestId !== artifactRequestSeq.current) return;
+      setArtifactState(payload as ComplexityArtifactState);
+    } catch (error) {
+      if (requestId !== artifactRequestSeq.current) return;
+      setArtifactError(error instanceof Error ? error.message : "Failed to start complexity calculation");
+    }
+  };
 
   const timeRange = useMemo(
     () => buildForwardTimeRange(t, interestWindowLength),
@@ -111,7 +201,7 @@ export default function ComplexityPage() {
   }, [selectedCollapsedSector]);
 
   useEffect(() => {
-    if (!selectedCollapsedSector) {
+    if (!complexityReady || !selectedCollapsedSector) {
       setSuiteData(null);
       setSuiteError(null);
       setSuiteLoading(false);
@@ -161,10 +251,10 @@ export default function ComplexityPage() {
     return () => {
       cancelled = true;
     };
-  }, [resourceStateEpoch, selectedCollapsedSector, timeRange]);
+  }, [complexityReady, resourceStateEpoch, selectedCollapsedSector, timeRange]);
 
   useEffect(() => {
-    if (!selectedCollapsedSector) {
+    if (!complexityReady || !selectedCollapsedSector) {
       setTraceData(null);
       setTraceError(null);
       setTraceLoading(false);
@@ -210,10 +300,10 @@ export default function ComplexityPage() {
     return () => {
       cancelled = true;
     };
-  }, [resourceStateEpoch, selectedCollapsedSector, selectedMetric, timeRange]);
+  }, [complexityReady, resourceStateEpoch, selectedCollapsedSector, selectedMetric, timeRange]);
 
   useEffect(() => {
-    if (!selectedCollapsedSector) {
+    if (!complexityReady || !selectedCollapsedSector) {
       setContextData(null);
       setContextError(null);
       setContextLoading(false);
@@ -257,7 +347,7 @@ export default function ComplexityPage() {
     return () => {
       cancelled = true;
     };
-  }, [contextTimeRange, resourceStateEpoch, selectedCollapsedSector]);
+  }, [complexityReady, contextTimeRange, resourceStateEpoch, selectedCollapsedSector]);
 
   const mergedTraceEnvelope = useMemo(
     () => mergeTraceEnvelopes(traceData?.snapshots, selectedMetric),
@@ -319,7 +409,7 @@ export default function ComplexityPage() {
         }`}
       >
         <div className="pointer-events-auto">
-          <CSComplexSpotsLeftPanel embedded />
+          <CSComplexSpotsLeftPanel embedded enabled={complexityReady} />
         </div>
         {selectedCollapsedSector && (
           <div className="pointer-events-auto">
@@ -368,6 +458,77 @@ export default function ComplexityPage() {
       )}
 
       <ComplexityBottomControls />
+      <ModalDialog
+        open={
+          !artifactDismissed &&
+          (artifactChecking || !complexityReady || artifactState?.status === "failed")
+        }
+        onClose={() => setArtifactDismissed(true)}
+        dismissible={!artifactChecking && !["queued", "running"].includes(artifactState?.status ?? "")}
+        title={
+          ["queued", "running"].includes(artifactState?.status ?? "")
+            ? "Computing complexity"
+            : "Complexity calculation required"
+        }
+        description={
+          ["queued", "running"].includes(artifactState?.status ?? "")
+            ? "Preparing exact results for the selected timeline mutation state."
+            : "This date and timeline state does not have a precomputed complexity artifact yet."
+        }
+        width="w-[min(560px,92vw)]"
+        height="h-auto max-h-[80vh]"
+      >
+        <div className="p-6 space-y-5">
+          {artifactChecking ? (
+            <p className="text-sm text-white/70">Checking the selected timeline state…</p>
+          ) : ["queued", "running"].includes(artifactState?.status ?? "") ? (
+            <>
+              <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-cyan-400 transition-all duration-300"
+                  style={{ width: `${Math.max(1, artifactState?.progress?.percent ?? 1)}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-white/60">
+                <span>
+                  {artifactState?.progress?.completed_sectors ?? 0} /{" "}
+                  {artifactState?.progress?.total_sectors ?? 0} sectors
+                </span>
+                <span>{(artifactState?.progress?.percent ?? 0).toFixed(1)}%</span>
+              </div>
+              {artifactState?.progress?.current_sector_id && (
+                <p className="text-xs text-white/50">
+                  Current sector: {artifactState.progress.current_sector_id}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-white/70">
+                Calculation is keyed to this exact operation date and cumulative delay state.
+                Existing artifacts for other dates or mutations will never be reused.
+              </p>
+              {artifactError && <p className="text-sm text-red-300">{artifactError}</p>}
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setArtifactDismissed(true)}
+                  className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white/70"
+                >
+                  Not now
+                </button>
+                <button
+                  type="button"
+                  onClick={startComplexityComputation}
+                  className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950"
+                >
+                  Compute complexity
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </ModalDialog>
     </main>
   );
 }

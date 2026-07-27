@@ -105,10 +105,12 @@ function getNumericSortValue(
 
 type CSComplexSpotsLeftPanelProps = {
   embedded?: boolean;
+  enabled?: boolean;
 };
 
 export default function CSComplexSpotsLeftPanel({
   embedded = false,
+  enabled = true,
 }: CSComplexSpotsLeftPanelProps) {
   const {
     resourceDate,
@@ -177,7 +179,10 @@ export default function CSComplexSpotsLeftPanel({
   }, [collapsedSectorSearch, resourceStateEpoch, selectedMetricId]);
 
   useEffect(() => {
-    if (!showComplexSpots) {
+    if (!enabled || !showComplexSpots) {
+      if (!enabled) {
+        setComplexSpots([]);
+      }
       setComplexSpotsLoading(false);
       setComplexSpotsError(null);
       return;
@@ -222,7 +227,7 @@ export default function CSComplexSpotsLeftPanel({
     return () => {
       cancelled = true;
     };
-  }, [refreshNonce, resourceStateEpoch, selectedMetricId, showComplexSpots]);
+  }, [enabled, refreshNonce, resourceStateEpoch, selectedMetricId, showComplexSpots]);
 
   const sortedComplexSpots = useMemo(() => {
     const list = [...complexSpots];
