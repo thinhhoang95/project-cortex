@@ -9,6 +9,7 @@ type RadPreviewFlightListPanelProps = {
   selectedRadId: string | null;
   legitimacyFlag: RadLegitimacyFlag;
   sourceTrafficVolumeId?: string | null;
+  tvArrivalTimeByFlightId?: ReadonlyMap<string, string>;
   subtitle?: string | null;
   emptyMessage?: string;
   loading: boolean;
@@ -22,6 +23,7 @@ export default function RadPreviewFlightListPanel({
   selectedRadId,
   legitimacyFlag,
   sourceTrafficVolumeId,
+  tvArrivalTimeByFlightId,
   subtitle,
   emptyMessage,
   loading,
@@ -30,6 +32,7 @@ export default function RadPreviewFlightListPanel({
   onHoverFlightIdChange,
 }: RadPreviewFlightListPanelProps) {
   const unresolvedCount = rows.filter((row) => row.unresolved).length;
+  const showTvArrivalTime = Boolean(sourceTrafficVolumeId);
 
   return (
     <div className="flex flex-col w-full rounded-2xl border border-white/20 bg-white/20 backdrop-blur-md shadow-xl text-white">
@@ -89,6 +92,14 @@ export default function RadPreviewFlightListPanel({
                   <th className="px-3 py-2 text-left font-semibold">Origin</th>
                   <th className="px-3 py-2 text-left font-semibold">Destination</th>
                   <th className="px-3 py-2 text-left font-semibold">T/O</th>
+                  {showTvArrivalTime && (
+                    <th
+                      className="px-3 py-2 text-left font-semibold whitespace-nowrap"
+                      title={`Crossing time for ${sourceTrafficVolumeId}`}
+                    >
+                      TV Arr.
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -120,6 +131,11 @@ export default function RadPreviewFlightListPanel({
                       <td className="px-3 py-2">{row.origin}</td>
                       <td className="px-3 py-2">{row.destination}</td>
                       <td className="px-3 py-2 font-mono">{row.takeoffTime}</td>
+                      {showTvArrivalTime && (
+                        <td className="px-3 py-2 font-mono whitespace-nowrap">
+                          {tvArrivalTimeByFlightId?.get(row.flightId) ?? "—"}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

@@ -431,6 +431,22 @@ export default function RadPreviewPage() {
     return radScopedFlightIds;
   }, [radScopedFlightIds, selectedFlightList, selectedRow, selectedTrafficVolumeId, tvScopedFlightIds]);
 
+  const tvArrivalTimeByFlightId = useMemo(() => {
+    const arrivalTimes = new Map<string, string>();
+    if (!selectedTrafficVolumeId || tvFlightPayload?.kind !== "ordered") {
+      return arrivalTimes;
+    }
+
+    for (const detail of tvFlightPayload.data.details ?? []) {
+      const flightId = String(detail?.flight_id ?? "").trim();
+      const arrivalTime = String(detail?.arrival_time ?? "").trim();
+      if (!flightId || !arrivalTime || arrivalTimes.has(flightId)) continue;
+      arrivalTimes.set(flightId, arrivalTime);
+    }
+
+    return arrivalTimes;
+  }, [selectedTrafficVolumeId, tvFlightPayload]);
+
   const flightRows = useMemo(() => mapRadFlightRows(displayFlightIds, flights), [displayFlightIds, flights]);
 
   const flightPanelLoading = selectedTrafficVolumeId
@@ -529,6 +545,7 @@ export default function RadPreviewPage() {
             selectedRadId={selectedRow?.rad_id ?? null}
             legitimacyFlag={legitimacyFlag}
             sourceTrafficVolumeId={selectedTrafficVolumeId}
+            tvArrivalTimeByFlightId={tvArrivalTimeByFlightId}
             subtitle={flightPanelSubtitle}
             emptyMessage={flightPanelEmptyMessage}
             loading={flightPanelLoading}
