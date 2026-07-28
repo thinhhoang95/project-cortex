@@ -63,7 +63,7 @@ export default function LoginPage() {
         </div>
 
         <div className="mt-6 text-center">
-          <span className="text-sm text-white/50">Sunset in Veneto</span>
+          <span className="text-sm text-white/50">Developer's Private Preview</span>
           <span className="text-sm text-white/40 mx-2">·</span>
           <Link href="https://www.intuelle.com" className="text-sm text-white/60 hover:text-white">
             Visit the Kitchen&apos;s Blog
