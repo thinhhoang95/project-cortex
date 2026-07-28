@@ -1,5 +1,6 @@
 'use client';
 
+import { CircleAlert } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
@@ -25,9 +26,7 @@ function PredictionUnavailableOverlay() {
         
         <div className="relative z-10 flex flex-col items-center p-8 text-center">
           <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-white/5 ring-1 ring-white/10">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-8 w-8 text-cyan-200">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-            </svg>
+            <CircleAlert strokeWidth={1.5} className="h-8 w-8 text-cyan-200" />
           </div>
           
           <h3 className="mb-2 text-xl font-semibold text-white">Prediction API Unavailable</h3>

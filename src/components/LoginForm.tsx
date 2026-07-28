@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ShimmeringText from '@/components/ShimmeringText';
@@ -89,16 +90,7 @@ export default function LoginForm() {
           'Sign In'
         )}
         {!loading && (
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-0.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 8.25 21 12m0 0-3.75 3.75M21 12H3" />
-          </svg>
+          <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-0.5" strokeWidth="1.5" />
         )}
       </button>
     </form>

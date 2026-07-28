@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, RefreshCw, Search } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import ShimmeringText from "@/components/ShimmeringText";
@@ -328,9 +329,7 @@ export default function CSComplexSpotsLeftPanel({
               }`}
               title="Refresh Complex Spots"
             >
-              <svg className={`w-4 h-4 ${complexSpotsLoading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <RefreshCw className={`w-4 h-4 ${complexSpotsLoading ? "animate-spin" : ""}`} />
             </button>
 
             <div className="flex items-center justify-between flex-1">
@@ -378,9 +377,7 @@ export default function CSComplexSpotsLeftPanel({
                       </option>
                     ))}
                   </select>
-                  <svg className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.25 8.29a.75.75 0 01-.02-1.08z" clipRule="evenodd" />
-                  </svg>
+                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" aria-hidden="true" />
                 </div>
               </div>
 
@@ -391,9 +388,7 @@ export default function CSComplexSpotsLeftPanel({
 
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
-                  <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 opacity-40 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                  </svg>
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 opacity-40 pointer-events-none" />
                   <input
                     type="search"
                     value={collapsedSectorSearch}
@@ -523,14 +518,7 @@ function SortableTh({ label, active, dir, onClick }: SortableThProps) {
         title={`Sort by ${label} (${dir === "asc" ? "ascending" : "descending"})`}
       >
         <span>{label}</span>
-        <svg
-          className={`w-3 h-3 transition-transform ${active ? "opacity-100" : "opacity-0"} ${active && dir === "asc" ? "transform rotate-180" : ""}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-        >
-          <path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <ChevronDown className={`w-3 h-3 transition-transform ${active ? "opacity-100" : "opacity-0"} ${active && dir === "asc" ? "transform rotate-180" : ""}`} />
       </button>
     </th>
   );

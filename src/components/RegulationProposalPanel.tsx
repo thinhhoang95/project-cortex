@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight, ChevronDown, Eye, Menu, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -681,9 +682,7 @@ export default function RegulationProposalPanel({
               ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
               : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/>
-            </svg>
+            <Eye width="16" height="16" />
           </button>
           <button
             aria-label="Re-run regulation proposals"
@@ -695,9 +694,7 @@ export default function RegulationProposalPanel({
               ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
               : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={proposalLoading ? 'animate-spin' : ''}>
-            <path fillRule="evenodd" clipRule="evenodd" d="M2.93077 11.2003C3.00244 6.23968 7.07619 2.25 12.0789 2.25C15.3873 2.25 18.287 3.99427 19.8934 6.60721C20.1103 6.96007 20.0001 7.42199 19.6473 7.63892C19.2944 7.85585 18.8325 7.74565 18.6156 7.39279C17.2727 5.20845 14.8484 3.75 12.0789 3.75C7.8945 3.75 4.50372 7.0777 4.431 11.1982L4.83138 10.8009C5.12542 10.5092 5.60029 10.511 5.89203 10.8051C6.18377 11.0991 6.18191 11.574 5.88787 11.8657L4.20805 13.5324C3.91565 13.8225 3.44398 13.8225 3.15157 13.5324L1.47176 11.8657C1.17772 11.574 1.17585 11.0991 1.46759 10.8051C1.75933 10.5111 2.2342 10.5092 2.52824 10.8009L2.93077 11.2003ZM19.7864 10.4666C20.0786 10.1778 20.5487 10.1778 20.8409 10.4666L22.5271 12.1333C22.8217 12.4244 22.8245 12.8993 22.5333 13.1939C22.2421 13.4885 21.7673 13.4913 21.4727 13.2001L21.0628 12.7949C20.9934 17.7604 16.9017 21.75 11.8825 21.75C8.56379 21.75 5.65381 20.007 4.0412 17.3939C3.82366 17.0414 3.93307 16.5793 4.28557 16.3618C4.63806 16.1442 5.10016 16.2536 5.31769 16.6061C6.6656 18.7903 9.09999 20.25 11.8825 20.25C16.0887 20.25 19.4922 16.9171 19.5625 12.7969L19.1546 13.2001C18.86 13.4913 18.3852 13.4885 18.094 13.1939C17.8028 12.8993 17.8056 12.4244 18.1002 12.1333L19.7864 10.4666Z" fill="currentColor"/>
-            </svg>
+            <RefreshCw width="16" height="16" className={proposalLoading ? 'animate-spin' : ''} />
           </button>
           <PanelCloseButton
             ariaLabel="Close regulation proposal panel"
@@ -838,9 +835,7 @@ export default function RegulationProposalPanel({
                         ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
                         : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/>
-                      </svg>
+                      <Eye width="14" height="14" />
                     </button>
                     <button
                       aria-label={`Expand details for ${proposal.id}`}
@@ -855,16 +850,7 @@ export default function RegulationProposalPanel({
                         ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
                         : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                     >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                        className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
-                      >
-                        <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
+                      <ChevronDown width="14" height="14" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
                     </button>
                   </div>
                 </div>
@@ -960,9 +946,7 @@ export default function RegulationProposalPanel({
                                       ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
                                       : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                                   >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5"/>
-                                    </svg>
+                                    <Eye width="12" height="12" />
                                   </button>
                                   <button
                                     type="button"
@@ -982,11 +966,7 @@ export default function RegulationProposalPanel({
                                       ? 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'
                                       : 'cursor-not-allowed border-white/10 bg-white/5 text-white/40'}`}
                                   >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                      <path d="M16.3891 8.11096L8.61091 15.8891" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                                      <path d="M16.3891 8.11096L16.7426 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                                      <path d="M16.3891 8.11096L12.5 7.75741" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
+                                    <ArrowUpRight width="12" height="12" />
                                   </button>
                                   <button
                                     onClick={(e) => {
@@ -1010,15 +990,7 @@ export default function RegulationProposalPanel({
                                       : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                                     title={flightListOpen ? 'Hide flight list' : 'Show flight list'}
                                   >
-                                    <svg
-                                      width="12"
-                                      height="12"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      xmlns="http://www.w3.org/2000/svg"
-                                    >
-                                      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                                    </svg>
+                                    <Menu width="12" height="12" />
                                   </button>
                                 </div>
                               </div>
@@ -1193,11 +1165,7 @@ export default function RegulationProposalPanel({
                       title="Flight statistics"
                       disabled={!hasProposalFlights}
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M16.3891 8.11096L8.61091 15.8891" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                        <path d="M16.3891 8.11096L16.7426 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                        <path d="M16.3891 8.11096L12.5 7.75741" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
+                      <ArrowUpRight width="14" height="14" />
                     </button>
                     <div className="relative inline-block text-[11px]">
                       <button

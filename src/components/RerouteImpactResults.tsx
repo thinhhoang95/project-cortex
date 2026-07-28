@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight, Minus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import ModalDialog from "@/components/ModalDialog";
@@ -117,9 +118,7 @@ export default function RerouteImpactResults({
       aria-label="Minimize"
       className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
     >
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
-      </svg>
+      <Minus className="w-5 h-5" />
     </button>
   );
 
@@ -234,18 +233,7 @@ export default function RerouteImpactResults({
               aria-expanded={diagExpanded}
             >
               <span>Per-flight Diagnostics</span>
-              <svg
-                className={`h-4 w-4 text-white/70 transition-transform ${diagExpanded ? "rotate-90" : ""}`}
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <ChevronRight className={`h-4 w-4 text-white/70 transition-transform ${diagExpanded ? "rotate-90" : ""}`} aria-hidden="true" />
             </button>
             {diagExpanded && (flightRows.length === 0 ? (
               <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-6 text-sm text-white/70">

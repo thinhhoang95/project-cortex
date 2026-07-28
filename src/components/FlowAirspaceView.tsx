@@ -1,4 +1,5 @@
 "use client";
+import { ArrowUpRight, Asterisk, Plus, TrendingUp } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import {
@@ -1141,12 +1142,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
               }`}
               title={selectedTvIds.length > 1 ? "Add to regulation is available only for a single selected TV" : "Add to regulation"}
             >
-              <svg height="16" fill="currentColor" width="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <g>
-                <line fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" x1="12" x2="12" y1="19" y2="5"/>
-                <line fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" x1="5" x2="19" y1="12" y2="12"/>
-                </g>
-              </svg>
+              <Plus height="16" width="16" />
             </button>
             <button
               aria-label="Propose regulation bundles"
@@ -1174,14 +1170,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
                 : 'border-white/30 bg-white/20 hover:bg-white/30'}`}
             >
-              <svg height="12" fill="currentColor" width="12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <g id="new">
-                  <g>
-                    <polygon points="13,23 11,23 11,13.7 3,18.4 2,16.6 10,12 2,7.4 3,5.6 11,10.3 11,1 13,1 13,10.3 21,5.6 22,7.4 14,12 22,16.6 
-                      21,18.4 13,13.7 		"/>
-                  </g>
-                </g>
-              </svg>
+              <Asterisk height="12" width="12" />
             </button>
             <PanelCloseButton
               onClick={() => {
@@ -1265,9 +1254,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 className="h-6 w-6 flex items-center justify-center rounded-md border border-white/20 text-gray-300 hover:text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 title={canAddCheckedFlights ? "Add checked flights to Flow Basket" : "No checked flights to add"}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                  <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
+                <Plus width="14" height="14" aria-hidden="true" />
               </button>
             </div>
             <div className="flex items-center gap-2">
@@ -1300,20 +1287,7 @@ export default function FlowAirspaceView({ embedded = false }: FlowAirspaceViewP
                 className="absolute inset-y-0 right-2 flex items-center justify-center text-gray-300 hover:text-white"
                 title="Open flight query"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M7 17 17 7" />
-                  <path d="M7 7h10v10" />
-                </svg>
+                <ArrowUpRight width="18" height="18" strokeWidth="2" aria-hidden="true" />
               </button>
             </div>
             <p className="text-[11px] opacity-70 mt-2">
@@ -1595,9 +1569,7 @@ function CatcherButton(props: {
       title={title}
       aria-label={title}
     >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <polyline points="3 18 9 10 14 14 21 6" />
-      </svg>
+      <TrendingUp width="18" height="18" strokeWidth="2" aria-hidden="true" />
       <span className="text-base leading-none">{symbol}</span>
     </button>
   );

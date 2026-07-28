@@ -1,5 +1,6 @@
 'use client';
 
+import { ChevronRight } from "lucide-react";
 interface SidePanelToggleButtonProps {
   side: 'left' | 'right';
   minimized: boolean;
@@ -35,20 +36,7 @@ export default function SidePanelToggleButton({
           : 'translate-x-1/2 hover:translate-x-0 focus-visible:translate-x-0 right-0'
       }`}
     >
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 24 24"
-        className={`h-4 w-4 transition-transform duration-300 ease-in-out ${iconRotationClass}`}
-        fill="none"
-      >
-        <path
-          d="M9 5l7 7-7 7"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <ChevronRight aria-hidden="true" className={`h-4 w-4 transition-transform duration-300 ease-in-out ${iconRotationClass}`} />
     </button>
   );
 }

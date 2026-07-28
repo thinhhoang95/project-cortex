@@ -1,5 +1,6 @@
 "use client";
 
+import { CircleAlert, CircleCheck, CircleX } from "lucide-react";
 import type { ReactNode } from "react";
 
 import PanelCloseButton from "@/components/PanelCloseButton";
@@ -143,15 +144,9 @@ function InstanceCard({ instance, highlighted }: { instance: RadPreviewInstance;
           </div>
         </div>
         {instance.supported ? (
-          <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 shrink-0 text-emerald-400" aria-label="Supported">
-            <circle cx="8" cy="8" r="7" stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.5" />
-            <path d="M4.5 8.5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <CircleCheck className="h-4 w-4 shrink-0 text-emerald-400" aria-label="Supported" />
         ) : (
-          <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 shrink-0 text-red-400" aria-label="Unsupported">
-            <circle cx="8" cy="8" r="7" stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.5" />
-            <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
+          <CircleX className="h-4 w-4 shrink-0 text-red-400" aria-label="Unsupported" />
         )}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-white/75">
@@ -202,25 +197,15 @@ function Field({
 function SupportBadge({ status }: { status: string }) {
   if (status === "supported") {
     return (
-      <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 shrink-0 text-emerald-400" aria-label="Supported">
-        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.5" />
-        <path d="M4.5 8.5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <CircleCheck className="h-4 w-4 shrink-0 text-emerald-400" aria-label="Supported" />
     );
   }
   if (status === "unsupported") {
     return (
-      <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 shrink-0 text-red-400" aria-label="Unsupported">
-        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.5" />
-        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
+      <CircleX className="h-4 w-4 shrink-0 text-red-400" aria-label="Unsupported" />
     );
   }
   return (
-    <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 shrink-0 text-amber-400" aria-label="Partial">
-      <circle cx="8" cy="8" r="7" stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.5" />
-      <path d="M8 5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="8" cy="11" r="0.75" fill="currentColor" />
-    </svg>
+    <CircleAlert className="h-4 w-4 shrink-0 text-amber-400" aria-label="Partial" />
   );
 }

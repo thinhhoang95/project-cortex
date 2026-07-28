@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, RefreshCw, Search } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import ShimmeringText from "@/components/ShimmeringText";
@@ -156,19 +157,7 @@ export default function RadPreviewDcbPanel({ embedded = false }: RadPreviewDcbPa
               }`}
               title="Refresh hotspots"
             >
-              <svg
-                className={`h-4 w-4 ${hotspotsLoading ? "animate-spin" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
+              <RefreshCw className={`h-4 w-4 ${hotspotsLoading ? "animate-spin" : ""}`} />
             </button>
 
             <div className="flex flex-1 items-center justify-between">
@@ -200,19 +189,7 @@ export default function RadPreviewDcbPanel({ embedded = false }: RadPreviewDcbPa
             <div className="flex flex-col">
               <div className="mb-2 flex items-center gap-2">
                 <div className="relative flex-1">
-                  <svg
-                    className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 opacity-40"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"
-                    />
-                  </svg>
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 opacity-40" />
                   <input
                     type="search"
                     value={tvSearch}
@@ -372,16 +349,9 @@ function SortableTh({ label, active, dir, onClick }: SortableThProps) {
         title={`Sort by ${label} (${dir === "asc" ? "ascending" : "descending"})`}
       >
         <span>{label}</span>
-        <svg
-          className={`h-3 w-3 transition-transform ${active ? "opacity-100" : "opacity-0"} ${
+        <ChevronDown className={`h-3 w-3 transition-transform ${active ? "opacity-100" : "opacity-0"} ${
             active && dir === "asc" ? "rotate-180 transform" : ""
-          }`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-        >
-          <path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+          }`} />
       </button>
     </th>
   );

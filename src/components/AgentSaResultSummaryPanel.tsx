@@ -1,5 +1,6 @@
 'use client';
 
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   type ReactNode,
   useCallback,
@@ -1038,15 +1039,7 @@ export default function AgentSaResultSummaryPanel({
             aria-label={`Show flight assignments (${delayRows.length} flights)`}
             title="Show flight assignments"
           >
-            <svg
-              className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.8}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+            <ChevronRight className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5" strokeWidth={1.8} />
             <span className="rounded-full bg-white/10 px-1.5 py-1 text-[10px] font-semibold text-white/75">
               {delayRows.length}
             </span>
@@ -1076,15 +1069,7 @@ export default function AgentSaResultSummaryPanel({
                 aria-label="Collapse flight assignments"
                 title="Collapse flight assignments"
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                </svg>
+                <ChevronLeft className="h-4 w-4" strokeWidth={2} />
               </button>
             </div>
           </div>

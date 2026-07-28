@@ -1,4 +1,5 @@
 "use client";
+import { Minus, Plus, X } from "lucide-react";
 import { useEffect } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import { isSlackOverlayEligible } from "@/lib/slackOverlay";
@@ -62,7 +63,7 @@ export default function SlackViewControl({
         className={controlButtonClass(slackMode === "off", false)}
         title="Turn off slack overlay"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>
+        <X width="14" height="14" strokeWidth="2" />
         <span>Off</span>
       </button>
       <button
@@ -71,7 +72,7 @@ export default function SlackViewControl({
         className={controlButtonClass(slackMode === "minus", false)}
         title="Shift backward in time (minus)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"></path></svg>
+        <Minus width="14" height="14" strokeWidth="2" />
         <span>Minus</span>
       </button>
       <button
@@ -80,7 +81,7 @@ export default function SlackViewControl({
         className={controlButtonClass(slackMode === "plus", false)}
         title="Shift forward in time (plus)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+        <Plus width="14" height="14" strokeWidth="2" />
         <span>Plus</span>
       </button>
       <div className="w-px h-4 bg-white/30"></div>

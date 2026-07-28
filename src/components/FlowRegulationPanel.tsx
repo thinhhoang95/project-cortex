@@ -1,4 +1,5 @@
 "use client";
+import { Layers, Menu, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
 import { loadSectors } from "@/lib/airspace";
@@ -609,7 +610,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs ${extracting ? 'border-blue-400/50 bg-blue-500/20 text-blue-200' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
             >
               {extracting ? null : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 12 12 17 22 12" /><polyline points="2 17 12 22 22 17" /></svg>
+                <Layers width="14" height="14" strokeWidth="2" />
               )}
               {extracting ? (
                 <ShimmeringText text="Extracting Flows..." />
@@ -727,9 +728,7 @@ export default function FlowRegulationPanel({ embedded = false }: FlowRegulation
                             ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
                             : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                         >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                          </svg>
+                          <Menu width="12" height="12" />
                         </button>
                         <AddToBasketMenu
                           flowId={flowId}
@@ -1202,7 +1201,7 @@ function AddToBasketMenu({
         className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/90 hover:bg-white/15 flex items-center gap-1"
         title="Add this flow to Flow Basket"
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" /></svg>
+        <Plus width="12" height="12" />
         <span className="hidden sm:inline">Add</span>
       </button>
       {isOpen && (

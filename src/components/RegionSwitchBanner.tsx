@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
@@ -67,20 +68,7 @@ export default function RegionSwitchBanner() {
             className="inline-flex items-center gap-1 font-medium text-cyan-200 underline decoration-cyan-300/50 underline-offset-4 transition-colors hover:text-white hover:decoration-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
           >
             Change
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 20 20"
-              fill="none"
-              className={`h-3.5 w-3.5 transition-transform ${regionMenuOpen ? "rotate-180" : ""}`}
-            >
-              <path
-                d="m5.5 7.5 4.5 4.5 4.5-4.5"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 transition-transform ${regionMenuOpen ? "rotate-180" : ""}`} />
           </button>
           {regionMenuOpen && (
             <div

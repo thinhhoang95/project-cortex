@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight, Check, Filter, Hexagon, Trash2, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
 import FlightQueryDialog from "@/components/FlightQueryDialog";
 import { useSimStore, type RerouteCatcherMode, type RerouteCatcherTimeframe } from "@/components/useSimStore";
@@ -126,20 +127,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                 title="Open flight query"
                 aria-label="Open flight query"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M7 17 17 7" />
-                  <path d="M7 7h10v10" />
-                </svg>
+                <ArrowUpRight width="18" height="18" strokeWidth="2" aria-hidden="true" />
               </button>
             </div>
             <p className="text-[11px] opacity-70 mt-2">
@@ -220,9 +208,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                 title="Obstacle Tool"
                 aria-label="Obstacle Tool"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                </svg>
+                <Hexagon width="18" height="18" strokeWidth="2" aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -237,9 +223,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                 title="Funnel Tool"
                 aria-label="Funnel Tool"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                </svg>
+                <Filter width="18" height="18" strokeWidth="2" aria-hidden="true" />
               </button>
             </div>
 
@@ -249,11 +233,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                 onClick={clearRerouteObstacles}
                 className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M3 6h18" />
-                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                </svg>
+                <Trash2 width="14" height="14" strokeWidth="2" aria-hidden="true" />
                 Clear Obstacles ({rerouteObstacles.length})
               </button>
               <button
@@ -261,11 +241,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                 onClick={clearRerouteFunnels}
                 className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-white/20 bg-white/10 text-white/80 hover:bg-white/15 transition-colors"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M3 6h18" />
-                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                </svg>
+                <Trash2 width="14" height="14" strokeWidth="2" aria-hidden="true" />
                 Clear Funnels ({rerouteFunnels.length})
               </button>
             </div>
@@ -311,11 +287,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                   : "border-white/10 bg-white/5 text-white/45 cursor-not-allowed"
               }`}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 6h18" />
-                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-              </svg>
+              <Trash2 width="14" height="14" strokeWidth="2" aria-hidden="true" />
               Delete Selected Shape
             </button>
 
@@ -361,9 +333,7 @@ export default function RerouteIntelligentFlightSelectorPanel({ embedded = false
                   : "border-white/10 bg-white/5 text-white/45 cursor-not-allowed"
               }`}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Check width="16" height="16" strokeWidth="2" aria-hidden="true" />
               Commit Draft Move
             </button>
           </div>
@@ -409,9 +379,7 @@ function CatcherButton(props: {
       title={title}
       aria-label={title}
     >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <polyline points="3 18 9 10 14 14 21 6" />
-      </svg>
+      <TrendingUp width="18" height="18" strokeWidth="2" aria-hidden="true" />
       <span className="text-base leading-none">{symbol}</span>
     </button>
   );

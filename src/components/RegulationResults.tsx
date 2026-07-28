@@ -1,4 +1,5 @@
 "use client";
+import { ArrowRight, ChevronRight, CircleX, TriangleAlert, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 // charts are handled by OccupancyPrePostPanel
@@ -1006,7 +1007,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                   disabled={commitRegulationPending || resourceStateLoading || !!commitPreconditionError}
                   className={`h-7 px-3 rounded-lg border text-xs flex items-center gap-1.5 ${commitRegulationPending || resourceStateLoading || !!commitPreconditionError ? 'border-sky-300/30 bg-sky-500/10 text-sky-100/60 cursor-not-allowed' : 'border-sky-300/70 bg-sky-500/20 text-sky-50 hover:bg-sky-500/30'}`}
                 >
-                  <svg className="w-3 h-3 shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8V2M3.5 4.5 6 2l2.5 2.5"/><path d="M2 9.5v.5a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-.5"/></svg>
+                  <Upload className="w-3 h-3 shrink-0" strokeWidth="1.5" aria-hidden="true" />
                   {commitRegulationPending ? <ShimmeringText text="Committing…" /> : "Commit Regulation"}
                 </button>
                 <div className="pointer-events-none absolute bottom-full right-0 mb-1.5 hidden group-hover:flex flex-col gap-0.5 min-w-max rounded-lg border border-white/15 bg-gray-900/95 px-3 py-2 text-[11px] shadow-xl z-50">
@@ -1048,9 +1049,9 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
           {(commitRegulationError || commitPreconditionError) && (
             <div className={`mt-3 mb-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] ${commitRegulationError ? 'border-rose-400/30 bg-rose-500/10 text-rose-300' : 'border-amber-400/30 bg-amber-500/10 text-amber-200'}`}>
               {commitRegulationError ? (
-                <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="5.5"/><path d="M5 5l4 4m0-4-4 4"/></svg>
+                <CircleX className="w-3.5 h-3.5 shrink-0 mt-px" strokeWidth="1.5" aria-hidden="true" />
               ) : (
-                <svg className="w-3.5 h-3.5 shrink-0 mt-px" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 1.5 12.5 11.5H1.5L7 1.5Z"/><path d="M7 5.5v2.5"/><circle cx="7" cy="9.5" r=".5" fill="currentColor" stroke="none"/></svg>
+                <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-px" strokeWidth="1.5" aria-hidden="true" />
               )}
               <span>{commitRegulationError ?? commitPreconditionError}</span>
             </div>
@@ -1121,18 +1122,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                   aria-expanded={showLegacyComponents}
                 >
                   <span>Legacy Components</span>
-                  <svg
-                    className={`w-4 h-4 text-white/70 transition-transform ${showLegacyComponents ? "rotate-90" : ""}`}
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <ChevronRight className={`w-4 h-4 text-white/70 transition-transform ${showLegacyComponents ? "rotate-90" : ""}`} aria-hidden="true" />
                 </button>
                 <div
                   className={`overflow-x-auto${showLegacyComponents ? "" : " hidden"}`}
@@ -1170,18 +1160,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                   aria-expanded={showObjectiveWeights}
                 >
                   <span>Objective Weights Applied</span>
-                  <svg
-                    className={`w-4 h-4 text-white/70 transition-transform ${showObjectiveWeights ? "rotate-90" : ""}`}
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M7.21 5.23a.75.75 0 011.06 0l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-1.06L10.94 10 7.21 6.29a.75.75 0 010-1.06z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <ChevronRight className={`w-4 h-4 text-white/70 transition-transform ${showObjectiveWeights ? "rotate-90" : ""}`} aria-hidden="true" />
                 </button>
                 <div
                   className={`overflow-x-auto${showObjectiveWeights ? "" : " hidden"}`}
@@ -1634,10 +1613,7 @@ export default function RegulationResults({ open, result, onClose }: RegulationR
                 className="mt-1 inline-flex items-center gap-1 text-[12px] underline"
               >
                 {regSnapshotToast.action.label}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12h14"></path>
-                  <path d="M12 5l7 7-7 7"></path>
-                </svg>
+                <ArrowRight width="12" height="12" strokeWidth="2" />
               </a>
             )}
           </div>

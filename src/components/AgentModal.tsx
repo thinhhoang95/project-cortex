@@ -1,5 +1,6 @@
 'use client';
 
+import { X } from "lucide-react";
 import { useState } from 'react';
 import AgentRunResultsList from './AgentRunResultsList';
 import type { AgentRunRef } from '@/lib/agentRuns';
@@ -56,10 +57,7 @@ export default function AgentModal({ open, onClose, onShowSummary }: AgentModalP
                     className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/70 transition hover:border-white/20 hover:bg-white/[0.12] hover:text-white"
                     aria-label="Close agent modal"
                   >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 6L6 18" />
-                      <path d="M6 6l12 12" />
-                    </svg>
+                    <X width="20" height="20" strokeWidth="2" />
                   </button>
                 </div>
 

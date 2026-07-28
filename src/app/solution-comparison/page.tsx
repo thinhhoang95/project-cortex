@@ -1,5 +1,6 @@
 "use client";
 
+import { Download, Plus, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import Header from "@/components/Header";
@@ -1485,28 +1486,28 @@ export default function SolutionComparisonPage() {
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                  <Download width="14" height="14" strokeWidth="2" />
                   Export
                 </button>
                 <button
                   onClick={() => { setImportText(""); setImportError(null); setImportOpen(true); }}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                  <Upload width="14" height="14" strokeWidth="2" />
                   Import
                 </button>
                 <button
                   onClick={() => { clearSnapshots(); setSnapshots([]); setSelectedIds([]); }}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/20 bg-red-500/20 text-red-100 hover:bg-red-500/30"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                  <Trash2 width="14" height="14" />
                   Clear all
                 </button>
                 <a
                   href="/flow-evaluation"
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-400/60 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/25"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                  <Plus width="14" height="14" strokeWidth="2" />
                   Collect new snapshot
                 </a>
               </div>
@@ -2529,10 +2530,7 @@ export default function SolutionComparisonPage() {
               }}
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-500/30 text-emerald-50 hover:bg-emerald-500/40"
             >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path d="M9 3a1 1 0 0 1 2 0v8.586l2.293-2.293a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4A1 1 0 0 1 6.707 9.293L9 11.586V3z" />
-                <path d="M4 15a1 1 0 0 1 1-1h10a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1z" />
-              </svg>
+              <Download className="w-4 h-4" aria-hidden="true" />
               <span>Download JSON</span>
             </button>
             <button

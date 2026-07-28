@@ -1,5 +1,6 @@
 "use client";
 
+import { Filter, Hexagon, Plane, Ruler, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -154,11 +155,7 @@ export default function RerouteProposalsPanel({ embedded = false }: ReroutePropo
                   onClick={() => deleteRerouteMove(move.id)}
                   className="shrink-0 flex items-center gap-1.5 rounded-md border border-rose-300/40 bg-rose-500/15 px-2 py-1 text-[11px] text-rose-100 transition-colors hover:bg-rose-500/25"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
+                  <Trash2 width="12" height="12" strokeWidth="2" aria-hidden="true" />
                   Delete
                 </button>
               </div>
@@ -168,40 +165,28 @@ export default function RerouteProposalsPanel({ embedded = false }: ReroutePropo
                   label="Flights"
                   value={move.affectedFlightIds.length.toString()}
                   icon={
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-.5-.5-2.5 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.2-1.1.6L3 8l6 5-3 3-3-1-2 2 4 4 2-2-1-3 3-3 5 6 1.2-.7c.4-.2.7-.6.6-1.1Z" />
-                    </svg>
+                    <Plane width="16" height="16" strokeWidth="2" aria-hidden="true" />
                   }
                 />
                 <MetricChip
                   label="Extra NM"
                   value={(result?.totalExtraNm ?? 0).toLocaleString("en-US")}
                   icon={
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z" />
-                      <path d="m14.5 12.5 2-2" />
-                      <path d="m11.5 9.5 2-2" />
-                      <path d="m8.5 6.5 2-2" />
-                      <path d="m17.5 15.5 2-2" />
-                    </svg>
+                    <Ruler width="16" height="16" strokeWidth="2" aria-hidden="true" />
                   }
                 />
                 <MetricChip
                   label="Obstacles"
                   value={move.obstacles.length.toString()}
                   icon={
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                    </svg>
+                    <Hexagon width="16" height="16" strokeWidth="2" aria-hidden="true" />
                   }
                 />
                 <MetricChip
                   label="Funnels"
                   value={move.funnels.length.toString()}
                   icon={
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                    </svg>
+                    <Filter width="16" height="16" strokeWidth="2" aria-hidden="true" />
                   }
                 />
               </div>

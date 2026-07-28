@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, CloudRain, MapPin, MessageCircle, Share2, Square, Tag } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import FlightLevelRangeControl from "@/components/FlightLevelRangeControl";
 import FlightLineLabelPopover from "@/components/FlightLineLabelPopover";
@@ -164,12 +165,7 @@ export default function ViewOptionsControl({
           <div className="h-6 w-px bg-white/30" />
           <div className="flex items-center gap-2">
             {/* Weather icon */}
-            <svg className="w-5 h-5 text-white/90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M20 17.58A5 5 0 0018 8h-1.26A8 8 0 104 16.25" />
-              <path d="M8 19v2" />
-              <path d="M12 19v2" />
-              <path d="M16 19v2" />
-            </svg>
+            <CloudRain className="w-5 h-5 text-white/90" strokeWidth="2" aria-hidden="true" />
             {/* Sleek dropdown: no border, custom chevron */}
             <div className="relative inline-flex items-center">
               <select
@@ -182,14 +178,7 @@ export default function ViewOptionsControl({
                 <option className="bg-slate-800 text-white" value="none">Weather Overlay</option>
                 <option className="bg-slate-800 text-white" value="surface-precip">Surface Precip.</option>
               </select>
-              <svg
-                className="pointer-events-none absolute right-0 mr-0.5 w-4 h-4 text-white/70"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.25 8.29a.75.75 0 01-.02-1.08z" clipRule="evenodd" />
-              </svg>
+              <ChevronDown className="pointer-events-none absolute right-0 mr-0.5 w-4 h-4 text-white/70" aria-hidden="true" />
             </div>
           </div>
         </div>
@@ -220,9 +209,7 @@ export default function ViewOptionsControl({
             active={showTrafficVolumes}
             onClick={() => setShowTrafficVolumes(!showTrafficVolumes)}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect x={4} y={4} width={16} height={16} rx={2} ry={2} strokeWidth={2} />
-            </svg>
+            <Square className="w-5 h-5" />
           </IconToggle>
 
           <IconToggle
@@ -230,9 +217,7 @@ export default function ViewOptionsControl({
             active={showFlightLines}
             onClick={() => setShowFlightLines(!showFlightLines)}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
-            </svg>
+            <Share2 className="w-5 h-5" />
           </IconToggle>
 
           <button
@@ -253,9 +238,7 @@ export default function ViewOptionsControl({
             }
           >
             <span className="sr-only">Flight Line Labels</span>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-            </svg>
+            <Tag className="w-5 h-5" />
           </button>
 
           <IconToggle
@@ -263,9 +246,7 @@ export default function ViewOptionsControl({
             active={showCallsigns}
             onClick={() => setShowCallsigns(!showCallsigns)}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
+            <MessageCircle className="w-5 h-5" />
           </IconToggle>
 
           <IconToggle
@@ -273,10 +254,7 @@ export default function ViewOptionsControl({
             active={showWaypoints}
             onClick={() => setShowWaypoints(!showWaypoints)}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
+            <MapPin className="w-5 h-5" />
           </IconToggle>
 
           {(showAirspaceDisplayToggle || lockedAirspaceDisplayMode) && (

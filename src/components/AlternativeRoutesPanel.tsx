@@ -1,3 +1,4 @@
+import { ArrowRight, CircleAlert, Map } from "lucide-react";
 import { useSimStore } from "@/components/useSimStore";
 import PanelCloseButton from "@/components/PanelCloseButton";
 
@@ -68,9 +69,7 @@ export default function AlternativeRoutesPanel({ embedded = false }: Props) {
               <span>Route:</span>
               <div className="flex items-center gap-1.5 font-mono text-slate-200">
                 <span>{origin || '???'}</span>
-                <svg className="w-3 h-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
+                <ArrowRight className="w-3 h-3 text-slate-500" />
                 <span>{destination || '???'}</span>
               </div>
             </div>
@@ -87,9 +86,7 @@ export default function AlternativeRoutesPanel({ embedded = false }: Props) {
         {showError && (
           <div className="flex flex-col gap-2 p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-200">
             <div className="flex items-center gap-2 font-medium text-red-100">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+              <CircleAlert className="w-5 h-5" />
               <span>Error loading routes</span>
             </div>
             <div className="text-sm opacity-90 pl-7">
@@ -101,9 +98,7 @@ export default function AlternativeRoutesPanel({ embedded = false }: Props) {
         {showEmptyState && (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
-              <svg className="w-8 h-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-              </svg>
+              <Map className="w-8 h-8 text-slate-400" />
             </div>
             <h3 className="text-white font-medium mb-1">No Alternative Routes</h3>
             <p className="text-sm text-slate-400 max-w-[200px]">

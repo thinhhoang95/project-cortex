@@ -1,4 +1,5 @@
 "use client";
+import { ArrowUpRight, Eye, EyeOff, LoaderCircle, Play, Plus, Save, Search, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Buffer } from "buffer";
@@ -503,7 +504,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
               onClick={handleSavePlan}
               className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
+              <Save width="14" height="14" strokeWidth="2" />
               Save plan
             </button>
           </div>
@@ -526,14 +527,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 placeholder="Search saved plans..."
                 className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
               />
-              <svg
-                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" />
-              </svg>
+              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
             </div>
           </div>
           <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-4">
@@ -573,7 +567,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         className="rounded-lg border border-white/15 bg-white/5 p-2 text-white/70 transition hover:border-red-300/40 hover:bg-red-500/20 hover:text-red-100"
                         title="Delete saved plan"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                        <Trash2 width="14" height="14" />
                       </button>
                     </div>
                   </div>
@@ -637,16 +631,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 aria-label="Open basket flight statistics"
                 disabled={allBasketFlightIds.length === 0}
               >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path d="M7 17L17 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M9 7h8v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <ArrowUpRight width="16" height="16" />
               </button>
               <button
                 onClick={() => {
@@ -659,9 +644,9 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
               >
                 {/* Eye icon */}
                 {basketView ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                  <Eye width="16" height="16" />
                 ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" /></svg>
+                  <EyeOff width="16" height="16" />
                 )}
               </button>
             </div>
@@ -684,14 +669,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                   onBlur={() => setTimeout(() => setTvSearchOpen(false), 150)}
                   className="w-full px-3 py-2 bg-white/20 border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/20"
                 />
-                <svg
-                  className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" />
-                </svg>
+                <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60" />
                 {tvSearchOpen && filteredTVs.length > 0 && (
                   <div className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-slate-900/95 border border-white/20 rounded-lg shadow-lg">
                     {filteredTVs.map((tv) => (
@@ -767,7 +745,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                         title="Remove cell"
                         onClick={() => removeTargetCell(cell.id)}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                        <Trash2 width="14" height="14" />
                       </button>
                     </div>
                   ))}
@@ -786,7 +764,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 className="px-2 py-1 rounded-lg bg-white/10 border border-white/20 text-white shadow hover:bg-white/15 flex items-center gap-1 text-xs"
                 title="Create new empty flow"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" /></svg>
+                <Plus width="14" height="14" />
                 New flow
               </button>
             </div>
@@ -803,7 +781,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                   className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-white/20 bg-white/10 text-white text-xs shadow hover:bg-white/15"
                   title="Load a saved flow plan"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                  <Upload width="14" height="14" strokeWidth="2" />
                   Load plan
                 </button>
                 <button
@@ -811,7 +789,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                   className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-indigo-300/40 bg-indigo-500/30 text-white text-xs shadow hover:bg-indigo-500/40"
                   title="Save the current flow basket"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
+                  <Save width="14" height="14" strokeWidth="2" />
                   Save plan
                 </button>
               </div>
@@ -883,7 +861,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                             title="Delete flow"
                             onClick={() => { restoreFlowPreview(); removeFlowBasket(bf.id); }}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                            <Trash2 width="14" height="14" />
                           </button>
                         </div>
                       </div>
@@ -942,7 +920,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                                             title="Remove from this flow"
                                             onClick={() => removeFlightFromBasketFlow(bf.id, flightKey)}
                                           >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6v12m8-12v12M5 6l1 14h12l1-14M9 3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                                            <Trash2 width="14" height="14" />
                                           </button>
                                         </div>
                                       </td>
@@ -1049,9 +1027,7 @@ export default function FlowPlanPanel({ embedded = false }: FlowPlanPanelProps) 
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium shadow flex items-center gap-2 text-sm hover:opacity-90"
                 title="Open Flow Impact Evaluation"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M8 5v14l11-7z" fill="currentColor" />
-                </svg>
+                <Play width="16" height="16" fill="currentColor" />
                 Preview Baseline
               </button>
             </div>
@@ -1110,7 +1086,7 @@ function MoveFlightMenu({ flows, currentFlowId, onMove }: { flows: Array<{ id: s
         onClick={() => setOpen((o) => !o)}
       >
         {/* Move icon */}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M6 6l3 3M15 15l3 3M6 18l3-3M15 9l3-3" stroke="currentColor" strokeWidth="1.5" /></svg>
+        <LoaderCircle width="14" height="14" />
       </button>
       {open && (
         <div className="absolute right-0 mt-1 w-40 bg-slate-900/95 border border-white/20 rounded-md shadow-lg z-10">

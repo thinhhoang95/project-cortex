@@ -1,4 +1,5 @@
 "use client";
+import { ArrowUpRight, Asterisk, Eye, EyeOff, Menu, Plus, Send, Trash2, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ComposedChart, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, ReferenceLine } from 'recharts';
 import { useSimStore, type RegulationCatcherMode, type RegulationCatcherTimeframe } from "@/components/useSimStore";
@@ -1091,13 +1092,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                 ? 'border-blue-400/50 bg-blue-500/20 text-blue-100'
                 : 'border-white/30 bg-white/20 hover:bg-white/30'}`}
             >
-              <svg height="12" fill="currentColor" width="12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <g id="new">
-                  <g>
-                    <polygon points="13,23 11,23 11,13.7 3,18.4 2,16.6 10,12 2,7.4 3,5.6 11,10.3 11,1 13,1 13,10.3 21,5.6 22,7.4 14,12 22,16.6 21,18.4 13,13.7"/>
-                  </g>
-                </g>
-              </svg>
+              <Asterisk height="12" width="12" />
             </button>
             <PanelCloseButton
               onClick={() => {
@@ -1185,9 +1180,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs ${flowViewEnabled ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
             >
               {flowViewEnabled ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.86 18.86 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.86 18.86 0 0 1-3.17 4.13M1 1l22 22"/></svg>
+                <EyeOff width="14" height="14" strokeWidth="2" />
               ) : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+                <Eye width="14" height="14" strokeWidth="2" />
               )}
               {flowViewEnabled ? 'Disable Flow View' : 'Enable Flow View'}
             </button>
@@ -1272,26 +1267,14 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                   className="text-gray-300 hover:text-white"
                   title="Add flight"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor" /></svg>
+                  <Send width="16" height="16" />
                 </button>
                 <button
                   onClick={() => setMagicSearchOpen(true)}
                   className="text-gray-300 hover:text-white"
                   title="Magic Search"
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M7 17 17 7" />
-                    <path d="M7 7h10v10" />
-                  </svg>
+                  <ArrowUpRight width="18" height="18" strokeWidth="2" />
                 </button>
               </div>
             </div>
@@ -1459,27 +1442,9 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                 className={`h-6 w-6 p-0 rounded border flex items-center justify-center transition-colors ${showTargetedOnly ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30' : 'border-white/10 text-white/80 hover:bg-white/10'} disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-white/30`}
               >
                 {showTargetedOnly ? (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden="true"
-                  >
-                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" />
-                  </svg>
+                  <Eye width="16" height="16" aria-hidden="true" />
                 ) : (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden="true"
-                  >
-                    <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" />
-                  </svg>
+                  <EyeOff width="16" height="16" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -1514,7 +1479,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
                         <td className="p-2">{f.destination || 'N/A'}</td>
                         <td className="p-2">
                           <button onClick={() => removeRegulationTargetFlight(String(f.flightId))} className="text-red-300 hover:text-red-200">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" /></svg>
+                            <Trash2 width="14" height="14" />
                           </button>
                         </td>
                       </tr>
@@ -1564,7 +1529,7 @@ export default function RegulationPanel({ embedded = false }: RegulationPanelPro
             disabled={!primaryTvId || selectedFlights.length === 0}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium shadow hover:opacity-90 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+            <Plus width="16" height="16" />
             Add
           </button>
         </div>
@@ -1624,9 +1589,7 @@ function CatcherButton(props: {
       title={title}
       aria-label={title}
     >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <polyline points="3 18 9 10 14 14 21 6" />
-      </svg>
+      <TrendingUp width="18" height="18" strokeWidth="2" aria-hidden="true" />
       <span className="text-base leading-none">{symbol}</span>
     </button>
   );
@@ -1791,9 +1754,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowGroupMetadata
                       ? 'border-blue-400 bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
                       : 'border-white/30 bg-white/10 text-white/80 hover:bg-white/15'}`}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
+                    <Menu width="12" height="12" />
                   </button>
                   <div className="relative inline-block text-[11px]">
                     <button
@@ -1806,7 +1767,7 @@ function FlowCommunitiesSection({ flowCommunities, flowGroups, flowGroupMetadata
                       aria-haspopup="menu"
                       aria-expanded={openMenuFor === g.cid}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" /></svg>
+                      <Plus width="12" height="12" />
                       <span className="hidden sm:inline">Add</span>
                     </button>
                     {openMenuFor === g.cid && (

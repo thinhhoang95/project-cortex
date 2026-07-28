@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import FlightStatisticsDialog from "@/components/FlightStatisticsDialog";
@@ -47,7 +48,7 @@ export default function FlightStatisticsButton({
   const portalTarget = typeof window === "undefined" ? null : document.body;
 
   const baseButtonClasses =
-    "h-7 w-7 p-0 rounded border border-white/10 text-white/90 flex items-center justify-center hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed";
+    "h-6 w-6 p-0 rounded border border-white/10 text-white/90 flex items-center justify-center hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
     <>
@@ -82,34 +83,6 @@ export default function FlightStatisticsButton({
 
 function StatsIcon({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
-      <path
-        d="M16.3891 8.11096L8.61091 15.8891"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M16.3891 8.11096L16.7426 12"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M16.3891 8.11096L12.5 7.75741"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <ArrowUpRight className={className} aria-hidden="true" />
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, ListChecks, Pencil, Plus, Settings, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Trash2, X } from "lucide-react";
 import GlobalTVBasket from "@/components/GlobalTVBasket";
@@ -281,17 +282,7 @@ export default function SettingsDialog({
           onClick={resetDefaults}
           className="mr-1 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-[var(--panel-text-muted)] transition hover:bg-white/10 hover:text-[var(--panel-text-primary)]"
         >
-          <svg
-            className="h-3.5 w-3.5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 15.5A8 8 0 1 0 6 7.5L4 10" />
-          </svg>
+          <Undo2 className="h-3.5 w-3.5" strokeWidth="1.8" aria-hidden="true" />
           Restore defaults
         </button>
       ) : null}
@@ -311,10 +302,7 @@ export default function SettingsDialog({
                 : "border-transparent text-[var(--panel-text-muted)] hover:border-white/10 hover:bg-white/5 hover:text-[var(--panel-text-primary)]"
             }`}
           >
-            <svg className="h-4 w-4 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.55 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.2 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.4v-4h.09A1.7 1.7 0 0 0 4.2 8.55a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.55 4.2a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2.4h4v.09A1.7 1.7 0 0 0 15 4.2a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 8.55a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.09v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
-            </svg>
+            <Settings className="h-4 w-4 text-blue-300" strokeWidth="1.8" />
             General
           </button>
           <button
@@ -327,10 +315,7 @@ export default function SettingsDialog({
                 : "border-transparent text-[var(--panel-text-muted)] hover:border-white/10 hover:bg-white/5 hover:text-[var(--panel-text-primary)]"
             }`}
           >
-            <svg className="h-4 w-4 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M6 12h12M6 17h7" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="m17 15 1.5 1.5L22 13" />
-            </svg>
+            <ListChecks className="h-4 w-4 text-blue-300" strokeWidth="1.8" aria-hidden="true" />
             TV Scope
           </button>
         </aside>
@@ -406,9 +391,7 @@ export default function SettingsDialog({
                 onClick={saveGlobal}
                 className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-1.5 text-[12px] font-medium text-emerald-100 transition-colors hover:bg-emerald-500/25"
               >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m5 12 4 4L19 6" />
-                </svg>
+                <Check className="h-3.5 w-3.5" strokeWidth="2" aria-hidden="true" />
                 Apply global thresholds
               </button>
             </div>
@@ -452,10 +435,7 @@ export default function SettingsDialog({
                             aria-label={`Edit ${override.trafficVolumeId}`}
                             title="Edit"
                           >
-                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                              <path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2 4 20Z" />
-                              <path d="m14.5 7.1 2.8 2.8" />
-                            </svg>
+                            <Pencil className="h-4 w-4" strokeWidth="1.8" />
                           </button>
                           <button
                             type="button"
@@ -464,9 +444,7 @@ export default function SettingsDialog({
                             aria-label={`Delete ${override.trafficVolumeId}`}
                             title="Delete"
                           >
-                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                              <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" />
-                            </svg>
+                            <Trash2 className="h-4 w-4" strokeWidth="1.8" />
                           </button>
                         </div>
                       </div>
@@ -547,9 +525,7 @@ export default function SettingsDialog({
                     className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-1.5 text-[12px] font-medium text-emerald-100 transition-colors hover:bg-emerald-500/25"
                   >
                     {!editingId && (
-                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                        <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-                      </svg>
+                      <Plus className="h-3.5 w-3.5" strokeWidth="2" aria-hidden="true" />
                     )}
                     {editingId ? "Save override" : "Add override"}
                   </button>

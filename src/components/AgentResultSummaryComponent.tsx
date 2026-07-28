@@ -1,5 +1,6 @@
 'use client';
 
+import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, List, Presentation } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -320,14 +321,7 @@ function FlowGroupMiniMapTooltip({
       >
         <div className="flex items-center gap-2">
           <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
-            <svg
-              className="w-4 h-4 text-white/60"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            <ChevronDown className="w-4 h-4 text-white/60" />
           </div>
           <span className="text-xs font-medium text-white/70">
             {isExpanded ? 'Hide' : 'Show'} Flow Preview
@@ -2467,9 +2461,7 @@ export default function AgentResultSummaryComponent({
                       >
                         <div className="relative z-10">
                           <div className="mb-6 inline-flex rounded-2xl bg-emerald-500/10 p-4 text-emerald-400 ring-1 ring-inset ring-emerald-500/20 transition-colors group-hover:bg-emerald-500/20 group-hover:text-emerald-300">
-                            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605" />
-                            </svg>
+                            <Presentation className="h-8 w-8" strokeWidth={1.5} />
                           </div>
                           <h3 className="text-xl font-bold text-white group-hover:text-emerald-300">Whole Plan View</h3>
                           <p className="mt-3 text-sm leading-relaxed text-white/60 group-hover:text-white/80">
@@ -2478,9 +2470,7 @@ export default function AgentResultSummaryComponent({
                         </div>
                         <div className="mt-8 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-white/40 group-hover:text-emerald-400">
                           Select View
-                          <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                          </svg>
+                          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" strokeWidth={2} />
                         </div>
                       </button>
 
@@ -2491,9 +2481,7 @@ export default function AgentResultSummaryComponent({
                       >
                         <div className="relative z-10">
                           <div className="mb-6 inline-flex rounded-2xl bg-blue-500/10 p-4 text-blue-400 ring-1 ring-inset ring-blue-500/20 transition-colors group-hover:bg-blue-500/20 group-hover:text-blue-300">
-                            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                            </svg>
+                            <List className="h-8 w-8" strokeWidth={1.5} />
                           </div>
                           <h3 className="text-xl font-bold text-white group-hover:text-blue-300">Per Episode View</h3>
                           <p className="mt-3 text-sm leading-relaxed text-white/60 group-hover:text-white/80">
@@ -2502,9 +2490,7 @@ export default function AgentResultSummaryComponent({
                         </div>
                         <div className="mt-8 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-white/40 group-hover:text-blue-400">
                           Select View
-                          <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                          </svg>
+                          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" strokeWidth={2} />
                         </div>
                       </button>
                     </div>
@@ -3014,15 +3000,7 @@ export default function AgentResultSummaryComponent({
             aria-label={`Show flight assignments (${flightRows.length} flights)`}
             title="Show flight assignments"
           >
-            <svg
-              className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.8}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+            <ChevronRight className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5" strokeWidth={1.8} />
             <span className="rounded-full bg-white/10 px-1.5 py-1 text-[10px] font-semibold text-white/75">
               {flightRows.length}
             </span>
@@ -3066,15 +3044,7 @@ export default function AgentResultSummaryComponent({
                     aria-label="Collapse flight assignments"
                     title="Collapse flight assignments"
                   >
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                    </svg>
+                    <ChevronLeft className="h-4 w-4" strokeWidth={2} />
                   </button>
                 </div>
               </div>

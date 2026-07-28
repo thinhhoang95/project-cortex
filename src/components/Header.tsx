@@ -1,5 +1,6 @@
 'use client';
 
+import { ArrowUpRight, ChevronDown, Search, Settings } from "lucide-react";
 import { useState, useEffect } from 'react';
 import { useSimStore } from '@/components/useSimStore';
 import { loadSectors } from '@/lib/airspace';
@@ -383,9 +384,7 @@ export default function Header() {
                   className="flex items-center gap-1 text-white/80 hover:text-white transition-colors whitespace-nowrap"
                 >
                   More
-                  <svg className={`w-3.5 h-3.5 transition-transform ${showMoreMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showMoreMenu ? 'rotate-180' : ''}`} />
                 </button>
                 {showMoreMenu && (
                   <div className="absolute left-0 top-full mt-2 flex w-48 flex-col glass-menu rounded-lg shadow-xl z-[2100]">
@@ -479,28 +478,9 @@ export default function Header() {
                 className="absolute right-10 top-1/2 flex -translate-y-1/2 items-center justify-center text-[var(--panel-text-muted)] hover:text-white focus:text-white focus:outline-none"
                 aria-label="Open flight query"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M7 17 17 7" />
-                  <path d="M7 7h10v10" />
-                </svg>
+                <ArrowUpRight width="18" height="18" strokeWidth="2" />
               </button>
-              <svg
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--panel-text-muted)]"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+              <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--panel-text-muted)]" />
 
               {showSearchResults && (
                 <div className="absolute top-full mt-2 w-full glass-menu rounded-lg max-h-64 overflow-y-auto z-[2100]">
@@ -630,10 +610,7 @@ export default function Header() {
                     className="w-full px-4 py-3 text-left text-sm transition-colors rounded-lg hover:bg-[var(--menu-hover-bg)] flex items-center justify-between"
                   >
                     <span>Settings</span>
-                    <svg className="h-4 w-4 glass-menu-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-                      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.55 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.2 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.4v-4h.09A1.7 1.7 0 0 0 4.2 8.55a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.55 4.2a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2.4h4v.09A1.7 1.7 0 0 0 15 4.2a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 8.55a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.09v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
-                    </svg>
+                    <Settings className="h-4 w-4 glass-menu-muted" strokeWidth="1.8" />
                   </button>
                   <button
                     onClick={() => {

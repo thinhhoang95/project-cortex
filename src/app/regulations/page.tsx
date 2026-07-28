@@ -1,5 +1,6 @@
 'use client';
 
+import { ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from 'react';
 import { useResourceDateGuard } from '@/components/useResourceDateGuard';
 import { useSimStore } from '@/components/useSimStore';
@@ -168,10 +169,7 @@ export default function RegulationsPage() {
             {regComparisonToast.action && (
               <a href={regComparisonToast.action.href} className="mt-1 inline-flex items-center gap-1 text-[12px] underline">
                 {regComparisonToast.action.label}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12h14"></path>
-                  <path d="M12 5l7 7-7 7"></path>
-                </svg>
+                <ArrowRight width="12" height="12" strokeWidth="2" />
               </a>
             )}
           </div>

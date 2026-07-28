@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Check, Loader2 } from "lucide-react";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from '@/components/useSimStore';
 import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
@@ -64,6 +65,81 @@ const SHOCKWAVE_HORIZON_OPTIONS = [
 
 const TV_PAGE_SIZE = 24;
 
+const FIELD_CLASS =
+  "h-10 rounded-lg border border-white/20 bg-white/10 px-3 text-sm text-white transition focus:border-sky-300/60 focus:outline-none focus:ring-1 focus:ring-sky-300/25";
+
+type StatusTone = "danger" | "warning" | "muted";
+
+const STATUS_TONE_CLASS: Record<StatusTone, string> = {
+  danger: "text-rose-300",
+  warning: "text-amber-200",
+  muted: "text-white/55",
+};
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">{children}</span>
+  );
+}
+
+function SectionHeading({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="mb-3 flex items-center gap-3">
+      <h2 className="text-[11px] font-medium uppercase tracking-wider text-white/50">{title}</h2>
+      {count > 0 && (
+        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[11px] text-white/55">
+          {count}
+        </span>
+      )}
+      <div className="h-px flex-1 bg-white/10" />
+    </div>
+  );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-center text-xs text-white/45">
+      {children}
+    </div>
+  );
+}
+
+function ShowMoreButton({ remaining, onClick }: { remaining: number; onClick: () => void }) {
+  return (
+    <div className="mt-4 flex justify-center">
+      <button
+        onClick={onClick}
+        className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/25 hover:bg-white/10 hover:text-white"
+      >
+        Show {Math.min(remaining, TV_PAGE_SIZE)} more
+        <span className="ml-1.5 text-white/40">({remaining} remaining)</span>
+      </button>
+    </div>
+  );
+}
+
+function DebugToggle({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-2 py-1 text-[11px] transition ${
+        active ? "bg-white/10 text-white/85" : "text-white/40 hover:bg-white/5 hover:text-white/70"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function OriginalCountPage() {
   const resourceDate = useSimStore((state) => state.resourceDate);
   const basket = useGlobalTVBasket();
@@ -98,6 +174,17 @@ export default function OriginalCountPage() {
     const to = hhmmToSec(toTime);
     return to >= from; // inclusive window allowed by backend
   }, [fromTime, toTime]);
+
+  const statusMessages = useMemo(() => {
+    const messages: { tone: StatusTone; text: string }[] = [];
+    if (!valid) messages.push({ tone: "danger", text: "End time must not be earlier than start time." });
+    if (error) messages.push({ tone: "danger", text: error });
+    if (basketResultsStale) {
+      messages.push({ tone: "warning", text: "Basket changed. Run the query to refresh requested traffic volumes." });
+    }
+    if (basket.catalogLoading) messages.push({ tone: "muted", text: "Loading traffic-volume catalog…" });
+    return messages;
+  }, [basket.catalogLoading, basketResultsStale, error, valid]);
 
   const handleQuery = async () => {
     setError(null);
@@ -236,110 +323,133 @@ export default function OriginalCountPage() {
           </div>
 
           {/* Controls */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
-            <div className="flex flex-wrap items-center gap-3 mb-3">
-              <button
-                onClick={handleQuery}
-                disabled={!valid || querying || basket.catalogLoading}
-                className={`px-3 py-2 rounded-lg text-sm font-bold transition-colors ${querying ? 'bg-gradient-to-r from-blue-500 to-cyan-400 text-white opacity-80 cursor-wait' : valid && !basket.catalogLoading ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 hover:from-blue-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40' : 'opacity-50 cursor-not-allowed border border-white/20 bg-white/5 text-white/60'}`}
-              >
-                {querying ? <ShimmeringText text="Querying..." /> : 'Query'}
-              </button>
-              {!valid && (
-                <div className="text-[11px] text-red-200">End time must not be earlier than start time</div>
-              )}
-              {basket.catalogLoading && (
-                <div className="text-[11px] text-white/60">Loading traffic-volume catalog…</div>
-              )}
-              {error && (
-                <div className="text-[11px] text-red-200">{error}</div>
-              )}
-              {basketResultsStale && (
-                <div className="text-[11px] text-amber-200">
-                  Basket changed. Run Query to refresh requested traffic volumes.
-                </div>
-              )}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-end">
-              <div className="md:col-span-2 xl:col-span-5">
-                <GlobalTVBasket />
-              </div>
-              <div>
-                <div className="text-[11px] opacity-80 mb-1 text-white">From</div>
-                <input
-                  type="time"
-                  value={fromTime}
-                  onChange={(e) => setFromTime(e.currentTarget.value)}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                />
-              </div>
-              <div>
-                <div className="text-[11px] opacity-80 mb-1 text-white">To</div>
-                <input
-                  type="time"
-                  value={toTime}
-                  onChange={(e) => setToTime(e.currentTarget.value)}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                />
-              </div>
-              <div>
-                <div className="text-[11px] opacity-80 mb-1 text-white">Rank by</div>
-                <div className="relative">
-                  <select
-                    value={rankBy}
-                    onChange={(e) => setRankBy(e.currentTarget.value)}
-                    className="w-full appearance-none pl-3 pr-10 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
-                  >
-                    <option value="total_excess">Total Excess</option>
-                    <option value="total_count">Total Count</option>
-                  </select>
-                  <SelectChevron />
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <label className="inline-flex items-center gap-2 text-white/90">
-                <input
-                  type="checkbox"
-                  checked={rollingHour}
-                  onChange={(e) => setRollingHour(e.currentTarget.checked)}
-                  className="accent-blue-500 scale-110"
-                />
-                <span className="text-sm">Rolling Hour</span>
-              </label>
+          <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+            {/* Traffic volume selection */}
+            <div className="px-5 pt-5 pb-4">
+              <GlobalTVBasket variant="plain" />
             </div>
 
-            {/* Debug toggles */}
-            <div className="mt-3 flex items-center gap-3 text-[12px]">
-              <button
-                onClick={() => setShowRequest((s) => !s)}
-                className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
-              >{showRequest ? 'Hide Request' : 'Show Request'}</button>
-              <button
-                onClick={() => setShowResponse((s) => !s)}
-                className="px-2 py-1 rounded-md bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
-              >{showResponse ? 'Hide Response' : 'Show Response'}</button>
+            {/* Query parameters */}
+            <div className="border-t border-white/10 px-5 py-4">
+              <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>From</FieldLabel>
+                  <input
+                    type="time"
+                    value={fromTime}
+                    onChange={(e) => setFromTime(e.currentTarget.value)}
+                    className={`${FIELD_CLASS} w-[8.5rem]`}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>To</FieldLabel>
+                  <input
+                    type="time"
+                    value={toTime}
+                    onChange={(e) => setToTime(e.currentTarget.value)}
+                    className={`${FIELD_CLASS} w-[8.5rem]`}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Rank by</FieldLabel>
+                  <div className="relative">
+                    <select
+                      value={rankBy}
+                      onChange={(e) => setRankBy(e.currentTarget.value)}
+                      className={`${FIELD_CLASS} w-48 appearance-none pr-10`}
+                    >
+                      <option value="total_excess">Total Excess</option>
+                      <option value="total_count">Total Count</option>
+                    </select>
+                    <SelectChevron />
+                  </div>
+                </label>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={rollingHour}
+                  onClick={() => setRollingHour((value) => !value)}
+                  className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition ${
+                    rollingHour
+                      ? "border-sky-300/40 bg-sky-500/15 text-sky-100"
+                      : "border-white/20 bg-white/10 text-white/70 hover:border-white/30 hover:text-white"
+                  }`}
+                >
+                  <span
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded border transition ${
+                      rollingHour ? "border-sky-300/60 bg-sky-400/80 text-slate-950" : "border-white/25"
+                    }`}
+                  >
+                    {rollingHour && <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />}
+                  </span>
+                  Rolling hour
+                </button>
+
+                <button
+                  onClick={handleQuery}
+                  disabled={!valid || querying || basket.catalogLoading}
+                  className={`ml-auto inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold transition ${
+                    querying
+                      ? "bg-gradient-to-r from-blue-500 to-cyan-400 text-white opacity-80 cursor-wait"
+                      : valid && !basket.catalogLoading
+                        ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 hover:from-blue-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+                        : "cursor-not-allowed border border-white/15 bg-white/5 text-white/40"
+                  }`}
+                >
+                  {querying ? <ShimmeringText text="Querying…" /> : "Run query"}
+                </button>
+              </div>
+
+              {statusMessages.length > 0 && (
+                <div className="mt-3 flex flex-col gap-1.5">
+                  {statusMessages.map((status) => (
+                    <div
+                      key={status.text}
+                      className={`inline-flex items-center gap-2 text-xs ${STATUS_TONE_CLASS[status.tone]}`}
+                    >
+                      {status.tone === "muted" ? (
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      )}
+                      {status.text}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {showRequest && (
-              <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-48 overflow-auto">
-                {JSON.stringify(debugPayload, null, 2)}
-              </div>
-            )}
-            {showResponse && data && (
-              <div className="mt-2 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/90 font-mono max-h-72 overflow-auto">
-                {JSON.stringify(data, null, 2)}
-              </div>
-            )}
 
             {/* Histogram view control */}
-            <div className="mt-6">
-              <div className="text-[11px] uppercase tracking-wider text-white/60 mb-1">Histogram View Range</div>
+            <div className="border-t border-white/10 px-5 py-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-white/50">
+                  Histogram view range
+                </div>
+                <div className="flex items-center gap-1">
+                  <DebugToggle active={showRequest} onClick={() => setShowRequest((s) => !s)}>
+                    Request
+                  </DebugToggle>
+                  <DebugToggle active={showResponse} onClick={() => setShowResponse((s) => !s)}>
+                    Response
+                  </DebugToggle>
+                </div>
+              </div>
               <TimeScaleControl
                 time_from={viewFromTime}
                 time_to={viewToTime}
                 stepMinutes={data?.time_bin_minutes ?? 1}
                 onCommit={(f, t) => { setViewFromTime(f); setViewToTime(t); }}
               />
+              {showRequest && (
+                <pre className="mt-3 max-h-48 overflow-auto rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-white/80">
+                  {JSON.stringify(debugPayload, null, 2)}
+                </pre>
+              )}
+              {showResponse && data && (
+                <pre className="mt-3 max-h-72 overflow-auto rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-white/80">
+                  {JSON.stringify(data, null, 2)}
+                </pre>
+              )}
             </div>
           </div>
 
@@ -348,7 +458,7 @@ export default function OriginalCountPage() {
               <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
                   <div>
-                    <div className="text-[11px] uppercase tracking-wider text-white/60">
+                    <div className="text-[11px] font-medium uppercase tracking-wider text-white/50">
                       Traffic Volume Shockwaves
                     </div>
                     <div className="mt-1 text-xs text-white/65">
@@ -360,13 +470,13 @@ export default function OriginalCountPage() {
                       <span className="font-mono">{shockwaveTargetTime}</span> ({shockwaveHorizonLabel})
                     </div>
                   </div>
-                  <div className="w-full sm:w-40">
-                    <div className="text-[11px] opacity-80 mb-1 text-white">Horizon</div>
+                  <label className="flex w-full flex-col gap-1.5 sm:w-40">
+                    <FieldLabel>Horizon</FieldLabel>
                     <div className="relative">
                       <select
                         value={shockwaveHorizonMode}
                         onChange={(e) => setShockwaveHorizonMode(e.currentTarget.value)}
-                        className="w-full appearance-none pl-3 pr-10 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none text-white"
+                        className={`${FIELD_CLASS} w-full appearance-none pr-10`}
                       >
                         {SHOCKWAVE_HORIZON_OPTIONS.map((option) => (
                           <option key={`shockwave-${option.value}`} value={option.value}>
@@ -376,7 +486,7 @@ export default function OriginalCountPage() {
                       </select>
                       <SelectChevron />
                     </div>
-                  </div>
+                  </label>
                 </div>
                 <TrafficVolumeShockwaves
                   countsByTv={shockwaveCounts}
@@ -394,10 +504,10 @@ export default function OriginalCountPage() {
 
           {/* Mentioned TVs */}
           <section className="mb-8">
-            <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Mentioned Traffic Volumes</div>
+            <SectionHeading title="Mentioned Traffic Volumes" count={mentionedItems.length} />
             {data?.mentioned_counts && Object.keys(data.mentioned_counts).length > 0 ? (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
                   {visibleMentionedItems.map(({ tvId, series, labels, capacitySeries }) => (
                     <ChartCard
                       key={`m-${tvId}`}
@@ -415,24 +525,20 @@ export default function OriginalCountPage() {
                   ))}
                 </div>
                 {mentionedItems.length > visibleMentionedItems.length && (
-                  <div className="mt-4 flex justify-center">
-                    <button
-                      onClick={() => setVisibleMentionedTvCount((count) => Math.min(count + TV_PAGE_SIZE, mentionedItems.length))}
-                      className="px-3 py-1.5 text-sm rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white"
-                    >
-                      Show More...
-                    </button>
-                  </div>
+                  <ShowMoreButton
+                    remaining={mentionedItems.length - visibleMentionedItems.length}
+                    onClick={() => setVisibleMentionedTvCount((count) => Math.min(count + TV_PAGE_SIZE, mentionedItems.length))}
+                  />
                 )}
               </>
             ) : (
-              <div className="text-xs text-gray-300">No specific traffic volumes selected.</div>
+              <EmptyState>No specific traffic volumes selected.</EmptyState>
             )}
           </section>
 
           {/* Top TVs */}
           <section className="mb-4">
-            <div className="text-sm uppercase tracking-wider text-gray-300 mb-3">Top Traffic Volumes</div>
+            <SectionHeading title="Top Traffic Volumes" count={topItems.length} />
             {data?.counts && Object.keys(data.counts).length > 0 ? (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
@@ -453,18 +559,14 @@ export default function OriginalCountPage() {
                   ))}
                 </div>
                 {topItems.length > visibleTopItems.length && (
-                  <div className="mt-4 flex justify-center">
-                    <button
-                      onClick={() => setVisibleTopTvCount((count) => Math.min(count + TV_PAGE_SIZE, topItems.length))}
-                      className="px-3 py-1.5 text-sm rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white"
-                    >
-                      Show More...
-                    </button>
-                  </div>
+                  <ShowMoreButton
+                    remaining={topItems.length - visibleTopItems.length}
+                    onClick={() => setVisibleTopTvCount((count) => Math.min(count + TV_PAGE_SIZE, topItems.length))}
+                  />
                 )}
               </>
             ) : (
-              <div className="text-xs text-gray-300">No data yet. Run a query.</div>
+              <EmptyState>No data yet — run a query to load occupancy counts.</EmptyState>
             )}
           </section>
         </div>

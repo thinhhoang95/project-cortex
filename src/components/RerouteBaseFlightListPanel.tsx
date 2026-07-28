@@ -1,5 +1,6 @@
 "use client";
 
+import { Eye, EyeOff, Trash2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
@@ -403,13 +404,9 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
               aria-label="Toggle selected-flight preview"
             >
               {previewSelectedOnly ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12zm11 3a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" strokeWidth="1.5" />
-                </svg>
+                <Eye width="16" height="16" />
               ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.86 18.86 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 11 7 11 7a18.86 18.86 0 01-3.17 4.13M1 1l22 22" stroke="currentColor" strokeWidth="1.5" />
-                </svg>
+                <EyeOff width="16" height="16" />
               )}
             </button>
             <button
@@ -544,9 +541,7 @@ export default function RerouteBaseFlightListPanel({ embedded = false }: Reroute
                             title={`Remove flight ${row.callSign}`}
                             aria-label={`Remove flight ${row.callSign}`}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                              <path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5" />
-                            </svg>
+                            <Trash2 width="14" height="14" aria-hidden="true" />
                           </button>
                         )}
                       </td>

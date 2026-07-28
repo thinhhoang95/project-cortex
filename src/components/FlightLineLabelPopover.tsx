@@ -1,5 +1,6 @@
 "use client";
 
+import { Contact, Layers } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -99,11 +100,7 @@ export default function FlightLineLabelPopover({
               onClick={() => onSelect("flightLevel")}
             >
               {/* Layers icon — represents altitude strata / flight levels */}
-              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                <polyline points="2 12 12 17 22 12" />
-                <polyline points="2 17 12 22 22 17" />
-              </svg>
+              <Layers aria-hidden="true" className="h-5 w-5" strokeWidth="1.75" />
             </ModeButton>
             <ModeButton
               label="Callsign"
@@ -111,12 +108,7 @@ export default function FlightLineLabelPopover({
               onClick={() => onSelect("callsign")}
             >
               {/* ID card icon — represents aircraft callsign / identifier */}
-              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="5" width="20" height="14" rx="2" />
-                <circle cx="8" cy="12" r="2" />
-                <line x1="13" y1="10" x2="20" y2="10" />
-                <line x1="13" y1="14" x2="18" y2="14" />
-              </svg>
+              <Contact aria-hidden="true" className="h-5 w-5" strokeWidth="1.75" />
             </ModeButton>
           </div>
         </div>

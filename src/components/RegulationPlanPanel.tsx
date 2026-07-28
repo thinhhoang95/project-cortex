@@ -1,4 +1,5 @@
 "use client";
+import { Pencil, Play, Save, Search, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSimStore } from "@/components/useSimStore";
 import ShimmeringText from "@/components/ShimmeringText";
@@ -240,7 +241,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
               onClick={handleSavePlan}
               className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
+              <Save width="14" height="14" strokeWidth="2" />
               Save plan
             </button>
           </div>
@@ -263,14 +264,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                 placeholder="Search saved plans..."
                 className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
               />
-              <svg
-                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" />
-              </svg>
+              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
             </div>
           </div>
           <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-4">
@@ -301,7 +295,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                         className="rounded-lg border border-white/15 bg-white/5 p-2 text-white/70 transition hover:border-red-300/40 hover:bg-red-500/20 hover:text-red-100"
                         title="Delete saved plan"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/></svg>
+                        <Trash2 width="14" height="14" />
                       </button>
                     </div>
                   </div>
@@ -430,9 +424,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                           className="text-blue-300 hover:text-blue-200 p-1"
                           title="Edit regulation"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M12.3 6.3l5.4 5.4M3 21l4.5-1.2L18.7 8.6a1.5 1.5 0 0 0 0-2.1L17.5 5.3a1.5 1.5 0 0 0-2.1 0L5.4 15.8 3 21z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                          </svg>
+                          <Pencil width="14" height="14" />
                         </button>
                         <button
                           onClick={(e) => {
@@ -443,9 +435,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                           className="text-red-300 hover:text-red-200 p-1"
                           title="Delete regulation"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 14H5L4 7zm5-3h6l1 3H8l1-3z" stroke="currentColor" strokeWidth="1.5"/>
-                          </svg>
+                          <Trash2 width="14" height="14" />
                         </button>
                       </div>
                     </div>
@@ -509,7 +499,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
               className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-white/20 bg-white/10 text-white text-xs shadow hover:bg-white/15"
               title="Load a saved regulation plan"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+              <Upload width="14" height="14" strokeWidth="2" />
               Load plan
             </button>
             <button
@@ -517,7 +507,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
               className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-indigo-300/40 bg-indigo-500/30 text-white text-xs shadow hover:bg-indigo-500/40"
               title="Save the current regulation plan"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
+              <Save width="14" height="14" strokeWidth="2" />
               Save plan
             </button>
           </div>
@@ -560,9 +550,7 @@ export default function RegulationPlanPanel({ isRegulationPanelOpen, embedded = 
                 }`}
                 title={regulations.length === 0 ? "No regulations to simulate" : "Simulate plan"}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M8 5v14l11-7z" fill="currentColor"/>
-                </svg>
+                <Play width="16" height="16" fill="currentColor" />
                 Simulate Plan
               </button>
 

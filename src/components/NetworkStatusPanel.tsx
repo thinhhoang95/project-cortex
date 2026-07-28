@@ -1,4 +1,5 @@
 "use client";
+import { Clock3, Plane, PlaneLanding } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatSeeMoreLabel, SEE_LESS_LABEL } from "@/lib/seeMoreLess";
 import {
@@ -72,28 +73,21 @@ export default function NetworkStatusPanel({
               label="Total"
               value={flightsTotalDisplay}
               icon={
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-.5-.5-2.5 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.2-1.1.6L3 8l6 5-3 3-3-1-2 2 4 4 2-2-1-3 3-3 5 6 1.2-.7c.4-.2.7-.6.6-1.1Z" />
-                </svg>
+                <Plane width="14" height="14" strokeWidth="2" aria-hidden="true" />
               }
             />
             <MetricCard
               label="Landed"
               value={flightsLandedDisplay}
               icon={
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M2 22h20" />
-                  <path d="M12 6l-2 2-5-2-1 1 3 4-2 2-2-1-1 1 2 3h13l3-10-3-1-5 2z" />
-                </svg>
+                <PlaneLanding width="14" height="14" strokeWidth="2" aria-hidden="true" />
               }
             />
             <MetricCard
               label="Airborne"
               value={flightsAirborneDisplay}
               icon={
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M22 13.5v-2l-8-5-1-1v-2.5a2 2 0 0 0-4 0v2.5l-1 1-8 5v2l8-2.5v4.5l-2 1.5v2l4-1 4 1v-2l-2-1.5v-4.5l8 2.5z" />
-                </svg>
+                <Plane width="14" height="14" strokeWidth="2" aria-hidden="true" />
               }
             />
           </div>
@@ -130,10 +124,7 @@ export default function NetworkStatusPanel({
               value={averageDelayDisplay}
               accent="bg-amber-400/30"
               icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
+                <Clock3 width="16" height="16" strokeWidth="2" aria-hidden="true" />
               }
             />
             <div className="text-xs opacity-80 mt-2">

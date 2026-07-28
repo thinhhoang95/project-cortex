@@ -1,4 +1,5 @@
 "use client";
+import { ArrowUpRight } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSimStore } from "@/components/useSimStore";
@@ -473,11 +474,7 @@ export default function RegulationFlightListLeftPanel2({ embedded = false }: Reg
             aria-label="Open flight statistics"
             title="Open flight statistics"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M16.3891 8.11096L8.61091 15.8891" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M16.3891 8.11096L16.7426 12" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M16.3891 8.11096L12.5 7.75741" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ArrowUpRight width="24" height="24" />
           </button>
         </div>
         <span className="text-xs opacity-70">{formatTime(regulationTimeWindow[0])}–{formatTime(regulationTimeWindow[1])}</span>

@@ -2,7 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pin, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Pin, Search, Trash2, X } from "lucide-react";
 import { useGlobalTVBasket } from "@/components/useGlobalTVBasket";
 import { useGlobalTVBasketStore } from "@/components/useGlobalTVBasketStore";
 import { buildGlobalTvBasketScope } from "@/lib/globalTvBasket";
@@ -10,17 +10,25 @@ import { buildGlobalTvBasketScope } from "@/lib/globalTvBasket";
 const ROW_HEIGHT = 38;
 const MENU_HEIGHT = 266;
 const OVERSCAN = 5;
+const COLLAPSED_PIN_COUNT = 10;
 
 export type GlobalTVBasketProps = {
   contextTvIds?: readonly string[];
   className?: string;
   compact?: boolean;
+  /**
+   * "card" draws the basket as a standalone panel; "plain" drops the border,
+   * background and padding so the basket can sit inside an existing panel
+   * without stacking two boxes on top of each other.
+   */
+  variant?: "card" | "plain";
 };
 
 export default function GlobalTVBasket({
   contextTvIds = [],
   className = "",
   compact = false,
+  variant = "card",
 }: GlobalTVBasketProps) {
   const {
     catalogIds,
@@ -35,6 +43,7 @@ export default function GlobalTVBasket({
   const clearPins = useGlobalTVBasketStore((state) => state.clearPins);
   const unpinTv = useGlobalTVBasketStore((state) => state.unpinTv);
   const [open, setOpen] = useState(false);
+  const [showAllPins, setShowAllPins] = useState(false);
   const [scrollTop, setScrollTop] = useState(0);
   const [draftQuery, setDraftQuery] = useState(searchQuery);
   const deferredDraftQuery = useDeferredValue(draftQuery);
@@ -81,6 +90,11 @@ export default function GlobalTVBasket({
     startIndex + visibleCount + OVERSCAN * 2,
   );
   const renderedMatches = matchedCatalogIds.slice(startIndex, endIndex);
+  const hasOverflowingPins = pinnedTvIds.length > COLLAPSED_PIN_COUNT;
+  const visiblePinnedTvIds = showAllPins
+    ? pinnedTvIds
+    : pinnedTvIds.slice(0, COLLAPSED_PIN_COUNT);
+  const hiddenPinCount = pinnedTvIds.length - visiblePinnedTvIds.length;
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -146,7 +160,11 @@ export default function GlobalTVBasket({
   return (
     <div
       ref={rootRef}
-      className={`rounded-xl border border-white/10 bg-black/20 ${compact ? "p-3" : "p-4"} ${className}`}
+      className={
+        variant === "plain"
+          ? className
+          : `rounded-xl border border-white/10 bg-black/20 ${compact ? "p-3" : "p-4"} ${className}`
+      }
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2.5">
@@ -175,7 +193,10 @@ export default function GlobalTVBasket({
           {pinnedTvIds.length > 0 && (
             <button
               type="button"
-              onClick={clearPins}
+              onClick={() => {
+                clearPins();
+                setShowAllPins(false);
+              }}
               className="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-white/70 transition hover:border-red-300/30 hover:bg-red-500/10 hover:text-red-100"
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -227,6 +248,7 @@ export default function GlobalTVBasket({
             onClick={() => {
               commitSearchQuery();
               pinAll(matchedCatalogIds);
+              setShowAllPins(false);
             }}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-sky-300/30 bg-sky-500/15 px-2.5 py-1.5 text-[11px] font-medium text-sky-100 transition hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -296,8 +318,11 @@ export default function GlobalTVBasket({
       )}
 
       {pinnedTvIds.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {pinnedTvIds.map((id) => {
+        <div
+          className="mt-3 flex flex-wrap items-center gap-1.5"
+          aria-label="Pinned traffic volumes"
+        >
+          {visiblePinnedTvIds.map((id) => {
             const dormant = dormantPinnedIds.some(
               (candidate) => candidate.toLocaleUpperCase() === id.toLocaleUpperCase(),
             );
@@ -318,7 +343,10 @@ export default function GlobalTVBasket({
                 <span className="font-mono">{id}</span>
                 <button
                   type="button"
-                  onClick={() => unpinTv(id)}
+                  onClick={() => {
+                    unpinTv(id);
+                    if (pinnedTvIds.length === 1) setShowAllPins(false);
+                  }}
                   aria-label={`Unpin ${id}`}
                   title={`Unpin ${id}`}
                   className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-current opacity-55 transition hover:bg-black/20 hover:opacity-100"
@@ -328,6 +356,24 @@ export default function GlobalTVBasket({
               </span>
             );
           })}
+          {hasOverflowingPins && (
+            <button
+              type="button"
+              onClick={() => setShowAllPins((current) => !current)}
+              aria-expanded={showAllPins}
+              className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-white/70 transition hover:border-sky-300/30 hover:bg-sky-500/10 hover:text-sky-100"
+            >
+              {showAllPins ? (
+                <ChevronUp className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="h-3 w-3" aria-hidden="true" />
+              )}
+              {showAllPins ? "See Less" : "See More"}
+              {!showAllPins && (
+                <span className="text-white/45">({hiddenPinCount})</span>
+              )}
+            </button>
+          )}
         </div>
       )}
     </div>

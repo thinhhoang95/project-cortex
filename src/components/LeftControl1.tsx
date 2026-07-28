@@ -1,4 +1,5 @@
 "use client";
+import { ChevronDown, RefreshCw, Search } from "lucide-react";
 import { useSimStore } from "@/components/useSimStore";
 import TrafficOverloadBar from "@/components/TrafficOverloadBar";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -168,9 +169,7 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
             }`}
             title="Refresh Hotspots"
           >
-            <svg className={`w-4 h-4 ${hotspotsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+            <RefreshCw className={`w-4 h-4 ${hotspotsLoading ? 'animate-spin' : ''}`} />
           </button>
           
           <div className="flex items-center justify-between flex-1">
@@ -203,9 +202,7 @@ export default function LeftControl1({ embedded = false }: LeftControl1Props) {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <div className="relative flex-1">
-                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 opacity-40 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                </svg>
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 opacity-40 pointer-events-none" />
                 <input
                   type="search"
                   value={tvSearch}
@@ -356,14 +353,7 @@ function SortableTh({ label, active, dir, onClick }: SortableThProps) {
         title={`Sort by ${label} (${dir === 'asc' ? 'ascending' : 'descending'})`}
       >
         <span>{label}</span>
-        <svg 
-          className={`w-3 h-3 transition-transform ${active ? 'opacity-100' : 'opacity-0'} ${active && dir === 'asc' ? 'transform rotate-180' : ''}`}
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="currentColor"
-        >
-          <path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <ChevronDown className={`w-3 h-3 transition-transform ${active ? 'opacity-100' : 'opacity-0'} ${active && dir === 'asc' ? 'transform rotate-180' : ''}`} />
       </button>
     </th>
   );
