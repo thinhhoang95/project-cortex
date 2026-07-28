@@ -17,6 +17,8 @@ import TrafficVolumeReliefMap from "@/components/TrafficVolumeReliefMap";
 import ShimmeringText from "@/components/ShimmeringText";
 import HotspotDiffSummaryCard from "@/components/HotspotDiffSummaryCard";
 import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
+import GlobalTVBasket from "@/components/GlobalTVBasket";
+import { useGlobalTVBasket } from "@/components/useGlobalTVBasket";
 import {
   resolveHotspotColor,
   type HotspotColoringSettings,
@@ -45,7 +47,7 @@ export interface OccupancyPrePostPanelProps {
   title?: string;
   compact?: boolean;
   showLabels?: boolean; // default true
-  pinnedTvIds?: string[];
+  showGlobalTVBasket?: boolean;
   showReliefMap?: boolean;
   reliefMapTitle?: string;
 }
@@ -198,24 +200,13 @@ function OccupancyPrePostPanelInner({
   title,
   compact,
   showLabels = true,
-  pinnedTvIds,
+  showGlobalTVBasket = true,
   showReliefMap = false,
   reliefMapTitle = "Traffic Volume Relief Map",
 }: OccupancyPrePostPanelProps) {
   // Internal state for uncontrolled sort mode
   const [internalSort] = useState<OccupancyPrePostSortMode>(defaultSortMode);
   const effectiveSort: OccupancyPrePostSortMode = sortMode || internalSort;
-
-  const pinnedSet = useMemo(() => {
-    if (!Array.isArray(pinnedTvIds) || pinnedTvIds.length === 0) return new Set<string>();
-    const set = new Set<string>();
-    pinnedTvIds.forEach((tv) => {
-      if (typeof tv !== "string") return;
-      const trimmed = tv.trim();
-      if (trimmed) set.add(trimmed);
-    });
-    return set;
-  }, [pinnedTvIds]);
 
   const UNION_TVS = useMemo(() => {
     const s = new Set<string>();
@@ -232,6 +223,11 @@ function OccupancyPrePostPanelInner({
     });
     return arr;
   }, [postCounts, preCounts, capacity, tvOrder]);
+  const basketScope = useGlobalTVBasket(UNION_TVS);
+  const pinnedSet = useMemo(
+    () => new Set(basketScope.activePinnedIds.map((tv) => tv.toLocaleUpperCase())),
+    [basketScope.activePinnedIds],
+  );
 
   // Internal fetch of pre if not provided
   const [fetchedPre, setFetchedPre] = useState<OccupancySeriesByTv | null>(null);
@@ -326,8 +322,24 @@ function OccupancyPrePostPanelInner({
     return arr;
   }, [UNION_TVS, scoresByTv, orderIndex]);
 
-  const pinnedTvs = useMemo(() => sortedTvs.filter((tv) => pinnedSet.has(tv)), [sortedTvs, pinnedSet]);
-  const unpinnedTvs = useMemo(() => sortedTvs.filter((tv) => !pinnedSet.has(tv)), [sortedTvs, pinnedSet]);
+  const scopedSortedTvs = useMemo(
+    () => sortedTvs.filter((tv) => basketScope.includedContextIds.has(tv)),
+    [basketScope.includedContextIds, sortedTvs],
+  );
+  const scopedByKey = useMemo(
+    () => new Map(scopedSortedTvs.map((tv) => [tv.toLocaleUpperCase(), tv])),
+    [scopedSortedTvs],
+  );
+  const pinnedTvs = useMemo(
+    () => basketScope.activePinnedIds
+      .map((tv) => scopedByKey.get(tv.toLocaleUpperCase()))
+      .filter((tv): tv is string => Boolean(tv)),
+    [basketScope.activePinnedIds, scopedByKey],
+  );
+  const unpinnedTvs = useMemo(
+    () => scopedSortedTvs.filter((tv) => !pinnedSet.has(tv.toLocaleUpperCase())),
+    [pinnedSet, scopedSortedTvs],
+  );
   const unpinnedCount = unpinnedTvs.length;
 
   const [visibleNonPinnedCount, setVisibleNonPinnedCount] = useState<number>(initialLimit);
@@ -453,6 +465,10 @@ function OccupancyPrePostPanelInner({
         />
       )}
 
+      {showGlobalTVBasket && (
+        <GlobalTVBasket contextTvIds={UNION_TVS} className="mb-4" compact={compact} />
+      )}
+
       {hotspotDiffs ? (
         <HotspotDiffSummaryCard
           hotspotDiffs={hotspotDiffs}
@@ -478,7 +494,7 @@ function OccupancyPrePostPanelInner({
       {/* Grid of per-TV charts */}
       <div className="grid grid-cols-1 gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {displayTvs.map((tv) => {
-          const isPinned = pinnedSet.has(tv);
+          const isPinned = pinnedSet.has(tv.toLocaleUpperCase());
           const rows = rowsByDisplayedTv.get(tv) ?? EMPTY_ROWS;
           const stats = statsByTv[tv];
           const hasPreSeries = Boolean(stats?.hasPreSeries);
@@ -511,6 +527,13 @@ function OccupancyPrePostPanelInner({
           );
         })}
       </div>
+      {!isLoading && displayTvs.length === 0 && (
+        <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.02] px-4 py-6 text-center text-xs text-white/60">
+          {basketScope.isFiltering
+            ? "No traffic volumes in this result match the global basket scope."
+            : "No traffic-volume occupancy data is available."}
+        </div>
+      )}
 
       {/* Footer: pagination + sort availability note for external controls */}
       <div className="mt-3 flex items-center text-xs">
@@ -532,7 +555,7 @@ const OccupancyPrePostPanel = memo(OccupancyPrePostPanelInner, (prev, next) =>
   prev.capacity === next.capacity &&
   prev.hotspotDiffs === next.hotspotDiffs &&
   prev.tvOrder === next.tvOrder &&
-  prev.pinnedTvIds === next.pinnedTvIds &&
+  prev.showGlobalTVBasket === next.showGlobalTVBasket &&
   prev.sortMode === next.sortMode &&
   prev.viewFrom === next.viewFrom &&
   prev.viewTo === next.viewTo &&

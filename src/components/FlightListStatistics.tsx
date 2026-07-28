@@ -5,7 +5,8 @@ import { useSimStore } from "./useSimStore";
 import ShimmeringText from "./ShimmeringText";
 import TrafficVolumeInfoTooltip from "./TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "./TrafficOverloadBar";
-import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
+import GlobalTVBasket from "@/components/GlobalTVBasket";
+import { useGlobalTVBasket } from "@/components/useGlobalTVBasket";
 import {
   ResponsiveContainer,
   PieChart,
@@ -533,7 +534,6 @@ function FlightListStatistics({
     metadata: null,
   });
   const [contribCountsState, setContribCountsState] = useState<ContribCountsState>({ loading: false, error: null, data: null });
-  const [selectedTrafficVolumes, setSelectedTrafficVolumes] = useState<string[]>([]);
   const [rankMode, setRankMode] = useState<
     "flight_list_count" | "flight_list_relative" | "exceedance" | "peak_selected" | "total_peak"
   >("flight_list_count");
@@ -543,7 +543,6 @@ function FlightListStatistics({
   const [visibleTvCount, setVisibleTvCount] = useState<number>(TV_PAGE_SIZE);
 
   const commonTrafficVolumes = useMemo(() => trafficState.ids, [trafficState.ids]);
-  const trafficOptions = useMemo<ChipOption[]>(() => commonTrafficVolumes.map(id => ({ id, label: id })), [commonTrafficVolumes]);
 
   useEffect(() => {
     if (!showOccupancyCharts) {
@@ -594,15 +593,6 @@ function FlightListStatistics({
   }, [selectedFlightIds, showOccupancyCharts]);
 
   useEffect(() => {
-    if (!showOccupancyCharts) return;
-    if (selectedTrafficVolumes.length === 0) return;
-    const allowed = new Set(commonTrafficVolumes);
-    if (selectedTrafficVolumes.some(id => !allowed.has(id))) {
-      setSelectedTrafficVolumes(prev => prev.filter(id => allowed.has(id)));
-    }
-  }, [showOccupancyCharts, commonTrafficVolumes, selectedTrafficVolumes]);
-
-  useEffect(() => {
     if (!showOccupancyCharts) {
       setContribCountsState({ loading: false, error: null, data: null });
       return;
@@ -619,17 +609,8 @@ function FlightListStatistics({
       rank_by: rankByParam,
       rolling_hour: true,
     };
-    // Optional focus filter. For TV-scoped launches always include source TV at the end.
+    // Preserve only the workflow's source-TV focus. Global basket scope is applied client-side.
     const requestedTvIds: string[] = [];
-    const seenTvIds = new Set<string>();
-    for (const tvId of selectedTrafficVolumes) {
-      const normalized = String(tvId).trim();
-      if (!normalized) continue;
-      if (normalizedSourceTrafficVolumeId && normalized === normalizedSourceTrafficVolumeId) continue;
-      if (seenTvIds.has(normalized)) continue;
-      seenTvIds.add(normalized);
-      requestedTvIds.push(normalized);
-    }
     if (normalizedSourceTrafficVolumeId) {
       requestedTvIds.push(normalizedSourceTrafficVolumeId);
     }
@@ -667,7 +648,7 @@ function FlightListStatistics({
     return () => {
       cancelled = true;
     };
-  }, [selectedFlightIds, selectedTrafficVolumes, rankByParam, showOccupancyCharts, normalizedSourceTrafficVolumeId]);
+  }, [selectedFlightIds, rankByParam, showOccupancyCharts, normalizedSourceTrafficVolumeId]);
 
   const countsLoading = trafficState.loading || contribCountsState.loading;
   const countsError = contribCountsState.error;
@@ -770,19 +751,17 @@ function FlightListStatistics({
   const occupancyMap = occupancyComputation.map;
   const occupancyMinutesPerBin = occupancyComputation.minutesPerBin;
   const occupancyMinutesMismatch = occupancyComputation.minutesMismatch;
+  const occupancyTvIds = useMemo(
+    () => occupancyCards.map((card) => card.tvId),
+    [occupancyCards],
+  );
+  const basket = useGlobalTVBasket(occupancyTvIds);
 
   const filteredCards = useMemo(() => {
-    if (selectedTrafficVolumes.length === 0) return occupancyCards;
-    const acc: TvOccupancyCard[] = [];
-    const seen = new Set<string>();
-    for (const id of selectedTrafficVolumes) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const card = occupancyMap.get(id);
-      if (card) acc.push(card);
-    }
-    return acc;
-  }, [selectedTrafficVolumes, occupancyCards, occupancyMap]);
+    return basket.orderedContextIds
+      .map((id) => occupancyMap.get(id))
+      .filter((card): card is TvOccupancyCard => Boolean(card));
+  }, [basket.orderedContextIds, occupancyMap]);
 
   const rankedCards = useMemo(() => {
     const arr = [...filteredCards];
@@ -820,14 +799,19 @@ function FlightListStatistics({
       if (bm.totalSum !== am.totalSum) return bm.totalSum - am.totalSum;
       return a.tvId.localeCompare(b.tvId);
     });
-    return arr;
-  }, [filteredCards, rankMode]);
+    const byId = new Map(arr.map((card) => [card.tvId.toLocaleUpperCase(), card]));
+    const pinned = basket.activePinnedIds
+      .map((id) => byId.get(id.toLocaleUpperCase()))
+      .filter((card): card is TvOccupancyCard => Boolean(card));
+    const pinnedSet = new Set(pinned.map((card) => card.tvId.toLocaleUpperCase()));
+    return [...pinned, ...arr.filter((card) => !pinnedSet.has(card.tvId.toLocaleUpperCase()))];
+  }, [basket.activePinnedIds, filteredCards, rankMode]);
 
   // Reset pagination when filters/sort scope changes
   useEffect(() => {
     if (!showOccupancyCharts) return;
     setVisibleTvCount(TV_PAGE_SIZE);
-  }, [selectedTrafficVolumes, rankMode, commonTrafficVolumes, showOccupancyCharts]);
+  }, [basket.orderedContextIds, rankMode, commonTrafficVolumes, showOccupancyCharts]);
 
   const visibleRankedCards = useMemo(() => {
     const limit = Math.max(0, Math.min(visibleTvCount, rankedCards.length));
@@ -1254,15 +1238,8 @@ function FlightListStatistics({
                 </div>
 
                 <div className="flex flex-wrap items-end gap-4">
-                  <div className="flex-1 min-w-[220px]">
-                    <div className="text-[11px] opacity-80 mb-1 text-white">Filter traffic volumes</div>
-                    <MultiSelectWithChips
-                      options={trafficOptions}
-                      selectedIds={selectedTrafficVolumes}
-                      onChange={setSelectedTrafficVolumes}
-                      placeholder={trafficState.loading ? "Loading traffic volumes…" : trafficOptions.length === 0 ? "No common traffic volumes" : "Search traffic volumes"}
-                      disabled={trafficState.loading || trafficOptions.length === 0}
-                    />
+                  <div className="w-full">
+                    <GlobalTVBasket contextTvIds={occupancyTvIds} compact />
                   </div>
                   <div className="min-w-[160px]">
                     <div className="text-[11px] opacity-80 mb-1 text-white">Sort charts by</div>
@@ -1321,7 +1298,7 @@ function FlightListStatistics({
                   </div>
                 ) : rankedCards.length === 0 ? (
                   <div className="text-xs text-white/70 border border-white/10 rounded-lg px-3 py-4 text-center">
-                    {trafficOptions.length === 0
+                    {commonTrafficVolumes.length === 0
                       ? "The selected flights do not share any traffic volumes."
                       : "No occupancy data available for the selected filters."}
                   </div>

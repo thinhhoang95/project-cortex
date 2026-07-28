@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Trash2, X } from "lucide-react";
+import GlobalTVBasket from "@/components/GlobalTVBasket";
 import ModalDialog from "@/components/ModalDialog";
+import { useGlobalTVBasketStore } from "@/components/useGlobalTVBasketStore";
 import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
 import { useSimStore } from "@/components/useSimStore";
 import { useThemeStore } from "@/components/useThemeStore";
@@ -27,6 +30,8 @@ type SettingsDialogProps = {
   onClose: () => void;
   trafficVolumes: TrafficVolumeFeature[];
 };
+
+type SettingsSection = "general" | "tv_scope";
 
 const THEME_OPTIONS: Array<{
   value: ThemePreference;
@@ -116,6 +121,12 @@ export default function SettingsDialog({
   const settings = useHotspotSettingsStore((state) => state.settings);
   const setSettings = useHotspotSettingsStore((state) => state.setSettings);
   const reapplyHotspotSettings = useSimStore((state) => state.reapplyHotspotSettings);
+  const pinnedTvIds = useGlobalTVBasketStore((state) => state.pinnedTvIds);
+  const basketSearchQuery = useGlobalTVBasketStore((state) => state.searchQuery);
+  const clearBasketPins = useGlobalTVBasketStore((state) => state.clearPins);
+  const setBasketSearchQuery = useGlobalTVBasketStore((state) => state.setSearchQuery);
+  const [activeSection, setActiveSection] = useState<SettingsSection>("general");
+  const [confirmClearScope, setConfirmClearScope] = useState(false);
   const [globalDraft, setGlobalDraft] = useState(settings.global);
   const [globalError, setGlobalError] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -132,6 +143,8 @@ export default function SettingsDialog({
     setTvQuery("");
     setOverrideDraft(settings.global);
     setOverrideError("");
+    setActiveSection("general");
+    setConfirmClearScope(false);
   }, [open]);
 
   const trafficVolumeOptions = useMemo(() => Array.from(
@@ -147,6 +160,10 @@ export default function SettingsDialog({
         .filter((item): item is readonly [string, { id: string; airspaceId: string }] => item !== null),
     ).values(),
   ).sort((a, b) => a.id.localeCompare(b.id)), [trafficVolumes]);
+  const trafficVolumeIds = useMemo(
+    () => trafficVolumeOptions.map((option) => option.id),
+    [trafficVolumeOptions],
+  );
 
   const suggestions = useMemo(() => {
     const query = tvQuery.trim().toLowerCase();
@@ -244,6 +261,12 @@ export default function SettingsDialog({
     resetEditor();
   };
 
+  const clearTvScope = () => {
+    clearBasketPins();
+    setBasketSearchQuery("");
+    setConfirmClearScope(false);
+  };
+
   return (
     <ModalDialog
       open={open}
@@ -252,7 +275,7 @@ export default function SettingsDialog({
       description="Personalize Cortex for this browser."
       width="w-[min(980px,95vw)]"
       height="h-[min(760px,92vh)]"
-      headerActions={(
+      headerActions={activeSection === "general" ? (
         <button
           type="button"
           onClick={resetDefaults}
@@ -271,13 +294,22 @@ export default function SettingsDialog({
           </svg>
           Restore defaults
         </button>
-      )}
+      ) : null}
     >
       <div className="flex min-h-full">
         <aside className="w-52 shrink-0 border-r border-white/10 bg-black/10 p-4">
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-xl border border-blue-400/20 bg-blue-500/15 px-3 py-2.5 text-left text-sm font-medium text-blue-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+            onClick={() => {
+              setActiveSection("general");
+              setConfirmClearScope(false);
+            }}
+            aria-current={activeSection === "general" ? "page" : undefined}
+            className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition ${
+              activeSection === "general"
+                ? "border-blue-400/20 bg-blue-500/15 text-blue-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                : "border-transparent text-[var(--panel-text-muted)] hover:border-white/10 hover:bg-white/5 hover:text-[var(--panel-text-primary)]"
+            }`}
           >
             <svg className="h-4 w-4 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
@@ -285,9 +317,27 @@ export default function SettingsDialog({
             </svg>
             General
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection("tv_scope")}
+            aria-current={activeSection === "tv_scope" ? "page" : undefined}
+            className={`mt-2 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition ${
+              activeSection === "tv_scope"
+                ? "border-blue-400/20 bg-blue-500/15 text-blue-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                : "border-transparent text-[var(--panel-text-muted)] hover:border-white/10 hover:bg-white/5 hover:text-[var(--panel-text-primary)]"
+            }`}
+          >
+            <svg className="h-4 w-4 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M6 12h12M6 17h7" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="m17 15 1.5 1.5L22 13" />
+            </svg>
+            TV Scope
+          </button>
         </aside>
 
         <main className="modal-scrollbar min-w-0 flex-1 overflow-y-auto px-7 py-6">
+          {activeSection === "general" ? (
+            <>
           <section>
             <div className="mb-4">
               <h2 className="text-base font-semibold">Theme</h2>
@@ -508,6 +558,66 @@ export default function SettingsDialog({
               </div>
             </div>
           </section>
+            </>
+          ) : (
+            <section>
+              <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-semibold">Traffic Volume Scope</h2>
+                  <p className="mt-1 max-w-xl text-xs leading-5 text-[var(--panel-text-muted)]">
+                    Manage the global traffic volumes you are concerned about. Changes apply immediately to every supported histogram view in Cortex.
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-[var(--panel-text-muted)]">
+                  {pinnedTvIds.length} pinned
+                </span>
+              </div>
+
+              <GlobalTVBasket
+                contextTvIds={trafficVolumeIds}
+              />
+
+              <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">Clear TV scope</h3>
+                    <p className="mt-1 max-w-lg text-[11px] leading-5 text-[var(--panel-text-muted)]">
+                      Remove all pinned traffic volumes and clear the active search filter. Dormant pins from other resource dates are removed too.
+                    </p>
+                  </div>
+                  {confirmClearScope ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmClearScope(false)}
+                        className="rounded-lg px-3 py-2 text-xs text-[var(--panel-text-muted)] transition hover:bg-white/10 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearTvScope}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/50 bg-red-500/20 px-3 py-2 text-xs font-medium text-red-100 transition hover:bg-red-500/30"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        Confirm clear all
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmClearScope(true)}
+                      disabled={pinnedTvIds.length === 0 && basketSearchQuery.length === 0}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/35 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Clear all TV scope
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
         </main>
       </div>
     </ModalDialog>

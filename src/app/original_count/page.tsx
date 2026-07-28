@@ -4,10 +4,9 @@ import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from '@/components/useSimStore';
 import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
 import Header from "@/components/Header";
-import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
+import GlobalTVBasket from "@/components/GlobalTVBasket";
+import { useGlobalTVBasket } from "@/components/useGlobalTVBasket";
 import ShimmeringText from "@/components/ShimmeringText";
-import { loadSectors } from "@/lib/airspace";
-import { getResourcePathsForDate } from "@/lib/dataPaths";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
 import TrafficOverloadBar, { TrafficOverloadDatum } from "@/components/TrafficOverloadBar";
@@ -16,6 +15,7 @@ import SelectChevron from "@/components/SelectChevron";
 import { normalizeCapacity } from "@/lib/capacity";
 import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import { formatShockwaveHorizonLabel } from "@/lib/trafficVolumeShockwaves";
+import { buildOriginalCountsRequest } from "@/lib/originalCountsRequest";
 import {
   ComposedChart,
   Bar,
@@ -66,9 +66,7 @@ const TV_PAGE_SIZE = 24;
 
 export default function OriginalCountPage() {
   const resourceDate = useSimStore((state) => state.resourceDate);
-  const [options, setOptions] = useState<ChipOption[]>([]);
-  const [loadingOptions, setLoadingOptions] = useState(false);
-  const [selectedTVs, setSelectedTVs] = useState<string[]>([]);
+  const basket = useGlobalTVBasket();
   const [fromTime, setFromTime] = useState<string>("00:00");
   const [toTime, setToTime] = useState<string>("23:59");
   const [rollingHour, setRollingHour] = useState<boolean>(true);
@@ -84,48 +82,16 @@ export default function OriginalCountPage() {
   const [shockwaveHorizonMode, setShockwaveHorizonMode] = useState<string>("30");
   const [visibleMentionedTvCount, setVisibleMentionedTvCount] = useState<number>(TV_PAGE_SIZE);
   const [visibleTopTvCount, setVisibleTopTvCount] = useState<number>(TV_PAGE_SIZE);
+  const [queriedBasketSignature, setQueriedBasketSignature] = useState<string | null>(null);
 
   const { hydrated, ready, user } = useResourceDateGuard();
-
-  useEffect(() => {
-    if (!resourceDate) return;
-
-    const resourcePaths = getResourcePathsForDate(resourceDate);
-    let cancelled = false;
-    const load = async () => {
-      setLoadingOptions(true);
-      try {
-        const fc = await loadSectors(resourcePaths.airspaceGeojson);
-        if (cancelled) return;
-        const opts: ChipOption[] = (fc.features || [])
-          .map((f: any) => {
-            const id = f?.properties?.traffic_volume_id;
-            if (!id) return null;
-            const minFL = f?.properties?.min_fl;
-            const maxFL = f?.properties?.max_fl;
-            return {
-              id: String(id),
-              label: String(id),
-              description: (minFL != null && maxFL != null) ? `FL${String(minFL).padStart(3, '0')}-FL${String(maxFL).padStart(3, '0')}` : undefined,
-            } as ChipOption;
-          })
-          .filter(Boolean) as ChipOption[];
-        const seen = new Set<string>();
-        const dedup = opts.filter((o) => {
-          if (seen.has(o.id)) return false;
-          seen.add(o.id);
-          return true;
-        }).sort((a, b) => a.id.localeCompare(b.id));
-        setOptions(dedup);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Failed to load traffic volumes");
-      } finally {
-        if (!cancelled) setLoadingOptions(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, [resourceDate]);
+  const basketRequestSignature = useMemo(
+    () => JSON.stringify(basket.requestedCatalogIds),
+    [basket.requestedCatalogIds],
+  );
+  const basketResultsStale = Boolean(
+    data && queriedBasketSignature !== null && queriedBasketSignature !== basketRequestSignature,
+  );
 
   const valid = useMemo(() => {
     const from = hhmmToSec(fromTime);
@@ -138,14 +104,13 @@ export default function OriginalCountPage() {
     setQuerying(true);
     setData(null);
     try {
-      const payload: any = {
-        // Only include TVs when user selects any
-        ...(selectedTVs.length > 0 ? { traffic_volume_ids: selectedTVs } : {}),
-        from_time_str: fromTime,
-        to_time_str: toTime,
-        rolling_hour: Boolean(rollingHour),
-        rank_by: rankBy,
-      };
+      const payload = buildOriginalCountsRequest({
+        requestedTrafficVolumeIds: basket.requestedCatalogIds,
+        fromTime,
+        toTime,
+        rollingHour,
+        rankBy,
+      });
       const res = await (await import("@/lib/auth")).authFetch('/api/original_counts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -157,6 +122,7 @@ export default function OriginalCountPage() {
       }
       const json = await res.json();
       setData(json);
+      setQueriedBasketSignature(basketRequestSignature);
       // After a successful query, align view window with request
       setViewFromTime(fromTime);
       setViewToTime(toTime);
@@ -169,28 +135,35 @@ export default function OriginalCountPage() {
 
   // Debug request payload (exactly what we'll POST)
   const debugPayload = useMemo(() => {
-    const p: any = {
-      from_time_str: fromTime,
-      to_time_str: toTime,
-      rolling_hour: Boolean(rollingHour),
-      rank_by: rankBy,
-    };
-    if (selectedTVs.length > 0) p.traffic_volume_ids = selectedTVs;
-    return p;
-  }, [fromTime, toTime, rollingHour, selectedTVs, rankBy]);
+    return buildOriginalCountsRequest({
+      requestedTrafficVolumeIds: basket.requestedCatalogIds,
+      fromTime,
+      toTime,
+      rollingHour,
+      rankBy,
+    });
+  }, [fromTime, toTime, rollingHour, basket.requestedCatalogIds, rankBy]);
 
   const mentionedItems = useMemo(() => {
     const mc = data?.mentioned_counts || {};
     const mcap = data?.mentioned_capacity || {};
     const cap = data?.capacity || {};
     const labels = data?.timebins?.labels || [];
-    const ids = Object.keys(mc);
+    const requestOrder = new Map(
+      basket.requestedCatalogIds.map((id, index) => [id.toLocaleUpperCase(), index]),
+    );
+    const ids = Object.keys(mc).sort((a, b) => {
+      const ai = requestOrder.get(a.toLocaleUpperCase()) ?? Number.POSITIVE_INFINITY;
+      const bi = requestOrder.get(b.toLocaleUpperCase()) ?? Number.POSITIVE_INFINITY;
+      if (ai !== bi) return ai - bi;
+      return a.localeCompare(b);
+    });
     return ids.map((tv) => {
       const series = mc[tv] || [];
       const capacitySeries = (mcap[tv] ?? cap[tv]) || [];
       return { tvId: tv, series, labels, capacitySeries };
     });
-  }, [data]);
+  }, [basket.requestedCatalogIds, data]);
 
   const topItems = useMemo(() => {
     const counts = data?.counts || {};
@@ -267,34 +240,29 @@ export default function OriginalCountPage() {
             <div className="flex flex-wrap items-center gap-3 mb-3">
               <button
                 onClick={handleQuery}
-                disabled={!valid || querying}
-                className={`px-3 py-2 rounded-lg text-sm font-bold transition-colors ${querying ? 'bg-gradient-to-r from-blue-500 to-cyan-400 text-white opacity-80 cursor-wait' : valid ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 hover:from-blue-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40' : 'opacity-50 cursor-not-allowed border border-white/20 bg-white/5 text-white/60'}`}
+                disabled={!valid || querying || basket.catalogLoading}
+                className={`px-3 py-2 rounded-lg text-sm font-bold transition-colors ${querying ? 'bg-gradient-to-r from-blue-500 to-cyan-400 text-white opacity-80 cursor-wait' : valid && !basket.catalogLoading ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 hover:from-blue-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/40' : 'opacity-50 cursor-not-allowed border border-white/20 bg-white/5 text-white/60'}`}
               >
                 {querying ? <ShimmeringText text="Querying..." /> : 'Query'}
               </button>
               {!valid && (
                 <div className="text-[11px] text-red-200">End time must not be earlier than start time</div>
               )}
+              {basket.catalogLoading && (
+                <div className="text-[11px] text-white/60">Loading traffic-volume catalog…</div>
+              )}
               {error && (
                 <div className="text-[11px] text-red-200">{error}</div>
               )}
+              {basketResultsStale && (
+                <div className="text-[11px] text-amber-200">
+                  Basket changed. Run Query to refresh requested traffic volumes.
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-end">
-              <div className="md:col-span-2">
-                <div className="text-[11px] opacity-80 mb-1 text-white">Traffic Volumes</div>
-                <MultiSelectWithChips
-                  options={options}
-                  selectedIds={selectedTVs}
-                  onChange={setSelectedTVs}
-                  placeholder={loadingOptions ? "Loading traffic volumes…" : "Select traffic volumes"}
-                  disabled={loadingOptions}
-                  renderOptionLabel={(opt) => (
-                    <div className="flex items-center gap-2">
-                      <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
-                      <span>{opt.label}</span>
-                    </div>
-                  )}
-                />
+              <div className="md:col-span-2 xl:col-span-5">
+                <GlobalTVBasket />
               </div>
               <div>
                 <div className="text-[11px] opacity-80 mb-1 text-white">From</div>

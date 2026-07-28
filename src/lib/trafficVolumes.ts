@@ -93,6 +93,14 @@ export async function preloadTrafficVolumes(): Promise<void> {
   await ensureTrafficVolumeMap();
 }
 
+export async function listTrafficVolumeIds(resourceDate = getCurrentResourceDate()): Promise<string[]> {
+  if (!resourceDate) return [];
+  const map = await ensureTrafficVolumeMap(resourceDate);
+  return Array.from(map.keys()).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+  );
+}
+
 export async function fetchTrafficVolumeFeature(id: string): Promise<TrafficVolumeFeature | null> {
   const normalized = normalizeTrafficVolumeId(id);
   if (!normalized) return null;

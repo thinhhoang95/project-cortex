@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
 import {
   CartesianGrid,
   Line,
@@ -299,17 +298,14 @@ export default function AgentSaResultSummaryPanel({
   const [viewFrom, setViewFrom] = useState<string>('00:00');
   const [viewTo, setViewTo] = useState<string>('23:59');
   const [occSortMode, setOccSortMode] = useState<OccupancyPrePostSortMode>('abs_change');
-  const [pinnedTrafficVolumes, setPinnedTrafficVolumes] = useState<string[]>([]);
   const flights = useSimStore((state) => state.flights);
   const deferredOccSortMode = useDeferredValue(occSortMode);
-  const deferredPinnedTrafficVolumes = useDeferredValue(pinnedTrafficVolumes);
   const deferredViewFrom = useDeferredValue(viewFrom);
   const deferredViewTo = useDeferredValue(viewTo);
 
   useEffect(() => {
     setSelectedSeries('best');
     setObjectiveView('total');
-    setPinnedTrafficVolumes([]);
   }, [run.runKey]);
 
   useEffect(() => {
@@ -475,53 +471,6 @@ export default function AgentSaResultSummaryPanel({
       (series) => Array.isArray(series) && (series as unknown[]).length > 0,
     );
   }, [occupancyData?.pre_post?.capacity]);
-  const availableTrafficVolumes = useMemo(() => {
-    const set = new Set<string>();
-    const prePost = occupancyData?.pre_post;
-    if (prePost) {
-      Object.keys(prePost.post_counts ?? {}).forEach((key) => set.add(String(key)));
-      Object.keys(prePost.pre_counts ?? {}).forEach((key) => set.add(String(key)));
-      Object.keys(prePost.capacity ?? {}).forEach((key) => set.add(String(key)));
-      (prePost.tv_ids_order ?? []).forEach((key) => set.add(String(key)));
-    }
-    return Array.from(set)
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0)
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [occupancyData?.pre_post]);
-  const trafficVolumeOptions = useMemo<ChipOption[]>(
-    () =>
-      availableTrafficVolumes.map((tv) => ({
-        id: tv,
-        label: `TV ${tv}`,
-      })),
-    [availableTrafficVolumes],
-  );
-  const availableTrafficVolumeSet = useMemo(
-    () => new Set(availableTrafficVolumes),
-    [availableTrafficVolumes],
-  );
-  useEffect(() => {
-    setPinnedTrafficVolumes((current) => {
-      if (!current.length) return current;
-      const sanitized = current.filter((id) => availableTrafficVolumeSet.has(id));
-      return sanitized.length === current.length ? current : sanitized;
-    });
-  }, [availableTrafficVolumeSet]);
-  const handlePinnedTrafficVolumesChange = useCallback(
-    (ids: string[]) => {
-      const seen = new Set<string>();
-      const next: string[] = [];
-      for (const raw of ids) {
-        const trimmed = raw.trim();
-        if (!trimmed || !availableTrafficVolumeSet.has(trimmed) || seen.has(trimmed)) continue;
-        seen.add(trimmed);
-        next.push(trimmed);
-      }
-      setPinnedTrafficVolumes(next);
-    },
-    [availableTrafficVolumeSet],
-  );
 
   const status = String(
     analysisData?.metadata?.status ??
@@ -1053,30 +1002,6 @@ export default function AgentSaResultSummaryPanel({
 	                View {viewFrom} → {viewTo}
 	              </div>
 	            </div>
-	            <div className="mb-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-4">
-	              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-	                <div>
-	                  <h4 className="text-sm font-semibold text-white/85">Pinned TVs</h4>
-	                  <p className="text-xs text-white/55">
-	                    Pin traffic volumes to keep them visible while exploring occupancy changes.
-	                  </p>
-	                </div>
-	                <div className="w-full max-w-sm">
-	                  <MultiSelectWithChips
-	                    options={trafficVolumeOptions}
-	                    selectedIds={pinnedTrafficVolumes}
-	                    onChange={handlePinnedTrafficVolumesChange}
-	                    placeholder={
-	                      trafficVolumeOptions.length
-	                        ? 'Search traffic volumes...'
-	                        : 'No traffic volumes available'
-	                    }
-	                    disabled={!trafficVolumeOptions.length}
-	                  />
-	                </div>
-	              </div>
-	            </div>
-
 	            {occupancyError && !occupancyData?.pre_post ? (
 	              <div className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
 	                {occupancyError}
@@ -1093,7 +1018,6 @@ export default function AgentSaResultSummaryPanel({
 	                viewTo={deferredViewTo}
 	                sortMode={deferredOccSortMode}
 	                onSortModeChange={setOccSortMode}
-	                pinnedTvIds={deferredPinnedTrafficVolumes}
 	                loading={occupancyLoading}
 	                error={occupancyError}
 	                showReliefMap={false}

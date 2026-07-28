@@ -25,7 +25,8 @@ import TimeScaleControl from '@/components/TimeScaleControl';
 import ShimmeringText from '@/components/ShimmeringText';
 import VpfDefiningVolumes from '@/components/VpfDefiningVolumes';
 import { useSimStore } from '@/components/useSimStore';
-import MultiSelectWithChips, { type ChipOption } from '@/components/MultiSelectWithChips';
+import { useGlobalTVBasket } from '@/components/useGlobalTVBasket';
+import { useGlobalTVBasketStore } from '@/components/useGlobalTVBasketStore';
 import type {
   HotspotSegment,
   OccupancySeriesByTv,
@@ -1519,7 +1520,7 @@ export default function AgentResultSummaryComponent({
   const [viewFrom, setViewFrom] = useState<string>('00:00');
   const [viewTo, setViewTo] = useState<string>('23:59');
   const [occSortMode, setOccSortMode] = useState<OccupancyPrePostSortMode>('total');
-  const [pinnedTrafficVolumes, setPinnedTrafficVolumes] = useState<string[]>([]);
+  const unpinGlobalTrafficVolume = useGlobalTVBasketStore((state) => state.unpinTv);
   const [isFlightsPaneOpen, setIsFlightsPaneOpen] = useState(false);
 
   const flights = useSimStore((state) => state.flights);
@@ -2012,41 +2013,11 @@ export default function AgentResultSummaryComponent({
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
   }, [detailsData?.pre_post, selectedSolution?.regulations, selectedSolutionSteps, viewMode, viewRegulations]);
 
-  const trafficVolumeOptions = useMemo<ChipOption[]>(() => {
-    return availableTrafficVolumes.map((tv) => ({
-      id: tv,
-      label: `TV ${tv}`,
-    }));
-  }, [availableTrafficVolumes]);
-
-  const availableTrafficVolumeSet = useMemo(() => new Set(availableTrafficVolumes), [availableTrafficVolumes]);
-
-  useEffect(() => {
-    setPinnedTrafficVolumes((current) => {
-      if (!current.length) return current;
-      const sanitized = current.filter((id) => availableTrafficVolumeSet.has(id));
-      return sanitized.length === current.length ? current : sanitized;
-    });
-  }, [availableTrafficVolumeSet]);
-
-  const handlePinnedTrafficVolumesChange = useCallback(
-    (ids: string[]) => {
-      const seen = new Set<string>();
-      const next: string[] = [];
-      for (const raw of ids) {
-        const trimmed = raw.trim();
-        if (!trimmed || !availableTrafficVolumeSet.has(trimmed) || seen.has(trimmed)) continue;
-        seen.add(trimmed);
-        next.push(trimmed);
-      }
-      setPinnedTrafficVolumes(next);
-    },
-    [availableTrafficVolumeSet],
-  );
+  const globalTvBasket = useGlobalTVBasket(availableTrafficVolumes);
 
   const handleUnpinTrafficVolume = useCallback((tv: string) => {
-    setPinnedTrafficVolumes((current) => current.filter((id) => id !== tv));
-  }, []);
+    unpinGlobalTrafficVolume(tv);
+  }, [unpinGlobalTrafficVolume]);
 
   const preCounts = detailsData?.pre_post?.pre_counts ?? {};
   const postCounts = detailsData?.pre_post?.post_counts ?? {};
@@ -2071,9 +2042,9 @@ export default function AgentResultSummaryComponent({
   }, [capacityCounts]);
 
   const pinnedSummaries = useMemo<PinnedTvSummary[]>(() => {
-    if (!pinnedTrafficVolumes.length) return [];
+    if (!globalTvBasket.activePinnedIds.length) return [];
     const summaries: PinnedTvSummary[] = [];
-    for (const tv of pinnedTrafficVolumes) {
+    for (const tv of globalTvBasket.activePinnedIds) {
       const peakPost = maxSeriesValue(postCounts?.[tv]);
       const peakPre = maxSeriesValue(preCounts?.[tv]);
       const peakCap = maxSeriesValue(capacityCounts?.[tv]);
@@ -2089,7 +2060,7 @@ export default function AgentResultSummaryComponent({
       });
     }
     return summaries;
-  }, [pinnedTrafficVolumes, postCounts, preCounts, capacityCounts]);
+  }, [globalTvBasket.activePinnedIds, postCounts, preCounts, capacityCounts]);
 
   const delayedFlightIds = useMemo(() => {
     const delayed = flightRows
@@ -2847,23 +2818,10 @@ export default function AgentResultSummaryComponent({
                     <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-4">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                          <h4 className="text-sm font-semibold text-white/85">Pinned TVs</h4>
+                          <h4 className="text-sm font-semibold text-white/85">Global Pinned TVs</h4>
                           <p className="text-xs text-white/55">
-                            Pin traffic volumes to keep them handy while exploring occupancy changes.
+                            Available global pins are summarized here and promoted in the histogram grid.
                           </p>
-                        </div>
-                        <div className="w-full max-w-sm">
-                          <MultiSelectWithChips
-                            options={trafficVolumeOptions}
-                            selectedIds={pinnedTrafficVolumes}
-                            onChange={handlePinnedTrafficVolumesChange}
-                            placeholder={
-                              trafficVolumeOptions.length
-                                ? 'Search traffic volumes...'
-                                : 'No traffic volumes available'
-                            }
-                            disabled={!trafficVolumeOptions.length}
-                          />
                         </div>
                       </div>
                       <div className="mt-4">
@@ -2933,8 +2891,8 @@ export default function AgentResultSummaryComponent({
                           </div>
                         ) : (
                           <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-5 text-xs text-white/60">
-                            {trafficVolumeOptions.length
-                              ? 'No pinned traffic volumes yet. Use the search above to pin the TVs you care about.'
+                            {availableTrafficVolumes.length
+                              ? 'No globally pinned traffic volumes are available in this result.'
                               : viewMode === 'per_episode'
                                 ? 'No traffic volume data available for this step.'
                                 : 'No traffic volume data available for this plan.'}
@@ -2955,7 +2913,6 @@ export default function AgentResultSummaryComponent({
                         viewTo={viewTo}
                         sortMode={occSortMode}
                         onSortModeChange={(m) => setOccSortMode(m)}
-                        pinnedTvIds={pinnedTrafficVolumes}
                         loading={detailsLoading}
                         error={detailsError}
                         showReliefMap

@@ -5,7 +5,9 @@ import Header from "@/components/Header";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import ShimmeringText from "@/components/ShimmeringText";
 import ModalDialog from "@/components/ModalDialog";
-import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
+import GlobalTVBasket from "@/components/GlobalTVBasket";
+import { useGlobalTVBasket } from "@/components/useGlobalTVBasket";
+import { buildGlobalTvBasketScope } from "@/lib/globalTvBasket";
 import FlightStatisticsButton from "@/components/FlightStatisticsButton";
 import PerAccDelayAttributionPanel from "@/components/PerAccDelayAttributionPanel";
 import {
@@ -400,7 +402,6 @@ function FlowEvaluationPageContent() {
   const [expandedRippleCharts, setExpandedRippleCharts] = useState<Record<number, boolean>>({});
   const [expandedOccAll, setExpandedOccAll] = useState<boolean>(false);
   const [expandedOccOriginal, setExpandedOccOriginal] = useState<boolean>(false);
-  const [selectedTrafficVolumes, setSelectedTrafficVolumes] = useState<string[]>([]);
   // View toggle UI only (logic wiring to be handled later)
   const [seriesView, setSeriesView] = useState<'demand' | 'occupancy' | 'occupancy_all' | 'occupancy_original' | 'airports_delay'>("demand");
   // Ripple TV sort mode (applies only to ripple TVs in Demand/Occupancy views)
@@ -591,7 +592,7 @@ function FlowEvaluationPageContent() {
     }
   }, [flights, input, optState.data, resourceStateHeadId, resourceStateSelectedId]);
 
-  const trafficVolumeOptions = useMemo<ChipOption[]>(() => {
+  const trafficVolumeIds = useMemo<string[]>(() => {
     const ids = new Set<string>();
     const addFromRecord = (rec?: Record<string, unknown> | null) => {
       if (!rec) return;
@@ -636,9 +637,7 @@ function FlowEvaluationPageContent() {
       addFromRecord(origCountsState.data.mentioned_capacity);
     }
 
-    return Array.from(ids)
-      .sort((a, b) => a.localeCompare(b))
-      .map((id) => ({ id, label: id } as ChipOption));
+    return Array.from(ids).sort((a, b) => a.localeCompare(b));
   }, [
     evalState.data?.flows,
     optState.data?.flows,
@@ -648,17 +647,17 @@ function FlowEvaluationPageContent() {
     origCountsState.data,
   ]);
 
-  useEffect(() => {
-    const valid = new Set(trafficVolumeOptions.map((opt) => opt.id));
-    setSelectedTrafficVolumes((prev) => {
-      const next = prev.filter((id) => valid.has(id));
-      if (next.length === prev.length) return prev;
-      return next;
-    });
-  }, [trafficVolumeOptions]);
-
-  const selectedTvSet = useMemo(() => new Set(selectedTrafficVolumes.map(String)), [selectedTrafficVolumes]);
-  const hasTvFilter = selectedTrafficVolumes.length > 0;
+  const basket = useGlobalTVBasket(trafficVolumeIds);
+  const applyBasketScope = useCallback(
+    (ids: readonly string[]) =>
+      buildGlobalTvBasketScope({
+        catalogIds: basket.catalogIds,
+        contextIds: ids,
+        pinnedIds: basket.pinnedTvIds,
+        query: basket.searchQuery,
+      }).orderedContextIds,
+    [basket.catalogIds, basket.pinnedTvIds, basket.searchQuery],
+  );
 
   const canRankOccAllChanges = useMemo(() => {
     const pre = occAllState.data?.pre_counts || {};
@@ -671,35 +670,20 @@ function FlowEvaluationPageContent() {
   const occAllPostCountsForView = useMemo<Record<string, number[]>>(() => {
     const src = occAllState.data?.post_counts;
     if (!src) return {};
-    if (!hasTvFilter) return src;
-    const filtered: Record<string, number[]> = {};
-    Object.entries(src).forEach(([tv, series]) => {
-      if (selectedTvSet.has(String(tv))) {
-        filtered[tv] = series;
-      }
-    });
-    return filtered;
-  }, [occAllState.data?.post_counts, hasTvFilter, selectedTvSet]);
+    return src;
+  }, [occAllState.data?.post_counts]);
 
   const occAllPreCountsForView = useMemo<Record<string, number[]>>(() => {
     const src = occAllState.data?.pre_counts;
     if (!src) return {};
-    if (!hasTvFilter) return src;
-    const filtered: Record<string, number[]> = {};
-    Object.entries(src).forEach(([tv, series]) => {
-      if (selectedTvSet.has(String(tv))) {
-        filtered[tv] = series;
-      }
-    });
-    return filtered;
-  }, [occAllState.data?.pre_counts, hasTvFilter, selectedTvSet]);
+    return src;
+  }, [occAllState.data?.pre_counts]);
 
   const occAllCapacityForView = useMemo<Record<string, number[]> | undefined>(() => {
     const src = occAllState.data?.capacity;
     if (!src) return undefined;
     const result: Record<string, number[]> = {};
     Object.entries(src).forEach(([tv, series]) => {
-      if (hasTvFilter && !selectedTvSet.has(String(tv))) return;
       // Filter out capacity values >998 so they don't affect y-axis scaling
       // Values >998 (like 9999 for unopened traffic volumes) are set to NaN
       // which will be treated as null in OccupancyPrePostPanel
@@ -708,7 +692,7 @@ function FlowEvaluationPageContent() {
         : series;
     });
     return Object.keys(result).length > 0 ? result : undefined;
-  }, [occAllState.data?.capacity, hasTvFilter, selectedTvSet]);
+  }, [occAllState.data?.capacity]);
 
   const hasOccAllCapacity = useMemo(() => {
     return Object.values(occAllCapacityForView || {}).some(
@@ -719,10 +703,8 @@ function FlowEvaluationPageContent() {
   }, [occAllCapacityForView]);
 
   const occAllTvOrderForView = useMemo<string[]>(() => {
-    const order = occAllState.data?.tv_ids_order || [];
-    if (!hasTvFilter) return order;
-    return order.filter((tv) => selectedTvSet.has(String(tv)));
-  }, [occAllState.data?.tv_ids_order, hasTvFilter, selectedTvSet]);
+    return occAllState.data?.tv_ids_order || [];
+  }, [occAllState.data?.tv_ids_order]);
 
   type HandleSelectOccupancyAllOptions = {
     perAccAttribMode?: RegulationPlanPerAccAttribMode;
@@ -1087,7 +1069,6 @@ function FlowEvaluationPageContent() {
     setOptState({ loading: false, error: null, data: null });
     setOccAllState({ loading: false, error: null, data: null });
     setOrigCountsState({ loading: false, error: null, data: null });
-    setSelectedTrafficVolumes([]);
     setSeriesView("demand");
     setRippleSummaryExpanded(false);
     setExpandedTargetCharts({});
@@ -2244,18 +2225,12 @@ function FlowEvaluationPageContent() {
                     </select>
                   </div>
                 )}
-                {seriesView !== 'airports_delay' && (
-                  <div className="min-w-[220px] sm:min-w-[260px] w-full sm:w-[260px]">
-                    <MultiSelectWithChips
-                      options={trafficVolumeOptions}
-                      selectedIds={selectedTrafficVolumes}
-                      onChange={setSelectedTrafficVolumes}
-                      placeholder="Filter traffic volumes"
-                    />
-                  </div>
-                )}
               </div>
             </div>
+
+          {seriesView !== 'airports_delay' && (
+            <GlobalTVBasket contextTvIds={trafficVolumeIds} className="mb-6" />
+          )}
 
           {seriesView === 'airports_delay' && (
             <section className="mb-8">
@@ -2301,8 +2276,8 @@ function FlowEvaluationPageContent() {
                   ...Object.keys(counts || {}),
                   ...Object.keys(capacities || {}),
                 ]));
-                const tvIds = hasTvFilter ? allIds.filter((tv) => selectedTvSet.has(String(tv))) : allIds;
-                if (hasTvFilter && tvIds.length === 0) {
+                const tvIds = applyBasketScope(allIds);
+                if (basket.isFiltering && tvIds.length === 0) {
                   return <div className="text-xs text-gray-300">No traffic volumes match the current filter.</div>;
                 }
 
@@ -2609,6 +2584,7 @@ function FlowEvaluationPageContent() {
                 error={occAllState.error}
                 showReliefMap
                 reliefMapTitle="Traffic Volume Relief Map"
+                showGlobalTVBasket={false}
               />
             </section>
           )}
@@ -2701,9 +2677,7 @@ function FlowEvaluationPageContent() {
                 if (sumA !== sumB) return sumB - sumA;
                 return a.localeCompare(b);
               });
-              const targetTvIds = hasTvFilter
-                ? sortedTargetTvIds.filter((tvId) => selectedTvSet.has(String(tvId)))
-                : sortedTargetTvIds;
+              const targetTvIds = applyBasketScope(sortedTargetTvIds);
               const rippleScoreByTv = rippleScoreByFlowId.get(Number(flow.flow_id)) || {};
               const sortedRippleTvIds = Object.keys(ripples).sort((a, b) => {
                 const sa = Number(rippleScoreByTv[a] ?? 0);
@@ -2711,11 +2685,9 @@ function FlowEvaluationPageContent() {
                 if (sa !== sb) return sb - sa;
                 return a.localeCompare(b);
               });
-              const rippleTvIds = hasTvFilter
-                ? sortedRippleTvIds.filter((tvId) => selectedTvSet.has(String(tvId)))
-                : sortedRippleTvIds;
+              const rippleTvIds = applyBasketScope(sortedRippleTvIds);
 
-              if (hasTvFilter && targetTvIds.length === 0 && rippleTvIds.length === 0) {
+              if (basket.isFiltering && targetTvIds.length === 0 && rippleTvIds.length === 0) {
                 return null;
               }
 

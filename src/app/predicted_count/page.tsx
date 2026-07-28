@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Header from "@/components/Header";
-import MultiSelectWithChips, { ChipOption } from "@/components/MultiSelectWithChips";
+import GlobalTVBasket from "@/components/GlobalTVBasket";
+import { useGlobalTVBasket } from "@/components/useGlobalTVBasket";
 import ShimmeringText from "@/components/ShimmeringText";
 import TimeScaleControl from "@/components/TimeScaleControl";
 import TrafficVolumeInfoTooltip from "@/components/TrafficVolumeInfoTooltip";
@@ -10,8 +11,6 @@ import SelectChevron from "@/components/SelectChevron";
 import { useResourceDateGuard } from "@/components/useResourceDateGuard";
 import { useSimStore } from "@/components/useSimStore";
 import { useHotspotSettingsStore } from "@/components/useHotspotSettingsStore";
-import { loadSectors } from "@/lib/airspace";
-import { getResourcePathsForDate } from "@/lib/dataPaths";
 import { normalizeCapacity } from "@/lib/capacity";
 import { resolveHotspotColor } from "@/lib/hotspotColoring";
 import {
@@ -70,9 +69,6 @@ type ChartRow = {
 
 export default function PredictedCountPage() {
   const resourceDate = useSimStore((state) => state.resourceDate);
-  const [options, setOptions] = useState<ChipOption[]>([]);
-  const [loadingOptions, setLoadingOptions] = useState(false);
-  const [selectedTVs, setSelectedTVs] = useState<string[]>([]);
   const [limitTv, setLimitTv] = useState<string>("50");
   const [tvSorting, setTvSorting] = useState<string>("highest_mean_exceedance");
   const [rollingHour, setRollingHour] = useState<boolean>(true);
@@ -92,54 +88,7 @@ export default function PredictedCountPage() {
 
   const { hydrated, ready, user } = useResourceDateGuard();
 
-  useEffect(() => {
-    if (!resourceDate) return;
-
-    const resourcePaths = getResourcePathsForDate(resourceDate);
-    let cancelled = false;
-    const load = async () => {
-      setLoadingOptions(true);
-      try {
-        const fc = await loadSectors(resourcePaths.airspaceGeojson);
-        if (cancelled) return;
-        const opts: ChipOption[] = (fc.features || [])
-          .map((f: any) => {
-            const id = f?.properties?.traffic_volume_id;
-            if (!id) return null;
-            const minFL = f?.properties?.min_fl;
-            const maxFL = f?.properties?.max_fl;
-            return {
-              id: String(id),
-              label: String(id),
-              description:
-                minFL != null && maxFL != null
-                  ? `FL${String(minFL).padStart(3, "0")}-FL${String(maxFL).padStart(3, "0")}`
-                  : undefined,
-            } as ChipOption;
-          })
-          .filter(Boolean) as ChipOption[];
-        const seen = new Set<string>();
-        const dedup = opts
-          .filter((o) => {
-            if (seen.has(o.id)) return false;
-            seen.add(o.id);
-            return true;
-          })
-          .sort((a, b) => a.id.localeCompare(b.id));
-        setOptions(dedup);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Failed to load traffic volumes");
-      } finally {
-        if (!cancelled) setLoadingOptions(false);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [resourceDate]);
-
-  const trafficVolumeItems = useMemo<ChartItem[]>(() => {
+  const rawTrafficVolumeItems = useMemo<ChartItem[]>(() => {
     if (!data?.traffic_volumes) return [];
     const entries = Object.entries(data.traffic_volumes);
     return entries.map(([tvId, tvData]) => ({
@@ -150,6 +99,17 @@ export default function PredictedCountPage() {
       timeBins: tvData?.time_bins || [],
     }));
   }, [data]);
+  const rawTrafficVolumeIds = useMemo(
+    () => rawTrafficVolumeItems.map((item) => item.tvId),
+    [rawTrafficVolumeItems],
+  );
+  const basket = useGlobalTVBasket(rawTrafficVolumeIds);
+  const trafficVolumeItems = useMemo(() => {
+    const byId = new Map(rawTrafficVolumeItems.map((item) => [item.tvId, item]));
+    return basket.orderedContextIds
+      .map((id) => byId.get(id))
+      .filter((item): item is ChartItem => Boolean(item));
+  }, [basket.orderedContextIds, rawTrafficVolumeItems]);
 
   const handleQuery = async () => {
     setError(null);
@@ -163,10 +123,6 @@ export default function PredictedCountPage() {
       }
       if (tvSorting) params.set("tv_sorting", tvSorting);
       params.set("rolling_hour", rollingHour ? "true" : "false");
-      if (selectedTVs.length > 0) {
-        params.set("tv_filter", selectedTVs.join(","));
-      }
-
       const res = await (await import("@/lib/auth")).authFetch(`/api/demand?${params.toString()}`);
       if (!res.ok) {
         const text = await res.text();
@@ -201,9 +157,8 @@ export default function PredictedCountPage() {
       tv_sorting: tvSorting,
       rolling_hour: rollingHour,
     };
-    if (selectedTVs.length > 0) params.tv_filter = selectedTVs.join(",");
     return params;
-  }, [limitTv, tvSorting, rollingHour, selectedTVs]);
+  }, [limitTv, tvSorting, rollingHour]);
 
   if (!hydrated || !ready || !user) {
     return null;
@@ -243,21 +198,8 @@ export default function PredictedCountPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-end">
-              <div className="md:col-span-2">
-                <div className="text-[11px] opacity-80 mb-1 text-white">Traffic Volumes</div>
-                <MultiSelectWithChips
-                  options={options}
-                  selectedIds={selectedTVs}
-                  onChange={setSelectedTVs}
-                  placeholder={loadingOptions ? "Loading traffic volumes…" : "Prioritize traffic volumes"}
-                  disabled={loadingOptions}
-                  renderOptionLabel={(opt) => (
-                    <div className="flex items-center gap-2">
-                      <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
-                      <span>{opt.label}</span>
-                    </div>
-                  )}
-                />
+              <div className="md:col-span-2 xl:col-span-5">
+                <GlobalTVBasket contextTvIds={rawTrafficVolumeIds} />
               </div>
               <div>
                 <div className="text-[11px] opacity-80 mb-1 text-white">Limit traffic volumes</div>
