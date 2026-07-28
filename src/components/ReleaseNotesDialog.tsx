@@ -12,13 +12,17 @@ const RELEASE_NOTES_CONTENT = `
   
   <p class="mb-4"> We have fixed some bugs and added some new features as usual.</p>
 
-  <h4 class="font-bold mb-4">Mon. 27/07/2026</h4>
+  <h4 class="font-bold mb-4">Tue. 28/07/2026</h4>
   <ul class="list-disc pl-6 space-y-2 mb-4">
     <li><strong>Collapsed-Sector Complexity Workspace.</strong> A new complexity workspace brings dynamic-density analysis, contextual density layers, complex-spot inspection, ordered sector flight lists, and artifact-readiness feedback together on an interactive map.</li>
     <li><strong>VPF Flow Analysis.</strong> Flow extraction and regulation workflows now use the VPF flow model, including defining-volume metadata and synchronized previews across Flow, Regulation, Regulation Proposal, and Reroute views.</li>
     <li><strong>Flight Flow Tracing.</strong> Selected flights can now reveal the traffic volumes they traverse directly on the map. Trace results are cached, synchronized with the active preview, and remain visually distinct from live hotspots.</li>
     <li><strong>Faster Traffic-Volume Data.</strong> Concurrent traffic-volume count and flight-list requests are now deduplicated, reducing repeated API work and making repeated selections more responsive.</li>
     <li><strong>Personalized Appearance and Hotspot Thresholds.</strong> The new Settings dialog supports light, dark, and system themes plus persistent global or per-traffic-volume hotspot thresholds. Choose percentage-of-capacity or absolute-volume thresholds for orange, red, and violet severity levels, with consistent coloring across maps and charts.</li>
+    <li><strong>Global Traffic-Volume Basket.</strong> Search, pin, and reuse traffic volumes across supported workspaces from one persistent basket. Large selections stay compact with expandable pinned items, and the Original Counts query now works directly from the shared selection.</li>
+    <li><strong>Interactive GA Pareto Analysis.</strong> Completed genetic-algorithm runs now include an interactive Pareto view for exploring candidate trade-offs, selecting solutions, and reviewing posthoc objective and occupancy details.</li>
+    <li><strong>RAD Traffic-Volume Arrival Times.</strong> RAD flight lists now show when each flight reaches the selected traffic volume, making rule-impact timing easier to inspect.</li>
+    <li><strong>Adaptive Workspace Layouts.</strong> Panels, dialogs, map controls, timelines, selectors, and result views have been refined for clearer, more consistent operation across desktop and narrower screens.</li>
   </ul>
 
   <h4 class="font-bold mb-4">Wed. 25/03/2026</h4>
